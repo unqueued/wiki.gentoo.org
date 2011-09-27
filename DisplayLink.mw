@@ -1,73 +1,43 @@
-{{InfoBox stack
-|{{InfoBox wikipedia|Displaylink#Technology|header=true}}
-|{{InfoBox todo|[[#One X-Server|One X-Server]]|header=true}}
-}}
-
-'''DisplayLink''' is a technology that enables monitors to work via [[USB]].
+[http://en.wikipedia.org/wiki/DisplayLink DisplayLink] is a technology that enables monitors to work via USB. In general the local GPU renders the picture, the frambuffer device compresses the data and sends it to the external device via USB.<br/>
 
 == Installation ==
-
-=== Kernel ===
-
-You need to activate the following kernel options:
-
-{{KernelBox|1=
-Device Drivers --->
+Enable the DisplayLink ''framebuffer device'' in your kernel:
+{{Kernel||<pre>Device Drivers --->
     Graphics support --->
-        <*> DisplayLink
-        <*> Frame buffer Devices --->
-            <*> Displaylink USB Framebuffer support
-}}
+        <M> Support for frame buffer devices --->
+            <M> Displaylink USB Framebuffer support</pre>}}
+After booting into the new kernel the external monitor should show a green background image. That means the kernel module is loaded and the device works, it also creates the device in /dev/fb0.
+{{Note|if you have already other framebuffer devices with your AMD driver, it will be /dev/fb1...}}
+The X driver '''x11-drivers/xf86-video-displaylink''' is only available in the X11 overlay. Assuming ''layman'' is already configured, you add it with the following command:
+{{ShellRoot|layman -a x11}}
+Then update your /etc/make.conf with the new graphics card:
+{{File|/etc/make.conf||<pre>
+VIDEO_CARDS="... displaylink ..."</pre>}}
+{{Note|check if it pulls the X driver with ''emerge -DuN world'', if not install it manually}}
 
-After booting into the new kernel the external monitor should show a green background image. That means the kernel module is loaded and the device works, it also creates the device in {{Path|/dev/fb0}}.
-
-{{Note|If you have already other [[framebuffer]] devices with your AMD driver, it will be {{Path|/dev/fb1}}, ...}}
-
-=== X driver ===
-
-For X11 drivers, you can use {{Package|x11-drivers/xf86-video-fbdev}} or '''x11-drivers/xf86-video-displaylink''' from the [[X server#x11 overlay|x11 overlay]].
-* xf86-video-fbdev
-
-{{VIDEO_CARDS|fbdev}}
-
-* xf86-video-displaylink
-{{Emerge|xf86-video-displaylink}}
-
-== One X server ==
+=== One X-Server ===
 TODO
 
-== Two X server ==
-
-This method is failsafe and should work with any graphics card installed. We start two instances of [[X server]] for each device and then use a software called {{c|x2x}} to move the input devices between them.
+=== Two X-Server ===
+This method is failsafe and should work with any graphics card installed. We start two instances of X-Server for each device and then use a software called ''x2x'' to move the input devices between them.
 * two independent instances and desktops
-* Input devices follow the mouse pointer
+* Input devices follow the mouse courser
 
-=== Software ===
-
+==== Software ====
 For this method, we need another input device driver called {{Package|x11-drivers/xf86-input-void}}:
+{{File|/etc/make.conf||<pre>
+INPUT_DEVICES="... void ..."</pre>}}
+{{Note|check if it pulls the X driver with ''emerge -DuN world'', if not install it manually}}
+The program {{Package|x11-misc/x2x}} is available in portage and can be installed via:
+{{ShellRoot|emerge -av x11-misc/x2x}}
 
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-INPUT_DEVICES="... void ..."
-}}
-
-{{Emerge|params+=--changed-use --deep|@world}}
-
-Also install {{Package|x11-misc/x2x}}:
-
-{{Emerge|x11-misc/x2x}}
-
-=== xorg.conf.DL ===
-
-We configure two independent [[xorg.conf]]s for each device and initialize the desktop using {{Path|~/.xinitrc}} scripts.
-
-{{Note|You may need to check other xorg.conf files (including files in {{Path|/etc/X11/xorg.conf.d/}}) for any overlap in various names used.  See the Discussion page for details.}}
-
-Create the file {{Path|/etc/X11/xorg.conf.DL}}:
-
-{{FileBox|filename=/etc/X11/xorg.conf.DL|lang=xorg.conf|1=
+==== xorg.conf.DL ====
+We configure two independent /etc/X11/xorg.conf for each device and initialize the desktop using ~/.xinitrc scripts.<br/>
+Create this file in /etc/X11/ and name it xorg.conf.DL:
+{{File|/etc/X11/xorg.conf.DL||<pre>
 Section "Device"
     Identifier "DisplayLinkDevice"
-    driver "displaylink"         # Or fbdev depending on what you installed
+    driver "displaylink"
     Option "fbdev" "/dev/fb0"    # You have to use the correct framebuffer device here
 EndSection
 
@@ -107,16 +77,12 @@ EndSection
 Section "InputDevice"
     Identifier "Mouse0"
     Driver "void"
-EndSection
-}}
+EndSection</pre>}}
 
-=== .xinitrc2 ===
-
-Next we create the {{Path|~/.xinitrc2}} for your external display. Create and customize the file to your needs, here is an example:
-
-{{Note|DPMS is turned off, because I once had trouble to wake up the monitor again.}}
-
-{{FileBox|filename=~/.xinitrc2|lang=bash|1=
+==== .xinitrc2 ====
+Next we create the ~/.initrc2 for our external display. Create and customize the file to your needs, here is an example:
+{{Note|DPMS is turned off, because I once had trouble to wake up the monitor again}}
+{{File|~/.xinitrc2||<pre>
 # DPMS stuff
 ## turn on monitor
 xset dpms force on
@@ -141,49 +107,10 @@ xcompmgr -c -t-5 -l-5 -r4.2 -o.55 &
 wicd-client &
 mrxvt &
 # start the actual window manager
-exec /usr/bin/awesome
-}}
+exec /usr/bin/awesome</pre>}}
 
-=== displaylink.sh ===
-This is the actual script that starts the second instance of X server. Make it executable and save it somewhere in your home folder, in this example we save it to {{Path|~/.displaylink.sh}}:
-
-{{FileBox|filename=~/.displaylink.sh|lang=bash|1=
-#!/bin/sh
-xinit ~/.xinitrc2 -- /usr/bin/X :1 -xf86config xorg.conf.DL -novtswitch -sharevts -audit 0 -layout "Screen Layout" vt12 &
-sleep 5
-x2x -west -from :0 -to :1 &
-}}
-
-{{Note|If you call this script to your actual {{Path|~/.xinitrc}} (which is executed on every start of X) or add it to [[GNOME]], [[KDE]], etc. autostart, it will automatically initialize the second desktop for you. If the second screen is not attached, it just fails to do so.}}
-
-{{Note|If your system has a {{Path|/etc/X11/xorg.conf.d/}}, most likely you will need to start with the above -layout option so the X11 server being started will start properly.  See the discussion.}}
-
-== DisplayLink 4-in-1 Adapter ==
-
-It is a USB 3.0 adapter comes with 4 ports:
-
-* One USB 3.0 port
-* One Ethernet port
-* One HDMI port
-* One VGA port
-
-The USB 3.0 port should work if you already have USB 3.0 related kernel configured. To get the Ethernet port work, you need to activate the following kernel options：
-
-{{KernelBox|1=
-Device Drivers --->
-    <*> Network device support --->
-        <*> USB Network Adapters --->
-	   -M- CDC NCM support
-	   <M> CDC MBIM support
-}}
-
-The Ethernet port will be seen as '''usb0''' network device.
-
-== External resources ==
-
+== Links ==
 * [http://libdlo.freedesktop.org/wiki/ libdlo freedesktop.org]
 * [http://displaylink.org/forum/forumdisplay.php?f=29 Linux Forum displaylink.org]
 * [http://plugable.com/category/linux/ Linux plugable.com]
 * [http://plugable.com/2009/11/16/setting-up-usb-multiseat-with-displaylink-on-linux-gdm-up-to-2-20/ Setting up Multiseat plugable.com]
-
-[[Category:Graphics Adapters]]
