@@ -1,261 +1,73 @@
-{{InfoBox stack
-|{{InfoBox wikipedia|header=true}}
-}}
-
-This article [[Article description::describes the configuration and usage of Bluetooth controllers and devices.]]
-
-== Prerequisites ==
-
-This article assumes that [[udev]] and [[USB]] have been previously configured.
-
-== Installation ==
-
-=== Kernel ===
-
-In most cases enabling [[Wikipedia:List_of_Bluetooth_protocols#Radio_frequency_communication_.28RFCOMM.29|RFCOMM]], [[Wikipedia:List_of_Bluetooth_profiles#Human_Interface_Device_Profile_.28HID.29|HIDP]], [[Wikipedia:List_of_Bluetooth_protocols#Host_Controller_Interface_.28HCI.29|HCI]] USB and/or HCI UART should be sufficient. The User-space I/O driver for HID input devices should be enabled for Bluetooth keyboards and mice.
-
-{{KernelBox|title=Enabling Bluetooth support|1=<nowiki />
-[*] Networking support --->
-      <M>   Bluetooth subsystem support --->
-              [*]   Bluetooth Classic (BR/EDR) features
-              <*>     RFCOMM protocol support
-              [ ]       RFCOMM TTY support
-              < >     BNEP protocol support
-              [ ]       Multicast filter support
-              [ ]       Protocol filter support
-              <*>     HIDP protocol support
-              [*]     Bluetooth High Speed (HS) features
-              [*]   Bluetooth Low Energy (LE) features
-                    Bluetooth device drivers --->
-                      <M> HCI USB driver
-                      <M> HCI UART driver
-      <*>   RF switch subsystem support --->
-    Device Drivers --->
-          HID support --->
-            <*>   User-space I/O driver support for HID subsystem
-}}
-
-=== Firmware ===
-
-Most Bluetooth controllers need [[Linux_firmware|firmware]] to function. If the controller is supported by Linux, {{c|dmesg}} will usually indicate if firmware is needed. The {{Package|sys-kernel/linux-firmware}} package should provide the needed firmware, although some devices may need firmware that is only available from the manufacturer.
-
-{{Emerge
-|sys-kernel/linux-firmware
-|params+=--noreplace
-}}
-
-=== USE flags ===
-
-[http://www.bluez.org/ BlueZ] is an implementation of the Bluetooth protocol stack for Linux, and it is provided by the {{Package|net-wireless/bluez}} package.
-
-{{USEflag|package=net-wireless/bluez}}
-
-Bluetooth support can be enabled system-wide by setting the <var>USE</var> variable to <code>bluetooth</code>:
-
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-USE="bluetooth"
-}}
-
-=== Emerge ===
-
-The system needs to be updated if the <var>USE</var> variable was set to <code>bluetooth</code>:
-
-{{Emerge
-|@world
-|params+=--changed-use --deep
-}}
-
-Install BlueZ:
-
-{{Emerge
-|net-wireless/bluez
-|params+=--noreplace
-}}
-
-== Configuration ==
-
-=== Permissions ===
-
-Permissions for Bluetooth devices will be handled automatically if the <var>USE</var> variable is set to <code>acl</code>, and [[ConsoleKit]] or [[systemd]] is being used.
-
-Alternatively, adding a user to the {{c|plugdev}} group will allow that user to access Bluetooth devices:
-
-{{RootCmd|gpasswd -a <user> plugdev}}
-
-=== Services ===
-
-==== OpenRC ====
-
-Start bluetooth:
-
-{{RootCmd|rc-service bluetooth start}}
-
-Start bluetooth at boot:
-
-{{RootCmd|rc-update add bluetooth default}}
-
-==== systemd ====
-
-Start bluetooth:
-
-{{RootCmd|systemctl start bluetooth}}
-
-Start bluetooth at boot:
-
-{{RootCmd|systemctl enable bluetooth}}
-
-== Usage ==
-
-=== Controller setup ===
-
-Display controller information:
-
-{{Note|{{c|hciconfig}} and other utilities are only available if {{Package|net-wireless/bluez}} is installed with the <code>deprecated</code> USE flag enabled.}}
-
-{{RootCmd|hciconfig -a|output=<pre>
-hci0:   Type: BR/EDR  Bus: USB
-        BD Address: 00:02:72:2F:A9:33  ACL MTU: 1021:8  SCO MTU: 64:1
-        UP RUNNING PSCAN 
-        RX bytes:1166 acl:0 sco:0 events:43 errors:0
-        TX bytes:960 acl:0 sco:0 commands:43 errors:0
-        Features: 0xbf 0xfe 0xcf 0xfe 0xdb 0xff 0x7b 0x87
-        Packet type: DM1 DM3 DM5 DH1 DH3 DH5 HV1 HV2 HV3 
-        Link policy: RSWITCH SNIFF 
-        Link mode: SLAVE ACCEPT 
-        Name: 'BlueZ 5.21'
-        Class: 0x000104
-        Service Classes: Unspecified
-        Device Class: Computer, Desktop workstation
-        HCI Version: 4.0 (0x6)  Revision: 0x1000
-        LMP Version: 4.0 (0x6)  Subversion: 0x220e
-        Manufacturer: Broadcom Corporation (15)
-</pre>}}
-
-Where <code>hci0</code> is the name of the controller, and <code>UP</code> (3rd line) indicates that the controller is enabled.
-
-Enable the controller if {{c|hciconfig}} indicates (with <code>DOWN</code>) (3rd line) that the controller is disabled:
-
-{{RootCmd|hciconfig hci0 up}}
-
-{{Important|When attempting to enable the controller, the following message may be displayed: Can't init device hci0: Operation not possible due to RF-kill}}
-
-In this case, query the state of the Bluetooth radio transmitter with {{c|rfkill}}:
-
-{{RootCmd|rfkill list bluetooth|output=<pre>
-0: hci0: Bluetooth
-        Soft blocked: no
-        Hard blocked: no
-</pre>}}
-
-{{c|rfkill}} can be installed with the {{Package|net-wireless/rfkill}} package, or the >={{Package|sys-apps/util-linux}}-2.31 package.
-
-{{Note|If Bluetooth is blocked or disabled in the BIOS/UEFI, {{c|rfkill}} may incorrectly list the controller as <code>Hard blocked: no</code>.}}
-
-Unblock the controller if {{c|rfkill}} indicates (with <code>Soft blocked: yes</code>) that the controller is blocked:
-
-{{RootCmd|rfkill unblock bluetooth}}
-
-If {{c|rfkill}} indicates (with <code>Hard blocked: yes</code>) that the controller is blocked, unblock the controller by physical switch or keyboard function key.
-
-Bluetooth controllers can be enabled automatically by setting <code>AutoEnable=true</code> in {{Path|/etc/bluetooth/main.conf}}:
-
-{{FileBox|filename=/etc/bluetooth/main.conf|lang=ini|1=
-[Policy]
-AutoEnable=true
-}}
-
-In some instances Bluetooth controllers may have been soft-blocked by power management tools in udev. Make sure <var>state</var> is set to <code>1</code> in the corresponding rule file, or remove the following line entirely:
-
-{{FileBox|filename=/etc/udev/rules.d/10-local-powersave.rules|1=
-SUBSYSTEM=="rfkill", ATTR{type}=="bluetooth", ATTR{state}="1"
-}}
-
-=== Device pairing ===
-
-Bluetooth devices need to be paired with a Bluetooth controller before they can be used. This is done by entering a PIN (or other code) on both devices via an interaction agent. Certain devices such as headsets do not allow entering an arbitrary PIN. These devices use a static PIN, which is usually 0000, 1111, 1234 or 9999. There are also devices (e.g. [[Wikipedia:PlayStation_3_accessories#Blu-ray_Disc_Remote_Control|Sony BD Remote Control]]) that do not require PIN entry, and attempting to enter a PIN when prompted will result in failure. Paring can be skipped with such devices.
-
-This article only covers device pairing with {{c|bluetoothctl}}, which is a command-line interaction agent provided by the {{Package|net-wireless/bluez}} package. If a graphical desktop environment is being used, device paring can be done with a graphical interaction agent. For [[KDE]] use {{Package|kde-plasma/bluedevil}}, for [[GNOME]] use {{Package|net-wireless/gnome-bluetooth}}, and for GTK+ use {{Package|net-wireless/blueman}}.
-
-{{Note|Previously paired devices will need to be paired again when upgrading from BlueZ 4.}}
-
-Start {{c|bluetoothctl}}:
-
-{{Cmd|bluetoothctl}}
-
-List the available controllers:
-
-{{Cmd|list|prompt=[bluetooth]#|color=lightblue}}
-
-Display information about a controller:
-
-{{Cmd|show ''controller_mac_address''|prompt=[bluetooth]#|color=lightblue}}
-
-Set the default controller:
-
-{{Cmd|select ''controller_mac_address''|prompt=[bluetooth]#|color=lightblue}}
-
-Power on the controller:
-
-{{Cmd|power on|prompt=[bluetooth]#|color=lightblue}}
-
-Enable the agent and set it as default:
-
-{{Cmd
-|agent on
-|default-agent
-|prompt=[bluetooth]#|color=lightblue
-}}
-
-Set the controller as discoverable (temporarily for 3 minutes) and pairable:
-
-{{Cmd
-|discoverable on
-|pairable on
-|prompt=[bluetooth]#|color=lightblue
-}}
-
-Scan for devices:
-
-{{Cmd|scan on|prompt=[bluetooth]#|color=lightblue}}
-
-Put the device into pairing mode. This generally involves pressing a button or a combinations of buttons, usually for several seconds.
-
-Discover the device MAC address:
-
-{{Cmd|devices|prompt=[bluetooth]#|color=lightblue}}
-
-Pair with the device:
-
-{{Cmd|pair ''device_mac_address''|prompt=[bluetooth]#|color=lightblue}}
-
-Enter the {{c|PIN}} if prompted:
-
-{{Cmd|PIN code: ####|prompt=[agent]|color=red}}
-
-Allow the service authorization if requested:
-
-{{Cmd|Authorize service ''service_uuid'' (yes/no): yes|prompt=[agent]|color=red}}
-
-Trust the device:
-
-{{Cmd|trust ''device_mac_address''|prompt=[bluetooth]#|color=lightblue}}
-
-Connect to the device:
-
-{{Cmd|connect ''device_mac_address''|prompt=[bluetooth]#|color=lightblue}}
-
-Display information about the device:
-
-{{Cmd|info ''device_mac_address''|prompt=[bluetooth]#|color=lightblue}}
-
-The device is now paired:
-
-{{Cmd|quit|prompt=[bluetooth]#|color=lightblue}}
-
-== See also ==
-
-* {{See also|Bluetooth headset}}
-* {{See also|Bluetooth input devices}}
-* {{See also|Bluetooth Network Aggregation Point}}
-
-[[Category:Interfaces]]
+<languages />
+{{Warning|This is only a draft version of this article and far from being complete yet.}}
+<translate>
+Bluetooth support for Linux is provided through the Kernel and the [http://bluez.org BlueZ] project.
+
+== Kernel configuration ==
+
+== BlueZ ==
+
+When using a Desktop environment such as [[KDE]], [[Gnome]] or [[XFCE]], the Bluetooth application will automatically install BlueZ as a dependency. Otherwise install the {{Package|net-wireless/bluez}} package:
+</translate>
+{{RootCmd|emerge --ask net-wireless/bluez}}
+<translate>
+The {{Package|net-wireless/bluez}} package comes with the following USE flags:
+{{UseFlag|alsa
+|short=TODO
+|long=TODO}}
+
+{{UseFlag|caps
+|short=TODO
+|long=todo}}
+
+{{UseFlag|consolekit
+|default=yes
+|short=TODO
+|long=todo}}
+
+{{UseFlag|cups
+|short=TODO
+|long=todo}}
+
+{{UseFlag|debug
+|short=TODO
+|long=todo}}
+
+{{UseFlag|gstreamer
+|short=TODO
+|long=todo}}
+
+{{UseFlag|maemo6
+|short=TODO
+|long=todo}}
+
+{{UseFlag|health
+|short=TODO
+|long=todo}}
+
+{{UseFlag|old-daemons
+|short=TODO
+|long=todo}}
+
+{{UseFlag|pcmcia
+|short=TODO
+|long=todo}}
+
+{{UseFlag|pnat
+|short=TODO
+|long=todo}}
+
+{{UseFlag|test-programs
+|short=TODO
+|long=todo}}
+
+{{UseFlag|usb
+|short=TODO
+|long=todo}}
+
+== Desktop integration ==
+
+=== KDE ===
+
+=== Gnome/XFCE ===
+</translate>
