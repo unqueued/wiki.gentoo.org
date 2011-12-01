@@ -1,80 +1,77 @@
-This guide will show you how to configure [[Postfix]] to use DKIM functionality provided by the {{Package|mail-filter/opendkim}} package. For more information on DKIM, see its [https://en.wikipedia.org/wiki/DomainKeys_Identified_Mail Wikipedia] page.
+This guide will show you how to configure Postfix to use DomainKeys and DKIM
 
-{{Note|DomainKeys, a previous proposal by Yahoo, has been obsoleted by DKIM.}}
+== Notes ==
+DomainKeys has been obsoleted by DKIM. However I have decided to show you how to use it should you wish too.
 
-== OpenDKIM ==
+The maximum size for all txt records in a DNS cannot exceed 512 bytes. This means that you cannot use 1024 bit for both DKIM and DomainKeys. If you need to use both DKIM and DomainKeys you will have to choose one 1024 bit and the other one 512 bit so that it can fit in the 512 bytes.
 
-First install {{Package|mail-filter/opendkim}}:
+== DKIM ==
 
-{{Emerge|opendkim}}
+{{RootCmd|emerge -a dkim-milter}}
+{{RootCmd|emerge --config mail-filter/dkim-milter}}
 
-and then configure the package, to generate the domain keys.
+Set selector name to "mydkim" (without the quotes),select "[1] 1024 bits" for your key. Your key will be created now. Copy it now and we will paste it into your Bind file later.
 
-{{Emerge|params+=--config|opendkim}}
+Edit the following file. Defaults are fine except for the following.
 
-The default opendkim configuration file has some defaults setup for us, but needs some modification as shown below. Note that the <code>Socket</code> line in the {{Path|/etc/opendkim/opendkim.conf}} file is overridden by the settings in the {{Path|/etc/conf.d/opendkim}} file. By default opendkim configures itself using an ipv4 socket, but if opendkim is run on the same server as postfix, a unix socket may be preferable. In the following example configuration file, the mail server is under the domain <code>mail.example.com</code> and had as a hostname also <code>mail</code> which the configuration of the package picked up.
+{{File|/etc/mail/dkim-filter/dkim-filter.conf||<pre>
+   Domain                  domain.tld
+   KeyFile                 /etc/mail/dkim-filter/mydkim.private
+   Selector                mydkim
+   UMask                   000   
+</pre>}}
 
-If this host handles more (virtual) domains and the same single key is to be used for all the virtual hosts, Domain can point to a file, for example {{Path|/etc/opendkim/domains}} with one domain per line. More complex configurations, like separate key per domain, are possible, but are beyond the scope of this example.
+Now edit your bind configuration.
 
-{{FileBox|filename=/etc/opendkim/opendkim.conf|1=
-Domain                  example.com
-Selector                mail
-KeyFile                 /etc/opendkim/mail.private
-# The following line (if uncommented) is overriden by /etc/conf.d/opendkim
-#Socket                  local:/var/run/opendkim/opendkim.sock
-UMask                   002
-ReportAddress           postmaster@example.com
-PidFile                 /var/run/opendkim/opendkim.pid
-UserID                  milter
-}}
+{{File|/var/bind/domain.tld.hosts||<pre>
+   mydkim._domainkey.domain.tld. IN TXT "v=DKIM1; g=*; k=rsa; p=yourkeyhere;"
+</pre>}}
 
-Also prepare the socket/pidfile location.
+Now edit your postfix configuration. The following is two separate lines.
 
-{{RootCmd|mkdir /var/run/opendkim|chown milter:milter /var/run/opendkim}}
+{{File|/etc/postfix/main.cf||<pre>
+   smtpd_milters     = unix:/var/run/dkim-filter/dkim-filter.sock
+   non_smtpd_milters = unix:/var/run/dkim-filter/dkim-filter.sock
+</pre>}}
 
-With this, opendkim can be started (by default) and should be functional.
+== Domainkeys ==
+{{RootCmd|emerge -a dk-milter}}
+{{RootCmd|emerge --config mail-filter/dk-milter}}
 
-{{RootCmd|/etc/init.d/opendkim start}}
-{{RootCmd|rc-update add opendkim default}}
+Set selector name to "mydk" (without the quotes), Before selecting "[1] 512 bits" for your key see the "Notes" below. Your key will be created now. Copy it now and we will paste it into your Bind file later.
 
-== DNS ==
+Edit the following file making sure to replace domain.tld with your domain.
 
-Mail and spam filters will verify the signed e-mails by using the key in the DNS system and thus, access to the DNS records is required. A TXT entry needs to be added for domain that is being used to send signed e-mail.
+{{File|/etc/conf.d/dk-filter||<pre>ADDITIONAL_OPTS="-l -b sv -d domain.tld -H -s /etc/mail/dk-filter/mydk.private -S mydk \
+-C badsignature=reject,dnserror=tempfail,internal=tempfail,nosignature=accept,signaturemissing=reject"</pre>}}
 
-And example how to add this information to bind is shown here, the public key for the domain is printed in the package configuration step, but can also be found in the example dns record in {{Path|/etc/opendkim/mail.txt}} for our <code>mail</code> host.
+Now edit your bind configuration. The following is two separate lines. 
 
-{{FileBox|filename=/var/bind/domain.tld.hosts|1=
-mail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIGaslkjD08u98adfaSDSDaasda898932asd...afDaDSD898sDSLSKDJLSDJSLDKJLDSKJ;"
-}}
+{{File|/var/bind/domain.tld.hosts||<pre>domainkey.domain.tld. IN TXT "o=-"
+mydk._domainkey.domain.tld. IN TXT "k=rsa; p=yourkeyhere;"</pre>}}
 
-{{Note|The private key is written to {{Path|/etc/opendkim/mail.private}} and should not be shared with anyone.}}
+Now edit your postfix configuration. The following is two separate lines. We just append the DomainKeys to the DKIM line.
 
-A restart or reload may be required to synchronize this new record to the secondary servers and propagated through the DNS system. Once the record is visible in the DNS system, the key can be used. Keep this in mind if testing fails, check the domains TXT record.
+{{File|/etc/postfix/main.cf||<pre>smtpd_milters     = unix:/var/run/dkim-filter/dkim-filter.sock, unix:/var/run/dk-filter/dk-filter.sock 
+non_smtpd_milters = unix:/var/run/dkim-filter/dkim-filter.sock, unix:/var/run/dk-filter/dk-filter.sock</pre>}}
 
-== Postfix ==
+== Services ==
 
-Finally, postfix needs to be informed of the change, depending on whether the inet or unix socket is being used, this has to be added to the postfix configuration file. In the following example both approaches are shown, where the socket variant is preferred. Double check that the socket or port used here, match the one from the opendkim configuration file.
+Start up all the services...
+{{RootCmd|/etc/init.d/dk-filter start}}
+{{RootCmd|/etc/init.d/dkim-filter start}}
+{{RootCmd|/etc/init.d/postfix start}}
+{{RootCmd|/etc/init.d/named start}}
 
-{{FileBox|filename=/etc/postfix/main.cf|1=
-# OpenDKIM mail verification
-smtpd_milters = unix:/var/run/opendkim/opendkim.sock
-non_smtpd_milters = unix:/var/run/opendkim/opendkim.sock
-#smtpd_milters = inet:localhost:8891
-#non_smtpd_milters = inet:localhost:8891
-}}
+You may want to configure these services to start at boot
 
-Opendkim runs under the milter user. This is good, but postfix can't access this. Adding postfix to the milter group solves this easily however.
+{{RootCmd|rc-update add dk-filter default}}
+{{RootCmd|rc-update add dkim-filter default}}
+{{RootCmd|rc-update add postfix default}}
+{{RootCmd|rc-update add named default}}
 
-{{RootCmd|usermod -a -G milter postfix}} 
-
-Informing postfix of the change makes immediate use of DKIM, a restart is required due to the change of permissions.
-
-{{RootCmd|/etc/init.d/postfix restart}}
+That's it, you should now have DKIM and DomainKey signed emails.
 
 == Testing ==
 
-To test the DKIM setup a blank email can be sent to <code>check-auth@verifier.port25.com</code>. An e-mail will be sent within 30 seconds with a test report.
-
-{{Note|Anything related to DomainKeys can be ignored: it is an obsolete standard.}}
-
-[[Category:Mail Transfer Agents]]
+You can test your Domainkey/DKIM setup by sending a blank email to check-auth@verifier.port25.com. You will receive an email within about 30 seconds letting you know if your Domainkey/DKIM passes the test.
