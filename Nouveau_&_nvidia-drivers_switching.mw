@@ -1,44 +1,12 @@
-{{Lowercase title}}
+Switching between nVidias binary driver and the open source nouveau driver can be tricky, but definitely doable. This article will detail how to go about switching between them at different stages(i.e at boot, in a runlevel, etc.)
 
-This article [[Article description::describes how to switch between [[NVIDIA/nvidia-drivers|NVIDIA's binary driver]] and the open source [[nouveau]] driver.]]
-
-== Switching using two kernels ==
-
-=== On Boot ===
-
+== On Boot ==
 This method assumes the following:
+* Two kernels, one with the nouveau driver enabled and one with the nouveau driver disabled.
+* The nouveau-less kernel needs to have a ''-nvidia'' suffix(i.e CONFIG_LOCALVERSION=mykernel-nvidia).
+* The GRUB bootloader.
 
-* Two kernels, one with the nouveau driver enabled and one with the nouveau driver disabled (or built as a module).
-* The nouveau-less kernel needs to have a ''-nvidia'' suffix.
-* The [[GRUB]] bootloader.
-
-It is assumed you already have a nouveau kernel and want to build the one that will use the NVIDIA driver. Begin with appending the ''-nvidia'' suffix to the kernel name:
-
-{{KernelBox|
-General setup  --->
-    (-mykernel-nvidia) Local version - append to kernel release
-}}
-
-Now make sure the nouveau driver is disabled or built as a module:
-
-{{KernelBox|
-Device Drivers  --->
-    Graphics support  --->
-        <*> Direct Rendering Manager (XFree86 4.1.0 and higher DRI support)
-        <M> Nouveau (NVIDIA) cards
-}}
-
-Now recompile and install the kernel. Make sure you update GRUB to take the new kernel into account. Note that kernels with the same version but with different names are considered unique. So if you want to emerge an out-of-tree kernel module to be used with the nouveau kernel you'll first need to copy over the nouveau kernels config file to {{Path|/usr/src/linux/.config}}.
-
-{{VIDEO_CARDS|nvidia nouveau}}
- 
-Blacklist the '''nvidia''' and '''nouveau''' modules as you don't want [[udev]] to try and autoload them.
-
-{{RootCmd|echo -e "blacklist nouveau\nblacklist nvidia" >> /etc/modprobe.d/nvidia-n-nouveau.conf}}
-
-And finally use the [[local.d]] script below to switch graphics driver depending on what kernel you booted with:
-
-{{FileBox|filename=/etc/local.d/nvidia.start|lang=bash|1=
+{{File|/etc/local.d/nvidia.start||<pre>
 #!/bin/bash
 
 depend() {
@@ -67,115 +35,8 @@ else
 		eselect opengl set xorg-x11 &>/dev/null
 	fi
 fi
-}}
+</pre>}}
 
-Copy it to {{Path|/etc/local.d/nvidia.start}} and set the executable bit:
-
-{{RootCmd|chmod +x /etc/local.d/nvidia.start}}
-
-== Switching using a single kernel and hprofile ==
-
-Another method is switching between two profiles with [[hprofile]], using a single kernel: {{Path|/etc/init.d/hprofile}} has to be modified adding a few lines for VGA switching. Warning: hprofile shall be added in boot runlevel.
-
-== Switching using a single kernel and systemd ==
-
-If you have your system configured to use systemd, you can control setting nvidia and nouveau by using the functionality provided by the kernel command line. 
-
-{{Note|The GRUB menu items shown are for demonstrating the changes to be made. Hopefully you have the common sense not to just copy and paste them verbatim into your {{Path|grub.cfg}}.}}
-
-Within the {{Path|grub.cfg}} file you need to duplicate the desired menu item and then edit the two versions to specify which modules with be blacklisted, and to pass an environment variable to systemd. If you previously blacklisted nvidia or nouveau modules in {{Path|/etc/modprobe.d}} then you need to remove them since that will now be controlled directly from the kernel command line.
-
-{{FileBox|filename=/boot/grub/grub.cfg|title=Before:|1=
-menuentry 'Gentoo Linux' {
-        root=hd0,1
-        linux /boot/bzImage root=PARTUUID=11111111-2222-3333-4444-555555555555 init=/usr/lib/systemd/systemd console=tty1
-}
-}}
-
-{{FileBox|filename=/boot/grub/grub.cfg|title=After:|1=
-menuentry 'Gentoo Linux - Nouveau' {
-        root=hd0,1
-        linux /boot/bzImage root=PARTUUID=11111111-2222-3333-4444-555555555555 init=/usr/lib/systemd/systemd console=tty1 modprobe.blacklist=nvidia systemd.setenv=GPUMOD=nouveau
-}
-
-menuentry 'Gentoo Linux - Nvidia' {
-        root=hd0,1
-        linux /boot/bzImage root=PARTUUID=11111111-2222-3333-4444-555555555555 init=/usr/lib/systemd/systemd console=tty1 modprobe.blacklist=nouveau systemd.setenv=GPUMOD=nvidia
-}
-}}
-
-Next we are going to use a small script similar to the one shown in the "Switching using two kernels" section. It is very similar, but slightly modified. For the sake on continuity we will place it in the same location. The main difference is that is does not use the kernel's name to determine which profile to use, but rather it uses a variable set in the environment by systemd from the kernel command line.
-
-{{FileBox|filename=/etc/local.d/nvidia.start|title=OpenGL|lang=bash|1=
-if [[ "$GPUMOD" == "nvidia" ]] ; then
-        if [[ $(eselect opengl show) != nvidia ]] ; then
-                eselect opengl set nvidia &>/dev/null
-        fi
-cat > /etc/X11/xorg.conf.d/01-nv.conf << EOF
-Section "Device"
-  Identifier   "Device0"
-  Driver       "nvidia"
-  Option       "NoLogo" "True"
-EndSection
-EOF
-else
-        if [[ $(eselect opengl show) != xorg-x11 ]] ; then
-                eselect opengl set xorg-x11 &>/dev/null
-        fi
-cat > /etc/X11/xorg.conf.d/01-nv.conf << EOF
-Section "Device"
-  Identifier   "Device0"
-  Driver       "nouveau"
-EndSection
-EOF
-fi
-}}
-
-If you have any software that uses OpenCL, then it is recommend you use this alternate version of the script that also switches the OpenCL implementation between Mesa and NVIDIA. If software tries to use OpenCL under the nouveau driver, but the OpenCL is still set to nvidia, then bad things happen. You can have the system change to Mesa's Clover Gallium OpenCL state tracker, but you must first ensure that Mesa has been built with the <code>opencl</code> USE flag enabled. If that dependency has been taken care of then use the following version.
-
-{{FileBox|filename=/etc/local.d/nvidia.start|title=OpenGL + OpenCL|lang=bash|1=
-#!/bin/bash
-
-if [[ "$GPUMOD" == "nvidia" ]] ; then
-        if [[ $(eselect opengl show) != nvidia ]] ; then
-                eselect opengl set nvidia &>/dev/null
-                eselect opencl set nvidia &>/dev/null
-        fi
-cat > /etc/X11/xorg.conf.d/01-nv.conf << EOF
-Section "Device"
-  Identifier   "Device0"
-  Driver       "nvidia"
-  Option       "NoLogo" "True"
-EndSection
-EOF
-else
-        if [[ $(eselect opengl show) != xorg-x11 ]] ; then
-                eselect opengl set xorg-x11 &>/dev/null
-                eselect opencl set mesa &>/dev/null
-        fi
-cat > /etc/X11/xorg.conf.d/01-nv.conf << EOF
-Section "Device"
-  Identifier   "Device0"
-  Driver       "nouveau"
-EndSection
-EOF
-fi
-}}
-
-As mentioned in the previous section, don't forget to set the executable bit.
-
-{{RootCmd|chmod +x /etc/local.d/nvidia.start}}
-
-To have this script get called during the systemd init process, you can create a service file for it, but it's just as effective to integrate it into the currently existing xdm, gdm, sddm or other(?) display manager service file. You don't want to edit the service file directly, since that will get overwritten the next time that package is merged that the service file belongs to. Instead you create an override for the service file, placed in the {{Path|/etc/systemd/system/'''''service-name'''''.d/}} directory.
-
-So for example if you use {{Path|sddm.service}} you would create the directory {{Path|/etc/systemd/system/sddm.service.d}} and place a file in it with a {{Path|.conf}} file extension. Add a <code>[Service]</code> section that has an entry for <code>ExecStartPre</code> to call {{Path|nvidia.start}} before sddm itself is started.
-
-{{RootCmd|mkdir /etc/systemd/system/sddm.service.d && touch /etc/systemd/system/sddm.service.d/nv.conf}}
-
-{{FileBox|filename=/etc/systemd/system/sddm.service.d/nv.conf|title=Actual contents may vary|lang=ini|1=
-[Service]
-ExecStartPre=/etc/local.d/nvidia.start
-}}
-
-
-[[Category:Graphics Adapters]]
+To stop udev from autoloading the novueau driver(if you built it as a module) or the nvidia driver, add them to etc/modprobe.d/blacklist.conf:
+{{RootCmd|echo "blacklist nvidia" >> /etc/modprobe.d/blacklist.conf}}
+{{RootCmd|echo "blacklist nouveau" >> /etc/modprobe.d/blacklist.conf}}
