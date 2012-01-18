@@ -1,340 +1,43 @@
-{{InfoBox stack
-|{{InfoBox homepage|http://mingw.org/|header=true}}
-|{{InfoBox wikipedia|MinGW}}
-|{{InfoBox odoc|http://mingw.org/wiki}}
-|{{InfoBox gitweb|https://sourceforge.net/p/mingw/_list/git?|raw=true}}
-}}
+Mingw (or Mingw32) is a way to cross-compile Windows 32-bit binaries on Linux or any other OS. It can also be used natively on Windows to avoid using Visual Studio, etc.
 
-[http://mingw.org/ MinGW] (historically, MinGW32) is [[Article description::a toolchain used to cross-compile Windows binaries on Linux or any other OS.]] It can also be used natively on Windows to avoid using Visual Studio, etc. [https://mingw-w64.org MinGW-w64] is a fork of MinGW with support for 64-bit Windows executables. This article uses the MinGW-w64 runtime for both 32 and 64 bit target support.
+== Mingw32 Toolchain ==
+Start with emerging the <code>crossdev</code> tool:
 
-== Installation ==
+<pre># emerge crossdev</pre>
 
-{{Note|The use of target's host-part-name mingw64 is strongly discuraged.  Most checks in binutils, gdb, gcc, etc (and all their testsuites) are using still mingw32.<ref>https://gcc.gnu.org/bugzilla/show_bug.cgi?id=55886</ref>}}
+Now with this tool, emerge the mingw32 toolchain:
 
-=== Prerequisites ===
+<pre># crossdev -t i686-pc-mingw32</pre>
 
-To install the MinGW Toolchain, start with emerging the {{c|crossdev}} tool:
+You may try adding <code>--ex-insight</code> and/or <code>--ex-gcc</code>. These have not been known to build. <code>--ex-gdb</code> will give you GDB and likely will work, but it is not very useful on Linux because MingW GCC by default makes PE's (EXE files), not ELF files, and gdb has no idea how to run an EXE file on Linux. A remote debugger (with a Windows target machine) is a possibility but a long shot.
 
-{{Emerge|sys-devel/crossdev}}
+Notes about the toolchain:
+* GCJ sources will not compile due to missing makespec files that do not get installed (copying from Mingw from Windows does not work either)
+* OpenMP is forcefully disabled in the ebuild for the time being even if you enable it in your USE flags
 
-We use a target descriptor to tell {{c|crossdev}}, what to build: <code>$outputarch-$runtime-mingw32</code>.
+=== Uninstallation ===
 
-Throughout this article, the 32-bit toolchain has <code>$outputarch == i686</code>, the 64-bit toolchain has <code>$outputarch == x86_64</code>. As we only use MinGW-w64 as runtime, <code>$runtime == w64</code>. Don't be confused by <code>mingw32</code>, this is just a [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=55886 legacy name].
+<pre># crossdev -C i686-pc-mingw32</pre>
 
-=== Quickstart ===
+If files are left over (such as libraries and things you have added), you will be prompted to remove the <code>/usr/i686-pc-mingw32</code> directory recursively.
 
-After crossdev is installed, the most basic command of interest will install the MinGW cross-toolchain for 64 bit:
-
-{{RootCmd|crossdev --target x86_64-w64-mingw32}}
-
-To install the toolchain for 32 bit (which also uses MinGW-w64 runtime), use:
-
-{{RootCmd|crossdev --target i686-w64-mingw32}}
-
-You may either use the cross compiler directly, or use the cross-emerge wrapper symlink.
-
-For example:
-
-{{RootCmd|x86_64-w64-mingw32-emerge app-arch/lzop}}
-
-The resulting .exe can be found here:
-
-<code>/usr/x86_64-w64-mingw32/usr/bin/lzop.exe</code>
-
-You may also wish to configure the cross-portage environment found in:
-
-<code>/usr/x86_64-w64-mingw32/etc/portage/</code>
-
-Good luck!
-
-=== Emerge ===
-
-==== Preparation ====
-
-Crossdev will automatically create {{Path|/etc/portage/package.keywords/cross-x86_64-w64-mingw32}} and {{Path|/etc/portage/package.use/cross-x86_64-w64-mingw32}} (or their 32-bit counterparts). Since by default some critical use flags like <code>sanitize</code>, <code>fortran</code> or <code>vtv</code> are not disabled it might be necessary to override the auto created use flags by
-
-{{RootCmd|echo "cross-x86_64-w64-mingw32/gcc -fortran -vtv -sanitize" >> /etc/portage/package.use/cross-x86_64-w64-mingw32 }}
-
-{{Note|Users with [[Project:Hardened|hardened profiles]] have to disable the following use flags (at lease for x86_64-w64-mingw32-gcc) <code>hardened</code> and <code>pie</code>:<ref>{{Bug|620464#c7|text=Bug 620464}}, Crossdev of Mingw fail in stage2 because ld does not recognize -z</ref>  
-{{RootCmd|echo "cross-x86_64-w64-mingw32/gcc -fortran -vtv -sanitize -pie -hardened" >> /etc/portage/package.use/cross-x86_64-w64-mingw32-gcc }}}}
-
-If not set already set add crossdev-overlay to repos.conf:
-{{FileBox|filename=/etc/portage/repos.conf/crossdev.conf|lang=ini|1=
-[crossdev]
-location = /usr/local/portage-crossdev}}
-
-Now with the {{c|crossdev}} tool installed, emerge the MinGW toolchain.
-
-==== Toolchain installation ====
-
-To build the 64-bit windows toolchain:
-
-{{RootCmd|crossdev --ov-output /usr/local/portage-crossdev/ x86_64-w64-mingw32}}
-
-To build the 32-bit windows toolchain:
-
-{{RootCmd|crossdev --ov-output /usr/local/portage-crossdev/ i686-w64-mingw32}}
-
-
-{{Note|The <var>CHOST</var> recommendation has recently changed in this document as a number of packages (ie {{Package|dev-libs/glib}}) require the newer API available in mingw64-runtime.  If you wish to use the old mingw-runtime for 32-bit, use the target <var>CHOST</var> value of <code>i686-pc-mingw32</code>.}}
-
-{{Note|If you have already installed <code>sys-libs/binutils</code> from stable please note that <code>binutils</code> and <code>binutils-libs</code> should be the same version. If you get a conflict, consider using <code>crossdev -S</code>.}}
-
-Adding the <code>--ex-insight</code> or <code>--ex-gcc</code> options may cause issues; they have been known to not build. <code>--ex-gdb</code> will enable GDB and likely will work, but it is not very useful on Linux because MinGW GCC by default makes PE's (EXE files), not ELF files, and {{c|gdb}} has no idea how to run an EXE file on Linux. A remote debugger (with a Windows target machine) is a possibility but a long shot.
-
-==== Notes ====
-
-* GCJ sources will not compile due to missing makespec files that do not get installed (copying from MinGW from Windows does not work either).
-* Sanitize may cause compilation failures for at least gcc-4.9, maybe newer.
-* OpenMP was once forcefully disabled in the ebuild, but now honors the use flag setting. However it may still cause compilation issues when set.
-
-==== Compiling other parts of the runtime ====
-
-MinGW-w64-runtime supplies some development tools and libraries, in particular a pthreads implementation which has features the one below does not. Before you take this step, make sure to backup the contents of {{Path|/etc/portage/package.use/cross-x86_64-w64-mingw32}} as this next step will overwrite it with a new line for the runtime. If you don't edit this file to add in the old contents back into this file, when you do a update looking for changes in use flags, emerge will try to re-emerge the compilers with the multilib flag on.
-
-{{CodeBox|title=Contents of {{Path|/etc/portage/package.use/cross-x86_64-w64-mingw32}} after this step.|cross-x86_64-w64-mingw32/mingw64-runtime libraries idl tools -selinux -multilib}}
-
-To install:
-
-{{RootCmd |USE{{=}}"libraries idl tools" crossdev --ex-only --ex-pkg cross-x86_64-w64-mingw32/mingw64-runtime  -v -t x86_64-w64-mingw32}}
-
-=== libssp ===
-
-The GCC USE flag [https://packages.gentoo.org/useflags/libssp <nowiki>sys-devel/gcc[libssp]</nowiki>] has been masked, since it is usually provided by libc. Apparently msvcrt does not provide libssp, so it is recommended to re-enable this USE flag for cross compilation (see [https://wiki.gentoo.org/wiki//etc/portage/profile/package.use.mask package.use.mask]):
-
-{{FileBox|filename=/etc/portage/profile/package.use.mask/mingw-libssp|1=
-cross-i686-w64-mingw32/gcc -libssp
-cross-x86_64-w64-mingw32/gcc -libssp}}
-
-{{FileBox|filename=/etc/portage/profile/package.use.force/mingw-libssp|1=
-cross-i686-w64-mingw32/gcc libssp
-cross-x86_64-w64-mingw32/gcc libssp}}
-
-== Usage ==
-
-=== Portage ===
-
-The cross environment is a totally independent portage instance, which is configured in {{Path|/usr/x86_64-w64-mingw32/etc/portage}}.
-
-When building packages, it might just work. Most things do not. Try with <code>USE="-*"</code> after a failed build, then selectively add USE flags you need. If that does not work, then you probably cannot use Portage to install the package desired for use with MinGW. Of course, as with any bug, you may hunt it down and make the world a better place.
-
-==== Settings ====
-
-You may want to adjust some cross-portage defaults like the temporary build directory:
-{{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/profile/make.conf|1=
-PORTAGE_TMPDIR=/tmp/portage/${CHOST}
-}}
-
-
-===== Profile settings =====
-
-{{Note|If {{c|crossdev}} didn't create {{Path|/usr/x86_64-w64-mingw32/etc/portage/profile/}} directory then the {{c|emerge-wrapper}} command may be needed to initialize it:
-{{RootCmd|emerge-wrapper --target x86_64-w64-mingw32 --init}}
-}}
-
-Various ebuilds support mingw or win32 targets, but different build systems often need different indicators. Ensuring the following are set in {{Path|/usr/x86_64-w64-mingw32/etc/portage/profile/make.defaults}} should allow most build systems to detect the proper target.  Note, some of these may have already been set by {{c|crossdev}}:
-
-{{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/profile/make.defaults|title=Profile-level variables for x86_64|1=
-ARCH="amd64"
-KERNEL="-linux Winnt"
-ELIBC="mingw"
-}}
-{{FileBox|filename=/usr/i686-w64-mingw32/etc/portage/profile/make.defaults|title=Profile-level variables for i686|1=
-ARCH="x86"
-KERNEL="-linux Winnt"
-ELIBC="mingw"
-}}
-
-
-===== make.conf tweaks =====
-
-Mingw64-runtime and the cross-toolchain do not provide any {{Path|libgcc_s_*.dll}} files, and without an external source for these files (eww) there will be issues trying to execute what is built by the cross-toolchain. Fortunately, there's a workaround in the form of <var>LDFLAGS</var> <code>-static-libgcc</code> and <code>-static-libstdc++</code>, however due to the fact that these non-standard flags tend to get stripped out of builds, you need to perform some trickery. Add the following to the {{Path|make.conf}}:
-
-{{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/profile/make.conf|1=
-# Workaround missing libgcc_s_*.dll files by statically linking libc and libstdc++
-CC="${CHOST}-gcc -static-libgcc"
-CXX="${CHOST}-g++ -static-libgcc -static-libstdc++"
-}}
-
-USE flags can be set globally in {{Path|make.conf}} or per-package in {{Path|package.use}}; as the builds are for win32 it likely makes sense to globally disable some flags, such as <code>USE="-X"</code> and globally enable <code>USE="win32"</code> in case any packages support it.
-
-Finally, you likely want to make sure that the code you compile will actually run on the targets you plan to execute it on.  This means setting appropriate <code>-march</code> and <code>-mtune</code> values in the <var>CFLAGS</var> variable for the target platform:
-
-{{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/profile/make.conf|1=
-CFLAGS="-march=x86_64 -mtune=generic -O2 -pipe"
-CXXFLAGS="${CFLAGS}"
-}}
-
-{{FileBox|filename=/usr/i686-w64-mingw32/etc/portage/profile/make.conf|1=
-CFLAGS="-march=i686 -mtune=generic -O2 -pipe"
-CXXFLAGS="${CFLAGS}"
-}}
-
-==== Emerging packages ====
-
-Cross emerging is done by <code>x86_64-w64-mingw32-emerge</code>. For example, to emerge the {{Package|sys-libs/zlib}} package, use:
-
-{{RootCmd|x86_64-w64-mingw32-emerge sys-libs/zlib}}
-
-Alternatively:
-
-{{rootCmd|emerge-wrapper --target x86_64-w64-mingw32 -av sys-libs/zlib}}
-
-{{Note|You can ged rid of emerge's news messages by disabling the news feature
- {{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/make.conf|title=Disabling the news feature|lang=bash|1=
-FEATURES="-news" }}
-Alternatively you can deleting the content of {{Path|/usr/x86_64-w64-mingw32/var/lib/gentoo/news/news-gentoo}}
-{{rootCmd|echo "" > /usr/x86_64-w64-mingw32/var/lib/gentoo/news/news-gentoo.unread}} }}
+== Using Portage ==
+Some things work. Most things do not. Try with <code>USE="-*"</code> after a failed build, then selectively add USE flags you need. If that does not work, then you probably cannot use Portage to install the package desired for use with Mingw.
 
 Using Portage, you may run into problems such as the following:
 
-* Application wants GDBM (see below).
-* Application wants to link with ALSA/OSS/Mesa/other library only useful to X or Linux.
-* Ebuild of application doesn't contain the necessary configuration option to support a mingw or win32 target.
-* Application is an unnecessary utility script, such as gentoo-functions or {{c|eselect}}.
-* An ebuild inherits multilib and specifies <code>MULTILIB_CHOST_TOOLS</code> without adding <code>$(get_exeext)</code>.
+* Application wants GDBM (see below)
+* Application wants to link with ALSA/OSS/Mesa/other library only useful to X or Linux
 
-In the multilib case, emerge wants to move the executables specified in <code>MULTILIB_CHOST_TOOLS</code>. But when cross compiling with mingw32 the executables receive an extension <code>.exe</code> and emerge cannot find the file without extension and fails.
-If you encounter this sort of error, please post to the {{Bug|588330}} mentioning your package.
-In the meantime you may fix it by overlaying (see [[#Overlaying|below]]) a custom ebuild, appending the extension <code>$(get_exeext)</code> to all files in <code>MULTILIB_CHOST_TOOLS</code>.
+Emerging <code>sys-libs/zlib</code>:
 
-The main techniques to tweak ebuilds to make them work are
-===== Overriding use flags, keywords and configuration options =====
-To override use flags and keywords, simply use {{Path|/etc/portage/package.use/}} and {{Path|/etc/portage/package.keywords/}} respectively.
-For the configuration options, we can tell emerge to use a package specific file defining environment variables (see [[package.env]]). For example, if we want to configure {{Package|x11-libs/cairo}} with <code>--with-target=win32</code>, we create
-{{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/env/econf-target-win32|title=Environment overrides for configure options|lang=bash|1=
-EXTRA_ECONF="--with-target=win32"
-}}
+<pre># i686-pc-mingw32-emerge sys-libs/zlib</pre>
 
-{{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/package.env/cairo|title=Specifying ''cairo.conf'' as package specific file defining overrides for cairo|1=
-x11-libs/cairo econf-target-win32
-}}
+=== GDBM ===
+These are "Standard GNU database libraries" according to Portage. Many libraries and applications depend on this. Successfully compiled before, but the current version in Portage does not compile. A patch is very much needed.
 
-===== User patching =====
-
-Most ebuilds call <code>epatch_user</code>, searching for user patches in {{Path|${SYSROOT}/etc/portage/patches/}}. See [[_/etc/portage/patches|/etc/portage/patches]] for more details how to use user patches.
-
-This means you can place patches in {{Path|/usr/x86_64-w64-mingw32/etc/portage/patches/$category/$package}} to apply them only for cross-building.
-
-===== Overlaying =====
-
-If issues cannot simply be fixed by overriding configure options, in some cases we have to override ebuilds. In order to do that we create a custom [[Custom repository#Crossdev|custom repository]] which is only active for our cross environment! Since {{Path|/usr/x86_64-w64-mingw32/usr/portage}} is empty, we will use this path.
-
-Create the following files:
-{{FileBox|filename=/usr/x86_64-w64-mingw32/usr/portage/metadata/layout.conf|1=
-masters = gentoo
-}}
-
-{{FileBox|filename=/usr/x86_64-w64-mingw32/usr/portage/profiles/repo_name|1=
-cross-x86_64-w64-mingw32
-}}
-
-{{FileBox|filename=/usr/x86_64-w64-mingw32/etc/portage/repos.conf|1=
-[DEFAULT]
-main-repo = gentoo
-
-[cross-x86_64-w64-mingw32]
-location = /usr/x86_64-w64-mingw32/usr/portage/
-masters = gentoo
-auto-sync = no
-}}
-
-Portage will then use our custom ebuilds in the {{Path|/usr/x86_64-w64-mingw32/usr/portage/}} folder when we're building for Windows.
-
-==== Notes on specific packages ====
-
-===== app-admin/eselect =====
-
-This package brings in a number of system dependencies that are just plain not needed to build win32 software, and at the time of writing many of them (like python) fail to emerge.  However, as the binary is called during phase functions of other ebuilds you do want, a simple {{Path|package.provided}} entry does not suffice to get rid of it. Instead, I recommend [[#Overlaying|overlaying]] your own {{Package|app-admin/eselect}} ebuild that installs a dummy {{c|eselect}} binary, something that will do nothing yet always return success. This is a dirty hack that certainly has drawbacks, but it at least allows the meat of slotted packages to be emerged.
-
-The ebuild could look for example like this
-{{FileBox|filename=/usr/i686-w64-mingw32/usr/portage/app-admin/eselect/eselect-1.4.6.ebuild|1=
-EAPI=5
-
-DESCRIPTION="Dummy binary"
-
-SLOT="0"
-KEYWORDS="~alpha ~amd64 ~arm ~arm64 ~hppa ~ia64 ~m68k ~mips ~ppc ~ppc64 ~s390 ~sh ~sparc ~x86 ~ppc-aix ~amd64-fbsd ~sparc-fbsd ~x86-fbsd ~x64-freebsd ~x86-freebsd ~hppa-hpux ~ia64-hpux ~x86-interix ~amd64-linux ~arm-linux ~ia64-linux ~x86-linux ~ppc-macos ~x64-macos ~x86-macos ~m68k-mint ~sparc-solaris ~sparc64-solaris ~x64-solaris ~x86-solaris"
-
-src_unpack() {
-	mkdir ${WORKDIR}/${P}
-}
-
-src_install() {
-	mkdir -p ${D}/usr/bin/
-	echo ":" > ${D}/usr/bin/${PN}
-	chmod +x ${D}/usr/bin/${PN}
-}
-}}
-
-===== sys-apps/gentoo-functions =====
-
-This is another one of those necessary tool dependencies that isn't really needed in a mingw cross-build environment.  Although mostly implemented in shell, there is a single compiled binary that fails due to missing POSIX API stuff, {{Path|/sbin/consoletype}}. This package may be something that can be {{Path|package.provided}} away, but to be on the safe side one can also overlay this ebuild and install a dummy script that echo's 'serial' and exists with code 1, in place of compiling consoletype.
-
-===== dev-util/gtk-update-icon-cache =====
-
-{{c|gtk-update-icon-cache}} is a tool that various packages inheriting the gnome eclasses will call in their <code>pkg_postinst</code> phase functions. Although it may be a good idea to install it for use within the win32 target environment, the resulting binary cannot be run in phase functions and so failures will often occur. Another dummy-script-installing overlay package can get around this issue.
-
-===== OpenSSL =====
-
-Follow this guide: [https://github.com/tatsh/cross-pc-mingw32-openssl]
-
-===== sys-libs/ncurses =====
-
-Ncurses is a very finicky package, mostly due to the fact that it's build system was generated using a custom-forked version of autotools.  At this time of writing, ''sys-libs/ncurses-5.9-r5'' is stable and a static-only installation will emerge with <code>EXTRA_ECONF="--enable-term-driver --enable-sp-funcs --without-shared"</code> and <code>USE="static-libs"</code>, but ncurses-6.0 will not compile.
-
-===== sys-libs/readline =====
-
-{{Package|sys-libs/readline}} is another finicky package, in part because it depends on ncurses. Only <code>~sys-libs/readline-6.2_p5</code> will build successfully, newer versions need a lot of patching. Further, due to ncurses being limited to a static-only installation, readline must also be built static-only using <code>EXTRA_ECONF="--disable-shared"</code> and <code>USE="static-libs"</code>.
-
-===== x11-libs/cairo =====
-
-Cairo is well supported but the ebuilds currently do not provide a USE flag for the win32 target. Specifying <code>EXTRA_ECONF="--with-target=win32"</code> and ensuring <code>USE="-X -aqua -xcb -x11-xcb"</code> will address this for now.
-
-If the plan is to emerge {{Package|x11-libs/gtk+}}, then we abuse the <code>aqua</code> use flag (both packages do not provide a <code>win32</code> use flag) in order to avoid forced X11 dependencies ans set <code>USE="aqua"</code> for both packages. This will enable quartz support via configure options which we have to suppress by specifying <code>EXTRA_ECONF="--enable-quartz=no --enable-quartz-image=no"</code>.
-
-{{Note|Support for a win32 use flag may soon be added to cairo in the main Gentoo repository.}}
-
-===== x11-libs/gdk-pixbuf =====
-
-This package builds as-is without any modification, however there are two minor issues related to using the package:  
-
-* The pkg_postinst phase is unable to run 'gdk-pixbuf-query-loaders' to generate the {{Path|loaders.cache}} file, which means that this will need to be done by hand using wine, via something like
-: {{RootCmd|wine /usr/i686-w64-mingw32/usr/bin/gdk-pixbuf-query-loaders.exe >/usr/i686-w64-mingw32/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache}}
-* The paths used by gdk-pixbuf at runtime to find the various loader DLLs is absolute, meaning that they will need to be installed on target win32 systems at <code>[drive]:\usr\lib\gdk-pixbuf-2.0\2.10.0\loaders</code>.
-is possible to circumvent both of these issues by building the gdk-pixbuf with <code>EXTRA_ECONF="--with-included-loaders=yes"</code>, as this will include the loader code directly in the main gdk-pixbuf dll.
-
-===== x11-libs/gtk+ =====
-
-As touched on in the section about cairo above, in order to avoid a lot of X11 deps, gtk+ needs to be built with <code>USE="aqua"</code> and <code>EXTRA_ECONF="--with-gdktarget=win32"</code> for gtk+:2 or <code>EXTRA_ECONF="--enable-win32-backend --disable-quartz-backend"</code> for gtk+:3.
-
-If build failures related to missing symbols are seen in the libraries at installation time, this may be related to a need to clear the {{Path|gtk.def}} file so that it can be regenerated properly by the build system. An easy way to do this without overlaying the ebuilds is to use the following script snippet in {{Path|/usr/i686-w64-mingw32/etc/portage/bashrc}}:
-
-{{FileBox|filename=/usr/i686-w64-mingw32/etc/portage/bashrc|1=
-case "${CATEGORY}/${PN}" in
-x11-libs/gtk+)
-        case "${EBUILD_PHASE}" in
-        prepare)
-                einfo "Cleaning out gtk/gtk.def to aid in mingw out-of-source builds"
-                rm -f "${S}"/gtk/gtk.def
-                ;;
-        esac
-        ;;
-esac
-}}
-
-{{Note|x11-libs/gtk+-3.18 and newer needs the function <code>cairo_win32_surface_create_with_format</code>, which reportedly will not be available until <code>x11-libs/cairo-1.15.2</code> or newer.}}
-
-{{Note|There are currently collisions between <code>gtk+:2</code> and <code>gtk+:3</code> on the file <code>${EROOT}/usr/bin/gailutil.def</code>; this needs to be resolved by hand if both slots are desired at the same time.}}
-
-{{Note|Support for a win32 use flag may soon be added to cairo in the gentoo repo.}}
-
-===== GDBM =====
-
-These are "Standard GNU database libraries" according to Portage. Many libraries and applications depend on this. The package reportedly compiled successfully compiled in the past, but the current versions in Portage do not compile due to the package requiring a POSIX environment (which mingw is not). Patching is very much needed.
-
-{{FileBox|filename=build.log|title=excerpt|1=
-i686-w64-mingw32-gcc -c -I. -I. -march=k8 -msse3 -O2 -pipe gdbmfetch.c  -DDLL_EXPORT -DPIC -o .libs/gdbmfetch.lo                                                                                                     
+{{File|build.log excerpt|<pre>
+i686-pc-mingw32-gcc -c -I. -I. -march=k8 -msse3 -O2 -pipe gdbmfetch.c  -DDLL_EXPORT -DPIC -o .libs/gdbmfetch.lo                                                                                                     
 gdbmopen.c: In function 'gdbm_open':                                                                      
 gdbmopen.c:171: error: storage size of 'flock' isn't known                                                
 gdbmopen.c:171: error: 'F_RDLCK' undeclared (first use in this function)                                  
@@ -343,19 +46,40 @@ gdbmopen.c:171: error: for each function it appears in.)
 gdbmopen.c:171: error: 'F_SETLK' undeclared (first use in this function)                                  
 gdbmopen.c:177: error: storage size of 'flock' isn't known                                                
 gdbmopen.c:177: error: 'F_WRLCK' undeclared (first use in this function)
-}}
+</pre>}}
 
 To get around this problem for the moment, try building with <code>USE="-*"</code>.
 
-=== SDL tutorial example ===
+<!-- Commenting these until there is some information.
 
+== Testing ==
+=== C ===
+=== C++ ===
+=== Fortran ===
+=== Java ===
+=== OpenGL ===
+=== Threading ===
+=== Win32 API ===-->
+
+<!--== Libraries ==
+=== FreeType ===
+=== jpeglib ===
+=== libpng ===
+=== PortAudio ===
+=== Qt ===
+==== SDL_image ====
+==== SDL_ttf ====
+=== tifflib ===
+-->
+
+== SDL Example ==
 Emerge SDL:
 
-{{rootCmd|i686-w64-mingw32-emerge media-libs/libsdl}}
+<pre># i686-pc-mingw32-emerge media-libs/libsdl</pre>
 
 Try compiling this source code (save to <code>test.c</code>).
 
-{{FileBox|filename=test.c|lang=c|1=
+{{File|test.c|<pre>
 #include <SDL/SDL.h>
 #include <windows.h>
 
@@ -370,10 +94,10 @@ int main(int argc, char *argv[]) {
 
   SDL_Init(SDL_INIT_VIDEO);
 
-  flags  = SDL_OPENGL;            /* Enable OpenGL */
-  flags {{!}}= SDL_GL_DOUBLEBUFFER;  /* Enable double-buffering */
-  flags {{!}}= SDL_HWPALETTE;        /* Enable storing palettes in hardware */
-  flags {{!}}= SDL_RESIZABLE;        /* Enable window resizing */         
+  flags = SDL_OPENGL;            /* Enable OpenGL */
+  flags |= SDL_GL_DOUBLEBUFFER;  /* Enable double-buffering */
+  flags |= SDL_HWPALETTE;        /* Enable storing palettes in hardware */
+  flags |= SDL_RESIZABLE;        /* Enable window resizing */         
   
   cool_wrapper(&s, flags);
   Sleep(5000);
@@ -384,50 +108,25 @@ int main(int argc, char *argv[]) {
 
   return 0;
 }
-}}
+</pre>}}
 
 Use the following command to build:
 
-{{Cmd|i686-w64-mingw32-gcc -o test.exe test.c `/usr/i686-w64-mingw32/usr/bin/sdl-config --libs`}}
+<pre>$ i686-pc-mingw32-gcc -o test.exe test.c `/usr/i686-pc-mingw32/usr/bin/sdl-config --libs`</pre>
 
 Test with Wine (requires SDL.dll to be somewhere in Wine's <code>%PATH%</code>, which includes the same directory as the EXE):
 
-{{Cmd
-|cp /usr/i686-w64-mingw32/usr/bin/SDL.dll .
-|wine test.exe
-}}
+<pre>
+$ cp /usr/i686-pc-mingw32/usr/bin/SDL.dll .
+$ wine test.exe
+</pre>
 
 If you get a window named SDL_app, then it worked. The window will automatically exit after about 5 seconds (the Windows <code>Sleep()</code> function halts execution for 5000 milliseconds).
 
-=== Hello World Example ===
-Simple Win32 C program to test installation and function.<ref>[http://mingw-cross.sourceforge.net/hello_win32api.html MinGW Hello World], "Hello World" binary guide</ref>
+== Porting POSIX Threads to Windows ==
+Windows thread functions seem to work fine with Mingw. The following example code will compile without error:
 
-{{FileBox|filename=hello.c|lang=c|1=
-#include <windows.h> 
-
-int WINAPI
-
-WinMain (HINSTANCE hInstance, HINSTANCE hPrevInst, LPTSTR lpCmdLine, int nShowCmd) {
-  MessageBoxW (NULL, L"Hello World!", L"hello", MB_OK {{!}} MB_ICONINFORMATION);
-  return 0;
-}
-}}
-
-To build GUI, <code>-mwindows</code> is added (default is <code>-mconsole</code>)
-
-{{Cmd|i686-w64-mingw32-gcc hello.c -o hello.exe -mwindows}}
-
-Verify with file.
-{{Cmd
-|file hello.exe
-|output=hello.exe: PE32 executable (GUI) Intel 80386 (stripped to external PDB), for MS Windows
-}}
-
-=== Porting POSIX threads to Windows ===
-
-Windows thread functions seem to work fine with MinGW. The following example code will compile without error:
-
-{{FileBox|filename=win32_threads.c|lang=c|1=
+{{File|win32_threads.c|<pre>
 #include <windows.h>                                        
 #include <stdio.h>                                          
 #include <stdlib.h>                                         
@@ -465,23 +164,23 @@ DWORD print_hello(LPVOID lpdwThreadParam) {
   printf("Thread #%d responding\n", *(int*)lpdwThreadParam);
   return 0;
 }
-}}
+</pre>}}
 
 Compile with:
 
-{{Cmd|i686-w64-mingw32-gcc -o win32_threads.exe win32_threads.c}}
+<pre>$ i686-pc-mingw32-gcc -o win32_threads.exe win32_threads.c</pre>
 
 (The call to <code>Sleep()</code> will make the thread creation a little more closer to POSIX, more in order, and there will not be duplicate runs.)
 
 However, many applications rely upon POSIX threads and do not have code for Windows thread functionality. The [http://sourceware.org/pthreads-win32/ POSIX Threads for Win32] project provides a library for using POSIX thread-like features on Windows (rather than relying upon Cygwin). It basically wraps POSIX thread functions to Win32 threading functions (<code>pthread_create()</code>-><code>CreateThread()</code> for example). Be aware that not [http://msdn.microsoft.com/en-us/library/ms684847%28VS.85%29.aspx everything] is implemented on either end (however do note that Chrome uses this library for threading on Windows). Regardless, many ported applications to Windows end up using POSIX Threads for Win32 because of convenience. With this library you can get the best of both worlds as Windows thread functions work fine as show above.
 
 To get Pthreads for Win32:
-# Go to the [ftp://sourceware.org/pub/pthreads-win32/dll-latest/include/ Sourceware FTP] and download the header files to your includes directory for MinGW (for me this is <code>/usr/i686-w64-mingw32/usr/include</code>).
-# Go to the [ftp://sourceware.org/pub/pthreads-win32/dll-latest/lib/ Sourceware FTP] and download only the .a files to your lib directory for MinGW (for me this is <code>/usr/i686-w64-mingw32/usr/lib</code>).'
-# At the same directory, get the DLL files (only '''pthreadGC2.dll''' and '''pthreadGCE2.dll'''; others are for Visual Studio) and place them in the bin directory of your MinGW root (for me this is <code>/usr/i686-w64-mingw32/usr/bin</code>).
+# Go to the [ftp://sourceware.org/pub/pthreads-win32/dll-latest/include/ Sourceware FTP] and download the header files to your includes directory for Mingw (for me this is <code>/usr/i686-pc-mingw32/usr/include</code>).
+# Go to the [ftp://sourceware.org/pub/pthreads-win32/dll-latest/lib/ Sourceware FTP] and download only the .a files to your lib directory for Mingw (for me this is <code>/usr/i686-pc-mingw32/usr/lib</code>).'
+# At the same directory, get the DLL files (only '''pthreadGC2.dll''' and '''pthreadGCE2.dll'''; others are for Visual Studio) and place them in the bin directory of your Mingw root (for me this is <code>/usr/i686-pc-mingw32/usr/bin</code>).
 
 Example POSIX threads code:
-{{FileBox|filename=win32_posix_threads.c|lang=c|1=
+{{File|win32_posix_threads.c|<pre>
 #include <pthread.h>                                         
 #include <stdio.h>                                           
 #include <stdlib.h>                                          
@@ -524,25 +223,22 @@ int main(int argc, char *argv[]) {
 
   exit(EXIT_SUCCESS);
 }
-}}
+</pre>}}
 
 Compile with:
-
-{{Cmd|i686-w64-mingw32-gcc -o posix_threads.exe -mthreads posix_threads.c -lpthreadGC2}}
+<pre>$ i686-pc-mingw32-gcc -o posix_threads.exe -mthreads posix_threads.c -lpthreadGC2</pre>
 
 {{Note|It is VERY important that <code>-lpthreadGC2</code> or <code>-lpthreadGCE2</code> is at the END of the command.}}
 
-With <code>i686-w64-mingw32-objdump -p posix_threads.exe</code> we can see that we need {{Path|pthreadGC2.dll}}. If you linked with -lpthreadGCE2 (exception handling POSIX threads), you will need {{Path|mingwm10.dll}}, {{Path|pthreadGCE2.dll}}, and possibly {{Path|libgcc_s_sjlj-1.dll}} (last one only if you do not compile with <var>CFLAG</var> <code>-static-libgcc</code> with {{c|g++}}).
+With <code>i686-pc-mingw32-objdump -p posix_threads.exe</code> we can see that we need '''pthreadGC2.dll'''. If you linked with -lpthreadGCE2 (exception handling POSIX threads), you will need '''mingwm10.dll''', '''pthreadGCE2.dll''', and possibly '''libgcc_s_sjlj-1.dll''' (last one only if you do not compile with CFLAG <code>-static-libgcc</code> with <code>g++</code>).
 
 Copy the DLL file(s) required to the directory and test with Wine. For example:
-
-{{Cmd
-|cp /usr/i686-w64-mingw32/usr/bin/pthreadGC2.dll .
-|wine posix_threads.exe
-}}
+<pre>
+$ cp /usr/i686-pc-mingw32/usr/bin/pthreadGC2.dll .
+$ wine posix_threads.exe
+</pre>
 
 If all goes well, you should see output similar to the following:
-
 <pre>
 In main: creating thread 0                                                                                         
 In main: creating thread 1                                                                                         
@@ -561,51 +257,19 @@ Completed join with thread 3, status = 0
 Completed join with thread 4, status = 0   
 </pre>
 
-{{Note|You will probably always want to include <code>-mthreads</code> as a <var>CFLAGS</var> value for any code that relies on thread-safe exception handling. From the man page:
+{{Note|You will probably always want to include <code>-mthreads</code> in your CFLAGS for any code that relies on thread-safe exception handling. From the manpage:
 
-* <code>-mthreads</code> - Support thread-safe exception handling on MinGW 32. Code that relies on thread-safe exception handling must compile and link all code with the -mthreads option. When compiling, -mthreads defines:
+* <code>-mthreads</code> - Support thread-safe exception handling on Mingw32. Code that relies on thread-safe exception handling must compile and link all code with the -mthreads option. When compiling, -mthreads defines:
 * <code>-D_MT</code>; when linking, it links in a special thread helper library
 * <code>-lmingwthrd</code> which cleans up per thread exception handling data.}}
 
-=== Wine and %PATH% ===
+== Wine and %PATH% ==
+Like Windows, Wine supports environment variables. You may specify the path of your DLLs (for example, the Mingw bin directory) in the registry at <code>HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment</code> (for me this value would be <code>Z:\usr\i686-pc-mingw32\usr\bin</code>). I recommend against this as you might forget to distribute DLLs with your application binaries.
 
-Like Windows, Wine supports environment variables. You may specify the path of your DLLs (for example, the MinGW bin directory) in the registry at <code>HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment</code> (for me this value would be <code>Z:\usr\i686-w64-mingw32\usr\bin</code>). I recommend against this as you might forget to distribute DLLs with your application binaries.
+== No need for -lm ==
+If you <code>#include <math.h></code> and make use of any of its functions, there is no need to link with the standard C math library using the <code>-lm</code> switch with gcc or g++.
 
-=== No need for -lm ===
-
-If you <code>#include <math.h></code> and make use of any of its functions, there is no need to link with the standard C math library using the <code>-lm</code> switch with {{c|gcc}} or {{c||g++}}.
-
-=== DirectX ===
-
-DirectX 9 headers and libs are included. Link with <code>-ldx9</code>. For the math functions (such as <code>MatrixMult</code>, unlike Windows, you need to dynamically link with <code>-ld3dx9d</code> and then include {{Path|d3dx9d.dll}} (where you get this file SHOULD be from Microsoft's SDK). This is the same for DirectX 8.
+== DirectX ==
+DirectX 9 headers and libs are included. Link with <code>-ldx9</code>. For the math functions (such as <code>MatrixMult</code>, unlike Windows, you need to dynamically link with <code>-ld3dx9d</code> and then include <code>d3dx9d.dll</code> (where you get this file SHOULD be from Microsoft's SDK). This is the same for DirectX 8.
 
 There is no support for DirectX 10 or 11 yet. Minimal support for Direct2D has been implemented via a patch (search the official mailing list of MinGW).
-
-== Removal ==
-
-{{RootCmd|crossdev -C i686-w64-mingw32}}
-
-If files are left over (such as libraries and things that have been added), a prompt will occur to remove the {{Path|/usr/i686-w64-mingw32}} directory recursively.
-<!--
-==== PortAudio ====
-==== Qt ====
--->
-== Troubleshooting ==
-
-=== Emerging a toolchain failed with error: Missing digest for *.ebuild ===
-
-Add the following to the crossdev overlay metadata:
-{{FileBox|filename=layout.conf|1=
-thin-manifests = true
-}}
-
-== External resources ==
-* [http://www.blogcompiler.com/2010/07/11/compile-for-windows-on-linux/ Compile for Windows on Linux [BLOGCOMPILER]] - Generic introduction to cross-compiling windows binaries.
-* [http://mingw-cross.sourceforge.net/hello_win32api.html MinGW Hello World [mingw-cross.sourceforge<nowiki>]</nowiki>] - "Hello World" binary guide.
-* [https://www3.ntu.edu.sg/home/ehchua/programming/cpp/gcc_make.html GCC and Make Compiling, Linking and Building C/C++ Applications [ntu.edu<nowiki>]</nowiki>] - C/C++ based GCC overview.
-* [http://ingar.satgnu.net/devenv/mingw32/base.html MinGW/MSYS development environment] - Setting up a MinGW/MSYS base system.
-
-== References ==
-<references />
-
-[[Category:Development]] [[Category:Compilation]]
