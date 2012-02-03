@@ -1,256 +1,40 @@
-<languages />
-<translate>
-<!--T:1-->
-{{InfoBox stack
-|{{InfoBox homepage|http://www.php.net|header=true}}
-|{{InfoBox package|dev-lang/php}}
-|{{InfoBox wikipedia}}
-|{{InfoBox ohloh}}
-}}
+== Installation ==
 
-<!--T:2-->
-'''PHP''' is [[Article description::a general-purpose server-side scripting language to produce dynamic web pages.]]
+The [http://www.gentoo.org/proj/en/php/php-installing.xml installation guide] of PHP on Gentoo written by the PHP herd covers how to install PHP on your Gentoo system.
 
-== Installation == <!--T:3-->
+== Running multiple versions of PHP ==
 
-=== USE flags === <!--T:4-->
+One of the great advantages of using Gentoo for PHP development is the version slotting. It is very simple to swap between multiple versions of PHP as well as run multiple versions simultaneously. This is all done with the eselect command provided by the {{Package|app-admin/eselect-php}} package which should get pulled in automatically with your installation. This allows you to run, for example, PHP 5.3 for your '''cli''' SAPI but PHP 5.4 on your web server. It also allows you to quickly test your application on different versions of PHP.
 
-<!--T:7-->
-The most important USE flags of the PHP package, the SAPI (Server API) USE flags, are {{c|apache2}}, {{c|cgi}}, and {{c|fpm}}. Alongside these flags, there is an elaborate list of flags to enable various features of the PHP interpreter:
+To list the available versions for the '''cli''' SAPI use: {{RootCmd|eselect php list cli}}
+ [1]   php5.3
+ [2]   php5.4 *
+ [3]   php5.5
 
-<!--T:8-->
-{{USEflag|package=dev-lang/php}}
+The version marked with the * is the current active version, and to check the other SAPIs simply replace '''cli''' with '''fpm''','''cgi''','''apache2'''.
 
-<!--T:9-->
-The ebuild installs a modified "production" version of {{Path|php.ini}} that has tighter security settings and default paths adjusted for Gentoo systems. Both upstream "production" and "development" {{Path|php.ini}} files are installed to {{Path|/usr/share/doc/php-*}}.
+To swap versions use: {{RootCmd|eselect php set cli 1}}
 
-=== Extensions === <!--T:13-->
+Where "1" corresponds to the number in the output of "show".
 
-<!--T:14-->
-To install extensions, first decide which versions of PHP to compile the extensions for. This is done by setting the <var>PHP_TARGETS</var> variable:
+You are now running PHP 5.3 on command line. {{RootCmd|php -v}}
+ PHP 5.3.9-pl0-gentoo (cli) (built: Jan 30 2012 13:21:46) 
+  
+Now, lets say you want to run two php-fpm servers, with two different versions, for two different websites. There is a nifty feature in the php-fpm init script which will do this for you. Symlink the global php-fpm script to all the versions you would like to run simultaneously. So if I wanted to run both PHP 5.3 and PHP 5.4 I would do this. {{RootCmd|ln -s /etc/init.d/php-fpm /etc/init.d/php-fpm-php5.3}} {{RootCmd|ln -s /etc/init.d/php-fpm /etc/init.d/php-fpm-php5.4}}
 
-<!--T:15-->
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-PHP_TARGETS="php5-6"
-}}
+Now, I will need to stop any running instances on the global PHP as we don't want the global and slotted version fighting for the same port. {{RootCmd|/etc/init.d/php-fpm stop}}
+{{Note|Don't try to use the global php-fpm script at the same time as slotted init scripts}}
 
-<!--T:16-->
-More than one version can be defined; just add in the additional versions separated by a space. Note that the php slot is named "5.6" and the corresponding <var>PHP_TARGETS</var> value is <code>php5-6</code>. This is due to current restrictions on USE names.
+Also, because php-fpm binds itself to a port we need our two versions to use two separate ports so let's update the 5.4 config.
 
-=== Emerge === <!--T:17-->
+{{File|/etc/php/fpm-php5.4/php-fpm.conf||
+<pre>listen = 127.0.0.1:9001</pre>}}
 
-<!--T:18-->
-After making the above USE flag configurations it is necessary to update the system so the changes take effect:
+I can now use my new slotted init scripts to launch the different versions. {{RootCmd|/etc/init.d/php-fpm-php5.3 start}} {{RootCmd|/etc/init.d/php-fpm-php5.4 start}}
 
-<!--T:19-->
-{{Emerge|params+=--update --changed-use --deep|@world}}
+From here you just need to adjust the port setting in your web server configuration (apache, nginx, lighttpd etc.) to use the port of the version you are interested in for each of your server's virtual hosts.
 
-== Running multiple versions of PHP == <!--T:20-->
-
-<!--T:21-->
-One of the great advantages of using Gentoo for PHP development is the version slotting. It is very simple to swap between multiple versions of PHP as well as run multiple versions simultaneously. This is all done with the {{c|eselect}} command provided by the {{Package|app-eselect/eselect-php}} package which should get emerged in automatically by installing PHP.
-
-<!--T:60-->
-For example, selecting different versions of PHP can allow a system to run PHP 7.0 for the cli SAPI but PHP 5.6 for the system's web server. It also allows system administrators or application developers to quickly test an application on different versions of PHP.
-
-<!--T:22-->
-To list the available versions for the '''cli''' SAPI module use the following syntax:
-
-<!--T:23-->
-{{RootCmd|eselect php list cli|output=<pre>
- [1]   php5.5 
- [2]   php5.6 *   
- [3]   php7.0
-</pre>}}
-
-<!--T:24-->
-The <code>*</code> (asterisk) marks current active version for the selected module. To check the other SAPIs simply replace <code>cli</code> with <code>fpm</code>,<code>cgi</code> or <code>apache2</code> modules.
-
-<!--T:25-->
-To swap versions, use:
-
-<!--T:26-->
-{{RootCmd|eselect php set cli 3}}
-
-<!--T:27-->
-The number <code>3</code> in this example corresponds to the number in the output of the <code>list</code> sub-command used above. PHP version 7.0 is now used for the command-line:
-
-<!--T:28-->
-{{RootCmd|php -v|output=<pre>
-PHP 7.0.10-pl0-gentoo (cli) (built: Aug 23 2016 12:38:44) ( NTS )
-</pre>}}
-
-== Configuration == <!--T:29-->
-
-<!--T:30-->
-The PHP configuration is at {{Path|/etc/php}}, which contains one subdirectory for each Server API (SAPI) and for each PHP version. For instance, configuration files for the PHP-5.6 apache2 SAPI are installed in {{Path|/etc/php/apache2-php5.6}}.
-
-=== Web servers === <!--T:31-->
-
-<!--T:32-->
-To use PHP in a server-side fashion, a web server needs to be installed and configured to use PHP. A number of popular web servers are briefly touched upon next.
-
-==== Nginx ==== <!--T:33-->
-
-<!--T:34-->
-Simply emerge [[Nginx|nginx]] to install it:
-
-<!--T:35-->
-{{Emerge|www-servers/nginx}}
-
-<!--T:36-->
-{{Important|If custom <var>NGINX_MODULES_HTTP</var> values are set in {{Path|make.conf}}, make sure that the <code>fastcgi</code> module is enabled.}}
-
-<!--T:37-->
-Once Nginx has been installed, modify the server section of {{Path|/etc/nginx/nginx.conf}} to look something like this: 
-
-<!--T:38-->
-{{FileBox|filename=/etc/nginx/nginx.conf|title=Part of the nginx configuration to enable PHP through FastCGI|1=
-        server {
-                listen 127.0.0.1;
-                server_name localhost;
- 
-                access_log /var/log/nginx/localhost.access_log main;
-                error_log /var/log/nginx/localhost.error_log info;
- 
-                root /var/www/localhost/htdocs;
- 
-                location ~ \.php$ {
-                        try_files $uri $uri/ =404;
-                        fastcgi_split_path_info ^(.+\.php)(/.+)$;
-                        fastcgi_pass 127.0.0.1:9000;
-                        include fastcgi.conf;
-                }
-        }
-}}
-
-<!--T:39-->
-Now start the related services to have a working site. The {{Path|php-fpm}} init script starts the PHP FastCGI Process Manager. FastCGI allows web servers to offload the PHP calculations to this process manager.
-
-<!--T:61-->
-When running OpenRC as the service manager:
-
-<!--T:40-->
-{{RootCmd
-|rc-service nginx start
-|rc-service php-fpm start
-}}
-
-<!--T:62-->
-For systemd:
-
-<!--T:63-->
-{{RootCmd
-|systemctl start nginx
-|systemctl start php-fpm@7.2
-}}
-
-<!--T:64-->
-{{Note|The version number after the <code>php-fpm</code> service name will change based on the available version of PHP. Adjust as appropriate.}}
-
-==== lighttpd ==== <!--T:41-->
-
-<!--T:42-->
-{{Warning|Do not enable the <code>php</code> USE flag for {{Package|www-servers/lighttpd}}. It could actually break the build.}}
-
-<!--T:43-->
-Make sure that lighttpd is built with support for <code>fastcgi</code> and that the <code>php</code> USE flag is disabled:
-
-<!--T:44-->
-{{FileBox|filename=/etc/portage/package.use|1=
-www-servers/lighttpd fastcgi -php
-}}
-
-<!--T:45-->
-Lighttpd ships with a default FastCGI config file, but unfortunately, it is written to work with the old PHP FCGI SAPI only, instead of a general FCGI setup. Since the <code>php</code> USE flag has been disabled, it will not be included, and rightly so. However it does provide a good foundation for a configuration file that can be used with FPM. 
-
-<!--T:46-->
-Edit {{Path|/etc/lighttpd/mod_fastcgi.conf}} to look something like this: 
-
-<!--T:47-->
-{{FileBox|filename=/etc/lighttpd/mod_fastcgi.conf|title=Enable FastCGI on lighttpd|lang=lua|1=
-server.modules += ("mod_fastcgi")
-fastcgi.server = ( ".php" =>
-  ( "localhost" =>
-    (
-      "host" => "127.0.0.1",
-      "port" => "9000"
-    )
-  )
-)
-}}
-
-<!--T:48-->
-Note the <code>host</code> and <code>port</code> parts. 
-
-<!--T:49-->
-Since Gentoo ships with a working {{Path|php-fpm.ini}} file, located in {{Path|/etc/php/fpm-php5/php-fpm.ini}}, and init script, starting the services is all that is needed: 
-
-<!--T:50-->
-{{RootCmd
-|/etc/init.d/php-fpm start
-|/etc/init.d/lighttpd start
-}}
-
-==== Apache (mod_php) ==== <!--T:51-->
-
-<!--T:52-->
-To configure Apache to load the PHP5 module (mod_php), add <code>-D PHP</code> to <var>APACHE2_OPTS</var> variable in {{Path|/etc/conf.d/apache2}}. Users might remember that previously, the PHP version had to be added as well (like <code>-D PHP5</code>). However, since {{Package|app-eselect/eselect-php}} version 0.8.1, the variable is changed to just <code>-D PHP</code> to allow future major versions to be easily integrated.
-
-<!--T:53-->
-{{FileBox|filename=/etc/conf.d/apache2|title=Configure Apache to load mod_php|lang=bash|1=
-## (settings for PHP5 and above)
-APACHE2_OPTS="-D PHP"
-}}
-
-<!--T:54-->
-Make sure that PHP is built with the <code>apache2</code> USE flag.
-
-<!--T:55-->
-If for some reason the system is missing the PHP module integration file {{Path|/etc/apache2/modules.d/70_mod_php.conf}}, currently provided by {{Package|app-eselect/eselect-php}} when installed with <code>apache2</code> USE flag set, manually insert it. Its current content is displayed below.
-
-<!--T:56-->
-{{FileBox|filename=/etc/apache2/modules.d/70_mod_php.conf|lang=apache|1=
-<IfDefine PHP>
-	# The mod_php.so symlink is controlled by
-	# eselect-php. However, the module name changed from
-	# php5_module to php7_module so we can't blindly load whatever
-	# is there. Instead we let eselect-php manage a small
-	# configuration file that loads the appropriate module.
-	#
-	# This is relative to ServerRoot (see httpd.conf).
-	Include ../../../var/lib/eselect-php/mod_php.conf
- 
-	# Tell apache that mod_php should handle PHP files.
-	#
-	# NOTE: Avoiding AddHandler/AddType for security (bug
-	# #538822). Please read the related news item!
-	<FilesMatch "\.(php{{!}}php[57]{{!}}phtml)$">
-		SetHandler application/x-httpd-php
-	</FilesMatch>
- 
-	# PHP source files which are meant to be displayed as
-	# syntax-highlighted source code.
-	<FilesMatch "\.phps$">
-		SetHandler application/x-httpd-php-source
-	</FilesMatch>
- 
-	DirectoryIndex index.php index.phtml
-</IfDefine>}}
-
-<!--T:57-->
-Although multiple PHP versions can be installed on a system, Apache can only use a single PHP version with mod_php. Support for multiple PHP versions on Apache is available using fpm. The {{c|eselect php}} command is used to switch between active mod PHP versions.
-
-== See also == <!--T:58-->
-
-<!--T:59-->
-* [[PHP/Upgrading_to_PHP_5.6|Upgrading to PHP 5.6]], guide to upgrade older installations to 5.6
-* [[PHP/Upgrading_to_PHP_7.1|Upgrading to PHP 7.1]], guide to upgrade older installations to 7.1
-* [[Apache#Enabling_PHP_support|Enabling PHP support]] in the Apache article
-
-== External resources ==
-
-* [https://unix.stackexchange.com/questions/505980 Running Multiple Versions of PHP Using Apache on Gentoo]
-</translate>
-
-[[Category:Programming language]]
+== Further reading ==
+* [http://www.php.net/ PHP Homepage]
+* [http://www.gentoo.org/proj/en/php/php-installing.xml PHP Install guide]
+* [http://www.gentoo.org/proj/en/php/php-upgrading.xml PHP Upgrade guide (and useful information on slotting)]
