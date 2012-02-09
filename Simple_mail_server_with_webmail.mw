@@ -1,17 +1,15 @@
-This guide is for getting basic mail server working in small amount of time. You can always add more features later. This guide uses postfix MTA, dovecot IMAP, POP, SASL and SquirrelMail webmail.
+Simple mail server by using postfix MTA, dovecot IMAP + SASL and SquirrelMail webmail. This guide is for getting basic mail server working in small amount of time. You can always add more features later.
 
-== Postfix MTA ==
+== postfix MTA ==
 
-Install {{Package|mail-mta/postfix}}. Enable ''dovecot-sasl'', ''ipv6'',  ''pam'', ''berkdb'' and ''ssl'' USE flags. See also the [[Postfix]] article.
-{{Emerge|postfix}}
+Remove ssmtp. (Blocks postfix)<br />
+emerge -C ssmtp<br />
 
-If this is a new install, the previous command should uninstall {{Package|mail-mta/ssmtp}}. If it fails to uninstall {{Package|mail-mta/ssmtp}}, you need to manually uninstall it, because it blocks Postfix:
-{{Emerge|params+=-C|ssmtp}}
+Install postfix. Enable use flags : dovecot-sasl ipv6 pam ssl hardened?
+{{Emerge|mail-mta/postfix}}
 
-
-Configure Postfix.
-{{FileBox|filename=/etc/postfix/main.cf|lang=ini|1=
-# basic config
+Configure postfix :
+{{File|/etc/postfix/main.cf||<pre>
 myhostname = example.com
 mydomain = example.com
 myorigin = example.com
@@ -20,99 +18,84 @@ mynetworks_style = host
 mydestination = $myhostname, localhost, $mydomain, mail.$mydomain, www.$mydomain
 home_mailbox = .maildir/
 
-# sasl config
+# sasl
 smtpd_sasl_type = dovecot
 smtpd_sasl_path = private/auth
 smtpd_sasl_auth_enable = yes
 smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
-}}
+</pre>}}
 
-Edit aliases to redirect root mails to webmaster:
-{{FileBox|filename=/etc/mail/aliases|1=
-...
-root: webmaster
-...
-}}
 
-Generate aliases database:
-{{RootCmd|newaliases}}
+Edit aliases. Redirect root mails, add line "root: user"<br />
+nano /etc/mail/aliases<br />
 
-Redirect root mails to webmaster:
-{{FileBox|filename=/root/.forward|1=
-...
-webmaster@localhost
-...
-}}
+generate aliases<br />
+newaliases<br />
 
-Check for errors:
-{{RootCmd|postfix check}}
+redirect root mails to user. Add line : "user@localhost"<br />
+nano /root/.forward<br />
 
-Start Postfix:
-{{RootCmd|/etc/init.d/postfix start}}
+check for errors<br />
+postfix check<br />
 
-Check {{Path|/var/log/mail.log}} for errors:
-{{RootCmd|cat /var/log/mail.log}}
+start postfix<br />
+/etc/init.d/postfix start<br />
+
+Check /var/log/mail.log for any errors.<br />
+cat /var/log/mail.log<br />
+
+
 
 == dovecot IMAP, POP & SASL ==
-Install {{Package|net-mail/dovecot}}. Enable USE flags : bzip2 ipv6 maildir pam ssl zlib
-{{Emerge|dovecot}}
 
-Configure dovecot:
-{{FileBox|filename=/etc/dovecot/dovecot.conf|1=
-protocols = imap pop3
+install dovecot. enable use flags : bzip2 ipv6 maildir pam ssl zlib
+{{Emerge|net-mail/dovecot}}
 
-# sasl config
+Configure dovecot :
+{{File|/etc/dovecot/dovecot.conf||<pre>
+# sasl
 service auth {
   unix_listener /var/spool/postfix/private/auth {
     mode = 0660
+    # Assuming the default Postfix user and group
     user = postfix
     group = postfix
   }
 }
-}}
+</pre>}}
 
-Start dovecot:
-{{RootCmd|/etc/init.d/dovecot start}}
+Start dovecot<br />
+/etc/init.d/dovecot start<br />
+
+
 
 == SquirrelMail webmail ==
-{{Dated|section}}
-Change dir to webserver root:
-{{Cmd|cd /home/webmaster/htdocs}}
 
-Unpack squirrelmail:
-{{Cmd|tar xjf squirrelmail-webmail-1.4.22.tar.bz2}}
+Change dir to webserver root<br />
+cd /var/www/htdocs<br />
 
-Configure squirrelmail:
-{{Cmd|cd squirrelmail-webmail-1.4.22/config
-|cp config_default.php config.php}}
-{{FileBox|filename=config.php|lang=php|1=
-$data_dir = '/home/webmaster/.squirrelmail/data/';
-$attachment_dir = '/home/webmaster/.squirrelmail/attach/';
-$domain = 'example.com';
-}}
+Unpack squirrelmail<br />
+tar xjf squirrelmail-webmail-1.4.22.tar.bz2<br />
 
-Create data dirs and set permissions:
-{{Cmd|mkdir -p /home/webmaster/.squirrelmail/data/
-|mkdir -p /home/webmaster/.squirrelmail/attach/}}
-{{RootCmd|chown -R webmaster:lighttpd /home/webmaster/.squirrelmail/}}
-{{Cmd|chmod -R 770 /home/webmaster/.squirrelmail/}}
+configure squirrelmail<br />
+cd squirrelmail-webmail-1.4.22/config<br />
+cp config_default.php config.php<br />
+nano config.php<br />
 
-Debug squirrelmail by opening url: http://example.com/squirrelmail-webmail-1.4.22/src/configtest.php
+edit following :<br />
+$data_dir = '/home/user/.squirrelmail/data/';<br />
+$attachment_dir = '/home/user/.squirrelmail/attach/';<br />
+$domain = 'example.com';<br />
 
-You can access webmail by opening url: http://example.com/squirrelmail-webmail-1.4.22/.
 
-Everything should be working now.
+Create data dirs and set permissions<br />
+mkdir -p /home/user/.squirrelmail/data/<br />
+mkdir -p /home/user/.squirrelmail/attach/<br />
+<br />
+chown -R user:lighttpd /home/user/.squirrelmail/<br />
+chmod -R 770 /home/user/.squirrelmail/<br />
 
-== Troubleshooting ==
-Check your error log (mine is /var/log/messages).
+Test config.<br />
+Open url on web browser : http://example.com/squirrelmail-webmail-1.4.22/src/configtest.php<br />
 
-If you get this error and can't login to squirrelmail:
-"auth: Fatal: sql: driver not set in configuration file /etc/dovecot/dovecot-sql.conf.ext"
-
-then try these changes and restart dovecot:
-{{FileBox|filename=/etc/dovecot/conf.d/10-auth.conf|1=
-# Ensure that this line is commented out:
-#!include auth-sql.conf.ext
-}}
-
-[[Category:Mail Servers]]
+Everything sould be working now :)
