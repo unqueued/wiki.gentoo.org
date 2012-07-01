@@ -1,173 +1,20 @@
-{{InfoBox stack
-|{{InfoBox homepage|https://gitlab.com/cryptsetup/cryptsetup|header=true}}
-|{{InfoBox wikipedia|LUKS}}
-}}
+{{Warning|Well, this is going to be a somewhat atrophied version of the community <i>DM-Crypt with LUKS</i> with nice additions here an there and will voluntarily skip many details that have already added or treated in the reference community article.}}
 
-<languages />
+This article aim to get started with DM-Crypt LUKS to be able to install a new system from scratch, using gentoo installation documents for example, and generate an initramfs with that in no time. So this article will skip right away the premises on why to encrypt a system with DM-Crypt LUKS and on security insights. That said, encrypting a system with DM-Crypt LUKS will immediately put you in a position to chose between security versus usability and secure versus system speed/responsiveness.
 
-<translate>
+== Which key (file) mode? ==
 
-This article [[Article description::discusses several aspects of using Dm-crypt for (full) disk encryption.]] It is primarily meant as a source of supplementary information not already discussed within the [[Dm-crypt]], [[genkernel]], or [[initramfs]] wiki pages.
+Choosing a key or key file mode depends on the secure requirements or the system: an long and random password with special characters is more secure than an easy dictionary breakable password of course. So to meet the length, randomness and complexity of password requirements a key file seems to be right spot. However, a key file doe not meet the security/secure side because it is always better to leave no traces behind which could compromise or ease the break ability of an encrypted system or disk. This is where GnuPG crrypted key files comes into play which will satisfy almost every aspect with a little minus in security because the key file can be accessible from world.
 
-{{Important | All additional security strategies discussed in this article are <i>optional</i>. Some aspects presented here are solely discussed because they are routinely subject of questions, or highly personal security beliefs. The aim of this article is thus to provide a, hopefully, objective discussion. The [https://gitlab.com/cryptsetup/cryptsetup/wikis/FrequentlyAskedQuestions cryptsetup FAQ] is a highly recommended additional source of information.}}
+To get a secure key file that could piped to cryptsetup, one could generate a random key from /dev/random and encrypt it with GnuPG. Or else, a simple password will be sufficient if there are not severe secure/security requirements.
+
+{{GenericCmd|<pre>head -c45 /dev/random | uuencode -m - | head -n2 | tail -n1 | gpg --symmetric --cipher-algo aes --armor > /path/to/key.gpg</pre>}}
 
 == Which cipher:hash combination? ==
-
-The default cipher for LUKS is nowadays <code>aes-xts-plain64</code>, i.e. [[Wikipedia:Advanced Encryption Standard|AES]] as cipher and [[Wikipedia:Disk encryption theory|XTS]] as mode of operation. This should be changed only under very rare circumstances. The default is a very reasonable choice security wise and by far the best choice performance wise that can deliver between 2-3 GiB/s encryption/decryption speed on CPUs with [[Wikipedia:AES instruction set|AES-NI]]. XTS uses two AES keys, hence possible key sizes are <code>-s 256</code> and <code>-s 512</code>.
-
-The default choice of cipher and key size can be overriden by the command line parameters <code>-c</code> and <code>-s</code>, for example
-{{RootCmd|cryptsetup luksFormat -c aes-xts-plain64 -s 512 ...|cryptsetup luksFormat -c aes-cbc-essiv:sha256 -s 256 ...}}
-
-If you want to know more about the performance on a given set of cipher and mode of operation you can run <code>cryptsetup -c ... -s ... benchmark</code>. Issuing the command without <code>-c</code> and <code>-s</code> runs the benchmark for a number of different choices. For example, a (slightly shortened) output for a mid-2014 Intel Core i7 CPU might look like:
-{{RootCmd|cryptsetup benchmark|output=<pre>
-# Tests are approximate using memory only (no storage IO).
-#  Algorithm | Key |  Encryption |  Decryption
-     aes-cbc   256b   469.7 MiB/s  2093.2 MiB/s
- serpent-cbc   256b    85.3 MiB/s   523.3 MiB/s
- twofish-cbc   256b   173.4 MiB/s   340.2 MiB/s
-     aes-xts   256b  2386.7 MiB/s  2387.4 MiB/s
- serpent-xts   256b   548.6 MiB/s   531.1 MiB/s
- twofish-xts   256b   320.0 MiB/s   342.3 MiB/s</pre>}}
-
-{{Warning|dm-crypt supports many different combinations of ciphers, modes of operation, and IV modes [https://gitlab.com/cryptsetup/cryptsetup/wikis/DMCrypt]. Some of these are not as secure as others, some are considered to be highly insecure (for example [[Wikipedia:Block cipher mode of operation#ECB|ECB]]). You can read more about cryptographic [[Wikipedia:Block cipher|ciphers]] and [[Wikipedia:Block cipher mode of operation|modes of operation]] elsewhere. If in doubt, stick with the default parameters.}}
-
-{{Note|Additional information on how to use <code>cryptsetup luksFormat</code> is given on the dm-crypt wiki page.}}
-
-{{Note|Some cipher choices have an additional hash specification of the form <code>cipher:hash</code>, for example <code>aes-cbc-essiv:sha256</code>. Such a hash specification is used by <i>some</i> mode of operations (like <code>cbc-essiv</code>) for [[Wikipedia:Initialization vector|IV]] generation. Mode of operations with <code>plain64</code>, however, do not use such a supplied hash specification (for generating an IV). In this case the hash specification should be omitted.}}
-
-== What choice of hash for key derivation? ==
-LUKS uses [[Wikipedia:PBKDF2|PBKDF2]] for key derivation. In essence, the supplied passphrase by the user is combined with a salt and hashed a specified number of rounds. This [[Wikipedia:Key stretching|key stretching]] makes the password more secure against brute force attacks. The hash function used in PBKDF2 can be set via <code>-h</code>. The default is <code>sha256</code> and can (depending on taste) be changed to another secure hash algorithm. The total number of iterations is determined by the speed of the current hardware and can be influenced by setting the number of milliseconds that shall be spent in PBKDF2 passphrase processing by <code>--iter-time</code>. To increase the default from 2s to 3s and use sha512 one could for example use
-{{RootCmd|cryptsetup luksFormat ... -h sha512 --iter-time 3000 ...}}
-
-{{Warning|It is not recommended to lower the number of PBKDF2 iterations below the default value [https://gitlab.com/cryptsetup/cryptsetup/wikis/FrequentlyAskedQuestions].}}
-
-== On passphrases, detached LUKS headers, and (encrypted) keyfiles ==
-
-Use a reasonably long passphrase (use, e.g., 8-12 common random words, see [https://xkcd.com/936/ xkcd] on that subject) in combination with PBKDF2 for key stretching.
-
-Additional protection against brute force attacks can be achieved by setting up a an external USB flash drive to store essential decryption information (like a keyfile, or the LUKS header itself). The flash drive then has the equivalent function of a physical key; opening the encrypted partition is only possible if both, flash drive and passphrase, are provided. However, this comes with a significant downside in terms of complexity, for example for setting up full disk encryption, or potential to lose decryption keys (by losing the USB flash drive).
-
-=== Detached LUKS header ===
-
-It is possible to encrypt a partition with detached LUKS header (where all information about password derivation is stored) that is stored at (physically) different location, e.g., a USB flash drive. This leaves an attacker that is not in possession of the flash drive with no information about key derivation and encryption algorithms used. This makes brute force attacks potentially more difficult.
-
-The following commands first create a file <code>luks-header</code> with a fixed size of 5MB. Then, a detached LUKS header is written to the file. (See the dm-crypt wiki page for further information on how to use <code>cryptsetup luksFormat</code>, or <code>cryptsetup open</code>.)
-
-{{RootCmd|truncate -s 5M /path/to/luks-header|cryptsetup luksFormat ... --header /path/to/luks-header ...}}
-
-To check that the header was written successfully, run <code>cryptsetup luksDump /path/to/luks-header</code>.
-In order to open the encrypted device,
-
-{{RootCmd|cryptsetup open ... --header /path/to/luks-header}}
-
-{{Note|A detached LUKS header is currently not supported by genkernel.}}
-
-=== Generating a GnuPG encrypted keyfile ===
-
-The more traditional approach to use a USB flash drive is to store a GnuPG encrypted keyfile (that contains sufficient entropy) on it.
-Such a key file is readily supported by [[genkernel]].
-
-The following commands create a GnuPG encrypted keyfile of 512 bits and set up an encrypted partition with it:
-{{RootCmd|dd if{{=}}/dev/urandom count{{=}}64 {{!}} gpg --symmetric --cipher-algo aes --armor > /path/to/key.gpg|gpg --decrypt /path/to/key.gpg {{!}} cryptsetup luksFormat ...}}
-
-In order to open the encrypted device,
-
-{{RootCmd|gpg --decrypt /path/to/key.gpg {{!}} cryptsetup open ...}}
-
-{{Note|dm-crypt, of course, also works with clear, non-encrypted keyfiles, see the dm-crypt wiki page. The usage of clear keyfiles stored on the root partition to "chain open" encrypted partitions is discussed further down below.}}
-
-== Preparing disks ==
-
-{{Warning|Extra precautions must be taken if the strategy outlined in this section is applied to an [[Wikipedia:Solid-state drive|SSD]].}}
-
-It is sometimes recommended to overwrite the whole disk with random numbers prior to setting up disk encryption. The rationale behind this recommendation is that reading an encrypted disk should leak as little information as possible. But if unused blocks (by the file system) are still all zero, an adversary can recover some high level information by determining which (encryption) blocks are likely used (because they contain random looking data) and which are unused (because they are, for example, all zero). The number and location of likely used encryption blocks can reveal information such as disk usage, the file system in use, or likely average file size.
-
-Thus, a somewhat effective (but time consuming) counter measure is to overwrite the disk with random data before using it. An efficient way to do generate large amounts of random data quickly is to use a cryptsetup mapping. For example, in order to overwrite <code>/dev/sdXX</code>, use
-
-{{RootCmd|cryptsetup open --type{{=}}plain --key-file{{=}}/dev/urandom /dev/sdXX delete_sdXX|dd if{{=}}/dev/zero of{{=}}/dev/mapper/delete_sdXX bs{{=}}1M status{{=}}progress|cryptsetup close delete_sdXX}}
-
-After that, format the disk with <code>cryptsetup luksFormat ...</code>
-
-{{Warning|Overwriting a whole SSD with random data will mark every block as used and can, depending on manufacturer and model, <i>severely</i> degrade wear levelling. This might have potentially disastrous effects on disk lifetime. As mitigation, it is sometimes recommended to leave a substantial portion of the disk, around 10 - 20%, unused to have enough empty blocks for wear levelling. This can be done by creating a suitably sized, unformatted partition, and properly discarding it with <code>blkdiscard</code>. Please note that mounting a LUKS container with the <code>--allow-discards</code> option will transparently forward discards to the SSD and would contradict above setup.}}
-
-=== Dm-crypt on SSDs and hybrid drives ===
-
-For additional information about security aspects of using dm-crypt on SSDs and hybrid drives, have a look at the
-[https://gitlab.com/cryptsetup/cryptsetup/wikis/FrequentlyAskedQuestions cryptsetup FAQ].
-
-Cryptsetup can transparently forward discard operations to an SSD. This feature is activated by using the <code>--allow-discards</code> option in combination with <code>cryptsetup open</code>. Enabling discards on an encrypted SSD can be a measure to ensure effective wear levelling and longevity, especially if the full disk is encrypted. For an in detail discussion about the security implications, have a look at the cryptsetup FAQ and the man page of cryptsetup.
-
+== Preparing the disk(s) ==
 == Generating an initramfs ==
+== References ==
 
-After encrypting system or disk(s), one will need an initramfs so that rootfs can be mounted in there and then pass the control to real init. There are a few generic initramfs builder that can be used to accomplish the task such as {{Highlight|dracut}}, {{Highlight|mkinitcpio}} (there's a thread in the forums and an ebuild: [https://github.com/tokiclover/mkinitramfs-ll sys-kernel/mkinitramfs-ll]) or even {{Highlight|genkernel}} (or the next variant) which has LUKS support.
+* [http://en.gentoo-wiki.com/wiki/DM-Crypt_with_LUKS DM-Crypt with LUKS community wiki article]
 
-=== Genkernel/Genkernel-next ===
-
-To use {{Package|sys-kernel/genkernel}} or {{Package|sys-kernel/genkernel-next}}, edit {{Path|/etc/portage/package.use}} to enable the cryptsetup USE flag before emerging it.  The static USE flag may also be enabled on the {{Package|sys-fs/cryptsetup}} so that genkernel will use the system binaries (otherwise it will build its own private copy).  The following example will build only an initramfs (not an entire kernel) and enable support for luks. Even if you don't use lvm, `--lvm' option is required to include necessary udev rules.
-
-{{RootCmd|genkernel --luks --lvm initramfs}}
-
-For a more complete set of explanations refer to the comments in {{Path|/etc/genkernel.conf}} itself or to the output of {{c|man genkernel}}.
-
-The initrd will require parameters to tell it how to decrypt the drive, and they are supplied the same way as other kernel parameters.  For example:
-
-{{FileBox|filename=grub.conf|1=
-title Gentoo Linux 3.4.0-gentoo
-root (hd0,0)
-kernel /boot/kernel-3.4.0-gentoo crypt_root=UUID=<encrypted partition uuid> root=/dev/mapper/root
-initrd /boot/initramfs-3.4.0-gentoo
-}}
-
-{{Note|Note TRIM support may be enabled if the encrypted device is capable (ie. SSD) with root_trim{{=}}yes but please read first about the security
-implications of this outlined in the --allow-discards section of the [https://gitlab.com/cryptsetup/cryptsetup/wikis/home cryptsetup wiki].}}
-
-Further information can be found in the [[genkernel|genkernel article]].
-
-=== Dracut ===
-
-The {{Package|sys-kernel/dracut}} package was ported from the RedHat project and serves a similar tool for generating an initramfs. Some modules may be desired, please refer to [[Dracut | dracut]]. Generally, the following command will generate a usable default initramfs.
-
-{{RootCmd|dracut -a crypt}}
-
-The initrd will require parameters to tell it how to decrypt the drive, and they are supplied the same way as other kernel parameters.  For example:
-
-{{FileBox|filename=grub.conf|1=
-title Gentoo Linux 3.4.0-gentoo
-root (hd0,0)
-kernel /boot/kernel-3.4.0-gentoo root=UUID=<root filesystem uuid> rd.luks.uuid=<encrypted partition uuid>
-initrd /boot/initramfs-3.4.0-gentoo.img
-}}
-{{Note|Dracut will match UUIDs that are not complete as long as they are not ambiguous, so it is possible to only enter the first stanza for brevity/clarity desired}}
-{{Note|Note TRIM support may be enabled if the encrypted device is capable (ie. SSD) with rd.luks.allow-discards but please read first about the security
-implications of this outlined in the --allow-discards section of the [https://gitlab.com/cryptsetup/cryptsetup/wikis/home cryptsetup wiki].}}
-
-For a comprehensive list of luks options within dracut please see the section in the [https://www.kernel.org/pub/linux/utils/boot/dracut/dracut.html#_crypto_luks dracut manual].
-
-=== Mkinitramfs-LL ===
-
-The unofficial [https://github.com/tokiclover/mkinitramfs-ll sys-kernel/mkinitramfs-ll] (found in [https://github.com/tokiclover/bar-overlay tokiclover's bar-overlay]) is a lightweight and modular variant of the previous well known initramfs generating tools which comes with udev free dependency. It depends only on [[busybox]] with [[mdev]] by default and depends on extra packages for additional functionalities. So, nor bash, coreutils nor util-linux is bundled into the initramfs.
-Extra flexibilities are offered as well, like the possibility to have DM-Crypt LUKS on top of [[LVM]] or vice versa, [[btrfs]] or [[ZFS]] on top of DM-Crypt LUKS, DM-Crypt LUKS on top of RAID, detached header (to a device or a file) for dm-crypt LUKS et al.
-
-{{RootCmd|mkinitramfs-ll --luks --lvm --firmware{{=}}iwlwifi-5000}}
-
-Use the following GRUB2 configuration excerpt to get going for LVM/LUKS and regular key file on a removable device setup.
-
-{{FileBox|filename=/etc/default/grub|<pre>
-...
-GRUB_CMDLINE_LINUX="root=<VG-LV> luks=reg:LABEL=PENDRIVE:/key.reg lvm=<MAPPING>-UUID=<uuid>"
-...</pre>}}
-
-{{Note|
-There is an optional environment variable in the configuration file (mkinitramfs-ll.conf) to set environment variables that have the same effect as the the kernel command line arguments that let boot with a kernel cmdline free kernel. This ''default'' cmdline (as environment variables), however, can be disabled at run time if necessary by appending ''env{{=}}No'' cmdline argument.
-}}
-
-== See also ==
-
-* {{See also|Genkernel}}
-* {{See also|Dracut}}
-* {{See also|Initramfs}}
-* [[EFI_stub_kernel#Optional:_Initramfs|Initramfs (EFI stub kernel)]] - Configuration of the initramfs.
-
-</translate>
-
-[[Category:Core system]]
+[[category:Core system]]
