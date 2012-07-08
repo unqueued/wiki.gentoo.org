@@ -1,259 +1,64 @@
-{{Lowercase title}}
-{{InfoBox stack
-|{{InfoBox github|vaeth/eix/|header=true}}
-|{{InfoBox package|app-portage/eix}}
-}}
+'''eix''' from [[http://eix.berlios.de/ Berlios]] is a set of utilities for searching, diffing and updating a binary cache of your local portage-trees.
 
-{{c|eix}} is [[Article description::a set of utilities for searching and diffing local ebuild repositories using a binary cache.]]
+It is made to be more efficient and flexible than emerge's search functionality, comes with colorized output and helps you to more easily find the package information you need.
 
-It is made to be more efficient and flexible than the {{c|emerge --search}} command. {{c|eix}} comes with colorized output which helps users easily find the needed package information.
+__TOC__
 
 == Installation ==
 
-=== Emerge ===
+You can install eix using
 
-Install {{Package|app-portage/eix}}:
+{{RootCmd|emerge -a eix}}
 
-{{Emerge|app-portage/eix}}
+after you have done so it is important that you first update its cache before using it.
 
-== Configuration ==
-
-=== Files ===
-
-* {{Path|/etc/eix-sync.conf}} - Stores commands and configurations for {{c|eix-sync}}
-* {{Path|/etc/eixrc}} - {{c|eix}}'s global configuration file.
-* {{Path|~/.eixrc}} - {{c|eix}}'s per-user configuration file.
-
-=== Environment variables ===
-
-* <var>EIXRC</var> - If this variable can set a new location for {{c|eix}}'s global configuration file (see above).
-* <var>EIX_SYNC_OPTS</var>, <var>EIX_SYNC_CONF</var>, <var>EIX_REMOTE_OPTS</var>, <var>EIX_LAYMAN_OPTS</var>, <var>EIX_TEST_OBSOLETE_OPTS</var> - Security relevant variables. See the man page for more details.
-
-=== Managing the cache ===
-
-==== Updating the cache manually ====
-
-After the installation has finished, it is important to update the cache to index all packages on the system. Running following command will update the local {{c|eix}} cache:
+== Updating the cache ==
 
 {{RootCmd|eix-update}}
 
-==== Updating the cache with each sync ====
+will update the local eix cache to reflect changes to the portage tree.
 
-After each update of the Portage tree the cache needs to be updated. Additionally, one may want to see a diff of the changes since the last sync: 
-
-{{RootCmd
-|cp -a /var/cache/eix/portage.eix /var/cache/eix/previous.eix
-|eix-update
-|eix-diff
-}}
-
-The following 2 methods are used to automatically update the cache with each sync. 
-{{Note|Method 1 is preferred, as it is able to work in combination with all possible {{c|emaint sync}} commands (see [[Project:Portage/Sync|Portage plug-in sync system specification]]).}}
-
-===== Method 1: Using Portage's postsync hook =====
-
-After each sync all executable scripts in the directory {{Path|/etc/portage/postsync.d/}} are called: 
-
-{{FileBox|filename=/etc/portage/postsync.d/eix|lang=bash|1=
-#!/bin/sh
-if <nowiki>[[</nowiki> -e /var/cache/eix/portage.eix <nowiki>]]</nowiki>; then 
-    cp -a /var/cache/eix/portage.eix /var/cache/eix/previous.eix; 
-fi
-eix-update
-if <nowiki>[[</nowiki> -e /var/cache/eix/previous.eix <nowiki>]]</nowiki>; then 
-    eix-diff; 
-fi
-}}
-
-Do not forget to make the file executable:
-{{RootCmd|chmod +x /etc/portage/postsync.d/eix}}
-
-If additional ebuild repositories are used, {{c|eix-update}} can become quite slow, as many of them do not provide pregenerated caches. To speed up the process of {{c|eix-update}}, one can hook portage to regenerate the cache for each repository after each sync. An example for this is given in the file {{Path|/etc/portage/repo.postsync.d/example}}. We can copy this example to {{Path|/etc/portage/repo.postsync.d/egencache}} and make it executable. Note the ''--jobs'' arg to egencache - setting this to the output of {{c|nproc}} (as shown below) causes it to use all available cpus. If less impact is desired, of course this can be set differently.
-
-{{FileBox|filename=/etc/portage/repo.postsync.d/egencache|lang=bash|1=
-#!/bin/sh
-
-# The repository name.
-repository_name=${1}
-# The URI to which the repository was synced.
-sync_uri=${2}
-# The path to the repository.
-repository_path=${3}
-
-# Portage assumes that a hook succeeded if it exits with 0 code. If no
-# explicit exit is done, the exit code is the exit code of last spawned
-# command. Since our script is a bit more complex, we want to control
-# the exit code explicitly.
-ret=0
-
-if [ -n "${repository_name}" ]; then
-        # Repository name was provided, so we're in a post-repository hook.
-        echo "* In post-repository hook for ${repository_name}"
-        echo "** synced from remote repository ${sync_uri}"
-        echo "** synced into ${repository_path}"
-
-        # Gentoo comes with pregenerated cache but the other repositories
-        # usually don't. Generate them to improve performance.
-        if [ "${repository_name}" != "gentoo" ]; then
-                if ! egencache --update --repo="${repository_name}" --jobs=$(nproc)
-                then
-                        echo "!!! egencache failed!"
-                        ret=1
-                fi
-        fi
-fi
-
-
-# Return explicit status.
-exit "${ret}"
-}}
-
-===== Method 2: Using eix-sync =====
-
-Alternatively, one can use {{c|eix-sync}} tool from {{c|eix}} itself:
+To spare out some typing work, you can combine this with syncing emerge:
 
 {{RootCmd|eix-sync}}
 
-The above command is a shorthand way to running these commands sequentially:
+which is shorthand to running both commands:
 
-{{RootCmd
-|emerge --sync
-|cp -a /var/cache/eix/portage.eix /var/cache/eix/previous.eix
-|eix-update
-|eix-diff
-}}
+{{RootCmd|emerge --sync}}
+{{RootCmd|eix-update}}
 
-If [[ebuild repository|ebuild repositories]] are used, it is recommended to configure {{c|eix}} to synchronize them too:
+You will need to run either eix-update or eix-sync every time you plan to sync to keep the eix cache up-to-date.
 
-{{FileBox|filename=/etc/eix-sync.conf|1=
-*
-}}
+=== Adding overlays to the cache ===
 
-To speed up {{c|eix-update}} in case of large repositories have a look at [[Ebuild repository/eix-sync|this page]].
-
-=== Adding remote repositories to the cache ===
-
-Fetch the caches of some layman overlays and store them locally (by default it fetches eix-caches from http://gpo.zugaina.org/eix_cache/eix-cache.tbz2):
+If you want to search not only portage but all the overlays, you can add them to the cache:
 
 {{RootCmd|eix-remote update}}
+{{RootCmd|eix-sync}}
 
-To have the above command be run automatically on each eix-sync, a solution is to use a postsync hook:
-{{FileBox|filename=/etc/portage/postsync.d/eix|lang=bash|1=
-#!/bin/sh
-eix-remote update
-}}
-Do not forget to make the file executable:
-{{RootCmd|chmod +x /etc/portage/postsync.d/eix}}
+== Searching the cache ==
 
-After that you will be able to search all overlays (not only installed ones) using <code>-R</code> option:
+Now that there are package entries in the cache you can search through them.
 
-{{Cmd|eix -R|output=<pre>
-* dev-scheme/termite
-     Available versions:  (~)0.15-r1
-     Homepage:            https://code.google.com/p/termite/
-     Description:         Erlang-style concurrency for Gambit Scheme
+=== Finding more information about eix ===
 
-* x11-terms/termite
-     Available versions:  (~)6[1] (~)7[1] (~)7[3] (~)8[1] (~)8[3] (~)9[1] (~)9[3] (~)10[1] (~)10[3] (~)11[1] (~)11[3] (~)12[1] (~)13[1] (~)13[2] **9999[1] **9999[2] **9999[3] (~)9999[4] (~)9999[5] {nocsd}
-     Homepage:            https://github.com/thestinger/termite
-     Description:         A keyboard-centric VTE-based terminal
+For a quick overview about eix, you can run:
 
-[1] "eroen" layman/eroen
-[2] "gig" layman/gig
-[3] "nightmare" layman/nightmare
-[4] "SoniFrog" layman/SoniFrog
-[5] "zjpxshade" layman/zjpxshade
+{{RootCmd|eix --help | more}}
 
-Found 2 matches
-</pre>}}
+For more detailed information, you can run:
 
-=== Using tmpfs cache ===
-
-This breaks {{c|eix}} because {{Path|/var/cache/eix}} is missing when {{Path|/var/cache}} is mounted:
-
-{{RootCmd|grep /var/cache /etc/fstab|output=<pre>
-none /var/cache tmpfs size=512m 0 0
-</pre>}}
-
-The simple solution is to move the {{c|eix}} cache files away from the default location:
-
-{{RootCmd|cat >> /etc/eixrc/00-eixrc << EOF|output=<pre>
-EIX_CACHEFILE=%{EPREFIX}/var/cache/eix-portage.eix
-EIX_PREVIOUS=%{EPREFIX}/var/cache/eix-previous.eix
-EIX_REMOTE1=%{EPREFIX}/var/cache/eix-remote.eix
-EIX_REMOTE2=%{EPREFIX}/var/cache/eix-remote2.eix
-EIX_REMOTEARCHIVE1=%{EPREFIX}/var/cache/eix-remote.tar.bz2
-EIX_REMOTEARCHIVE2=%{EPREFIX}/var/cache/eix-remote2.tar.bz2
-EOF</pre>}}
-
-Check all new set variables:
-
-{{RootCmd|eix --dump {{!}} grep "EIX_CACHEFILE\{{!}}EIX_PREVIOUS\{{!}}EIX_REMOTE1\{{!}}EIX_REMOTE2\{{!}}EIX_REMOTEARCHIVE1\{{!}}EIX_REMOTEARCHIVE2"|output=<pre>
-EIX_CACHEFILE="%{EPREFIX}/var/cache/eix-portage.eix"
-# EIX_CACHEFILE="%{EPREFIX}/var/cache/eix/portage.eix"
-EIX_PREVIOUS="%{EPREFIX}/var/cache/eix-previous.eix"
-# EIX_PREVIOUS="%{EPREFIX}/var/cache/eix/previous.eix"
-EIX_REMOTE1="%{EPREFIX}/var/cache/eix-remote.eix"
-# EIX_REMOTE1="%{EPREFIX}/var/cache/eix/remote.eix"
-EIX_REMOTE2="%{EPREFIX}/var/cache/eix-remote2.eix"
-# EIX_REMOTE2="%{EPREFIX}/var/cache/eix/remote2.eix"
-EIX_REMOTEARCHIVE1="%{EPREFIX}/var/cache/eix-remote.tar.bz2"
-# EIX_REMOTEARCHIVE1="%{EPREFIX}/var/cache/eix/remote.tar.bz2"
-EIX_REMOTEARCHIVE2="%{EPREFIX}/var/cache/eix-remote2.tar.bz2"
-# EIX_REMOTEARCHIVE2="%{EPREFIX}/var/cache/eix/remote2.tar.bz2"</pre>}}
-
-One side effect is needing to run {{c|eix-update}} after each reboot which will take a few seconds.<br />
-To do so, add a {{c|.start}} script to the {{Path|/etc/local.d/}} ([[Local.d]]) directory:
-
-{{FileBox|filename=/etc/local.d/90_eix-update.start|lang=bash|1=
-#!/bin/sh
-/usr/bin/logger -s "/etc/local.d/90_eix-update.start: executed"
-/usr/bin/eix-update
-}}
-
-This will also write into the {{Path|/var/log/syslog}} log file that it was executed.
-
-Do not forget to make the file executable:
-{{RootCmd|chmod +x /etc/local.d/90_eix-update.start}}
-
-For systemd:
-
-{{FileBox|filename=/etc/systemd/system/eix-update.timer|lang=ini|1=
-[Unit]
-Description=update the eix database 15min after boot
-
-[Timer]
-OnBootSec=15min
-OnUnitActiveSec=1d
-
-[Install]
-WantedBy=timers.target
-
-}}
-
-And the service file:
-
-{{FileBox|filename=/etc/systemd/system/eix-update.service|lang=ini|1=
-[Unit]
-Description=update the eix database 15min after boot and every day if system is running
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/eix-update
-User=portage
-Group=systemd-journal
-}}
-
-== Usage ==
+{{RootCmd|man eix}}
 
 === Searching for packages ===
 
-==== Simple search ====
+Let's say we want to find package names containing kernel, we can simply do:
 
-To find package names containing ''kernel'' keyword:
+{{RootCmd|eix kernel}}
 
-{{Cmd|eix kernel|output=<pre>
-* app-admin/eclean-kernel
+This will return something like:
+
+<pre>* app-admin/eclean-kernel
      Available versions:  (~)0.3 {{python_targets_python2_6 python_targets_python2_7}}
      Homepage:            https://bitbucket.org/mgorny/eclean-kernel/
      Description:         Remove outdated built kernels
@@ -294,184 +99,18 @@ To find package names containing ''kernel'' keyword:
      Homepage:            http://www.gentoo.org
      Description:         Gentoo automatic kernel building scripts
 
-Found 8 matches.
-</pre>}}
+Found 8 matches.</pre>
 
-{{Note|
-The displayed versions are colorized and have the following meanings:
+If you want only installed packages, you can use -I.
 
-{{color|#0C680C|stable}}<br />
-{{color|#EAC117|unstable or testing and unkeyworded}}<br />
-{{color|#C02020|unkeyworded or masked}}
-}}
+{{RootCmd|eix -I kernel}}
 
-==== Searching for installed packages ====
-
-Search for installed packages using the <code>-I</code> option:
-
-{{Cmd|eix -I kernel|output=<pre>
-[I] sys-kernel/genkernel
+<pre>[I] sys-kernel/genkernel
      Available versions:  3.4.16 (~)3.4.16.1 3.4.20 (~)3.4.21.2 (~)3.4.22.1 (~)3.4.23.1 (~)3.4.24 3.4.24_p1 (~)3.4.25.1 (~)3.4.26 (~)3.4.27 (~)3.4.28 (~)3.4.29 (~)3.4.32 (~)3.4.33.1 (~)3.4.34 (~)3.4.35 (~)3.4.36 **9999 {{crypt cryptsetup ibm selinux}}
      Installed versions:  3.4.36(01:30:10 AM 07/01/2012)(crypt -cryptsetup -ibm -selinux)
      Homepage:            http://www.gentoo.org
-     Description:         Gentoo automatic kernel building scripts
-</pre>}}
+     Description:         Gentoo automatic kernel building scripts</pre>
 
-==== Searching in package descriptions ====
+Besides searching for package names, you can also search in descriptions using -S which will give a lot more results.
 
-To search in package descriptions use the <code>-S</code> option. It is possible to print out results in a compact list using <code>-c</code>:
-
-{{Cmd|eix -S -c corba|output=<pre>
-[N] dev-ada/polyorb (~2.1.0): A CORBA implementation for Ada
-[I] dev-libs/libIDL (0.8.14{tbz2}@07/10/11): CORBA tree builder
-[N] gnome-base/libbonobo (2.24.3): GNOME CORBA framework
-[I] gnome-base/orbit (2.14.19-r1(2){tbz2}@07/10/11): ORBit2 is a high-performance CORBA ORB
-[N] net-misc/mico (~2.3.13-r5): A freely available and fully compliant implementation of the CORBA standard
-[N] net-misc/omniORB (4.1.4-r1): A robust, high-performance CORBA 2 ORB
-</pre>}}
-
-==== Searching in package categories ====
-
-Search for certain category using the <code>-C</code> option and print out the results in a compact list (<code>-c</code>):
-
-{{Cmd|eix -C -c app-officeext|output=<pre>
-[N] app-officeext/barcode (1.3.5.0): Extension for reading barcodes
-[N] app-officeext/ct2n (1.4.0): Extension for converting text to numbers
-[N] app-officeext/dmaths (3.4.2.2): Mathematics Formula Editor Extension
-[N] app-officeext/languagetool (1.7): Style and Grammar Checker for libreoffice
-[N] app-officeext/ooo2gd (3.0.0): Extension for export to Google docs, zoho and WebDAV
-[N] app-officeext/sun-templates (~1.0.0): Collection of sun templates for various countries.
-[N] app-officeext/texmaths (0.35): LaTeX Equation Editor for LibreOffice
-</pre>}}
-
-==== Searching by license ====
-
-Search for packages that are licensed under a specific license or subset of licenses using the <code>-L</code> option. For example's sake let the license be an End-User License Agreement (a type of proprietary license), or EULA and let's limit the results to the games-rpg category (as without a category limitation the results would be too long to fit comfortably in this article):
-
-{{Cmd|eix -Cc games-rpg -L "EULA"|output=<pre>
-[N] games-rpg/arx-fatalis-data ((~)1.21-r3): Arx Fatalis data files
-[N] games-rpg/nwn (1.69-r1): role-playing game set in a huge medieval fantasy world of Dungeons and Dragons
-[N] games-rpg/nwn-data (1.29-r5): Neverwinter Nights Data Files
-[N] games-rpg/runescape-launcher (2.2.4): Official RuneScape NXT client launcher
-</pre>}}
-
-==== Excluding results ====
-
-One can exclude results that, for example, have EULA in their license field using the <code>--not</code> option:
-
-{{Cmd|eix --not -L "EULA"}}
-
-(output not shown as it is too long).
-
-==== Searching for installed obsolete packages ====
-
-Search for obsolete packages on the system using the {{c|eix-test-obsolete}} command (If will in fact search for packages not installed but mentioned in the config files.):
-
-{{Cmd|eix-test-obsolete|output=<pre>
-No non-matching entries in /etc/portage/package.keywords.
-Non-matching entries in /etc/portage/package.accept_keywords:
-
-net-wireless/iwl5000-code ~amd64
-app-text/xpdf ~amd64
---
-
-No non-matching entries in /etc/portage/package.mask.
-No non-matching entries in /etc/portage/package.unmask.
-No non-matching or empty entries in /etc/portage/package.use.
-No non-matching or empty entries in /etc/portage/package.env.
-No non-matching or empty entries in /etc/portage/package.license.
-No non-matching or empty entries in /etc/portage/package.cflags.
-The names of all installed packages are in the database.
-
-
-Redundant in /etc/portage/package.{,accept_}keywords:
-
-... considered as REDUNDANT_IF_WEAKER
-[I] www-client/firefox-bin (14.0.1{tbz2}@02/08/12): Firefox Web Browser
-[I] www-client/opera-next (12.50.1546{tbz2}@17/08/12): A fast and secure web browser and Internet suite
-[N] www-client/seamonkey-bin (2.11): Mozilla Application Suite - web browser, email, HTML editor, IRC
-Found 3 matches.
-
-
-... considered as REDUNDANT_IF_NO_CHANGE
-[I] app-laptop/laptop-mode-tools (1.60-r1{tbz2}@18/01/12): Linux kernel laptop_mode user-space utilities
-[I] media-sound/ncmpc (0.20{tbz2}@02/04/12): A ncurses client for the Music Player Daemon (MPD)
-[I] media-sound/ncmpcpp (0.5.10{tbz2}@02/04/12): An ncurses mpd client, ncmpc clone with some new features, written in C++
-[N] media-sound/pms ((~)0.42{tbz2}): Practical Music Search: an open source ncurses client for mpd, written in C++
-[I] www-client/opera (12.01.1532{tbz2}@02/08/12): A fast and secure web browser and Internet suite
-[N] www-client/seamonkey-bin (2.11): Mozilla Application Suite - web browser, email, HTML editor, IRC
-[I] www-plugins/adobe-flash (11.2.202.238{tbz2}@18/08/12): Adobe Flash Player
-[I] x11-misc/dclock (2.2.2_p4{tbz2}@02/04/12): Digital clock for the X window system.
-[I] x11-misc/xosview (1.9.3{tbz2}@29/04/12): X11 operating system viewer
-[I] x11-wm/fvwm (2.6.5{tbz2}[2]@12/05/12): An extremely powerful ICCCM-compliant multiple virtual desktop window manager
-[1] "mpd" /var/lib/layman/mpd
-[2] "testing" /usr/local/portage
-
-Found 10 matches.
-
-
-Not installed but in /etc/portage/package.{,accept_}keywords:
-[N] media-sound/pms ((~)0.42{tbz2}): Practical Music Search: an open source ncurses client for mpd, written in C++
-[N] www-client/seamonkey-bin (2.11): Mozilla Application Suite - web browser, email, HTML editor, IRC
-[N] x11-libs/libaosd ((~)0.2.7{tbz2}): An advanced on screen display (OSD) library
-[N] x11-plugins/wmtime ((~)1.0_beta2_p10): applet which displays the date and time in a dockable tile
-Found 5 matches.
-
-No  redundant  entries in /etc/portage/package.mask
-No uninstalled entries in /etc/portage/package.mask
-No  redundant  entries in /etc/portage/package.unmask
-No uninstalled entries in /etc/portage/package.unmask
-Skipping check:  redundant  entries in /etc/portage/package.use
-Skipping check: uninstalled entries in /etc/portage/package.use
-Skipping check:  redundant  entries in /etc/portage/package.env
-Skipping check: uninstalled entries in /etc/portage/package.env
-No  redundant  entries in /etc/portage/package.license
-No uninstalled entries in /etc/portage/package.license
-Skipping check:  redundant  entries in /etc/portage/package.cflags
-Skipping check: uninstalled entries in /etc/portage/package.cflags
-
-Installed packages with a version not in the database (or masked):
-[D] sys-fs/udev (171-r6{tbz2}@26/05/12 -> ??): Linux dynamic and persistent device naming support (aka userspace devfs)
-[D] x11-misc/xmobar (0.13{tbz2}@21/03/12 -> ~0.14): A Minimalistic Text Based Status Bar
-Found 2 matches.
-</pre>}}
-
-=== Format strings ===
-
-This is probably the most powerful aspect of {{c|eix}}, but the documentation is hard to understand. {{c|eix}} has a mini-language for specifying more precise queries and output formats than are possible using only the basic options. The format string is specified as the option argument to the <code>--format</code> option. There are basically two major concepts: properties and variables.
-
-* '''Properties:''' Each package has a set of associated properties that can either be printed or used as part of a predicate in a conditional block.
-* '''Variables:''' A variable can be any environment variable set in the environment of eix, or any of the variables printed from the output of {{c|eix --dump}}.
-
-==== Category/name-version and license ====
-
-When creating distributed media {{c|eix}} can be used to output a versioned package list along with the associated license information:
-
-{{Cmd|NAMEVERSION{{=}}"<category>/<name>-<version>" eix -I --format 'Package: <installedversions:NAMEVERSION> {{!}} License: <licenses>\n'}}
-
-==== Conditional blocks ====
-
-Conditional blocks take can 3 forms, each with an optional RHS, each of which can be optionally negated:
-
-{{CodeBox|title=If-then string comparison|1={[!]PROPERTY=RHS}TCODE{} }}
-{{CodeBox|title=If-then predicate|1={[!]PROPERTY}TCODE{} }}
-{{CodeBox|title=If-then-else string comparison|1={[!]PROPERTY=RHS}TCODE{else}FCODE{} }}
-{{CodeBox|title=If-then-else predicate|1={[!]PROPERTY}TCODE{else}FCODE{} }}
-{{CodeBox|title=Assignment|1={[!]*VARIABLE=RHS} }}
-{{CodeBox|title=Assign 1 or empty string|1={[!]*VARIABLE} }}
-
-== Tips ==
-
-=== Tmux and Screen users should disable status line updates ===
-
-When using {{c|tmux}} with automatic window renaming enabled (that is <code>set -g automatic-rename on</code> has been ran in the {{c|tmux}} configuration file) or {{c|screen}}, status line updates should be disabled. Otherwise, every time {{c|eix-update}} is ran the title of the window will be renamed to something like "eix-update: Finished*".
-
-To disable status line updates, run the following command:
-
-{{RootCmd|<nowiki>echo "NOSTATUSLINE=true" >> /etc/eixrc/00-eixrc</nowiki>}}
-
-== See also ==
-
-* {{See also|Equery}}
-
-[[Category:Portage tools]]
+{{RootCmd|eix -S kernel}}
