@@ -1,121 +1,54 @@
 {{DISPLAYTITLE:lm_sensors}}
 {{InfoBox stack
-|{{InfoBox homepage|https://github.com/groeck/lm-sensors|text=lm_sensors|header=true}}
-|{{InfoBox wikipedia}}
-|{{InfoBox gitweb|https://github.com/groeck/lm-sensors|text=lm_sensors|raw=true}}
+  |{{InfoBox wikipedia|lm_sensors|header=true}}
 }}
-{{c|lm_sensors}} is [[Article description::a set of hardware monitoring user space utilities.]] They are helpful for tracking temperature, fan, and voltage data.
+This article describes the setup of ''lm_sensors'' to monitor temperature, fan and voltage sensors.
 
 == Installation ==
 
-Before {{c|lm_sensors}} will work as intended, the currently running Linux kernel must have the proper modules available to or built-in to the binary in order to give lm_sensors the sensor-related data needed for correct operation. There is a chance these modules have been previously built as modules or are currently included the Kernel's binary (built-in). It is also possible the Kernel is lacking the modules or features. If something is missing then the user will have to take the actions necessary to correct the absence.
-
-In any case a simple hardware detection should be performed using the {{c|sensors-detect}} tool to scan the hardware on the motherboard. Once the hardware has been determined the program will display the output on what is or is not included in the kernel configuration. This step will be performed after installation during the configuration section below.
-
-Another option is to check the [https://web.archive.org/web/20150901174206/http://www.lm-sensors.org:80/wiki/Devices Supported Device List] on archive.org. Finally, {{c|sensors-detect}} detects the supported drivers if all drivers in kernel section ''Hardware Monitoring support'' are enabled. 
+=== Hardware detection ===
+You can check the [http://www.lm-sensors.org/wiki/Devices Supported Device List]. Alternatively you can enable all drivers and let the <tt>sensors-detect</tt> programm do the work for you.
 
 === Kernel ===
-
-[[I2C]] support is needed along with the following kernel options:
-
-{{KernelBox|title=Enable I2C_CHARDEV and hardware Monitoring support in the kernel|1=
+You need [[I2C]] support. Also you need to activate the following kernel options:
+{{Kernel||
 Device Drivers  --->
-    -*- I2C support  --->
-        <*>   I2C device interface
     <*> Hardware Monitoring support  --->
-
-        Select a driver, e.g.:
-        [*] Intel Core/Core2/Atom temperature sensor (coretemp)
+{{User:Astaecker/Kernel table|level=3
+  |{{User:Astaecker/Kernel table row|Intel Core/Core2/Atom temperature sensor|coretemp|}}
+}}
+{{Clear}}
 }}
 
-=== USE flags ===
+=== Software ===
+Portage knows the global USE flag ''lm_sensors'' for enabling support for lm_sensors in other packages. Enabling this USE flag will pull in {{Package|sys-apps/lm_sensors}} automatically:
+{{File|/etc/make.conf||
+USE{{=}}"... lm_sensors ..."
+}}
+The USE flags of lm_sensors are:
+{{USEflag|package=sys-apps/lm_sensors
+|sensord
+|static-libs
+}}
 
-Portage knows the global USE flag [https://packages.gentoo.org/useflags/lm_sensors <code>lm_sensors</code>] for enabling support for {{c|lm_sensors}} in other packages.
-
-Local USE flags include:
-
-{{USEflag|package=sys-apps/lm_sensors}}
-
-=== Emerge ===
-
-In case any of the packages having the <code>lm_sensors</code> USE flag is installed, set the flag per package in {{Path|[[:/etc/portage/package.use]]}} or globally in {{Path|[[:/etc/portage/make.conf#USE|/etc/portage/make.conf]]}} and update @world so that {{Package|sys-apps/lm_sensors}} will be pulled in as dependency:
-
-{{Emerge|params+=--changed-use --deep|@world}}
-
-Otherwise install it directly:
-
-{{Emerge|sys-apps/lm_sensors}}
+After setting this you want to update your system so the changes take effect:
+{{RootCmd|emerge --ask --changed-use --deep world}}
 
 == Configuration ==
+If you build all kernel options into the kernel, you can skip the next section and proceed with [[#Testing|testing]]. Else configure your modules.
 
-If all drivers were built into the kernel, skip to the next section and proceed with [[#Testing|testing]]. Otherwise configure the modules as needed.
-
-=== Modules ===
-
-{{Warning|Be aware using {{c|sensors-detect}} to probe the hardware in the system may result in a frozen system. Take some ''special caution'' by reading [https://web.archive.org/web/20150823034732/http://www.lm-sensors.org:80/wiki/Documentation the official documentation] before running {{c|lm_sensors}} on '''IBM Thinkpads'''.}}
-
-The {{c|sensors-detect}} ({{Path|/usr/sbin/sensors-detect}}) tool can be used to find available sensors and associated kernel modules:
-
+=== Configure modules ===
+You need to run <tt>sensors-detect</tt> to detect your sensors and the needed kernel modules:
 {{RootCmd|sensors-detect}}
+Follow the instructions and answer the last question, whether <tt>/etc/conf.d/lm_sensors</tt> should be generated/overwritten, with "yes".
 
-Follow the instructions, it will probe which sensors are available and load the relevant kernel modules.
-The final question will allow you to write a config file in {{Path|/etc/modules-load.d}} that contains the kernel modules that need to be loaded. This will only work if the <code>modules-load</code> runscript is started, add it to the <code>default</code> runlevel if necessary.
-
-If you use <code>/etc/conf.d/modules</code> to declare which kernel modules to load simply add the necessary kernel modules as shown by <code>sensors-detect</code> to it.
-
-=== Services ===
-
-==== OpenRC ====
-
-Start the sensors daemon now:
-
-{{RootCmd|rc-service lm_sensors start}}
-
-To start {{c|lm_sensors}} on system boot add it the default runlevel:
-
-{{RootCmd|rc-update add lm_sensors default}}
-
-==== systemd ====
-
-Start the sensors daemons now:
-
-{{RootCmd|systemctl start lm_sensors}}
-
-Enable the sensors daemon for future boots:
-
-{{RootCmd|systemctl enable lm_sensors}}
-
-== Usage ==
-
-=== Invocation ===
-
-{{Invocation|sensors --help|output=<pre>
-Usage: sensors [OPTION]... [CHIP]...
-  -c, --config-file     Specify a config file
-  -h, --help            Display this help text
-  -s, --set             Execute `set' statements (root only)
-  -f, --fahrenheit      Show temperatures in degrees fahrenheit
-  -A, --no-adapter      Do not show adapter for each chip
-      --bus-list        Generate bus statements for sensors.conf
-  -u                    Raw output
-  -v, --version         Display the program version
-
-Use `-' after `-c' to read the config file from stdin.
-If no chips are specified, all chip info will be printed.
-Example chip names:
-	lm78-i2c-0-2d	*-i2c-0-2d
-	lm78-i2c-0-*	*-i2c-0-*
-	lm78-i2c-*-2d	*-i2c-*-2d
-	lm78-i2c-*-*	*-i2c-*-*
-	lm78-isa-0290	*-isa-0290
-	lm78-isa-*	*-isa-*
-	lm78-*
-</pre>}}
+You can now start ''lm_sensors'':
+{{RootCmd|/etc/init.d/lm_sensors start}}
+To start ''lm_sensors'' at boot time, add it your default runlevel:
+{{RootCmd|rc-update add lm_sensors}}
 
 === Testing ===
-
-Now test if everything works:
-
+Now you can test, if everything works, e.g.:
 {{Cmd|sensors|output=<pre>
 coretemp-isa-0000
 Adapter: ISA adapter
@@ -124,10 +57,9 @@ Core 1:       +48.0°C  (high = +100.0°C, crit = +100.0°C)
 </pre>}}
 
 == Troubleshooting ==
+See the [http://www.lm-sensors.org/wiki/FAQ/Chapter3 lm_sensors FAQ].
 
-See the [https://hwmon.wiki.kernel.org/faq?s%5b%5d=lm_sensors lm_sensors FAQ].
-
-
+== External resources ==
+* [http://www.lm-sensors.org/ homepage]
 
 [[Category:Sensors]]
-[[Category:Monitoring]]
