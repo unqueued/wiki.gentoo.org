@@ -1,73 +1,7 @@
-This article [[Article description::describes how to implement automounting of USB devices on a machine using mdev as the device manager.]] There are many links on the web describing how to implement automounting on embedded devices, running busybox with mdev. They all seem to assume only one user, namely root. It's more of a challenge to allow regular users to automount and unmount, without compromising overall system security. Unless otherwise specified, all steps below are to be done by root. This example is done on Gentoo Linux, but it is hopefully portable to any Linux distro.
+'''This page is still "under construction". This line will be removed when it's ready for use.'''
 
-== Constraints (or "why do it this way?") ==
-# Why use pmount and pumount?
-## pmount supports mounting FAT-based filesystems with desired permissions and assigns user root and group plugdev.
-## pmount optionally supports assigning a user-selected name to the mounted directory, similar to "writing udev rules". That functionality has not yet been implemented in this work, but using pmount leaves the door open to doing so later.
-## pumount (pmount's version of "umount") is restricted to acting in the {{path|/media}} directory. This is a security feature, in that it won't unmount devices whose directories are not in the /media directory.
-# Why does automounting use {{path|/media}}?
-#: Because pmount is currently hard-coded to automount in {{path|/media}}. It would require a change to the source code of pmount to use a different directory.
-# Why are scripts launched with <code>#!/bin/busybox ash</code> rather than <code>#!/bin/bash</code>?
-#: If a machine is running mdev as the device manager, it's guaranteed to have busybox present. Although this is currently implemented on Gentoo Linux, it is hopefully portable to other Linux distros, and embedded systems. There may be lightweight distros that do not have bash loaded.
-# Why is the main automount script under {{path|/lib/mdev}}?
-#: Because that's where mdev already puts some scripts under Gentoo. Keeping mdev-related scripts in the same area makes things easier to keep track of.
+This page describes how to implement automounting of USB devices on a machine using mdev as the device manager. There are many links on the web describing how to implement automounting on embedded devices, running busybox with mdev. They all seem to assume only one user, namely root. It's more of a challenge to allow regular users to automount and unmount, without compromising overall system security.
 
-== Preliminary Setup ==
-* This page assumes a Linux distro using busybox's mdev device manager as described in [[Mdev|the mdev page]].
-* Create the directory {{path|/media}}
-* Regular user accounts that need to access FAT-formatted USB keys must be added to group "plugdev".
-* Install {{package|sys-apps/pmount}} and {{package|app-admin/sudo}}, if they have not been installed yet.
-* In {{path|/etc/sudoers.d/}} create a file {{path|001}} (if it doesn't exist).  To the file add a line like:
-{{fileBox|filename=/etc/sudoers.d/001|1=
- USERID  HOSTNAME {{=}} (root) NOPASSWD: /bin/umount /media/*
-}}
-Replace "USERID" and "HOSTNAME" with the actual regular userid and the actual hostname.  If you have 2 or more users that need to unmount USB devices in {{path|/media}}, add a separate line for each one.
-
-== Scripts for use for unmounting ==
-Create a file {{path|/usr/local/bin/ux}} containing the following lines:
-{{fileBox|filename=/usr/local/bin/ux|lang=bash|1=
- #!/bin/busybox ash
- pumount ${1}
-}}
-
-Then, '''as local user''' for each user that needs to unmount USB devices that have been automounted, create an executable script "um" in the user's {{path|~/bin}} directory containing the lines:
-{{fileBox|filename=~/bin/um|lang=bash|1=
- #!/bin/busybox ash
- sudo /usr/local/bin/ux ${1}
-}}
-
-== Theoretical background ==
-For more information on mdev scripts, see [http://git.busybox.net/busybox/plain/docs/mdev.txt Busybox's mdev primer]. For the purposes of this page, here are the critical details:
-* On a machine running mdev, the pseudo-file {{path|/proc/sys/kernel/hotplug}} should contain a string with the full path and filename of the hotplug handler. On Gentoo linux this is {{path|/sbin/mdev}}
-* When the system boots up, mdev is invoked as <code>mdev -s</code> to populate {{path|/dev}}. This invocation supplies a very minimal environment, only the device name. When a USB device is inserted or removed, there can be one or more events. The insertion/removal events have additional environmental variables available. Testing for these variables allows a script to determine whether the event is device-population at bootup, or insertion/removal later on.
-* The file {{path|/etc/mdev.conf}} is a list of patterns that is consulted by mdev. If a pattern is matched, certain attributes can be set for the device (user:group, permissions, symlinks). But most important for our purposes, commands can be executed. This is how auto(un)mounting is accomplished.
-
-== Config files and scripts ==
-* Create directory {{path|/lib/mdev/autousb/}} amd executable file {{path|/lib/mdev/autousb/automount}}
-*: mkdir /lib/mdev/autousb
-*: touch /lib/mdev/autousb/automount
-*: chmod 744 /lib/mdev/autousb/automount
-* copy the contents of the automount script, listed at [[/automount]] into your file {{path|/lib/mdev/autousb/automount}}
-* In file {{path|/etc/mdev.conf}} make the following change. Comment out the line
- sd[a-z].* root:disk 660 */lib/mdev/usbdisk_link
-and replace it with the line
- sd[a-z].* root:disk 660 */lib/mdev/autousb/automount
-{{fileBox|filename=/etc/mdev.conf|1=
- ...
- # sd[a-z].* root:disk 660 */lib/mdev/usbdisk_link
- sd[a-z].* root:disk 660 */lib/mdev/autousb/automount
- ...
-}}
-
-== Usage notes ==
-* Rebooting is not required. Automounting should now work.
-* When a USB device with recognizable partition(s) is inserted, a corresponding subdirectory is created in {{path|/media/}}, e.g. {{path|/media/sdc1/}}, and mounted with filesystem type "auto"
-* If script files and sudo permissions have been set up as described above, a local user can unmount {{path|/media/sdc1/}} with the command <code>um sdc1</code>
-* The subdirectory {{path|/media/sdc1/}} will not be deleted until the USB device is physically removed
-* Note that all unmounted subdirectories in {{path|/media/}} will be removed anytime an external USB device is removed. Do not manually create create subdirectories in /media
-
-== External resources ==
-* [http://git.busybox.net/busybox/plain/docs/mdev.txt Busybox's mdev documentation]
-
-[[Category:Core system]]
-[[Category:Daemons]]
+== Software Requirements ==
+* This page assumes a Gentoo machine using busybox's mdev device manager as described in [[Mdev|the mdev page]]
+* Install the programs
