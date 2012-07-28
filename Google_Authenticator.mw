@@ -1,47 +1,39 @@
-{{InfoBox stack
-|{{InfoBox homepage|https://github.com/google/google-authenticator|header=true}}
-|{{InfoBox wikipedia}}
-}}
+This article describes an easy way to setup two-factor authentication on Gentoo.  The [http://code.google.com/p/google-authenticator google-authenticator] project provides mobile applications and a PAM module that make this possible.  Setting up two-factor authentication using Google Authenticator requires a supported mobile device.  Currently Android, iOS and Blackberry are supported.   Note that this authentication method doesn't talk to Google's servers, it just uses Google's two-factor authentication protocol and (open source) code.
 
-This article [[Article description::describes an easy way to setup two-factor authentication on Gentoo.]] The google-authenticator project provides mobile applications and a PAM module that make this possible. Setting up two-factor authentication using Google Authenticator requires a supported mobile device. Currently Android, iOS and Blackberry are supported. Note that this authentication method doesn't talk to Google's servers, it just uses Google's two-factor authentication protocol and (open source) code.
+Google has a pretty good video description of how their two-factor authentication system works [https://support.google.com/accounts/bin/answer.py?hl=en&topic=1056283&answer=180744&rd=1] for their web-based systems.  Using the code provided by the google-authenticator project it's possible to setup the same authentication method for your own systems.
 
-Google has a pretty good video description of how their two-factor authentication system works [https://support.google.com/accounts/bin/answer.py?hl=en&topic=1056283&answer=180744&rd=1] for their web-based systems. Using the code provided by the google-authenticator project it's possible to setup the same authentication method for your own systems.
+=Host Setup=
 
-== Host setup ==
+The google-authenticator project comes with a PAM module that allows any PAM-aware program to support two-factor authentication.  The host-side setup of consists of installing and configuring the PAM module.  This allows any PAM-aware program use two-factor authentication.
 
-The google-authenticator project comes with a PAM module that allows any PAM-aware program to support two-factor authentication.  The host-side setup consists of installing and configuring the PAM module. This allows any PAM-aware program use two-factor authentication.
+==Installation==
 
-=== Installation ===
+The easiest way to install is probably to just use the ebuild.  It's not in portage yet, so you'll want to add the "palmer" user overlay.
 
-The easiest way to install is probably to just use the ebuild:
+{{RootCmd|layman --sync-all}}
+{{RootCmd|layman --add palmer}}
 
-{{Emerge|sys-auth/google-authenticator}}
+At which point the ebuild should work
 
-As per the ebuild's messages {{Package|media-gfx/qrencode}} is used to generate QR codes, which make transferring shared secrets significantly easier.
+{{Emerge|sys-auth/libpam-google-authenticator}}
 
 Be sure to keep a login active between configuring two-factor authentication and verifying that it works, otherwise you could find yourself locked out of your system!
 
-=== Configuration ===
+==Configuration==
 
-It's possible to globally enable two-factor authentication by adding the following line to your global PAM configuration. Note that this means every login to your system will require two-factor authentication (even sudo!) so it's very important to have a login persist until you have a mobile device with a shared secret setup.
+It's possible to globally enable two-factor authentication by adding the following line to your global PAM configuration.  Note that this means every login to your system will require two-factor authentication (even sudo!) so it's very important to have a login persist until you have a mobile device with a shared secret setup.
 
-{{FileBox|filename=/etc/pam.d/system-auth|1=
+{{File|/etc/pam.d/system-auth||<pre>
 auth 	   required	pam_google_authenticator.so
-}}
-
-Rather than requiring multi-factor authentication every time, it is possible to make it optional for public places, unsafe networks, CCTV-covered areas, but fall back to using the regular password at home or when it's felt safe to do so.
-
-{{FileBox|filename=/etc/pam.d/system-auth|1=
-auth 	   sufficient	pam_google_authenticator.so
-}}
+</pre>}}
 
 It's also possible to enable two-factor authentication for specific programs by configuring them one at a time.
 
-==== OpenSSH ====
+===OpenSSH===
 
-There is a bit of additional configuration required to enable PAM and two-factor authentication in OpenSSH. These settings seem to work well
+There is a bit of additional configuration required to enable PAM and two-factor authentication in OpenSSH.  These settings seem to work well
 
-{{FileBox|filename=/etc/ssh/sshd_config|1=
+{{File|/etc/ssh/sshd_config||<pre>
 # To disable tunneled clear text passwords, change to no here!
 PasswordAuthentication no
 
@@ -58,51 +50,33 @@ ChallengeResponseAuthentication yes
 # PAM authentication, then enable this but set PasswordAuthentication
 # and ChallengeResponseAuthentication to 'no'.
 UsePAM yes
-}}
-
-If you want to use the 2FA to allow root to login with a password don't forget to set the option to allow this in the config (as the default has changed in OpenSSH 7.1). Otherwise you will see an "Invalid verification code" even though it's not related to the Google Authenticator.
-
-{{FileBox|filename=/etc/ssh/sshd_config|1=
-#change the default if you want to re-allow that
-#PermitRootLogin prohibit-password
-PermitRootLogin yes
-}}
+</pre>}}
 
 If you didn't setup global two-factor authentication globally then you'll want to enable it for OpenSSH.
 
-{{FileBox|filename=/etc/pam.d/sshd|1=
+{{File|/etc/pam.d/sshd||<pre>
 auth 	   required	pam_google_authenticator.so
 
 auth       include	system-remote-login
 account    include	system-remote-login
 password   include	system-remote-login
 session	   include	system-remote-login
-}}
+</pre>}}
 
-=== Secret generation ===
+==Secret Generation==
 
-The easiest way to distribute secrets to client machines is by scanning QR codes. If you're planning on using a QR code you'll have to have a terminal window that is at least 85 characters wide otherwise the QR code will be unreadable and you'll need to generate another code (or deal with editing the ASCII art). Once you've resized your terminal window properly you can generate a key by logging in to the host and running the key generation wizard.
+The easiest way to distribute secrets to client machines is by scanning QR codes.  If you're planning on using a QR code you'll have to have a terminal window that is at least 85 characters wide otherwise the QR code will be unreadable and you'll need to generate another code (or deal with editing the ASCII art).  Once you've resized your terminal window properly you can generate a key by logging in to the host and running the key generation wizard.
 
 {{Cmd|google-authenticator}}
 
-This will ask a few questions and generate an ASCII art QR code. Keep this QR code visible and continue with setting up your client. This QR code contains the shared secret that will be transferred to your client device, so it's important to keep this safe. The QR code will only be used once, so I recommend just keeping it in your terminal's buffer.
+This will ask a few questions and generate an ASCII art QR code.  Keep this QR code visible and continue with setting up your client.  This QR code contains the shared secret that will be transfered to your client device, so it's important to keep this safe.  The QR code will only be used once, so I recommend just keeping it in your terminal's buffer.
 
-You can generate a new secret at any time, so it's not necessary to backup this secret (in fact, that somewhat defeats the point).  By default the wizard will create a file called {{Path|.google_authenticator}} in your home directory that contains the shared secret, this file must be kept secure.
+You can generate a new secret at any time, so it's not necessary to backup this secret (in fact, that somewhat defeats the point).  By default the wizard will create a file called ".google_authenticator" in your home directory that contains the shared secret, this file must be kept secure.
 
-== Client setup ==
+=Client Setup=
 
-The client-side setup is specific to the device you'll be using to store the shared secret. The google-authenticator project provides client programs for Android, iOS, and Blackberry.
+The client-side setup is specific to the device you'll be using to store the shared secret.  The [http://code.google.com/p/google-authenticator google-authenticator] project provides client programs for Android, iOS, and Blackberry.
 
-=== Android ===
+==Android==
 
-The Android google-authenticator code can be installed from the android market by searching for "Google Authenticator". After it's installed you can scan the QR code (Menu -> Add Account -> Scan Barcode) generated above which will transfer the secret to your Android phone.
-
-=== Windows Phone ===
-
-For Nokia Lumia handsets [http://www.windowsphone.com/en-us/store/app/authenticator/e7994dbc-2336-4950-91ba-ca22d653759b Authenticator from Microsoft] or [http://www.windowsphone.com/en-us/store/app/authenticator/021dd79f-0598-e011-986b-78e7d1fa76f8 Authenticator by slugonamission] can be use. Both has ability to scan QR codes. Author of the last state:
-
-''This ''[Authenticator by slugonamission]'' can be used for Google's two step verification system. When enrolling on Google's site, the account name and secret can be automatically captured by selecting either "iPhone" or "Android" while enrolling and scanning the shown QR Code.''
-
-{{Note|Both application were tested with accounts at web sites such: GitHub, Facebook, Google, LastPass, Microsoft. All of them are working correctly}}
-
-[[Category:Security]] [[Category:Authentication]]
+The Android google-authenticator code can be installed from the android market by searching for "Google Authenticator".  After it's installed you can scan the QR code (Menu -> Add Account -> Scan Barcode) generated above which will transfer the secret to your Android phone.
