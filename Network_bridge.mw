@@ -1,173 +1,67 @@
-This article discusses how to setup a network bridge in order to connect two portions of a network together.
+= Setting up a network bridge =
 
-__TOC__
+{{Stub}}
 
-== Introduction ==
+===Installation===
+To check if the tools are already installed for configuring and modifying a bridge, use the portage preview command...
+{{RootCmd|emerge -pv net-misc/bridge-utils}}
+<pre>
+# emerge -pv net-misc/bridge-utils
 
-A network bridge can be used to connect two independent network segments at layer 2 level (much like a network switch). Common applications include transparent proxying, transparent filtering (using [[iptables]]) and saving money on hardware as some mainboards come with two PHY interfaces. In this article, <code>enp1s0</code> and <code>enp2s0</code> will be the [[network interface|network interfaces]] used but of course they can be replaced by whatever interface names are present on a system (such as <code>eth0</code> and <code>eth1</code>).  
+These are the packages that would be merged, in order:
 
-In order to create a bridge on Linux a special bridging device is created (brX) that contains at least two network devices as ports (e.g. ethX or pppX). As the bridge works on layer 2, no IP addresses are needed on the port devices — on a typical setup, the bridging device itself will receive the IP (e.g. via DHCP).
+Calculating dependencies... done!
+[ebuild  N    ] net-misc/bridge-utils-1.4  32 kB
 
-== Kernel ==
+Total: 1 package (1 new), Size of downloads: 32 kB</pre>
 
-{{KernelBox|title=Enabling Ethernet Bridging|1=
-[*] Networking support  --->
-   Networking options  --->
-      <M> 802.1d Ethernet Bridging
-}}
+If you see this, the tools are not installed yet. Go ahead and install with...
+{{RootCmd|emerge --ask net-misc/bridge-utils}}
 
-== Installation ==
-{{Note|1=With {{Package|net-misc/netifrc}} &gt;=0.4.0, the installation of {{Package|net-misc/bridge-utils}} has been deprecated. The network bridge is set up simply by configuring it in 
- {{Path|/etc/conf.d/net}} (cf. [[#See also]]).}}
+===Host Configuration===
+First, we need to add the bridge device to the /etc/conf.d/net file. As an example, bridge configuration with DHCP:
 
-But if you have older version of netifrc, or need it for some other reasons, install the {{Package|net-misc/bridge-utils}} package to have access to the utilities needed to manage the bridge device:
+{{note|Note that it is important to include 'setfd 0' and 'sethello 10' in order to bring the interface up quickly.  Other values will cause a delay after the guest starts, before the guest's networking will function.}}
 
-{{Emerge|bridge-utils}}
+{{File|/etc/conf.d/net||<pre>
+#host
+config_eth0=("192.168.0.3 netmask 255.255.255.0")
+route_eth0=("default via 192.168.0.1") #gateway
 
-You need to do this with a console connection. You'll probably lose the ability to ssh into the box, if you are working on one of the ports being affected.
-
-Make certain the physical Ethernet interfaces you are working on are not in {{Path|/etc/init.d/}} as symbolic links as part of your original install:
-
-{{RootCmd
-|rc-update delete net.enp1s0 boot
-|rc-update delete net.enp2s0 boot
-|rm /etc/init.d/net.enp2s0
-|rm /etc/init.d/net.enp1s0
-}}
-
-It's always best to learn how to do things first by hand, then you can automate it. This is a layer 2 connection you are creating, and as such, you do not need IP addresses assigned to the physical ports. The bridged physical interfaces (''enp1s0'' and ''enp2s0'' in the below example) are put into promiscuous mode, so they will not be able to receive an IP address (e.g. via dhcp). The bridge will also not function properly if static IP addresses are forced on the interfaces.
-
-Now create a bridge with no interfaces assigned (yet):
-
-{{RootCmd
-|ip link add br0 type bridge
-}}
-
-Add the two interfaces to the bridge:
-
-{{RootCmd
-|ip link set dev enp1s0 master br0
-|ip link set dev enp2s0 master br0
-}}
-
-See what you've done:
-
-{{RootCmd
-|ip link show|output=<pre>
-1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1
-    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
-2: enp1s0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast master br0 state UP mode DEFAULT group default qlen 1000
-    link/ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff
-3: enp2s0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast master br0 state UP mode DEFAULT group default qlen 1000
-    link/ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff
-4: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
-    link/ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff
+# bridge (some guest)
+config_br0=("dhcp")
+brctl_br0="setfd 0
+sethello 10
+stp off"
+bridge_br0="eth0"
 </pre>}}
 
-Note that stp does not get turned on, unless you specify that that is what you want.
+More documentation can be found in /usr/share/doc/openrc-0.9.9.3/net.example.
 
-== Host configuration ==
+Next, create the init script and start the interface as follows:
+{{RootCmd|ln -s /etc/init.d/net.lo /etc/init.d/net.br0}}
+{{RootCmd|/etc/init.d/net.br0 start}}
 
-=== OpenRC ===
-
-First, the bridge device must be added to the {{Path|/etc/conf.d/net}} file. As an example, bridge configuration with static addresses:
-
-{{FileBox|filename=/etc/conf.d/net|title=Add bridge device example|lang=bash|1=
-# Set up the initial layer 2 bridge interface
-bridge_br0="enp1s0 enp2s0"
-
-# Bridge static config
-config_br0="192.168.26.199 netmask 255.255.255.0"
-routes_br0="default via 192.168.26.254"
-
-bridge_forward_delay_br0=0
-bridge_hello_time_br0=1000
-}}
-
-For dynamic address, use dhcp option:
-{{FileBox|filename=/etc/conf.d/net|title=DHCP bridge config|lang=bash|1=
-# Bridge dynamic config
-config_br0="dhcp"
-}}
-
-{{Note|1=It is important to include <code>bridge_forward_delay_br0=0</code> and <code>bridge_hello_time_br0=1000</code> in the {{Path|/etc/conf.d/net}} file in order to bring the bridge interface up quickly. Other values will cause network packets to be dropped for the first 30 seconds after the bridge has become active. This, in turn, could prevent DHCP from working as intended.}}
-
-More documentation can be found by reading {{Path|/usr/share/doc/netifrc-*/net.example.bz2}}, for example: {{Path|less /usr/share/doc/netifrc-0.5.1/net.example.bz2}}
-
-Next, create the init script by linking {{Path|net.lo}} to {{Path|net.br0}} and start the interface as follows:
-
-{{RootCmd
-|ln -s /etc/init.d/net.lo /etc/init.d/net.br0
-|rc-service net.br0 start
-}}
-
-Finally, to make sure the bridge is automatically set up on subsequent boots add the newly generated init script to the system's default run level:
-
+Finally, to make sure the bridge is automatically set up on subsequent boots, run:
 {{RootCmd|rc-update add net.br0 default}}
 
-=== systemd ===
+To grant the guest access to the internet, you will need to use iptables.  If it's not installed, first emerge it.
+{{RootCmd|emerge --ask iptables}}
 
-As of systemd 210 and up, a special service called [https://wiki.archlinux.org/index.php/systemd-networkd systemd-networkd] is available for network configuration. This service can handle bridge construction.
+Allow ip forwarding in your {{Path|/etc/sysctl.conf}} or with the following command:
+{{RootCmd|echo 1 > /proc/sys/net/ipv4/ip_forward}}
 
-The basic procedure of creating a network configuration with systemd-networkd is creating several {{Path|.network}} and {{Path|.netdev}} files.
+Add the iptables rules to grand masqueraded access to the internet. For
+example (substitute 'eth0' with your external facing physical interface):
+{{RootCmd|iptables -t nat -A POSTROUTING -o eth0 -j SNAT --to-source ''your_eth0_ipaddr''}}
 
-First, create a bridge. With systemd-networkd this is as simple as creating a new {{Path|.netdev}} file:
+This is equivalent to:
+<pre>
+EXTIF=eth0 # external facing physical interface
+IP=`ifconfig $EXTIF|grep 'inet addr'|cut -d ':' -f2|cut -d ' ' -f1`
+iptables -t nat -A POSTROUTING -o $EXTIF -j SNAT --to-source $IP
+</pre>
 
-{{FileBox|filename=/etc/systemd/network/MyBridge.netdev|title=Systemd-networkd example|lang=ini|1=
-[NetDev]
-Name{{=}}br0
-Kind{{=}}bridge
-}}
-
-After the bridge definition is created, assign the interfaces to the bridge:
-
-{{FileBox|filename=/etc/systemd/network/MyEth.network|title=Interface assignment example|lang=ini|1=
-[Match]
-Name{{=}}eth*
-
-[Network]
-Bridge{{=}}br0
-}}
-
-Multiple interfaces can be matched and attached to the bridge.
-
-Notice that this bridge is still not active. Activation can be achieved by creating a {{Path|.network}} definition to use the bridge.
-
-==== DHCP ====
-
-{{FileBox|filename=/etc/systemd/network/MyBridge.network|title=DHCP configuration|lang=ini|1=
-[Match]
-Name{{=}}br0
-
-[Network]
-DHCP{{=}}ipv4
-}}
-
-==== Static ====
-
-{{FileBox|filename=/etc/systemd/network/MyBridge.network|title=Static configuration|lang=ini|1=
-[Match]
-Name=br0
-
-[Network]
-DNS=192.168.1.1
-Address=192.168.1.2/24
-Gateway=192.168.1.1
-}}
-
-Defining a gateway is only necessary if one intends to use the physical network interface as access to another network. When using the bridge as a private network, omit it as systemd-networkd will add the bridge as a default route when the Gateway option is set.
-
-Do remember to enable and start the systemd-networkd service.
-
-== See also ==
-
-* [[Netifrc/Brctl_Migration]]
-* {{See also|Iproute2}}
-
-== External resources ==
-
-* [https://wiki.linuxfoundation.org/networking/bridge Official Linux network bridge documentation.]
-* [http://www.tldp.org/HOWTO/Ethernet-Bridge-netfilter-HOWTO.html Generic Linux network bridge how-to.]
-* [https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Networking_Guide/sec-Network_Bridging_Using_the_NetworkManager_Command_Line_Tool_nmcli.html Creating a bridge with NetworkManager.]
-
-[[Category:Network management]]
+Save the configuration and ensure it is restored at boot:
+{{RootCmd|/etc/init.d/iptables save}}
+{{RootCmd|rc-update add iptables default}}
