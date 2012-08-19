@@ -3,94 +3,79 @@
 |{{InfoBox homepage|http://www.freedesktop.org/wiki/Software/polkit|header=true}}
 |{{InfoBox wikipedia|PolicyKit}}
 }}
+This article describes the setup of '''polkit''' (formerly '''PolicyKit'''), an authorization API intended to be used by privileged programs (e.g. system daemons) offering service to unprivileged programs.
 
-'''polkit''' (formerly '''PolicyKit''') is [[Article description::an authorization API intended to be used by privileged programs (e.g. system daemons) offering services to unprivileged programs.]]
+{{Note|This article describes polkit-0.106 and newer. Older versions uses different actions and rules files and locations.}}
 
 == Description ==
+Privileged programs (in the following called daemons) with polkit support offload the decision, if a program is allowed to use some function of the daemon. The daemon keeps an incoming request on hold, ask polkit, if the program is authorized, and then allows or denies the request based on polkit's return. The requesting program is not aware of polkit and so need no polkit support itself. The communication is handled over [[D-Bus]].
 
-Privileged programs (in the following called daemons) with polkit support offload the decision as to whether a program is allowed to use some function of the daemon. The daemon keeps an incoming request on hold, asks polkit if the program is authorized, and then allows or denies the request based on polkit's return. The requesting program is not aware of polkit and so needs no polkit support itself. The communication is handled over [[D-Bus]].
+Daemons come with polkit action files, which offer some function and define, who is authorized. This can be any user, the [[ConsoleKit|active or inactive user]]. Also they can define, that the user needs to authenticate by entering a password as himself or as admin. The actions does not grant root permission to an entire process, but rather allows a finer level of control of centralized system policy.
 
-Daemons come with polkit action files, which offer some function and define who is authorized. This can be any user, either the [[ConsoleKit|active or inactive user]]. Also they can specify that the user needs to authenticate by entering a password as himself or as admin. These actions do not grant root permission to an entire process, but rather allows a finer level of control of centralized system policy.
-
-The authorization defaults defined by the action files can be refined by rules files. Here you can define who's admin (root or any user in a special group) and add special handling for an action.
+The authorization defaults in the action files can be refined by rules files. Here you can define, who's admin (root or any user in a special group), and add special handling for an action.
 
 == Installation ==
+{{Note|If you're only updating, see the [[/changelog|changelog]].}}
 
-{{Note|When updating, refer to the polkit [[/upgrade|upgrade subpage]].}}
-
-=== Prerequisites ===
-
-Polkit uses [[D-Bus]], so set it up first.
-
-Also, make sure you set <code>CONFIG_FUTEX=y</code> in the kernel. Without this option selected, the {{c|polkitd}} process may generate high CPU.
-
-=== USE flags ===
-
-Portage knows the global <code>policykit</code> USE flag for enabling support for polkit in other packages. Enabling this USE flag will pull in {{Package|sys-auth/polkit}} automatically (default for ''desktop'' [[Profile (Portage)|profile]]s):
-
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-USE="policykit"
+Portage knows the global USE flag ''policykit'' for enabling support for polkit in other packages. Enabling this USE flag will pull in {{Package|sys-auth/polkit}} automatically (default for ''desktop'' [[profile]]s):
+{{File|/etc/portage/make.conf||<pre>
+USE="... policykit ..."
+</pre>}}
+The USE flags of policykit are:
+{{USEflag|package=sys-auth/polkit
+|debug
+|doc
+|examples
+|gtk+yes
+|introspection+yes
+|kde+yes
+|nls+yes
+|pam+yes
+|selinux
+|systemd
 }}
 
-The USE flags of {{Package|sys-auth/polkit}} are:
-
-{{USEflag|package=sys-auth/polkit}}
-
 After setting this you want to update your system so the changes take effect:
-
-{{Emerge|params+=--changed-use --deep|@world}}
-
-Depending on above USE flag settings, either [[elogind]] or [[systemd]], or in absence of both, [[ConsoleKit]] need to be configured.
+{{RootCmd|emerge --ask --changed-use --deep world}}
 
 == Configuration ==
-
-The actions files are in {{Path|/usr/share/polkit-1/actions}}, the rules files are in {{Path|/usr/share/polkit-1/rules.d}} and {{Path|/etc/polkit-1/rules.d}}.
+The actions file are in {{Path|/usr/share/polkit-1/actions}}, the rules files are in {{Path|/usr/share/polkit-1/rules.d}} and {{Path|/etc/polkit-1/rules.d}}.
 
 === Rules ===
+Rules redefine, who's authorized for an action. The rules files begin with a number and are processed in lexical order. Own files should have a high number, like ''99''. The filenames have the {{Path|.rules}} suffix.
 
-Rules redefine who's authorized for an action. The rules files begin with a number and are processed in lexical order. The first file with a matching rule is used. Own files should have a low number, like ''10''. The filenames have the {{Path|.rules}} suffix.
-
-For example, to let the users of the {{c|wheel}} group also perform functions as administrators, create the following file:
-
-{{FileBox|filename=/etc/polkit-1/rules.d/10-admin.rules|lang=javascript|1=
+To e.g. let also the users of the "wheel" group be functions as administrators, create the following file:
+{{File|/etc/polkit-1/rules.d/99-admin.rules||<pre>
 polkit.addAdminRule(function(action, subject) {
-    return ["unix-group:wheel"];
-});}}
+    return ["unix-user:0;unix-group:wheel"];
+});
+</pre>}}
 
-To allow user {{c|larry}} to mount disks, create the following file:
-
-{{FileBox|filename=/etc/polkit-1/rules.d/10-udisks.rules|lang=javascript|1=
+To e.g. allow user "larry" to mount internal disks, create the following file:
+{{File|/etc/polkit-1/rules.d/99-udisks.rules||<pre>
 polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.udisks2.filesystem-mount" &&
-        subject.user == "larry") {
-        return polkit.Result.YES;
+    if (action.id == "org.freedesktop.udisks.filesystem-mount-system-internal" &&
+        subject == "larry" {
+        return "yes";
     }
-});}}
+});
+</pre>}}
 
-See {{c|man polkit}} for more information.
+See the ''polkit'' [[man page]] for more information.
+
+=== KDE ===
+If you installed [[KDE]] with the ''policykit'' USE flag, there are systemsettings modules in the "System Administration" section:
+* '''Actions Policy''': Rules configuration.
+* '''Global Policy Configuration''': Administrator configuration.
 
 == Usage ==
-
-Show all available actions:
-
-{{Cmd|pkaction}}
-
-Show details about the given action:
-
-{{Cmd|pkaction --verbose --action-id ACTION}}
-
-List all temporary authorizations for the current session:
-
-{{Cmd|pkcheck --list-temp}}
-
-Runs the given program with the user rights of the given user:
-
-{{Cmd|pkexec --user USER PROGRAM}}
-
-For more information see the [[man page]]s, e.g. for {{c|pkaction}}: {{c|man pkaction}}
+* '''pkaction''' - Shows all available actions.
+* '''pkaction --verbose --action-id ACTION''' - Shows details about the given action.
+* '''pkcheck --list-temp''' - Lists all temporary authorizations for the current session
+* '''pkexec --user USER PROGRAM''' - Runs the given program with the user rights of the given user.
+For more informations see the [[man page]]s, e.g. for '''pkaction''': '''man pkaction'''
 
 == Troubleshooting ==
-
 * {{Bug|polkit|search=package}}
 * Polkit communicates over D-Bus, so also see the [[D-Bus#Troubleshooting|D-Bus "Troubleshooting" section]].
 
