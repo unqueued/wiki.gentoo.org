@@ -1,429 +1,106 @@
-{{InfoBox stack
-|{{InfoBox homepage|https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Base#Choosing_the_right_profile|header=true}}
-|{{InfoBox gitweb|https://gitweb.gentoo.org/repo/gentoo.git/tree/profiles/profiles.desc|raw=true}}
-}}
+A '''Portage profile''' specify default values for global and per-package USE flags and most variables of the {{Path|/etc/portage/make.conf}} and define a set of system packages. Also it masks unstable package versions and USE flags. The profiles are maintained by the Gentoo developers as part of the Portage tree ({{Path|/usr/portage/profiles}}), but there are ways for users to override single pieces.
 
-A ''Portage profile'' [[Article description::specifies default state (set or unset) of global and per-package [[USE flag]]s, default values for most variables found in {{Path|[[:/etc/portage/make.conf|/etc/portage/make.conf]]}}, and defines a [[System_set_(Portage)|set of system packages]].]] It can also force USE flags to be unconditionally set or unset, either globally, for the architecture's stable branch or per package, and mask packages or specific versions of them. Profile structure and function is specified by the [[#See_also|Package Manager Specification (PMS)]].
+== Usage ==
 
-Profiles are defined on an [[ebuild repository]] basis; the ones from [[:/var/db/repos/gentoo/profiles|the main repository]] are maintained by the Gentoo developers, but users can [[#custom|define their own]].
+=== List profiles ===
+List the available profiles with eselect:
+{{RootCmd|eselect profile list|output=<pre>
+Available profile symlink targets:
+  [1]   default/linux/amd64/10.0 *
+  [2]   default/linux/amd64/10.0/selinux
+  [3]   default/linux/amd64/10.0/desktop
+  [4]   default/linux/amd64/10.0/desktop/gnome
+  [5]   default/linux/amd64/10.0/desktop/kde
+  [6]   default/linux/amd64/10.0/developer
+  [7]   default/linux/amd64/10.0/no-multilib
+  [8]   default/linux/amd64/10.0/server
+  [9]   hardened/linux/amd64
+  ...
+</pre>}}
 
-The <code>profile</code> module of [[eselect|the eselect tool]] allows users to switch profiles, and during Gentoo's installation process, a profile must be selected as described in section "''Choosing the right profile''" of [[Handbook:Main_Page|the Gentoo handbook]].
+The "normal" profiles are the ones beginning with ''default'', followed by subprofiles for kernel (''linux'' or ''bsd''), architecture (''x86'', ''amd64'', etc.), release number (''10.0'') and target (''desktop'', ''server'', ''developer'', etc.). The ''desktop'' subprofile has also the subprofiles ''gnome'' and ''kde''.
+
+The arrow marks your currently active profile.
+
+=== Change profile ===
+Change your profile using eselect, e.g. for a [[KDE]] desktop:
+{{RootCmd|eselect profile set 5}}
 
 == Structure ==
+All profiles are cascading/stackable profiles composed by several subprofiles. Each subprofile (corresponding to a directory under {{Path|/usr/portage/profiles}}) can contain files to set some defaults. Lower level subprofiles (e.g ''default/linux/amd64'') also can have a file called {{Path|parent}}, which pulls in one or more other higher level subprofiles (here: ''default/linux'', ''arch/amd64'' and ''base''). Defaults defined in a lower level subprofile profile overwrites all conflicting defaults in higher subprofiles.
 
-Profiles are defined in directories contained in the {{Path|profiles}} subdirectory of an ebuild repository, which also contains the mandatory {{Path|repo_name}} file that specifies the name of the repository. These are some of the files that can be present in a directory that defines a profile:
+Following is an example for the stacked profile ''default/linux/amd64/10.0/desktop/kde'' showing the dependencies.
+{{Code||<pre>
+/usr/portage/profiles/
+|-- arch
+|   |-- amd64 <--------------.
+|   |   `-- parent >-------- | ----------------------.
+|   -- base <--------------- | ----------------------|
+|-- base <-------------------|                       |
+|-- default                  |                       |
+|   `-- linux <--------------|                       |
+|       `-- amd64 <--------- | ------------------.   |
+|           |-- parent >-----'                   |   |
+|           `-- 10.0 <-----------------------.   |   |
+|               |-- parent >---------------- | --|   |
+|               `-- desktop <------------.   |   |   |
+|                   |-- parent >-------- | --|   |   |
+|                   `-- kde              |   |   |   |
+|                       `-- parent >-----|   |   |   |
+|-- features                             |   |   |   |
+|   `-- multilib <-----------.           |   |   |   |
+|       `-- lib32 <--------- | --------- | - | - | --'
+|           `-- parent >-----'           |   |   |
+|-- releases <-----------.               |   |   |
+|   `-- 10.0 <---------- | ------------- | - | --'
+|       `-- parent >-----'               |   |
+`-- targets                              |   |
+    `-- desktop <----------------------- | --'
+        `--kde <----------- | -----------'
+           `-- parent >-----'
+</pre>}}
 
-* {{Path|eapi}}, which specifies the [[EAPI]] to use when handling the directory in question.
-* {{Path|packages}}, which specifies packages that are members of [[System_set_(Portage)|the system set]].
-* {{Path|package.mask}}, which specifies masked packages. The administrator can unmask a package masked by the profile using {{Path|[[:/etc/portage/package.mask|/etc/portage/package.mask]]}}.
-* {{Path|make.defaults}}, with {{Path|[[:/etc/portage/make.conf|make.conf]]}}-like variable assignments, including USE flag global default state (set or unset) and profile variables with special meaning (like <var>ARCH</var>, <var>USE_EXPAND</var>, <var>CONFIG_PROTECT</var>, <var>IUSE_IMPLICIT</var>, etc.). Administrator settings in {{Path|/etc/portage/make.conf}} and {{Path|[[:/etc/portage/package.use|/etc/portage/package.use]]}} override profile settings in {{Path|make.defaults}}.
-* {{Path|package.use}}, which defines default USE flag state on a per package basis. Administrator settings in {{Path|/etc/portage/make.conf}} and {{Path|/etc/portage/package.use}} override profile settings in {{Path|package.use}}.
-* {{Path|use.force}} and {{Path|use.mask}}, which unconditionally set or unset USE flags, overriding administrator settings in {{Path|/etc/portage/make.conf}} and {{Path|/etc/portage/package.use}}. If a flag is both masked and forced, the mask takes precedence.
-* {{Path|package.use.force}} and {{Path|package.use.mask}}, which unconditionally set or unset USE flags on a per package basis, overriding administrator settings in {{Path|/etc/portage/make.conf}} and {{Path|/etc/portage/package.use}}, and profile settings in {{Path|use.force}} and {{Path|use.mask}}.
-* {{Path|use.stable.force}}, {{Path|use.stable.mask}}, {{Path|package.use.stable.force}} and {{Path|package.use.stable.mask}}, which work like {{Path|use.force}}, {{Path|use.mask}}, {{Path|package.use.force}} and {{Path|package.use.mask}}, but override them for packages in the stable branch of the current architecture.
-
-USE flag settings in profile {{Path|use.*}} and {{Path|package.use.*}} files can be overridden by the administrator with files of the same name in directory {{Path|/etc/portage/profile}}. For complete information about profile directory structure please consult [[Package Manager Specification|the PMS]]. A summary is also contained in [https://devmanual.gentoo.org the Devmanual] and {{c|man portage}}.
-
-== Combining profiles ==
-
-Profile settings can be combined in a cascading/stacking fashion, by including a file named {{Path|parent}} in the directory that defines the profile. This makes the profile inherit settings from other profiles, which can be partially overriden. For example, by unsetting a USE flag by default that is set by default in a parent profile and vice-versa, unforcing or inverting its forced state, unmasking packages masked in a parent profile, adding or removing additional packages to/from the system set, etc. {{Path|parent}} must contain a list of profile pathnames, relative to the directory that contains the file. As an extension, [[Portage]] also allows prepending an installed repository name (as specified in {{Path|[[:/etc/portage/repos.conf|/etc/portage/repos.conf]]}}) followed by a colon (':') to a profile pathname, which is then interpreted relative to the {{Path|profiles}} subdirectory of the named repository.
-
-Because parent profiles can also contain a {{Path|parent}} file, an ''inheritance tree'' is produced as a result. The Package Manager Specification specifies how settings in each file of a profile directory (i.e. {{Path|packages}}, {{Path|make.defaults}}, {{Path|package.use.force}} and {{Path|package.use.mask}}, etc.) combine. In particular, it defines an ordering of parent profiles to determine the final settings: the inheritance tree is traversed [[wikipedia:Tree_traversal#Depth-first_search|depth-first, left-to-right]], with multiple occurrences of the same profile processed repeatedly. The left-to-right order is defined by line order in {{Path|parent}} files.
-
-The PMS uniformly calls 'profile' all directories with suitable structure that are contained in an ebuild repository's {{Path|profiles}} subdirectory. A subset designated as 'valid for use' must be listed in file {{Path|profiles/profiles.desc}}, a text file that must contain lines with three fields separated by whitespace characters (space and TAB):
-
-* The first one is an architecture, in the format valid as the value of <var>ARCH</var> (and for setting <var>KEYWORDS</var> in ebuilds), e.g. {{Keyword|amd64}}, {{Keyword|arm}}, {{Keyword|ppc64}}, etc. These are listed in the main repository's {{Path|profiles/arch.list}} file.
-* The second one is a profile path name, relative to the {{Path|profiles}} directory.
-* The third and last one is a 'stability indicator'. Gentoo's main repository, for instance, uses ''stable'', ''dev'' and ''exp'' (experimental) for that field.
-
-The {{c|eselect profile list}} command only shows profiles in {{Path|profiles.desc}} files of all repositories configured in {{Path|/etc/portage/repos.conf}}, with an architecture field that matches the machine's architecture. These are the ones that in most contexts are referred to as 'profiles' with no further qualification. Profiles not named in {{Path|profiles.desc}} might be named in other profiles' {{Path|parent}} files, and can be thought of as 'subprofiles' or 'profile building blocks'.
-
-Following is an example that shows parent profiles and the inheritance tree for profile {{Path|default/linux/amd64/17.0/desktop/gnome/systemd}} from the main Gentoo repository. Profiles pathnames relative to the {{Path|profiles}} subdirectory are shown so that the filesystem layout can be inferred, top-to-bottom ordering respects line ordering in relevant {{Path|parent}} files.
- default/linux/amd64/17.0/desktop/gnome/systemd <span style="background-color: orange"> '''17''' </span>
-  |<span style="background-color: lime"> '''L''' </span>
-  +--> default/linux/amd64/17.0/desktop/gnome <span style="background-color: orange"> '''15''' </span>
-  |     |<span style="background-color: lime"> '''L''' </span>
-  |     +--> default/linux/amd64/17.0/desktop <span style="background-color: orange"> '''12''' </span>
-  |     |     |<span style="background-color: lime"> '''L''' </span>
-  |     |     +--> default/linux/amd64/17.0 <span style="background-color: orange"> '''10''' </span>
-  |     |     |     |<span style="background-color: lime"> '''L''' </span>
-  |     |     |     +--> default/linux/amd64 <span style="background-color: orange"> '''3''' </span>
-  |     |     |     |     |<span style="background-color: lime"> '''L''' </span>
-  |     |     |     |     +--> base <span style="background-color: orange"> '''1''' </span>
-  |     |     |     |     |<span style="background-color: fuchsia"> '''R''' </span>
-  |     |     |     |     +--> default/linux <span style="background-color: orange"> '''2''' </span>
-  |     |     |     |
-  |     |     |     +--> arch/amd64/lib32 <span style="background-color: orange"> '''7''' </span>
-  |     |     |     |     |
-  |     |     |     |     +--> arch/amd64 <span style="background-color: orange"> '''6''' </span>
-  |     |     |     |           |<span style="background-color: lime"> '''L''' </span>
-  |     |     |     |           +--> arch/base <span style="background-color: orange"> '''4''' </span>
-  |     |     |     |           |<span style="background-color: fuchsia"> '''R''' </span>
-  |     |     |     |           +--> features/multilib <span style="background-color: orange"> '''5''' </span>
-  |     |     |     |<span style="background-color: fuchsia"> '''R''' </span>
-  |     |     |     +--> releases/17.0 <span style="background-color: orange">''' 9''' </span>
-  |     |     |           |
-  |     |     |           +--> releases <span style="background-color: orange"> '''8''' </span>
-  |     |     |<span style="background-color: fuchsia"> '''R''' </span>
-  |     |     +--> targets/desktop <span style="background-color: orange"> '''11''' </span>
-  |     |<span style="background-color: fuchsia"> '''R''' </span>
-  |     +--> targets/desktop/gnome <span style="background-color: orange"> '''14''' </span>
-  |           |
-  |           +--> targets/desktop <span style="background-color: orange"> '''13''' </span>
-  |<span style="background-color: fuchsia"> '''R''' </span>
-  +--> targets/systemd <span style="background-color: orange"> '''16''' </span>
-
-The '''L''' and '''R''' markers indicate the leftmost and rightmost branches in the corresponding tree representation, and the numbers represent the order in which profiles are considered for computing the final settings. Profiles with larger numbers override settings in profiles with smaller numbers. The following table gives a quick overview of notable settings for each of the intervening profiles, as well as the relevant files that implement them:
-
-{| class="table table-striped table-condensed"
-! Profile
-! Notable settings
-! Relevant file(s)
+The following table gives a quick overview of what subprofile contain what files:
+{| class="wikitable"
+|- style="vertical-align: top; white-space: nowrap;"
+! &nbsp;
+! root<br />folder
+! arch<br />-amd64
+! arch<br />-base
+! base
+! default<br/>-linux
+! default<br/>-linux<br />-amd64
+! default<br/>-linux<br />-amd64<br />-10.0
+! default<br/>-linux<br />-amd64<br />-10.0<br />-desktop
+! default<br/>-linux<br />-amd64<br />-10.0<br />-desktop<br />-kde
+! features<br />-multilib
+! features<br />-multilib<br />-lib32
+! releases
+! releases<br />-10.0
+! targets<br />-desktop
+! targets<br />-desktop<br />-kde
 |-
-| {{Path|base}}
-| Define most [[USE_EXPAND]] and profile variables, define 'base' system set packages, set <var>KERNEL</var>, <var>ELIBC</var> and <var>USERLAND</var> to <code>linux</code>, <code>glibc</code> and <code>GNU</code>, respectively
-| {{Path|make.defaults}}, {{Path|packages}}, {{Path|use.force}}
+| {{Path|eapi}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{Yes}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{No}} || {{No}}
 |-
-| {{Path|default/linux}}
-| Add packages considered essential for Linux to the system set, set USE flags, set default value of <var>LDFLAGS</var>, unmask Linux-specific USE flags
-| {{Path|make.defaults}}, {{Path|packages}}, {{Path|use.mask}}, {{Path|package.use.mask}}
+| {{Path|make.defaults}} || {{No}} || {{Yes}} || {{No}} || {{Yes}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{Yes}} || {{Yes}} || {{Yes}} || {{Yes}} || {{Yes}}
 |-
-| {{Path|default/linux/amd64}} || Add profiles {{Path|base}} and {{Path|default/linux}} to the inheritance tree || {{Path|parent}}
+| {{Path|packages}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}}
 |-
-| {{Path|arch/base}} || Define the <var>ARCH</var> USE_EXPAND variable, mask USE flags only supported for some architectures
-| {{Path|make.defaults}}, {{Path|use.mask}}, {{Path|package.use.mask}}
+| {{Path|package.build}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}}
 |-
-| {{Path|arch/amd64}}
-| Set <var>ARCH</var> to <code>amd64</code>, set <var>CHOST</var>, <var>ABI</var>, <var>MULTILIB_ABIS</var> and <var>DEFAULT_ABI</var> appropriately, set default values of <var>ACCEPT_KEYWORDS</var>, <var>CFLAGS</var>, <var>CXXFLAGS</var>, <var>FFLAGS</var> and <var>FCFLAGS</var>, define the <var>CPU_FLAGS_X86</var> USE_EXPAND variable, unmask USE flags supported for {{Keyword|amd64}}
-| {{Path|make.defaults}}, {{Path|use.mask}}, {{Path|package.use.mask}}
+| {{Path|package.mask}} || {{Yes}} || {{No}} || {{No}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{No}} || {{No}}
 |-
-| {{Path|features/multilib}} || Unmask and unconditinally set the <code>multilib</code> USE flag || all
+| {{Path|package.use}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{Yes}}
 |-
-| {{Path|arch/amd64/lib32}}
-| Set <var>LIBDIR_x86</var> to <code>lib32</code>, and <var>SYMLINK_LIB</var> to <code>yes</code> to make {{Path|{usr,}/lib}} a symlink to {{Path|{usr,}/lib64}}
-| {{Path|make.defaults}}
+| {{Path|package.use.force}} || {{No}} || {{Yes}} || {{No}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}}
 |-
-| {{Path|default/linux/amd64/17.0}} || Add profiles {{Path|arch/amd64/lib32}} and {{Path|releases/17.0}} to the inheritance tree || {{Path|parent}}
+| {{Path|package.use.mask}} || {{No}} || {{Yes}} || {{No}} || {{Yes}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}}
 |-
-| {{Path|releases}} || Set USE flags || {{Path|make.defaults}}
+| {{Path|profile.bashrc}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}}
 |-
-| {{Path|releases/17.0}} || See [https://www.gentoo.org/support/news-items/2017-11-30-new-17-profiles.html here]
-| {{Path|package.mask}}, {{Path|package.use.force}}
+| {{Path|use.force}} || {{No}} || {{Yes}} || {{No}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}}
 |-
-| {{Path|default/linux/amd64/17.0/desktop}} || Add profile {{Path|targets/desktop}} to the inheritance tree || {{Path|parent}}
-|-
-| {{Path|targets/desktop}} || Set USE flags || {{Path|make.defaults}}, {{Path|package.use}}, {{Path|package.use.force}}
-|-
-| {{Path|default/linux/amd64/17.0/desktop/gnome}} || Add profile {{Path|targets/desktop/gnome}} to the inheritance tree || {{Path|parent}}
-|-
-| {{Path|targets/desktop/gnome}} || Set USE flags; in particular, globally set <code>gnome</code> || {{Path|make.defaults}}, {{Path|package.use}}
-|-
-| {{Path|default/linux/amd64/17.0/desktop/gnome/systemd}} || Add profile {{Path|targets/systemd}} to the inheritance tree || {{Path|parent}}
-|-
-| {{Path|targets/systemd}} || Globally set <code>systemd</code> and <code>udev</code> USE flags, mask {{Package|sys-fs/udev}} and [[eudev]]
-| {{Path|make.defaults}}, {{Path|package.mask}}, {{Path|package.use.force}}
+| {{Path|use.mask}} || {{No}} || {{Yes}} || {{Yes}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}} || {{Yes}} || {{No}} || {{No}} || {{No}} || {{No}} || {{No}}
 |}
-
-For information about the exact way in which settings in the different profile files combine please consult [[Package Manager Specification|the PMS]].
-{{anchor|custom}}
-
-== Creating custom profiles ==
-
-Users can create specialized, custom profiles not available in the main Gentoo repository as part of [[Custom_repository|creating a custom repository]]. They can refer to profiles from the main repository in their {{Path|parent}} file using the 'gentoo:' prefix, to avoid recreating all profile definitions.
-
-Following is an example of a custom profile created in a local ebuild repository named 'local'. The repository is assumed to be in {{Path|/var/db/repos/local}} (i.e. [[Eselect/Repository#Files|the default location]] for {{c|eselect repository}}), world-readable and owned by a non-root user. It is also assumed to contain a package {{Path|dev-libs/test-package}} that installs libraries:
-
-{{FileBox|lang=ini|filename=/etc/portage/repos.conf/local.conf|1=
-[local]
-# 'eselect repository' default location
-location = /var/db/repos/local
-}}
-
-{{FileBox|filename=/var/db/repos/local/profiles/repo_name|1=
-local
-}}
-
-{{FileBox|lang=ini|filename=/var/db/repos/local/metadata/layout.conf|1=
-# Slave repository rather than stand-alone
-masters = gentoo
-profile-formats = portage-2
-}}
-
-{{Cmd|ls -ld /var/db/repos/local|output=
-<pre>drwxr-xr-x 4 user user 4096 Dec 15 11:50 /var/db/repos/local</pre>
-}}
-
-{{Cmd|equery uses test-package|output=<pre>
-[ Legend : U - final flag setting for installation]
-[        : I - package is installed with flag     ]
-[ Colors : set, unset
- * Found these USE flags for dev-libs/test-package-1
- U I
- - - abi_x86_32 : 32-bit (x86) libraries
- - - extras     : Builds the libprofile-test-extra library
-</pre>}}
-
-A profile named {{Path|custom}} will be created, which inherits settings from {{Path|default/linux/amd64/17.0}} in the main Gentoo repository, and two local profiles: {{Path|32bit}}, which sets the <code>abi_x86_32</code> USE flag and unsets the <code>extras</code> USE flag by default for the package, and {{Path|with-extras}}, which does exactly the opposite, to illustrate final settings determination.
-
-{{Important|Since the profile inheritance tree is traversed depth-first, left-to-right, the order in which profile pathnames are listed in {{Path|parent}} files can dramatically affect the resulting settings, as left-to-right ordering is defined by it. If {{C|emerge}} yields resolution problems after switching to the custom profile, try changing the order of the lines. It may be impossible to get some combinations to work correctly; make sure you have read and understood the algorithm specified in [[Package Manager Specification|the PMS]]!}}
-
-First, create the {{Path|32bit}} and {{Path|with-extras}} directories in the repository's {{Path|profiles}} subdirectory:
-
-{{Cmd|cd /var/db/repos/local/profiles|mkdir 32bit && echo 7 >32bit/eapi &&|
-output=<pre>
-> echo dev-libs/test-package abi_x86_32 -extras >32bit/package.use
-</pre>}}
-
-{{Cmd|mkdir with-extras && echo 7 >with-extras/eapi &&|
-output=<pre>
-> echo dev-libs/test-package -abi_x86_32 extras >with-extras/package.use
-</pre>}}
-
-Then, create the {{Path|custom}} directory:
-
-{{Cmd|profile_name{{=}}custom|mkdir $profile_name && echo 7 >$profile_name/eapi &&|
-output=<pre>
-> cat <<EOF >$profile_name/parent
-> gentoo:default/linux/amd64/17.0
-> ../with-extras
-> ../32bit
-> EOF
-</pre>}}
-
-Finally, insert the newly created profile in the repository's {{Path|profiles.desc}} file, giving it a <code>dev</code> 'stability indicator' for example:
-
-{{Cmd|echo `portageq envvar ARCH` $profile_name dev >>profiles.desc}}
-
-Verify that {{C|eselect profile list}} lists the new profile:
-
-{{Cmd|eselect profile list|output=<pre>
-Available profile symlink targets:
-  ...
-  [46]  local:custom (dev)
-</pre>}}
-
-Now it is possible to actually switch to the new profile using {{c|eselect profile set}}:
-
-{{RootCmd|eselect profile set 46}}
-
-Let's check:
-
-{{Cmd|eselect profile show|output=<pre>
-Current /etc/portage/make.profile symlink:
-  local:custom
-</pre>}}
-
-{{Cmd|ls -l /etc/portage/make.profile|output=<pre>
-lrwxrwxrwx 1 root root 40 Dec 15 12:00 /etc/portage/make.profile -> ../../var/db/repos/local/profiles/custom
-</pre>}}
-
-This shows that {{c|eselect profile set}} updated the {{Path|/etc/portage/make.profile}} symbolic link. In the general case, it would be necessary to run a world rebuild to apply the new settings to all packages, but checking first to make sure that the desired changes are going into effect with <code>--ask</code>:
-
-{{Emerge|@world|params=--ask --update --newuse --deep --complete-graph}}
-
-However, for this example, knowing that the profile settings only affect {{Path|dev-libs/test-package}} and assuming that the previously chosen profile was {{Path|default/linux/amd64/17.0}}, only that package's reinstallation will be done.
-
-{{Cmd|equery uses test-package|output=<pre>
-[ Legend : U - final flag setting for installation]
-[        : I - package is installed with flag     ]
-[ Colors : set, unset
- * Found these USE flags for dev-libs/test-package-1:
- U I
- + - abi_x86_32 : 32-bit (x86) libraries
- - - extras     : Builds the libprofile-test-extra library
-</pre>}}
-
-This shows that because profile {{Path|32bit}} comes last in file {{Path|custom/parent}}, its setting override those in profile {{Path|with-extras}}, and the 32-bit version of the package's libraries is built.
-
-{{FileBox|filename=test-package-1/Makefile|title=Package's makefile snippet|lang=make|1=
-%.so: %.c
-   @echo Building $@ for architecture $$ARCH and ABI $$ABI "(CHOST=$$CHOST)"
-   $(CC) -shared -fPIC -Wl,-soname=$@.1 $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
-}}
-
-{{FileBox|filename=/var/db/repos/local/dev-libs/test-package/test-package-1.ebuild|title=Ebuild snippet|lang=bash|1=
-EAPI=7
-
-inherit toolchain-funcs multilib-build multilib-minimal
-
-# ...
-
-IUSE="extras" # abi_x86_32 comes from an eclass
-
-# ...
-
-multilib_src_compile() {
-   tc-export CC
-   emake extras=$(usex extras)
-}
-}}
-
-{{RootCmd|ACCEPT_KEYWORDS{{=}}"~amd64" emerge --oneshot test-package|collapse-output=true|output=<pre>
-Calculating dependencies  ... done!
-
->>> Verifying ebuild manifests
-
->>> Emerging (1 of 1) dev-libs/test-package-1::local
- * test-package-1.tar.gz BLAKE2B SHA512 size ;-) ...                     [ ok ]
->>> Unpacking source...
->>> Unpacking test-package-1.tar.gz to /var/tmp/portage/dev-libs/test-package-1/work
->>> Source unpacked in /var/tmp/portage/dev-libs/test-package-1/work
->>> Preparing source in /var/tmp/portage/dev-libs/test-package-1/work/test-package-1 ...
- * Will copy sources from /var/tmp/portage/dev-libs/test-package-1/work/test-package-1
- * abi_x86_32.x86: copying to /var/tmp/portage/dev-libs/test-package-1/work/test-package-1-abi_x86_32.x86
- * abi_x86_64.amd64: copying to /var/tmp/portage/dev-libs/test-package-1/work/test-package-1-abi_x86_64.amd64
->>> Source prepared.
->>> Configuring source in /var/tmp/portage/dev-libs/test-package-1/work/test-package-1 ...
- * abi_x86_32.x86: running multilib-minimal_abi_src_configure
- * abi_x86_64.amd64: running multilib-minimal_abi_src_configure
->>> Source configured.
->>> Compiling source in /var/tmp/portage/dev-libs/test-package-1/work/test-package-1 ...
- * abi_x86_32.x86: running multilib-minimal_abi_src_compile
-make extras=no
-</pre>
-<pre style="background-color: yellow; color: black">
-Building libprofile-test.so for architecture amd64 and ABI x86 (CHOST=i686-pc-linux-gnu)
-</pre>
-<pre>
-x86_64-pc-linux-gnu-gcc -m32 -shared -fPIC -Wl,-soname=libprofile-test.so.1  -O2 -pipe -Wl,-O1 -Wl,--as-needed -o libprofile-test.so libprofile-test.c
- * abi_x86_64.amd64: running multilib-minimal_abi_src_compile
-make extras=no
-</pre>
-<pre style="background-color: yellow; color: black">
-Building libprofile-test.so for architecture amd64 and ABI amd64 (CHOST=x86_64-pc-linux-gnu)
-</pre>
-<pre>
-x86_64-pc-linux-gnu-gcc -shared -fPIC -Wl,-soname=libprofile-test.so.1  -O2 -pipe -Wl,-O1 -Wl,--as-needed -o libprofile-test.so libprofile-test.c
->>> Source compiled.
->>> Test phase [not enabled]: dev-libs/test-package-1
-
->>> Install test-package-1 into /var/tmp/portage/dev-libs/test-package-1/image/ category dev-libs
- * abi_x86_32.x86: running multilib-minimal_abi_src_install
-make DESTDIR=/var/tmp/portage/dev-libs/test-package-1/image/ libdir=/usr/lib32 extras=no install
-</pre>
-<pre style="background-color: yellow; color: black">
-Installing: libprofile-test.so
-</pre>
-<pre>
- * abi_x86_64.amd64: running multilib-minimal_abi_src_install
-make DESTDIR=/var/tmp/portage/dev-libs/test-package-1/image/ libdir=/usr/lib64 extras=no install
-</pre>
-<pre style="background-color: yellow; color: black">
-Installing: libprofile-test.so
-</pre>
-<pre>
->>> Completed installing test-package-1 into /var/tmp/portage/dev-libs/test-package-1/image/
-
- * Final size of build directory: 68 KiB
- * Final size of installed tree:  32 KiB
-
-strip: x86_64-pc-linux-gnu-strip --strip-unneeded -R .comment -R .GCC.command.line -R .note.gnu.gold-version
-   usr/lib32/libprofile-test.so.1
-   usr/lib64/libprofile-test.so.1
-
->>> Installing (1 of 1) dev-libs/test-package-1::local
->>> Auto-cleaning packages...
-
->>> No outdated packages were found on your system.
-
- * GNU info directory index is up-to-date.
-</pre>}}
-
-Messages printed by the package's makefile (informational ones highlighted) show variables <var>ARCH</var>, <var>CHOST_x86</var>, <var>CFLAGS_x86</var> (which adds GCC's <code>-m32</code> option for 32-bit builds) and <var>LDFLAGS</var>, set by profile {{Path|default/linux/amd64/17.0}}, are being inherited and are available in the ebuild's environment.
-
-Now let's see what happens if line order is changed in {{Path|custom/parent}}:
-
-{{Cmd|cat <<EOF >$profile_name/parent|output=<pre>
-> gentoo:default/linux/amd64/17.0
-> ../32bit
-> ../with-extras
-> EOF
-</pre>}}
-
-{{Cmd|equery uses test-package|output=<pre>
-[ Legend : U - final flag setting for installation]
-[        : I - package is installed with flag     ]
-[ Colors : set, unset
-* Found these USE flags for dev-libs/test-package-1:
- U I
- - + abi_x86_32 : 32-bit (x86) libraries
- + - extras     : Builds the libprofile-test-extra library
-</pre>}}
-
-This shows that because it now comes last in file {{Path|custom/parent}}, settings in profile {{Path|with-extras}} override those in profile {{Path|32bit}}, and, on a reinstallation, the 32-bit version of the package's libraries would be removed, and library {{Path|libprofile-test-extra}} would be built:
-
-{{RootCmd|ACCEPT_KEYWORDS{{=}}"~amd64" emerge --oneshot test-package|collapse-output=true|output=<pre>
-Calculating dependencies  ... done!
-
->>> Verifying ebuild manifests
-
->>> Emerging (1 of 1) dev-libs/test-package-1::local
- * test-package-1.tar.gz BLAKE2B SHA512 size ;-) ...                     [ ok ]
->>> Unpacking source...
->>> Unpacking test-package-1.tar.gz to /var/tmp/portage/dev-libs/test-package-1/work
->>> Source unpacked in /var/tmp/portage/dev-libs/test-package-1/work
->>> Preparing source in /var/tmp/portage/dev-libs/test-package-1/work/test-package-1 ...
- * Will copy sources from /var/tmp/portage/dev-libs/test-package-1/work/test-package-1
- * abi_x86_64.amd64: copying to /var/tmp/portage/dev-libs/test-package-1/work/test-package-1-abi_x86_64.amd64
->>> Source prepared.
->>> Configuring source in /var/tmp/portage/dev-libs/test-package-1/work/test-package-1 ...
- * abi_x86_64.amd64: running multilib-minimal_abi_src_configure
->>> Source configured.
->>> Compiling source in /var/tmp/portage/dev-libs/test-package-1/work/test-package-1 ...
- * abi_x86_64.amd64: running multilib-minimal_abi_src_compile
-make extras=yes
-</pre>
-<pre style="background-color: yellow; color: black">
-Building libprofile-test.so for architecture amd64 and ABI amd64 (CHOST=x86_64-pc-linux-gnu)
-</pre>
-<pre>
-x86_64-pc-linux-gnu-gcc -shared -fPIC -Wl,-soname=libprofile-test.so.1  -O2 -pipe -Wl,-O1 -Wl,--as-needed -o libprofile-test.so libprofile-test.c
-</pre>
-<pre style="background-color: yellow; color: black">
-Building libprofile-test-extra.so for architecture amd64 and ABI amd64 (CHOST=x86_64-pc-linux-gnu)
-</pre>
-<pre>
-x86_64-pc-linux-gnu-gcc -shared -fPIC -Wl,-soname=libprofile-test-extra.so.1  -O2 -pipe -Wl,-O1 -Wl,--as-needed -o libprofile-test-extra.so libprofile-test-extra.c
->>> Source compiled.
->>> Test phase [not enabled]: dev-libs/test-package-1
-
->>> Install test-package-1 into /var/tmp/portage/dev-libs/test-package-1/image/ category dev-libs
- * abi_x86_64.amd64: running multilib-minimal_abi_src_install
-make DESTDIR=/var/tmp/portage/dev-libs/test-package-1/image/ libdir=/usr/lib64 extras=yes install
-</pre>
-<pre style="background-color: yellow; color: black">
-Installing: libprofile-test.so libprofile-test-extra.so
-</pre>
-<pre>
->>> Completed installing test-package-1 into /var/tmp/portage/dev-libs/test-package-1/image/
-
- * Final size of build directory: 52 KiB
- * Final size of installed tree:  28 KiB
-
-strip: x86_64-pc-linux-gnu-strip --strip-unneeded -R .comment -R .GCC.command.line -R .note.gnu.gold-version
-   usr/lib64/libprofile-test.so.1
-   usr/lib64/libprofile-test-extra.so.1
-
->>> Installing (1 of 1) dev-libs/test-package-1::local
->>> Auto-cleaning packages...
-
->>> No outdated packages were found on your system.
-
- * GNU info directory index is up-to-date.
-</pre>}}
-
-== See also ==
-
-* {{See also|Package Manager Specification}}
-* [[Project:AMD64/Multilib_layout|Multilib layout]] for {{Keyword|amd64}} architecture.
-
-== External resources ==
-
-* News item, [https://www.gentoo.org/support/news-items/2017-12-26-experimental-amd64-17-1-profiles.html "Experimental amd64 17.1 profiles up for testing"], December 26th, 2017. Retrieved on December 16th, 2018.
-* gentoo-dev mailing list thread [https://archives.gentoo.org/gentoo-dev/message/15fb5b1879c86231e27057ac42134bf0 "Developers, please start switching to 17.1 amd64 profiles"], May 22nd, 2018.
-* gentoo-dev mailing list thread [https://archives.gentoo.org/gentoo-dev/message/a6aea3e34ec550e99c4907800e6f1483 "amd64 17.1 profiles are now stable"], May 19, 2019.
-* News item, [https://gentoo.org/support/news-items/2019-06-05-amd64-17-1-profiles-are-now-stable.html "amd64 17.1 profiles are now stable"], June 05, 2019. Retrieved on June 05, 2019.
-* {{bug|506276|text=Bug 506276}} — (no-symlink-lib) - kill <var>SYMLINK_LIB</var>=<code>yes</code> support.
-* Gentoo Forums thread [https://forums.gentoo.org/viewtopic-t-1074166.html "New profiles 17.1"].
 
 [[Category:Portage]]
