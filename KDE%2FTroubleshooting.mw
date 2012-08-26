@@ -1,225 +1,48 @@
-<languages />
-<translate>
+== Get rid of the KResource Migration Tool popup ==
+There have been reports that the KResource Migration Tool pops up on every login. There is no proper solution yet for this, but you can see a workaround in {{Bug|353200}}.
 
-<!--T:1-->
-This article contains various sections to help KDE users troubleshoot their systems.
+== Rebuilding the application database ==
+If your KMenu lacks any application or the whole application list, you probably need to rebuild the KDE application database. It is also a possible fix for any KMenu related issues, like missing icons.
+{{Cmd|kbuildsycoca4 --noincremental}}
 
-== Rebuilding the application database == <!--T:9-->
+== Akonadi complains about the MySQL config ==
+Start by checking the permissions in {{Path|/usr/share/config}} and {{Path|/usr/share/kde4}}. If they're 700, you need to update them to 755 recursively.
+{{RootCmd|chmod -R 755 /usr/share/config
+|chmod -R 755 /usr/share/kde4}}
+If that doesn't solve the error, you need to open the akonadi configuration and change the default MySQL config. If you don't have the tray running, start '''akonaditray''', select "Akonadi Server Configuration", activate "Use internal MySQL server" and then press the test button. If you want to use the MySQL server and not the embedded executable, you'll need to ensure that MySQL is running.
 
-<!--T:10-->
-If the KMenu lacks any application or the whole application list, the KDE application database probably needs to be rebuilt. This is also a possible fix for any KMenu related issues, like missing icons.
-
-<!--T:11-->
-{{Cmd|kbuildsycoca5 --noincremental}}
-
-== Akonadi complains about the MySQL config == <!--T:12-->
-
-<!--T:13-->
-Start by checking the permissions in {{Path|/usr/share/config}}. If they're 700, update them to 755 recursively.
-
-<!--T:14-->
-{{RootCmd
-|chmod -R 755 /usr/share/config
+== KDM fails to start ==
+Start by checking the permissions in {{Path|/usr/share/config}}. If they're ''700'', you need to update them to ''755''. Check previous section. If that doesn't solve the error, check the following notice in the kdm ebuild:
+{{Code|KDM notice|
+If when you restart xdm, kdm fails to start with a message like "gentoo kdm[2116]: X server startup timeout, terminating" in /var/log/messages, uncomment the ServerTimeout line in "grep kdmrc /var/db/pkg/kde-base/kdm-4.3.1/CONTENTS {{!}} cut -f2 -d " "" and be sure to increase the timeout - 60 should work
 }}
 
-<!--T:15-->
-If that doesn't solve the error, open the akonadi configuration and change the default MySQL config. If the tray is not running, start {{c|akonaditray}}, select "Akonadi Server Configuration", activate "Use internal MySQL server" and then press the test button. To use the MySQL server and not the embedded executable, make sure that MySQL is running.
+Also be sure that the following services are started:
+{{RootCmd|/etc/init.d/dbus status
+|/etc/init.d/consolekit status}}
+If not, enable them by replacing ''status'' with ''start'', and use the command '''rc-update add dbus default''' for every one of them to add them to default runlevel.
 
-== Unable to mount devices using KDE Plasma Device Notifier == <!--T:47-->
+Finally, KDM could fail due to errors in {{Path|/etc/X11/xorg.conf}}. Take a look in your logs: {{Path|/var/log/Xorg.0.log}} and {{Path|/var/log/kdm.log}} and fix xorg.conf accordingly. For additional help you can find us in IRC (#gentoo-kde at Freenode).
 
-<!--T:48-->
-If the error message "''You are not authorized to mount this device.''" is being displayed when trying to mount devices by clicking on them in the KDE Plasma Device Notifier (USB-stick-like icon in the system tray), add the following file to the configuration:
+== The battery applet or solid notifications don't show the relevant info ==
+So that the battery applet or other solid notifications can show the relevant info, you need D-Bus and ConsoleKit running:
+{{RootCmd|/etc/init.d/dbus status
+|/etc/init.d/consolekit status}}
+If not, enable them by replacing ''status'' with ''start'', and use the command '''rc-update add dbus default''' for every one of them to add them to default runlevel.
 
-<!--T:49-->
-{{FileBox|filename=/etc/polkit-1/rules.d/10-udisks.rules|lang=c|1=
-polkit.addRule(function(action, subject) {
-	if (action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") == 0 && subject.isInGroup("plugdev")) {
-		return polkit.Result.YES;
-	}
-});
-}}
+== Double-hibernate or crashes after hibernate ({{Bug|363363}}) ==
+KDE 4.6 handles "sleep button" events on its own, and the system correctly hibernates. If you have manually set up any other programs to handle these events (e.g. acpid), please disable that, as you may otherwise get double hibernation and/or system instability.
 
-<!--T:50-->
-This will allow all users who are members of the {{c|plugdev}} group to mount devices using the Device Notifier. 
+== Shutdown, reboot, logout does not work ({{Bug|326393}}) ==
+There is some strange interaction between the sound system and the logout mechanism going on. Open systemsettings, and disable the "logout sound". Afterwards, logging out will likely work.
 
-<!--T:51-->
-Use the following command to add users to this group:
+== The desktop background covers all windows ({{Bug|365623}}) ==
+In rare cases, after working with several screens the desktop settings are not cleaned up properly. The result is that the desktop background seems to cover all windows. More details plus some manual workarounds can be found in {{Bug|260360|site=kde}}.
 
-<!--T:52-->
-{{RootCmd|gpasswd -a <var>&lt;username&gt;</var> plugdev}}
+== No login possible, hangs at splash screen (bug 365637) ==
+If you have been playing with unstable Gnome stuff (naughty!) you may encounter a so-far unexplained incompatibility. Logging in to KDE fails as soon as {{Package|net-libs/glib-networking}} is installed. Unmerge that package and you should be fine.
 
-<!--T:53-->
-{{Note|A reboot may be required for the changes to take effect.}}
-
-== Black screen after login == <!--T:54-->
-
-<!--T:55-->
-Make sure {{Path|~/.bash_profile}} does not have any interactive components like [[keychain]]. Check {{Path|~/.xsession-errors}} for the prompt for input.
-
-== Screen Tearing/Flicker when using Radeon graphics drivers == <!--T:56-->
-
-<!--T:57-->
-If there is severe flickering or "tearing" when using Radeon based graphics cards, it may be necessary to change the Compositor sync settings to something other than the default "Automatic":
-
-<!--T:58-->
-{{CodeBox|title=Modifying Compositor sync settings|1=
-System Settings --> Display Monitor --> Compositor --> VSync
-}}
-
-== Delayed response of KMenu, krunner etc. == <!--T:59-->
-
-<!--T:60-->
-Remove <code>gles2</code> USE flag and rebuild affected packages, most importantly the (installed) packages from the <code>dev-qt</code> category, as well as {{Package|kde-frameworks/plasma}} and {{Package|kde-plasma/kwin}}.
-
-== Missing shutdown/reboot/suspend/hibernate buttons (with consolekit) == <!--T:61-->
-
-<!--T:67-->
-Ensure dbus is added to the default runlevel so that it is started before logging in with sddm:
-{{RootCmd
-|rc-update add dbus default
-}}
-
-<!--T:62-->
-Make sure that {{Package|kde-plasma/powerdevil}} and {{Package|sys-power/upower}} are installed. Also check that the user is in the {{c|users}} group.
-
-<!--T:63-->
-If {{Package|x11-misc/sddm}} is used, run the following command and make sure it matches the output including <code>nox11</code>:
-
-<!--T:64-->
-{{Cmd
-|grep pam_ck_connector /etc/pam.d/system-login|output=<pre>
-session         optional        pam_ck_connector.so nox11
-</pre>}}
-
-<!--T:65-->
-Another option is to create the following [[polkit]] rule for suspend (as per [https://bugs.kde.org/show_bug.cgi?id=344456#c38 this comment from the KDE bugzilla]):
-
-<!--T:66-->
-{{FileBox|filename=/etc/polkit-1/rules.d/10-suspend.rules|lang=javascript|1=
-polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.upower.suspend") {
-        return polkit.Result.YES;
-    }
-});
-}}
-
-<!--T:68-->
-If all else fails, try {{Package|x11-misc/lightdm}} instead.
-
-== Recover KWallet passwords after failed migration == <!--T:69-->
-
-<!--T:70-->
-{{Note|This assumes {{Package|kde-apps/kwalletd}} and {{Package|kde-apps/kwalletmanager}} - both slot <code>4</code> - are still installed. If they had been removed already, those packages will need to be temporarily re-emerged. As those package versions have been removed from tree long ago, this will involve recovering the ebuilds from <code>git</code> or adding the <code>kde-sunset</code> ebuild repository.}}
-
-<!--T:71-->
-On many systems, prior to the upgrade to KDE Frameworks <code>5.34.0</code> there had to be a second KWallet service present - {{Package|kde-apps/kwalletd}} served to provide the same password storage functions to kdelibs4-based applications, such as <code>kde-apps/kmail:4</code>. With the upgrade to <code>5.34.0</code>, this is obsolete as one single {{Package|kde-frameworks/kwallet}} can take over requests from these old applications.
-
-<!--T:72-->
-If applications are asking for passwords again that KWallet should have stored already long ago, this indicates that automatic migration from {{Package|kde-apps/kwalletd}} to {{Package|kde-frameworks/kwallet}} has failed.
-
-<!--T:73-->
-{{FileBox|filename=~/.config/kwalletrc|title=Remove these lines to re-enable password migration|lang=bash|1=
-[Migration]
-alreadyMigrated=true
-}}
-
-<!--T:74-->
-After editing and saving this file, leaving the session and re-entering should trigger the migration assistant, visible through the usual KWallet password prompt.
-
-<!--T:75-->
-Unfortunately in some configurations, automatic migration has never worked properly. For those cases, there is a manual workaround - temporarily remove the new KWallet version:
-
-<!--T:76-->
-{{RootCmd|emerge -C kde-frameworks/kwallet}}
-
-<!--T:77-->
-After leaving the session and re-entering, executing <code>kwalletmanager</code> (important: this is NOT the same as <code>kwalletmanager5</code>) via <code>krunner</code> will add a new system tray application <code>Wallet Manager</code> through which old KWallets can be manually exported into XML files via <code>File -> Export as XML</code>. Make sure to keep these files only for the length of this process.
-
-<!--T:78-->
-{{RootCmd|emerge -1 kde-frameworks/kwallet && emerge kde-apps/kwalletmanager}}
-
-<!--T:79-->
-After once again entering a new Plasma session, now the previously created XML files can be imported into the new KWallet by executing <code>kwalletmanager5</code>, raising it from system tray and navigating to <code>File -> Import XML</code>.
-
-<!--T:80-->
-At this point, the temporary XML files should be deleted again (skip the trash), and legacy packages can be removed:
-
-<!--T:81-->
-{{RootCmd|emerge -C kde-apps/kwalletmanager:4 kde-apps/kwalletd}}
-
-== kde-*/* related blockers prevent upgrade of neglected system == <!--T:82-->
-
-<!--T:83-->
-Package removals are usually announced at least 30 days in advance and put into <code>package.mask</code> so affected users are notified of the fact, find an alternative for their needs and clean up their systems. Long periods of not updating a system, or usage of update scripts, or simply ignoring those Portage messages in plain sight will inevitably lead to blockers at some point going forward. For that purpose, the following unmerge command contains a list of last-rited packages in recent times.
-
-<!--T:84-->
-{{Emerge|--unmerge media-sound/kstreamripper kde-misc/kcollectd media-sound/kmid sci-calculators/keurocalc net-misc/knutclient media-sound/konvertible kde-misc/kdesudo kde-misc/kbiff kde-misc/kfax kde-misc/kover media-sound/k4guitune media-sound/kenvy24 media-sound/kmidimon media-sound/kradio media-sound/waheela media-video/loopy net-p2p/kmldonkey kde-misc/konstruktor kde-misc/kookie kde-misc/kfilebox media-video/kplayer kde-misc/akonadi-git-resource media-gfx/kgrab kde-misc/colibri kde-misc/kio-mtp kde-misc/kio-slp kde-plasma/libkworkspace pykde4 kcmshell kde-l10n kdepim-l10n kdebase-runtime-meta kdontchangethehostname keditfiletype kfile kmimetypefinder kde-apps/knewstuff kreadconfig ksaneplugin ktraderclient kwalletd kommander kdepim-common-libs ktnef app-office/calligra-l10n kde-misc/krecipes kde-misc/semantik www-plugins/kpartsplugin x11-misc/lightdm-kde plasma-runtime pim-storage-service-manager kde-apps/attica kde-apps/drkonqi kcontrol kdebase-desktoptheme kdebase-menu kdebase-menu-icons kdebugdialog kde-apps/kdesu kde-apps/kglobalaccel kiconfinder kimgio knetattach kpasswdserver kquitapp kstart kuiserver kurifilter-plugins plasma-apps renamedlg-plugins solid-runtime sys-auth/polkit-kde-agent kdepasswd kfmclient konq-plugins libkonq nsplugins plasma-apps dev-util/kdevelop-php-docs dev-util/kdevelop-qmake dev-util/kdevelop-qmljs kde-misc/kim4 kde-misc/kio-ftps kde-misc/quadkonsole ksnapshot kdeartwork-meta kdeartwork-colorschemes kdeartwork-desktopthemes kdeartwork-emoticons kdeartwork-iconthemes kdeartwork-kscreensaver kdeartwork-wallpapers kdeartwork-weatherwallpapers kdeartwork-styles}}
-
-=== KDE PIM === <!--T:85-->
-
-<!--T:86-->
-An upgrade from very old KDE PIM to KF5-based KDE PIM may be causing blockers. The following commands will deselect any packages from world that may still depend on old conflicting packages:
-
-<!--T:87-->
-{{RootCmd|equery -q d kde-apps/kdepim-common-libs &#124; sed -e "s/-[0-9].*//" &#124; xargs emerge --deselect
-|equery -q d kde-apps/kdepimlibs &#124; sed -e "s/-[0-9].*//" &#124; xargs emerge --deselect
-|emerge --deselect kdepim-l10n kde-l10n}}
-
-<!--T:88-->
-{{Note|This requires {{Package|app-portage/gentoolkit}} to be installed. The [[Gentoolkit]] article provides more information about this useful utility.}}
-
-<!--T:89-->
-Having done that, emerge blockers should be gone.
-
-== KDE Plasma High CPU usage == <!--T:90-->
-
-<!--T:91-->
-If you are noticing relatively high CPU usage (normally the dbus-daemon or kwin_x11 processes)  when running KDE plasma make sure to check your syslog for errors that look like the following. Normally just tailing the log will enable you to see this right away since the error is thrown at such a high rate.
-
-<!--T:92-->
-{{FileBox|filename=/var/log/syslog|lang=bash|1=
-...
-Oct 17 00:30:26 localhost obexd[32399]: obex_server_init failed 
-Oct 17 00:30:26 localhost obexd[32401]: OBEX daemon 5.39 
-Oct 17 00:30:26 localhost obexd[32401]: obex_server_init failed 
-Oct 17 00:30:26 localhost obexd[32403]: OBEX daemon 5.39 
-}}
-
-
-<!--T:93-->
-This occurs due to being unable to connect to the bluetooth service you can ensure this is started by running <code>/etc/init.d/bluetooth start</code>. To ensure this doesn't happen on any other start run the following.
-
-<!--T:94-->
-{{RootCmd|rc-update add bluetooth}}
-
-<!--T:95-->
-Alternatively you can turn off bluetooth setting via the GUI.
-
-<!--T:96-->
-{{CodeBox|title=Modifying Bluetooth settings|1=
-System Settings --> Bluetooth --> Advanced Settings --> Enable Bluetooth integration
-}}
-
-== Compilation failure == <!--T:97-->
-
-<!--T:98-->
-{{Package|dev-qt/qtwebkit}} is one of the few packages known to consistently fail when the <code>j</code> value on <var>MAKEOPTS</var> is set too high.
-If you see mysterious build failure, try lowering your <code>j</code> value. The safe value would be the number of processor times thread ('''not''' that plus one).
-
-<!--T:99-->
-Similar case has been found when compiling with {{c|j}} option while KDE is running (observed with {{Package|dev-qt/qtwebkit}} and {{Package|dev-qt/qtwebengine}}). The build failure would be accompanied with desktop program lagging (or crashing). If this happen, you might want to consider compiling under TTY.
-
-<!--T:100-->
-In other case when you see out-of-memory failure, you may want to get rid of {{c|pipe}} on <var>CFLAGS</var>.
-
-== Plasma Browser Integration not working in Firefox ==
-
-For the Plasma Browser Integration to work, not only must {{Package|kde-plasma/plasma-browser-integration}} and the [https://addons.mozilla.org/de/firefox/addon/plasma-integration/ browser extension] be installed, but also the '''browser history''' has to be '''enabled'''. 
-
-== See also == <!--T:45-->
-
-<!--T:46-->
+== See also ==
 * {{Bug|Gentoo%20Linux|component=KDE|search=product}}
-</translate>
 
 [[Category:KDE]]
