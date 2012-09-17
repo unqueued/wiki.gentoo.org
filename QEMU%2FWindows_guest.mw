@@ -1,127 +1,32 @@
-This article describes the setup of a Windows guest using [[QEMU]].
+This article describes the setup of a Windows guest using [[KVM]].
 
-== Configuration ==
-
-=== Host ===
-
+== Host ==
 To create a disk image for the virtual machine, run:
+{{Cmd|qemu-img create -f qcow2 WindowsVM.img 15G}}
 
-{{Cmd|qemu-img create -f qcow2 WindowsVM.img 25G}}
-
-Download a Windows driver image from [https://docs.fedoraproject.org/en-US/quick-docs/creating-windows-virtual-machines-using-virtio-drivers/index.html#virtio-win-direct-downloads this location].
+Download Windows driver image from [http://get.gentoo.org http://alt.fedoraproject.org/pub/alt/virtio-win/latest/images/bin/].
 
 Since QEMU requires a lot of [[QEMU/Options|options]], it would be a good idea to put them into a shell script, e.g.:
-
-{{FileBox|filename=WindowsVM.sh|lang=bash|1=
+{{File|WindowsVM||<pre>
 #!/bin/sh
-exec qemu-system-x86_64 -enable-kvm \
+exec qemu-kvm \
         -cpu host \
         -drive file=WindowsVM.img,if=virtio \
         -net nic -net user,hostname=windowsvm \
         -m 1G \
         -monitor stdio \
         -name "Windows" \
-        "$@"
-}}
+        $@
+</pre>}}
 
-Change the path to the disk image {{Path|WindowsVM.img}} in the script. Additional options can be used when calling the script. To boot the disk image, run:
-
-{{Cmd|./WindowsVM.sh -boot d -drive file{{=}}WINDOWS.iso,media{{=}}cdrom -drive file{{=}}DRIVER.iso,media{{=}}cdrom}}
+Change the path to your disk image ''WindowsVM.img'' in the script. You can additional options when calling the script. To boot the disk image, run:
+{{Cmd|./WindowsVM -boot d -drive file{{=}}WINDOWS.iso,media{{=}}cdrom -drive file{{=}}DRIVER.iso,media{{=}}cdrom}}
 
 Install the Windows guest. See the [[#Guest|guest section]] for optimum support. After the installation start the script without the additional options.
 
-{{Note|When upgrading to QEMU 1.3 the <code>-enable-kvm</code> must be added to keep the guest responsive. Also change <code>-net nic</code> to <code>-net nic,model{{=}}rtl8139</code> to have a network interface in your guest.}}
-
-{{Note|When upgrading to QEMU 1.5.3 you have to add <code>-display sdl,frame{{=}}off,window_close{{=}}off"</code> to keep your full screen session full screen. Without this option I got a (new) menu bar at the top of the screen, pushing the Windows bottom menu off screen.}}
-
-{{Note| When upgrading to QEMU 2.0.0 replace <code>qemu-kvm</code> with <code>qemu-system-<CPUTYPE></code> (e.g. qemu-system-x86_64) (you may need to add <code>-enable-kvm</code> switch); the qemu-kvm wrapper has been removed - see {{Bug|506566}} }}
-
-=== Guest ===
-
+== Guest ==
 * During installation at the partition step Windows doesn't detect the VirtIO hard drive. You have to tell Windows to use the ''viostor'' driver from the driver image.
 
 * After installation Windows doesn't for the VirtIO ethernet adapter. You have to tell Windows to use the ''netkvm'' driver from the driver image.
-
-* For 32 bit Windows 7 a sound driver for the [http://www.linux-kvm.org/page/Sound Intel 82801AA AC97] exists. 
-
-* For 64 bit Windows 7 Intel HDA is available as an option (QEMU option: <code>-soundhw hda</code>)
-
-* USB 2.0 pass through can be configured from host to guest with variations of: <code>-usb -device usb-ehci,id=ehci -device usb-host,bus=ehci.0,vendorid=1452</code>
-
-* For Windows 8.1 USB tablet is available only with USB 2.0 pass through (QEMU option: <code>-device usb-ehci,id=ehci -device usb-tablet,bus=ehci.0</code>
-
-=== SPICE ===
-
-{{InfoBox stack
-|{{InfoBox homepage|http://www.spice-space.org/page/Running|text=Running SPICE}}
-|{{InfoBox homepage|http://www.linux-kvm.org/page/SPICE|text=SPICE (KVM)}}
-}}
-
-[[QEMU]] with [[:Wikipedia:SPICE_%28protocol%29|SPICE]] support enable (among other things) the more powerful QXL display device and makes clipboard sharing possible (copy/paste between clients and the virtual machine).
-
-To use SPICE with [[QEMU]] enable the following USE flag in {{Path|package.use}}:
-
-{{FileBox|filename=/etc/portage/package.use|title=Setting USE variable|1=
-app-emulation/qemu   spice
-}}
-
-Build QEMU:
-
-{{RootCmd|emerge app-emulation/qemu}}
-
-To connect spice server, you need a client like net-misc/spice-gtk.
-
-{{Note| As of spice-gtk-0.33-r2, the <code>gtk3</code> use flag is required for the <code>spicy</code> binary to be compiled - see {{Bug|631458}} }}
-
-==== Guest ====
-
-On Windows guests you need to install [http://www.spice-space.org/download.html Windows guest tools].
-
-On Windows 8.1 guest if you want to set screen resolution more than 1024x768, you need to install drivers from [https://fedoraproject.org/wiki/Windows_Virtio_Drivers#Direct_download  https://fedoraproject.org/wiki/Windows_Virtio_Drivers#Direct_download] and [https://github.com/vrozenfe/qxl-dod QXL WDDM DOD driver]. If you try to install Windows guest tool, QXL WDDM DOD driver won't work well because of Windows SPICE agent .
-
-If you want to try the new qlx-dod driver linked above, in order to use the driver you need to 'update' the basic windows display adapter driver and point it to the unzipped folder for the new driver. This can be found by: Right click the Start button -> Device Manager. Expand 'Display adapters' and right click on the sub entry and hit update driver.
-
-==== Initialization script ====
-
-To run [[QEMU]] from a script:
-(with spicy in case you have installed net-misc/spice-gtk)
-
-{{FileBox|filename=WindowsVM|lang=bash|1=
-#!/bin/sh
-SPICE_PORT=5924
-qemu-system-x86_64 -enable-kvm -daemonize \
-    -cpu host \
-    -drive file=WindowsVM.img,if=virtio \
-    -net nic -net user,hostname=windowsvm \
-    -m 1G \
-    -vga qxl \
-    -spice port=${SPICE_PORT},disable-ticketing \
-    -usbdevice tablet \
-    -device virtio-serial \
-    -chardev spicevmc,id=vdagent,name=vdagent \
-    -device virtserialport,chardev=vdagent,name=com.redhat.spice.0 \
-    "$@"
-exec spicy --title Windows 127.0.0.1 -p ${SPICE_PORT}
-}}
-
-Or remote-viewer (app-emulation/virt-viewer):
-
-{{FileBox|filename=WindowsVM|lang=bash|1=
-#!/bin/sh
-SPICE_PORT=5924
-qemu-system-x86_64 -enable-kvm -daemonize \
-    -cpu host \
-    -drive file=WindowsVM.img,if=virtio \
-    -net nic -net user,hostname=windowsvm \
-    -m 1G \
-    -vga qxl \
-    -spice port=${SPICE_PORT},disable-ticketing \
-    -usbdevice tablet \
-    -device virtio-serial \
-    -chardev spicevmc,id=vdagent,name=vdagent \
-    -device virtserialport,chardev=vdagent,name=com.redhat.spice.0 \
-    "$@"
-exec remote-viewer --title Windows spice://127.0.0.1:${SPICE_PORT}
-}}
 
 [[Category:Virtualization]]
