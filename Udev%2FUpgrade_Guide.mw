@@ -1,126 +1,15 @@
-{{Warning|'''Be careful when upgrading udev'''! Consider the changes listed below; ignoring them can, and probably will, ''break'' the system!}}
+This page only lists changes, which you need to consider before updating or will break your system.
 
-== udev 171 to 204 ==
+== udev 181 ==
+Since this version udev depends on files in {{Path|/usr}}. If you have {{Path|/usr}} on a separate partition, you must boot your system with an [[initramfs]] which pre-mounts {{Path|/usr}}.
 
-The following special attention is required:
+There are many tools to create such a initramfs:
+* [[genkernel]]
+* [[Dracut]]
+* See the [[initramfs]] article for more solutions
 
-* <code>CONFIG_DEVTMPFS=y</code> must be set in the kernel. To do this Linux kernel 2.6.32+ is needed.
+=== External resources ===
+* http://freedesktop.org/wiki/Software/systemd/separate-usr-is-broken
 
-* If there is a {{Path|/dev}} line in [[fstab|/etc/fstab]], it must have the devtmpfs filesystem type or it will conflict with the above options.
-
-* Remove udev-postmount from any runlevels, it is not necessary. Exception: Note that {{Package|sys-fs/eudev}} still has the udev-postmount init script in use with USE="rule-generator"
-
-* When using {{Path|/etc/udev/rules.d/70-persistent-net.rules}}, read [http://www.freedesktop.org/wiki/Software/systemd/PredictableNetworkInterfaceNames Predictable Network Interface Names],
-otherwise delete it together with {{Path|/etc/udev/rules.d/70-persistent-cd.rules}} as both are from the now deleted rule_generator that does not exist anymore.
-
-* The new [http://www.freedesktop.org/wiki/Software/systemd/PredictableNetworkInterfaceNames Predictable Network Interface Names] will be used by default, unless the kernel commandline contains the <code>net.ifnames=0</code> parameter. (If the method of masking out the {{Path|/etc/udev/rules.d/80-net-name-slot.rules}} file was used in the past be aware it will not work in v209 and newer releases.)
-
-* When using Linux 3.8 or higher it should be possible to disable USE="firmware-loader" and let the kernel do the loading instead. However, USE="firmware-loader" can be used on newer kernels too.
-
-* {{Package|sys-apps/biosdevname}} is no longer necessary if the [http://www.freedesktop.org/wiki/Software/systemd/PredictableNetworkInterfaceNames Predictable Network Interface Names] are being used.
-
-* Any file that has not been personally created or edited in {{Path|/etc/udev/rules.d}} should be backed up and removed since it is likely a relic from old an udev installation.
-
-For more details, read the full news article {{Path|/usr/portage/metadata/news/2013-03-29-udev-upgrade/2013-03-29-udev-upgrade.en.txt}} and the post install output of emerging udev.
-
-== udev 204 to 208 ==
-
-The following special attention is required:
-
-* Since this version, kernel with accept4() function support is mandatory. It is supported for {{Keyword|amd64}}, {{Keyword|ia64}}, {{Keyword|mips}}, {{Keyword|sparc}} and {{Keyword|x86}} in 2.6.32.61. All others, like ARM, will need a newer kernel like 3.0 for the function.
-* It is no longer the job of the /dev manager, like udev, to create /dev nodes for static kernel modules such as /dev/fuse or /dev/snd/seq. Instead they are now created by the kmod-static-nodes init script which is part of {{Package|sys-apps/kmod}} since version 15. Make sure the init script has been added to the "sysinit" runlevel.
-
-== udev 208 to 216 ==
-
-The following special attention is required:
-
-* Since this version, kernel settings <code>CONFIG_FHANDLE=y</code> and <code>CONFIG_NET=y</code> are mandatory. Kernel setting <code>CONFIG_DMIID=y</code> is recommended for {{Keyword|amd64}}/{{Keyword|ia64}}/{{Keyword|x86}}, for example, keyboard rules.
-* File {{Path|/lib/udev/rules.d/80-net-name-slot.rules}} was replaced with {{Path|/lib/udev/rules.d/80-net-setup-link.rules}}. If currently using an empty (or single-comment) {{Path|/etc/udev/rules.d/80-net-name-slot.rules}} to disable predictable network interface names, the {{Path|80-net-setup-link.rules}} should now be used. For example:
-{{RootCmd|cd /etc/udev/rules.d/ && ln 80-net-name-slot.rules 80-net-setup-link.rules}}
-This keeps the override both pre- and post-upgrade; then run:
-{{RootCmd|rm /etc/udev/rules.d/80-net-name-slot.rules}}
-once the upgrade has been made. The hardlink can be made, in order to protect against not noticing the upgrade in a busy or non-professional situation.
-* However, {{Path|80-net-setup-link.rules}} is only a trigger for the actual configuration file 99-default.link at {{Path|/lib/systemd/network/}} which can be overrided at {{Path|/etc/systemd/network/}}
-* The most reliable way of disabling the new network interface scheme is still the kernel bootline parameter: <code>net.ifnames=0</code>
-
-== udev 216 to 217 ==
-The following special attention is required:
-
-* Since this version, kernel setting <code>CONFIG_FW_LOADER_USER_HELPER</code> should be set to <code>=n</code>, because the userspace firmware loader has been removed. Upgrade the kernel at least to version 3.7 for the kernel firmware loader.
-* If <code>CONFIG_FW_LOADER_USER_HELPER</code> cannot be disabled, try to disable <code>CONFIG_DELL_RBU</code>, it will select <code>CONFIG_FW_LOADER_USER_HELPER</code> automatically in Linux kernel 3.18.x.
-
-== Example interface IDs ==
-
-The default naming precedence rules are these:
-
-# Names incorporating Firmware/BIOS provided index numbers for on-board devices (<code>ID_NET_NAME_ONBOARD</code>, example: eno1)
-# Names incorporating Firmware/BIOS provided PCI Express hotplug slot index numbers (<code>ID_NET_NAME_SLOT</code>, example: ens1)
-# Names incorporating physical/geographical location of the connector of the hardware (<code>ID_NET_NAME_PATH</code>, example: enp2s0)
-# Names incorporating the interfaces's MAC address (<code>ID_NET_NAME_MAC</code>, example: enx78e7d1ea46da)
-# Classic, unpredictable kernel-native ethX naming (example: eth0) 
-
-(Rule 4 is disabled by default.) So, if output is like this:
-
-{{Cmd|udevadm test-builtin net_id /sys/class/net/eth0 2> /dev/null|output=<pre>ID_NET_NAME_MAC=enxd4a8xxxxxxxx
-ID_NET_NAME_ONBOARD=eno1
-ID_NET_NAME_PATH=enp1s0f1</pre>
-}}
-
-The interface will be named ''eno1'', because <code>ID_NET_NAME_ONBOARD</code> takes precedence over <code>ID_NET_NAME_PATH</code>.
-
-== Things to think of when upgrading ==
-
-* {{Path|/etc/conf.d/net}}
-* Renaming init scripts
-* Replacing init scripts in runlevels (via <tt>rc-update</tt>)
-* iptables configuration
-* vnstat configuration
-* samba configuration
-
-A quick way to get a list of files that will need to be updated can be found using the following:
-{{Cmd|grep -r 'eth0' /etc/* {{!}} grep -v '#'}}
-
-== Fixing network interfaces ==
-
-This section provides examples on how to fix [[Network interface|network-interfaces]] if they do not work anymore (or before they stop working before the new udev package has been switched to). It is only applicable to simple setups, like one ethernet and one wifi interface. For more complicated setup (like more ethernet adapters) most users should already know what to do.
-
-=== Renaming init scripts ===
-
-If '''still running the old udev''' and are ready to enable the new one, then execute:
-
-{{Cmd|udevadm test-builtin net_id /sys/class/net/eth0 2> /dev/null|output=<pre>ID_NET_NAME_MAC=enxd4a8xxxxxxxx
-ID_NET_NAME_PATH=enp1s0f1</pre>
-}}
-
-Take the ID_NET_NAME_PATH-item (here ''enp1s0f1'') and execute
-
-{{Cmd|ln -s net.lo /etc/init.d/net.enp1s0f1}}
-
-Do the same for any wifi-interfaces.
-
-When '''already running the new udev and the network is down''', execute:
-
-{{Cmd|ls -la /sys/class/net|output=<pre>total 0
-drwxr-xr-x  2 root root 0 Apr  2 19:42 ./
-drwxr-xr-x 49 root root 0 Apr  2 19:42 ../
-lrwxrwxrwx  1 root root 0 Apr  2 19:42 enp1s0f1 -> ../../devices/pci0000:00/0000:00:1c.1/0000:02:00.0/net/enp1s0f1/
-lrwxrwxrwx  1 root root 0 Apr  2 19:42 lo -> ../../devices/virtual/net/lo/
-lrwxrwxrwx  1 root root 0 Apr  2 19:42 sit0 -> ../../devices/virtual/net/sit0/</pre>
-}}
-
-Look which link points to a pci-device (here ''enp1s0f1'') and execute:
-
-{{Cmd|ln -s net.lo /etc/init.d/net.enp1s0f1}}
-
-When wifi-interfaces exist do not forget include these interfaces as well.
-
-=== Replacing init scripts in runlevels (via rc-update) ===
-
-{{Cmd
-|rc-update delete net.eth0 default
-|rc-update add net.enp1s0f1 default
-}}
-
-If necessary do the same for any wifi-interfaces.
 
 [[Category:Upgrades]]
