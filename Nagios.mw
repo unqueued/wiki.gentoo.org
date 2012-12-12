@@ -1,176 +1,31 @@
-{{InfoBox stack
-|{{InfoBox homepage|https://www.nagios.org|header=true}}
-|{{InfoBox wikipedia}}
-}}
-
 '''Nagios''' offers complete monitoring and alerting for servers, switches, applications, and services.
 
-== Installation ==
+== Install Nagios ==
+Decide whether you want to use lighttpd or apache2 as the nagios frontend, and enable the preferred webserver USE flag for nagios.
 
-=== Web server ===
+{{RootCmd|<pre>USE="exif gd truetype" emerge apache2  (Required to specify "gd" USE flag, else emerge is blocked)</pre>}}
+{{RootCmd|<pre>USE="nagios-ping nagios-ssh" emerge net-analyzer/nagios-plugins (Some preferred plugins)</pre>}}
+{{RootCmd|<pre>USE="apache2" emerge net-analyzer/nagios-core</pre>}}
 
-Decide which web server will be to used and set it up:
+== Apache Web Server Configuration ==
+Follow the instructions within the PHP Gentoo Wiki.
 
-* [[Apache]] with PHP
-* [[Lighttpd]] with [[PHP]]
-* [[Nginx]] with [[PHP]] and [[fcgiwrap]]
+You'll need to enable the NAGIOS and PHP modules and test PHP works.
 
-Once finished return here to and continue reading.
+{{File|/etc/conf.d/apache2||<pre>
+APACHE2_OPTS="-D DEFAULT_VHOST -D INFO -D SSL -D SSL_DEFAULT_VHOST -D LANGUAGE -D NAGIOS -D PHP5"</pre>}}
 
-=== USE flags ===
+== Specify Allowed Users ==
+Edit the /etc/groups file and add the user name(s) to the nagios group, whom are allowed access to the Nagios service.
 
-Set the proper USE flags for Nagios before it emerging it:
+Once done, completely log-out from all shells and relogin for the update to /etc/groups to occur.
 
-{{USEflag|package=net-analyzer/nagios-core}}
-
-Do not forget to enable the right USE flags for Nagios plugins ({{Package|net-analyzer/nagios-plugins}}).
-
-=== Emerge ===
-
-Finally install {{Package|net-analyzer/nagios}}:
-
-{{Emerge|net-analyzer/nagios}}
-
-== Configuration ==
-
-=== Apache ===
-
-Enable the Nagios module for Apache:
-
-{{FileBox|filename=/etc/conf.d/apache2|lang=bash|1=<pre>
-APACHE2_OPTS="... -D NAGIOS"
-</pre>}}
-
-Since Nagios requires [[PHP]] for its web interface, it may needed to be enabled as well if it has not been previously. One way is to simply add <code>-D PHP5</code> to <code>APACHE2_OPTS</code> and edit {{Path|/etc/php/apache2-php<YOUR_PHP_VERSION>/php.ini}} This should be fine unless PHP is needed for purposes other than hosting Nagios.
-
-If using Apache 2.4 (which is still marked unstable as of April 2015) the {{Path|/etc/apache2/modules.d/99_nagios3.conf}} file may need to be modified to fit the new authorization directives of Apache 2.4.
-
-Remember to add the <code>apache</code> user to group <code>nagios</code>:
-
-{{RootCmd|usermod -a -G nagios apache}}
-
-Restart the Apache service to have it recognize the group change:
-
-{{RootCmd|rc-service apache2 restart}}
-
-=== Lighttpd ===
-
-Enable the Nagios configuration for Lighttpd:
-
-{{FileBox|filename=/etc/lighttpd/lighttpd.conf|1=<pre>
-include "nagios.conf"
-</pre>}}
-
-Configure authentication. More information on how to set this up can be found in the Lighttpd documentation.
-
-{{FileBox|filename=/etc/lighttpd/nagios.conf|1=
-$HTTP["url"] =~ "nagios" {
-    auth.backend ="plain"    # The password is stored as plain text as user:password in...
-    auth.backend.plain.userfile = "/etc/nagios/passwd"  # this file
-    auth.require = ( "" => (
-        "method" => "digest",
-        "realm" => "nagios",
-        "require" => "user=nagiosadmin"
-        )
-    )
-    setenv.add-environment = ( "REMOTE_USER" => "user" )
-}
-}}
-
-Restart the Lighttpd service:
-
-{{RootCmd|rc-service lighttpd restart}}
-
-
-=== Nginx ===
-
-See the [[Nginx]] guide before continuing if you don't have it already setup.
-
-Emerge {{Package|www-servers/spawn-fcgi}} and {{Package|www-misc/fcgiwrap}}:
-
-{{Emerge|www-servers/spawn-fcgi www-misc/fcgiwrap}}
-
-Next, create an init script for a spawn-fcgi instance dedicated to nagios:
-{{RootCmd
-|ln -s /etc/init.d/spawn-fcgi /etc/init.d/spawn-fcgi.nagios
-|cp /etc/conf.d/spawn-fcgi /etc/conf.d/spawn-fcgi.nagios
-}}
-
-Then, configure our spawn-fcgi instance to launch fcgiwrap and listen on a unix socket:
-{{FileBox|filename=/etc/conf.d/spawn-fcgi.nagios|1=
-# edit these variables:
-FCGI_SOCKET=/run/fcgiwrap.nagios.socket
-FCGI_USER=nagios
-FCGI_GROUP=nginx
-FCGI_EXTRA_OPTIONS="-M 0660"
-FCGI_PORT= # must be empty for the socket to work
-FCGI_PROGRAM=/usr/sbin/fcgiwrap
-}}
-
-Don't forget to add spawn-fcgi.nagios to the default runlevel and start it:
-{{RootCmd
-|rc-update add spawn-fcgi.nagios default
-|rc-service spawn-fcgi.nagios start
-}}
-
-You may need to change the owner of the /var/nagios folder, so fcgiwrap can access it:
-{{RootCmd
-|chown nagios:nagios /var/nagios
-}}
-
-Nginx can now be configured to serve our nagios instance. Here's an example configuration snippet for nginx, assuming you have defined a php upstream:
-{{FileBox|filename=/etc/nginx/nginx.conf|1=
-location /nagios {
-        alias /usr/share/nagios/htdocs;
-
-        location ~ \.php$ {
-                # Filter out arbitrary code execution
-                location ~ \..*/.*\.php$ {return 404;}
-                fastcgi_pass php;
-                include fastcgi.conf;
-                fastcgi_param SCRIPT_FILENAME $request_filename;
-        }
-
-        location /nagios/cgi-bin/ {
-                root /usr/lib/;
-                include /etc/nginx/fastcgi_params;
-                fastcgi_param  AUTH_USER nagiosadmin;
-                fastcgi_param  REMOTE_USER nagiosadmin;
-                if ($uri ~ "\.cgi$"){
-                        fastcgi_pass unix:/run/fcgiwrap.nagios.socket-1;
-                }
-        }
-}
-}}
-
-=== Permissions ===
-
-Add the user name(s) to the <code>nagios</code> group, whom are allowed access to the Nagios service:
-
-{{RootCmd|gpasswd -a <USER_NAME> nagios}}
-
-Once done, completely sign out from all shells and re-login for the update to apply.
-
-=== Boot service ===
-
-Start Nagios:
+== Start the Services ==
+{{RootCmd|rc-update add nagios default}}
+{{RootCmd|rc-update add apache2 default}}
 
 {{RootCmd|rc-service nagios start}}
+{{RootCmd|rc-service apache2 start}}
 
-To start Nagios at boot time, add it the default runlevel:
-
-{{RootCmd|rc-update add nagios default}}
-
-== Testing ==
-
-Open a browser and navigate to http://localhost/nagios
-
-== Troubleshooting  ==
-
-* {{Bug|net-analyzer/nagios|search=package}}
-
-== See also ==
-
-* [[Nagios/Guide|The Gentoo Nagios system monitoring guide]].
-
-[[Category:Monitoring]]
+== Navigate to the Nagios Web Page ==
+Open your browser and navigate to "http://localhost/nagios"
