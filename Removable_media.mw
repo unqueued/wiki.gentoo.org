@@ -1,142 +1,21 @@
-<languages />
-<translate>
-Removable media [[Article description::consists of any media that is easily removed from a system]]; typically this includes CDs, DVDs, USB drives, or memory cards of all form factors. These types of media require special handling if an unprivileged user desires to mount an unknown device.
+[[Mount]]ing removable media, like CDs, DVDs, USB drives or memory cards, needs special handling, because most often you want a regular user to be able to mount ad-hoc an unknown device.
 
 == Prerequisites ==
+* Kernel support for your [[:Category:Storage devices|storage device]].
+* Kernel support for your [[filesystem]].
 
-* Kernel support for the [[:Category:Storage devices|storage device]].
-* Kernel support for the [[filesystem]] used by the device.
+== udisks ==
+[[udisks]] is a daemon to manage mounting of removable media. It mounts filesystems to subfolders of {{Path|/media}}.
 
-== UUIDs and labels ==
-
-In many cases storage devices are identified by their [[device file]], e.g. {{Path|/dev/sd*}}. Alternatively their '''UUID''' ('''U'''niversally '''U'''nique '''Id'''entifier) ({{Path|/dev/disk/by-uuid/*}}) or '''label''' ({{Path|/dev/disk/by-label/*}}) can be used. In comparison to device files UUIDs and labels are persistent and will never change because of asynchronous detection. The UUID is generated automatically during filesystem creation. The label can be specified at filesystem creation or changed afterwards.
-
-Use {{c|tree /dev/disk/}} or {{c|lsblk}} (part of {{Package|sys-apps/util-linux}}) to show all storage devices and their UUIDs and labels:
-
-{{Cmd|tree /dev/disk/}}
-
-{{Cmd|lsblk -o +fstype,label,uuid,partuuid|output=<pre>
-NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT FSTYPE   LABEL           UUID                                 PARTUUID
-sda      8:0    0 111.8G  0 disk                                                                          
-├─sda1   8:1    0    96M  0 part            ext2                     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-01
-├─sda2   8:2    0     1K  0 part                                                                          xxxxxxxx-02
-├─sda3   8:3    0   100M  0 part            ntfs     System Reserved XXXXXXXXXXXXXXXX                     xxxxxxxx-03
-├─sda4   8:4    0  29.6G  0 part            ntfs                     XXXXXXXXXXXXXXXX                     xxxxxxxx-04
-├─sda5   8:5    0   2.8G  0 part [SWAP]     swap                     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-05
-└─sda6   8:6    0  79.2G  0 part /          reiserfs                 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-06
-sr0     11:0    1  1024M  0 rom    
-</pre>}}
-
-== Mounting removable media ==
-
-For [[mount|mounting]] as a normal user without root privileges the device needs an entry with the {{c|user}} option in [[fstab#UUIDs_and_labels|{{Path|/etc/fstab}}]]. 
-
-Plug removable media to the computer then run {{c|tree /dev/disk/}} or {{c|lsblk}}.
-
-{{Cmd|lsblk -o +fstype,label,uuid,partuuid|output=<pre>
-NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT FSTYPE   LABEL           UUID                                 PARTUUID
-sda      8:0    0 111.8G  0 disk                                                                          
-├─sda1   8:1    0    96M  0 part            ext2                     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-01
-├─sda2   8:2    0     1K  0 part                                                                          xxxxxxxx-02
-├─sda3   8:3    0   100M  0 part            ntfs     System Reserved XXXXXXXXXXXXXXXX                     xxxxxxxx-03
-├─sda4   8:4    0  29.6G  0 part            ntfs                     XXXXXXXXXXXXXXXX                     xxxxxxxx-04
-├─sda5   8:5    0   2.8G  0 part [SWAP]     swap                     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-05
-└─sda6   8:6    0  79.2G  0 part /          reiserfs                 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-06
-sdb      8:16   1   3.8G  0 disk                                                                          
-└─sdb1   8:17   1   3.8G  0 part            vfat                     QWER-1234                            
-sdc      8:32   1   1.9G  0 disk                                                                          
-└─sdc1   8:33   1   1.9G  0 part            vfat     QWERTZ12345     4321-REWQ                            qwer1234-01
-sr0     11:0    1  1024M  0 rom    
-</pre>}}
-
-The {{Path|sdb1}} and {{Path|sdc1}} lines display the [[#UUIDs_and_labels|UUIDs]] {{c|QWER-1234}} and {{c|4321-REWQ}} to be added to {{Path|/etc/fstab}} for two media just plugged-in. {{Path|sdc1}} also has the label {{c|QWERTZ12345}} which could be used alternatively.  Let's create their mountpoints {{Path|larry1}} and {{Path|larry2}}:
-
-{{RootCmd|mkdir /mnt/{larry1,larry2}
-|chmod 777 /mnt/{larry1,larry2}
-}}
-
-And add them in {{Path|/etc/fstab}}.
-
-{{FileBox|filename=/etc/fstab|<pre>
-# <fs>            <mountpoint> <type> <opts>         <dump/pass>
-...
-UUID=QWER-1234    /mnt/larry1  vfat   noauto,rw,user     0 0
-LABEL=QWERTZ12345 /mnt/larry2  vfat   noauto,rw,user     0 0
-</pre>}}
-
-With the {{c|user}} option in these entries, they can be mounted / unmounted by normal users. 
-
-{{Cmd|mount /mnt/larry1|mount /mnt/larry2}}
-
-Programs using the gtk file chooser show them on the left under "Places" where thy can be clicked for mounting.
-
-[[File:Gtk_file_chooser.png|none|frame|In the gtk file chooser, entries from fstab having the {{c|user}} option are listed on the left under "Places". In this case larry1 is not connected to the computer. If connected, it could be mounted by clicking on it.]]
-
-To see what is mounted, run {{c|mount}} without arguments or {{c|lsblk}} again and find the {{c|MOUNTPOINT}} column populated for sdb1 and sdc1:
-
-{{Cmd|lsblk -o +fstype,label,uuid,partuuid|output=<pre>
-NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT  FSTYPE   LABEL           UUID                                 PARTUUID
-sda      8:0    0 111.8G  0 disk                                                                          
-├─sda1   8:1    0    96M  0 part             ext2                     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-01
-├─sda2   8:2    0     1K  0 part                                                                           xxxxxxxx-02
-├─sda3   8:3    0   100M  0 part             ntfs     System Reserved XXXXXXXXXXXXXXXX                     xxxxxxxx-03
-├─sda4   8:4    0  29.6G  0 part             ntfs                     XXXXXXXXXXXXXXXX                     xxxxxxxx-04
-├─sda5   8:5    0   2.8G  0 part [SWAP]      swap                     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-05
-└─sda6   8:6    0  79.2G  0 part /           reiserfs                 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx xxxxxxxx-06
-sdb      8:16   1   3.8G  0 disk                                                                          
-└─sdb1   8:17   1   3.8G  0 part /mnt/larry1 vfat                     QWER-1234                            
-sdc      8:32   1   1.9G  0 disk                                                                          
-└─sdc1   8:33   1   1.9G  0 part /mnt/larry2 vfat     QWERTZ12345     4321-REWQ                            qwer1234-01
-sr0     11:0    1  1024M  0 rom    
-</pre>}}
-
-Once a device is mounted it can be accessed like a normal hard disk. Usual operations like {{c|cp}}, {{c|mv}}, {{c|rm}}, etc. work fine.
-
-For unmounting the usage of mountpoint, label or UUID is equivalent as is for mounting. Any of them will do it.
-
-{{Cmd|umount /mnt/larry2|umount LABEL{{=}}QWERTZ12345|umount UUID{{=}}4321-REWQ}}
-
-Mounting without the fstab entry can be done by root only.
-
-{{RootCmd|mount UUID{{=}}QWER-1234 /mnt/larry1}}
-
-{{Cmd|mount|output=<pre>
-/dev/sdb1 on /mnt/larry1 type vfat (rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro)
-</pre>
-}}
-
-For further details see {{c|man 8 mount}}.
-
-You can also edit /usr/share/polkit-1/actions/org.freedesktop.UDisks2.policy, under action id "org.freedesktop.udisks2.filesystem-mount" change auth_admin to yes for allow_any. This will allow a disk to be mounted by remote and local users, so change and use at your own risk. 
-
-{{FileBox|filename=/usr/share/polkit-1/actions/org.freedesktop.UDisks2.policy|lang=xml|
-    <action id{{=}}"org.freedesktop.udisks2.filesystem-mount">
-      <description>Mount a filesystem</description>
-      <message>Authentication is required to mount the filesystem</message>
-      <defaults>
-        <allow_any>yes</allow_any>
-        <allow_inactive>auth_admin</allow_inactive>
-        <allow_active>yes</allow_active>
-      </defaults>
-    </action>}}
-
-== MTP ==
-
-For handling media using the '''MTP''' ('''M'''edia '''T'''ransfer '''P'''rotocol) protocol see the [[MTP]] article.
+=== KDE ===
+[[KDE]] supports udisks with its Solid framework. After plugging in the media shows up:
+* in the '''device notifier''' widget
+* in the start menu under '''Computer -> Places'''
+* in Dolphin in the sidebar under '''Places'''
 
 == See also ==
+* [[mount]] - Manual mount.
+* [[fstab]] - Automatic mount at boot time.
+* [[AutoFS]] - Automatic mount on access.
 
-* {{See also|Mount}}
-* {{See also|Fstab}}
-* {{See also|CurlFtpFS}}
-* {{See also|AutoFS}}
-* {{See also|Udisks}}
-* {{See also|Silk Guardian}}
-* [[Texas_Instruments_PCIxx12#generic_-_PCIxx12_SDA_Standard_Compliant_SD_Host_Controller|Texas Instruments PCIxx12 5-in-1 Multimedia Card Reader (SD/MMC/MS/MS PRO/xD)]]
-
-== External resources ==
-
-* https://wiki.debian.org/Part-UUID
-* https://en.wikipedia.org/wiki/Universally_unique_identifier
-</translate>
 [[Category:Filesystems]]
