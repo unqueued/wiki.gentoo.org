@@ -1,124 +1,74 @@
-<languages />
-<translate>
-{{InfoBox stack|{{InfoBox homepage|https://www.kernel.org/doc/Documentation/efi-stub.txt|header=true}}|{{InfoBox package|sys-kernel/gentoo-sources}}|{{InfoBox wikipedia|EFI system partition}}{{InfoBox todo|CONFIG_PM_STD_PARTITION for hibernation}}}}
+The (U)EFI firmware present in many newer computers can function as boot loader, allowing you to boot without installing a separate boot loader like [[GRUB2]] or [[Syslinux]].
 
-The (U)EFI firmware present in many computers can function as [[bootloader]], allowing systems to boot without needing the addition of a secondary bootloader. This article [[Article description::provides instructions on configuring and [[#Installation|installing]] unsigned kernels in the [[EFI System Partition|EFI System Partition (ESP)]] of a computer running in EFI mode.]] This requires [[Sakaki's_EFI_Install_Guide/Configuring_Secure_Boot|secure boot]] to be disabled. 
-
-== Kernel configuration ==
-
-In order to boot directly from [[wikipedia:UEFI|UEFI]], the kernel needs to know where to find the root ({{path|/}}) partition of the system to be booted. Enable EFI runtime service support (<var>CONFIG_EFI</var>), EFI stub support (<var>CONFIG_EFI_STUB</var>) and Built-in kernel command line (<var>CONFIG_CMDLINE_BOOL</var>) and add the root partition path (example: {{Path|/dev/sda2}}) or its PARTUUID to (<var>CONFIG_CMDLINE</var>).
-
-{{KernelBox|title=Enable EFI stub support|1=
+= Partitioning =
+You need to create a partition of type "EFI System partition", which is EF00 on GPT and EF on MBR. Example using {{Package|sys-apps/gptfdisk}}:
+{{RootCmd|gdisk /dev/sda
+<br />Command (? for help): n
+<br />Partition number (1-128, default 1): 1
+<br />First sector: (enter desired start sector and size, 100 MB should be plenty)
+<br />Command (? for help): t
+<br />Partition number (1-2): 1
+<br />Hex code or GUID (L to show codes, Enter {{=}} 8300): EF00
+<br />Command (? for help): w
+| }}
+Create a FAT32 filesystem inside:
+{{RootCmd|mkfs.vfat -F 32 /dev/sda1}}
+If you don't have mkfs.vfat (part of {{Package|sys-fs/dosfstools}}) installed, you can use busybox:
+{{RootCmd|busybox mkfs.vfat /dev/sda1}}
+= Kernel =
+== Configuration ==
+In order to boot directly from UEFI, the kernel needs to have CONFIG_EFI_STUB support enabled.
+{{Kernel|Enable EFI stub support|
 Processor type and features  --->
     [*] EFI runtime service support 
     [*]   EFI stub support
-    [ ]     EFI mixed-mode support
-    ...
-    ...
-    [*] Built-in kernel command line
-    (root=/dev/sda2)
 }}
-
-Using <code>root=PARTUUID=</code> might be preferable. To find out use {{C|blkid}}:
-
-{{Note|The ''partition's'' PARTUUID is distinct from the ''filesystem's'' UUID.}}
-
-{{RootCmd|blkid {{!}} grep sda2|output=<pre style="white-space: pre;">
-/dev/sda2: UUID="d1e0c1e0-3a40-42c5-8931-cfa2c7deae32" TYPE="ext4" PARTUUID="adf55784-15d9-4ca3-bb3f-56de0b35d88d"
-</pre>}}
-
-{{KernelBox|title=CONFIG_CMDLINE - alternative using PARTUUID (example: adf55784-15d9-4ca3-bb3f-56de0b35d88d)|1=
+UEFI does not support passing kernel parameters to the kernel, so you need to hardcode them via CONFIG_CMDLINE. Example for the root partition on /dev/sda2:
+{{Kernel|Enable built-in kernel parameters|
 Processor type and features  --->
     [*] Built-in kernel command line
-    (root=PARTUUID=adf55784-15d9-4ca3-bb3f-56de0b35d88d)
+    (root{{=}}/dev/sda2)
 }}
-
-It is also a good idea to enable EFI Variable Support via sysfs <var>(CONFIG_EFI_VARS)</var> so that the [[Efibootmgr#EFI_vars|efivars]] can be mounted. <var>CONFIG_EFI_MIXED</var> as proposed by [[Handbook:AMD64/Installation/Kernel#Architecture_specific_kernel_configuration|Gentoo Handbook]] is not needed for the EFI boot stub.
-
-{{KernelBox|title=EFI Variable Support via sysfs|1=
-Firmware Drivers  --->
-    EFI (Extensible Firmware Interface) Support  --->
-        <*> EFI Variable Support via sysfs
+For GPT systems, using root=PARTUUID=... might be preferable. To find out, you can use gdisk to find out
+{{RootCmd|gdisk /dev/sda
+<br />Command (? for help): i
+<br />Partition number (1-5): 2
+<br />Partition unique GUID: (pass the ID that is shown here to the kernel)
+<br />Command (? for help): q
+| }}
+{{Note|The partition's UUID is distinct from the filesystem's UUID.}}
+== Initramfs ==
+UEFI does not support loading a separate initramfs for your kernel. So if you need an initramfs, it has to be built into the kernel via CONFIG_INITRAMFS_SOURCE. It must be an uncompressed CPIO archive with .cpio filename extension. Example for a genkernel initramfs:
+{{RootCmd|zcat /boot/initramfs-genkernel-x86_64-3.6.11-gentoo > /boot/initramfs.cpio
+|file /boot/initramfs.cpio<br />/boot/initramfs.cpio: ASCII cpio archive (SVR4 with no CRC)
 }}
-
-== Installation ==
-
-If an ESP does not exist, one needs to be created. See [[EFI System Partition]]. Still in the kernel directory, build the kernel and install the modules:
-
-{{RootCmd
-|cd /usr/src/linux
-|make && make modules_install
-}}
-
-Have the [[EFI System Partition|ESP]] (in this example {{path|/dev/sda1}}) mounted at {{path|/boot}}:
-
-{{RootCmd|mount /dev/sda1 /boot}}
-
-Copy or move the kernel image to the right place adding version number and the {{path|.efi}} suffix:
-
-{{RootCmd
-|mkdir -p /boot/EFI/Gentoo
-|cp arch/x86/boot/bzImage /boot/EFI/Gentoo/bzImage-4.9.76-r1.efi
-}}
-
-In the ESP it should then be listed like:
-
-{{Cmd|tree -L 3 /boot|output=<pre>
- /boot
- └── EFI
-     └── Gentoo
-         └── bzImage-4.9.76-r1.efi
-</pre>}}
-
-Alternatively the fallback directory {{path|/boot/EFI/Boot}} could be used additionally to or instead of {{path|/boot/EFI/Gentoo}}.
-
-Next, update the NVRAM [[Efibootmgr#Creating_a_boot_entry|creating a new boot entry]] using e.g. [[efibootmgr]].
-
-For example:
-
-{{RootCmd|efibootmgr -c -L "EFI Stub" -l '\EFI\Gentoo\bzImage-4.9.76-r1.efi' }}
-
-== Optional: Initramfs ==
-
-If for some reason an [[initramfs]] is needed, it can either be embedded into the kernel or be used as a separate file.
-
-In case it's desired [[Custom_Initramfs#Creating_a_separate_file|as a separate file]], it should also be copied or moved into the ESP and the NVRAM be updated accordingly. 
-
-{{RootCmd|mv /boot/initramfs-4.9.76-r1-gentoo.img /boot/EFI/Gentoo/initramfs.img
-|mount /sys/firmware/efi/efivars -o rw,remount
-|efibootmgr --create --part 1 --disk /dev/sda --label "Gentoo" --loader '\efi\gentoo\bzImage-4.9.76-r1.efi' -u 'initrd{{=}}\efi\gentoo\initramfs.img'
-|mount /sys/firmware/efi/efivars -o ro,remount}}
-
-Some UEFI implementations however seem to not support passing parameters from the NVRAM to the EFI stub kernel.
-
-For embedding the initramfs directly into the kernel image, the '''Initramfs source file(s)''' (<var>CONFIG_INITRAMFS_SOURCE</var>) must be coded in the kernel (directly under the '''Initial RAM filesystem and RAM disk (initramfs/initrd) support''' (<var>CONFIG_BLK_DEV_INITRD</var>) option) as shown here for a custom initramfs created in {{path|[[Custom_Initramfs#Directory_structure|/usr/src/initramfs]]}}:
-
-{{KernelBox|title=CONFIG_INITRAMFS_SOURCE{{=}}"/usr/src/initramfs" — (Example from [[Custom Initramfs]])|1=
+{{Kernel|Integrate initramfs into the kernel|
 General setup  --->
     [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
-    (/usr/src/initramfs) Initramfs source file(s)
+    (/boot/initramfs.cpio) Initramfs source file(s)
 }}
+== Installation ==
+Now build the kernel and copy the image to your EFI partition as {{Path|EFI/Boot/bootx64.efi}}. Example (with your EFI partition mounted to /mnt/EFI):
+{{RootCmd|prompt=/usr/src/linux #| make -jN
+|make install modules_install
+|mkdir -p /mnt/EFI/EFI/Boot
+|cp /boot/vmlinuz-3.6.11-gentoo /mnt/EFI/EFI/Boot/bootx64.efi}}
+= Adding more kernels =
+{{Note|In order to modify UEFI boot entries, your system needs to be booted in EFI mode. This means that you need to already have booted the EFI stub image as described above, or some EFI capable live media.}}
+You can optionally make additional kernels known to UEFI. This is especially useful if you want to test more kernels or dual-boot with another operating system. These will be shown in the boot selection prompt, normally shown after you press a hotkey at the right time during system initialization.
 
-Embedding takes place on compilation, so the kernel must then be recompiled and be moved (or copied) again into the ESP.
-
-== See also ==
-
-* {{See also|Efibootmgr}}
-* efibootmgr in [[Handbook:AMD64/Installation/Bootloader#Alternative 2: efibootmgr]]
-* [[Handbook:AMD64/Installation/Kernel#Architecture_specific_kernel_configuration|Architecture specific kernel configuration (AMD64 Handbook)]] - should widely equal the [[#Kernel configuration]] section above
-* {{See also|Refind}}
-
-== External resources ==
-
+Ensure that you have CONFIG_EFI_VARS enabled in your kernel, install {{Package|sys-boot/efibootmgr}} and make them known to your UEFI.
+{{Kernel|Enable EFI sysfs controls|
+Firmware Drivers  --->
+    <*> EFI Variable Support via sysfs
+}}
+{{RootCmd|cp /boot/vmlinuz-3.6.11-gentoo /mnt/EFI/EFI/Boot/vmlinuz.efi|
+efibootmgr --create --part 1 --label "Gentoo" --loader '\efi\boot\vmlinuz.efi'}}
+{{Note|EFI uses \ as path separator.}}
+= Further reading =
 * [http://blog.realcomputerguy.com/2012/05/efi-stub-booting-without-bootloader.html EFI Stub - booting without a bootloader] Blog posting which this article is partially based on.
+* [http://www.rodsbooks.com/gdisk/ GPT fdisk homepage] with information and tutorials about GPT partitioning.
 * [http://www.rodsbooks.com/efi-bootloaders/ EFI bootloaders] listing alternative ways to boot an (U)EFI system.
-* [https://wiki.archlinux.org/index.php/EFISTUB EFISTUB] on wiki.archlinux.org
-* [https://forums.gentoo.org/viewtopic-p-8111048.html#8111048 Gentoo Forums: Suspend and Hibernate with UEFI]
-
-== References ==
-
-{{reflist}}
-
-</translate>
-
-[[Category:Bootloaders]] [[Category:UEFI]]
+[[Category:Bootloaders]]
+[[Category:Core system]]
+[[Category:Kernel]]
