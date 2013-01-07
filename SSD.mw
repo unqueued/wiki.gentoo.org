@@ -1,339 +1,69 @@
-{{InfoBox stack
-|{{InfoBox wikipedia|Solid-state_drive|header=true}}
-}}
-
-This article [[Article description::provides guidelines for basic maintenance, such as enabling discard/trim support, for SSDs ([[Wikipedia:Solid-state drive|Solid State Drives]]) on Linux.]] It presumes the user has a basic understanding of partitioning and formatting disk drives.
-
-== Introduction ==
-
-The term Solid State Drive is commonly used for flash-based block devices. Compared to conventional [[HDD]], flash-based technology offers a much faster access time, lower latency, silent operation, power savings (no moving parts), and more. However, the flash-based technology brings a few issues which require some special system attention and care.
-
-=== Dealing with empty blocks ===
-
-Generally, traditional [[Filesystem|filesystems]] do not erase deleted data blocks but only flags them as such. Due to nature of flash memory cells any write operation has to be done to empty cells only. Thus writing to physically non-empty cells, flagged as deleted by a filesystem, requires their erasure which makes the operation slower than writing to empty cells. This problem is further amplified by hardware limitations.
-
-For modern [[Kernel|kernels]] it is possible to hint the deleted (not-used) data blocks to SSD. The described mechanism is called '''discard'''. Names of implementations differ — '''TRIM''' for [[Wikipedia:ATA Packet Interface|ATAPI]] and '''UNMAP''' for [[Wikipedia:SCSI|SCSI]]. Filesystem's support is required in order to use discard. Majority of modern filesystems (like [[Ext4]]<ref>[https://people.redhat.com/lczerner/discard/ext4_discard.html Performance of TRIM command on ext4 filesystem], people.redhat.com. Retrieved on October 29, 2018</ref>, [[XFS]]<ref>[http://xfs.org/index.php/FITRIM/discard FITRIM/discard], XFS.org. Retrieved on October 29, 2018</ref> or [[Btrfs]]<ref>[https://btrfs.wiki.kernel.org/index.php/FAQ#Does_Btrfs_support_TRIM.2Fdiscard.3F FAQ - btrfs Wiki], btrfs.wiki.kernel.org. Retrieved on October 29, 2018</ref>) support discard. Also there are filesystems developed primarily for flash-based devices, such as [[F2FS]].
-
-There are two basic approaches to issue the discard command — using {{C|mount}} <code>discard</code> option (<code>-o discard</code>) for continuous discard<ref>[http://man7.org/linux/man-pages/man8/mount.8.html mount(8) - Linux manual page], man7.org. Retrieved on October 29, 2018</ref> or periodic calls of {{C|fstrim}} utility<ref name="fstrim">[http://man7.org/linux/man-pages/man8/fstrim.8.html fstrim(8) - Linux manual page], man7.org. Retrieved on October 29, 2018</ref>.
-
-=== Slowing wear out ===
-
-Each write operation performed on a [[Wikipedia:Nand memory|NAND]] flash cell causes its wear. This fact limits the SSD lifespan. The cell endurance varies with used technology<ref name="lifetime">[https://www.dell.com/support/article/cz/cs/czdhs1/sln156899/hard-drive-why-do-solid-state-devices-ssd-wear-out?lang=en Hard Drive - Why Do Solid State Devices (SSD) Wear Out], Dell. Retrieved on October 29, 2018</ref>. On the other hand, read operations are straightforward and do not cause cell wear.
-
-A basic method increasing SSD lifespan is to uniformly distribute writes across all the blocks. This method is called ''wear leveling'' and is deployed via SSD firmware.
-
-From system point of view, it is appropriate to generally reduce amount of writes.
-
-== Considerations ==
-
-=== Discard (trim) support ===
-
-Device's support of discard (sometimes referred to as trim) should be verified before performing any form of discarding on the drive.
-
-It is possible to use {{C|lsblk}} utility from {{Package|sys-apps/util-linux}}:
-
-{{Cmd|lsblk --discard|output=<pre>
-NAME   DISC-ALN DISC-GRAN DISC-MAX DISC-ZERO
-sda           0      512B       2G         0
-├─sda1        0      512B       2G         0
-├─sda2        0      512B       2G         0
-└─sda3        0      512B       2G         0
-sdb           0        0B       0B         0
-└─sdb1        0        0B       0B         0
-</pre>}}
-
-A device supporting discard has non-zero values in the columns of <code>DISC-GRAN</code> (discard granularity) and <code>DISC-MAX</code> (discard max bytes). In the example listing above, the {{Path|/dev/sda}} supports discard and {{Path|/dev/sdb}} does not.
-
-{{Warning|Performing discard on a device that does not support it is potentially unsafe.}}
-
-== Initial setup ==
-
-=== Partitioning ===
-
-Sizes of SSD internal data structures (blocks and pages) varies across different devices. Filesystems operates on data structures of different sizes. For optimal performance filesystem data structures should aim not to cross boundaries of underlying SSD internal data structures. Thus effectively minimizing the number of required internal SSD operations. This can be achieved by aligning start of each partition — the common alignment is to 1 MiB. 
-
-Both {{C|parted}} and {{C|fdisk}} partitioning utilities support partition alignment. For {{C|parted}}, there is <code>-a optimal</code> option. Recent versions of {{C|fdisk}} should use optimal alignment by default<ref>[http://man7.org/linux/man-pages/man8/fdisk.8.html fdisk(8) - Linux manual page], man7.org. Retrieved on October 31, 2018</ref>.
-
-It is possible to easily check the alignment for given partition using {{C|parted}}:
-{{RootCmd|parted /dev/sda|output=<pre>
-(parted) align-check optimal 1
-1 aligned
-</pre>}}
-
-For further details about the partitioning, follow dedicated [[Handbook:AMD64/Blocks/Disks|handbook chapter]].
-
-==== blkdiscard ====
-
-{{C|blkdiscard}} utility from {{Package|1=sys-apps/util-linux-2.23}} (or later) discards all data blocks on given device.
-
-{{Warning|All data on the discarded device will be lost!}}
-
-==== LVM ====
-
-[[LVM]] aligns to MiB boundaries and passes discards to underlying devices by default. No additional configuration is required.
-
-In order to discard all unused space in a [[LVM#VG (Volume Group)|Volume Group]] ([[LVM#VG (Volume Group)|VG]]) use the [[SSD#blkdiscard|{{C|blkdiscard}}]] utility:
-
-{{RootCmd
-|lvcreate -l100%FREE -n trim yourvg
-|blkdiscard /dev/yourvg/trim
-|lvremove yourvg/trim
-}}
-
-Alternatively, there is a discard option in {{Path|lvm.conf}} which makes LVM discard entire [[LVM#LV (Logical Volume)|Logical Volume]] ([[LVM#LV (Logical Volume)|LV]]) on {{C|lvremove}}, {{C|lvreduce}}, {{C|pvmove}} and other actions that free Physical Extents (PE) in a VG. 
-
-{{Warning|Enabling it will immediately render the system unable to undo any changes to the LV layout.}}
-
-{{FileBox|filename=/etc/lvm/lvm.conf|1=
-devices {
-  issue_discards = 1
-} 
-}}
-
-==== dm-crypt/LUKS ====
-
-For discards to pass through encrypted [[DM-Crypt LUKS|LUKS]] devices, they have to be opened with the <code>--allow-discards</code> option.
-
-{{RootCmd|cryptsetup luksOpen --allow-discards /dev/thing luks}}
-
-When root-device exists on [[DM-Crypt_LUKS|LUKS]], enabling discards depends on the [[Initramfs]] implementation.
-When using [[genkernel]] for creating your initramfs, pass the following kernel option:
-
-{{FileBox|filename=/etc/default/grub|1=
-GRUB_CMDLINE_LINUX_DEFAULT="root_trim=yes"
-}}
-
-When using [[dracut]] for creating the initramfs, pass the following kernel option:
-
-{{FileBox|filename=/etc/default/grub|1=
-GRUB_CMDLINE_LINUX_DEFAULT="rd.luks.allow-discards"
-}}
-
-To evaluate if discard is enabled on a [[DM-Crypt LUKS|LUKS]] device, you can check if the output of the following command contains the string <code>allow_discards</code>:
-
-{{RootCmd|dmsetup table /dev/mapper/crypt_dev --showkeys}}
-
-=== Formatting ===
-
-Similarly to [[SSD#Partitioning|partitions]], performance can be improved if a filesystem is configured the way it can align its data structures with device's internal structures sizes — namely its erase block size.
-
-This configuration gets important in case of a software RAID, when one really should know the erase block size<ref>[https://raid.wiki.kernel.org/index.php/RAID_setup#Performance RAID setup - Linux Raid Wiki], wiki.kernel.org. Retrieved on November 1, 2018</ref>. Consider this information when making your purchase.
-
-==== Configuring for erase block size ====
-
-When device's erase block size is known, it can be used when creating a filesystem.
-
-For example for [[Ext4|ext4]] using {{C|mkfs.ext4}} on an average-sized partition, it will apply 4KiB blocks<ref>[http://man7.org/linux/man-pages/man8/mke2fs.8.html mke2fs(8) - Linux manual page], man7.org. Retrieved on November 1, 2018</ref>. Using <code>-E stride</code> and <code>-E stripe-width</code> options, it is possible to set the alignment to erase block size. Both options should be set as ''erase block size'' / ''block size''.
-
-For a drive with 512KiB erase block size, it makes 512KiB / 4KiB = 128:
-{{RootCmd|mkfs.ext4 -E stride{{=}}128,stripe-width{{=}}128 /dev/sda3}}
-
-===== List of devices with known erase block sizes =====
-
-* ''OCZ'' drives; stride an stripe-width are 128
-{{Note|Erase block size is 512KiB<ref>[https://www.techpowerup.com/forums/threads/partition-alignment-spreadsheet.107126/ Partition Alignment Spreadsheet], techpowerup.com. Retrieved on November 1, 2018</ref>}}
-* ''Crucial M500 240GB''; stride and stripe-width are 2048
-{{Note|1=Page size is 16KiB, there are 512 pages per block<ref>[http://www.anandtech.com/show/6884/crucial-micron-m500-review-960gb-480gb-240gb-120gb The Crucial/Micron M500 Review (960GB, 480GB, 240GB, 120GB)]</ref>. 16KiB * 512 = 8192KiB for erase block size. 8192KiB / 4KiB = 2048 for stride and stripe-width size.}}
-* ''SanDisk z400s''; stride an stripe-width are 4096
-{{Note|1=According to Dutch customer care service from SanDisk the erase block size = 16KiB.}}
-
-=== Mounting ===
-
-For rootfs it is usually recommended to periodically use {{C|fstrim}} utility. Using {{C|mount}} <code>discard</code> option results in continuous discard that could potentially cause degradation of older or poor-quality SSDs<ref name="fstrim" />.
-
-The following command can be used manually or be setup as a [[SSD#Periodic fstrim jobs|periodic job]] to run once a week<ref name="freq">[https://git.kernel.org/pub/scm/utils/util-linux/util-linux.git/tree/sys-utils/fstrim.timer fstrim.timer\sys-utils - util-linux/util-linux.git - The util-linux code repository], kernel.org. Retrieved on October 30, 2018</ref>:
-
-{{RootCmd|fstrim -v /}}
-
-{{Note|On a [[btrfs]] system, running the {{C|fstrim}} command on any mounted subvolume will perform the discard command on the device.}}
-
-For mount points with a low amount of disk writes occurring on a SSD it should be safe to use {{C|mount}} <code>discard</code> option in {{Path|[[fstab|/etc/fstab]]}}. Also it is recommended to use the {{C|mount}} option when maintaining performance is required<ref>[https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Storage_Administration_Guide/ch02s04.html 2.4. Discard unused blocks], Red Hat. Retrieved on October 30, 2018</ref>.
-
-Given the considerations above, a discard-enabled {{Path|/etc/fstab}} could look like this:
-
-{{FileBox|filename=/etc/fstab|title=fstab with discard enabled|1=
-/dev/sda3          /mnt/archive          ext4          defaults,relatime,discard          0 1
-}}
-
-Once the {{Path|/etc/fstab}} has been modified, remount all filesystems mentioned there via:
-
-{{RootCmd|mount -a}}
-
-== Additional configuration ==
-
-=== Periodic fstrim jobs ===
-
-There are multiple ways how to setup a periodic block discarding process. As of 2018, the default recommended frequency is once a week<ref name="freq" />.
-
-==== cron ====
-
-Run {{C|fstrim}} on all mounted devices that support discard on a weekly basis:
-
-{{FileBox|title=Run fstrim once per week|filename=/etc/crontab|1=
-# Mins  Hours  Days   Months  Day of the week   Command
-  15    13     *      *       1                 /sbin/fstrim --all
-}}
-
-Similarly, it is possible to run {{C|fstrim}} only for a selected mount point:
-
-{{FileBox|title=Run fstrim once per week on rootfs|filename=/etc/crontab|1=
-# Mins  Hours  Days   Months  Day of the week   Command
-  15    13     *      *       1                 /sbin/fstrim -v /
-}}
-
-==== fstrimDaemon ====
-
-If the system is powered off when [[Cron|cron]] scheduled its job, {{C|fstrim}} would not be called at all. [https://github.com/dobek/fstrimDaemon fstrimDaemon] can be installed to solve this problem.
-
-==== SSDcronTRIM ====
-
-There is also a semi-automatic cron job available on GitHub called [http://chmatse.github.io/SSDcronTRIM/ SSDcronTRIM] which has the following features:
-
-* Distribution independent script (developed on a Gentoo system).
-* The script decides every time depending on the disk usage how often (monthly, weekly, daily, hourly) each partition has to be trimmed.
-* Recognizes if it should install itself into {{Path|/etc/cron.<nowiki>{</nowiki>monthly,weekly,daily,hourly<nowiki>}</nowiki>}}, {{Path|/etc/cron.d}} or any other defined directory and if it should make an entry into {{C|crontab}}.
-* Checks if the kernel meets the requirements, the filesystem is able to and if the SSD supports trimming.
-
-==== SSDcronTRIM-LUKS ====
-There is also a semi-automatic cron job available on GitHub called [http://github.com/spai-phoenix/SSDcronTRIM-L/ SSDcronTRIM-LUKS] with dm-crypt/LUKS support.
-
-==== systemd timer ====
-
-When running a system with [[systemd]] version 212 or newer, a persistent [[systemd#Timer services|systemd timer]] can be created that will run {{C|fstrim}} weekly. Thanks to timer's persistency it will be issued immediately if a scheduled run was missed.
-
-Two systemd unit files need to be created in the {{Path|/etc/systemd/system}} directory:
-
-Service called <code>fstrim</code> which actually executes the {{C|fstrim}}:
-
-{{FileBox|filename=/etc/systemd/system/fstrim.service|lang=ini|title=Service executing fstrim|1=
-[Unit]
-Description=Run fstrim on all mounted devices that support discard
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh -c '/sbin/fstrim --all'
-}}
-
-Timer which wakes up the <code>fstrim</code> service weekly:
-
-{{FileBox|filename=/etc/systemd/system/fstrim.timer|lang=ini|title=Timer starting the fstrim service|1=
-[Unit]
-Description=Run fstrim.service weekly
-
-[Timer]
-OnCalendar=weekly
-Persistent=true
-
-[Install]
-WantedBy=multi-user.target
-}}
-
-Make sure the permissions are correct:
-
-{{RootCmd|chmod 644 /etc/systemd/system/fstrim.*}}
-
-Tell systemd to reload its unit files, then enable it:
-
-{{RootCmd
-|systemctl daemon-reload
-|systemctl enable fstrim.timer
-}}
-
-It is now possible to see if it has been run and when the next time it will be ran by issuing:
-
-{{RootCmd|systemctl list-timers}}
-
-Also the {{C|journalctl}} command can be used to verify the timer is running successfully.
-
-=== Reducing amount of writes ===
-
-The flash-based SSDs have a limited write lifetime - the number of writes performed<ref name="lifetime" />. Thus when using a SSD, administrators generally want to reduce the amount of writes.
-
-==== Portage <var>TMPDIR</var> on tmpfs ====
-
-When building packages via [[Portage]] it is possible to perform the operations on [[Tmpfs|tmpfs]] and get the tmpfs' benefits. See [[Portage TMPDIR on tmpfs|Portage <var>TMPDIR</var> on tmpfs]] guide.
-
-==== Temporal files on tmpfs ====
-
-{{Warning|Remember that all data in [[Tmpfs|tmpfs]] reside in volatile memory. So data on tmpfs will be lost after system reboot, shutdown or crash!}}
-
-It is possible to mount desired mount points as [[Tmpfs|tmpfs]]. Since tmpfs stores files in volatile memory all the I/O operations directed to the given mount points are not performed on the solid state disk. This reduces the amount of writes and also improves performance.
-
-This is an example of both {{Path|/tmp}} and {{Path|/var/tmp}} being mounted as tmpfs:
-
-{{FileBox|filename=[[fstab|/etc/fstab]]|1=# temporal mountpoints on tmpfs
-tmpfs           /tmp            tmpfs           size=16G,noatime        0 0
-tmpfs           /var/tmp        tmpfs           size=1G,noatime         0 0}}
-
-==== XDG cache on tmpfs ====
-
-When running a Gentoo desktop, many programs, using [[X]] Window System ([[Chromium]], [[Firefox]], [[Skype]], etc.) are making frequent disk I/O every few seconds to cache<ref>[https://www.servethehome.com/firefox-is-eating-your-ssd-here-is-how-to-fix-it/ Firefox is eating your SSD - here is how to fix it], Loyolan Ventures. Retrieved on October 28, 2018</ref>.
-
-The cache directory location usually complies to ''XDG Base Directory Specification''<ref>[https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html XDG Base Directory Specification], freedesktop.org. Retrieved on October 28, 2018</ref>, namely to the <var>XDG_CACHE_HOME</var> environment variable. The default cache location is {{Path|~/.cache}}, which is usually mounted on a hard drive and could be moved to [[tmpfs]].
-
-To remap the cache directory location create file {{Path|/etc/profile.d/xdg_cache_home.sh}}:
-
-{{FileBox|filename=/etc/profile.d/xdg_cache_home.sh|lang=bash|1=
-if [ $USER ]; then
-  export XDG_CACHE_HOME="/tmp/${USER}/.cache"
-fi
-}}
-
-{{Warning|<code>if [ $USER ]; then</code> is required, so that no <code>/tmp/.cache</code> is created by root and apps don't misbehave trying to acquire access to it. }}
-
-{{Warning|
-With the above change, auto unlocking the gnome keyring didn't work anymore.
-/var/log/messages said the following:
-
-   May  5 10:02:52 localhost gnome-keyring-daemon[5561]: couldn't bind to control socket: /home/david/.cache/keyring-hRt5QC/control: No such file or directory
-}}
-
-==== Web browser profile/s and cache on tmpfs ====
-
-The web browser profile/s, cache, etc. can be relocated to [[Tmpfs|tmpfs]]. The corresponding I/O associated with using the browser gets redirected from the SSD drive to tmpfs' volatile memory, resulting in reduced wear to the physical drive and also improving browser speed and responsiveness.
-
-You can relocate the browser components mentioned above with the utility {{Package|www-misc/profile-sync-daemon}}:
-
-{{RootCmd|emerge --ask www-misc/profile-sync-daemon}}
-
-{{Note|Note {{Package|www-misc/profile-sync-daemon}} version 6 or greater requires [[Systemd|systemd]].}}
-
-===== systemd =====
-
-Close all the browsers, start and enable the daemon.
-{{Cmd|systemctl --user enable psd && systemctl --user start psd}}
-
-Now it is possible to view all symlinks by printing the status of the started daemon:
-
-{{Cmd|psd p}}
-
-===== OpenRC =====
-
-Next add the users whose browser/s profile/s will get symlinked to a tmpfs or another mountpoint in the variable <code>USERS</code>:
-
-{{FileBox|filename=/etc/psd.conf|1= USERS="user user2 root"}}
-
-Finally, close all the browsers, start and enable the daemon.
-{{RootCmd|rc-update add psd default && rc-service psd start}}
-
-Now it is possible to view all symlinks by printing the status of the started daemon:
-
-{{RootCmd|psd p}}
-
-== See also ==
-
-* {{See also|HDD}}
-* {{See also|NVMe}}
-
-== External resources ==
-
-* [http://blog.nuclex-games.com/2009/12/aligning-an-ssd-on-linux/ Aligning an SSD on Linux] — Drives internal structures explained.
-* [https://tytso.livejournal.com/2009/02/20/ Aligning filesystems to an SSD’s erase block size] — Aligning explained by Ted T'so.
-* [https://thelastmaimou.wordpress.com/2013/05/04/magic-soup-ext4-with-ssd-stripes-and-strides/ Magic soup: ext4 with SSD, stripes and strides] — ext4 aligning discussion
-* [https://wiki.archlinux.org/index.php/profile-sync-daemon Arch Linux Profile-Sync-Daemon]
-
-== References ==
-
-{{Reflist}}
-
-[[Category:Storage devices]]
+How to set up SSDs on Gentoo Linux.
+This article assumes you know how to set up, partition, and format a mechanical hard drive.
+
+= Considerations =
+==rootfs==
+You don't want to use -odiscard on a rootfs mount. discard is the "TRIM" command that tells the SSD to do its magic. Having this running potentially constantly may cause performance degredation, and there are articles to suggest this all over the web. Rather, you want to use:
+   fstrim -v /
+on a command line, as root. You can set this up as a cron (see below) to run twice a day, which should suffice for rootfs.
+==mountpoint==
+If you're going to have a low write directory mounted on SSD, using "discard" option will be fine in fstab. See below. If you're going to mount a database to an SSD, you probably want timed TRIM commands rather than the discard option. 
+= After hardware installation =
+==partitioning==
+STUB: No parted/gparted (see comments)
+=== LVM(2) ===
+STUB:
+enable issue_discards option in /etc/lvm/lvm.conf
+=== fdisk ===
+   #assuming /dev/sda is the SSD
+   #Per OCZ.
+
+   fdisk -S 32 -H 32 /dev/sda
+Set up the first partition to start on the second 512-cylinder unit:
+   Device Boot         Start         End      Blocks   Id  System
+   /dev/sda1               2         129       65536   83  Linux
+   /dev/sda2             130    31457279    15662080   83  Linux
+''so long as the first start number is 2 the rest will fall in line if you use size parameters rather than sector paramters (e.g start <enter> end <+4GB>)''
+
+== Formatting ==
+If you can find your erase block size, you can add some extended attributes that may help performance.
+For software raid, you really should know the erase block size. Consider this information when making your purchase.
+Regardless of whether you're using RAID or not, setting extended values is known to be beneficial. https://raid.wiki.kernel.org/index.php/RAID_setup#ext2.2C_ext3.2C_and_ext4
+http://blog.nuclex-games.com/2009/12/aligning-an-ssd-on-linux/
+===without knowing the erase block size===
+   #Formatting the rootfs partition /dev/sda2:
+   #Using 4096 byte blocks aligns the SSD for writes:
+
+   mkfs -t ext4 -b 4096 /dev/sda2
+===with knowing the erase block size===
+   #Formatting the rootfs partition /dev/sda2:
+   #Using 4096 byte blocks aligns the SSD for writes;
+   #Using ERASE_BLOCK_SIZE / 4 as the stride and stripe width size;
+   #In this example, OCZ Vertex drives have 512 kibbibyte -
+   #Erase Block size, therefore stride/stripe-width = 512/4 = 128:
+
+   mkfs -t ext4 -b 4096 -E stride=128,stripe-width=128 /dev/sda2
+==Mounting==
+Given the considerations above, either add something similar to this:
+   /dev/sda2          /          ext4          defaults,relatime,discard          0 1
+Or this:
+   /dev/sda2          /          ext4          defaults,relatime                  0 1
+If you choose the latter, see the section on the cronjob needed if you don't want to manually TRIM the drive.
+
+Once you've set up /etc/fstab you can run the following command to have the drive mounted:
+   mount -a
+
+= Notes =
+==cron==
+Run fstrim -v / from cron twice a day to automatically do "discard":
+#this is probably the wrong syntax. Feel free to edit it to actually work.
+   15 1,13 * * * /sbin/fstrim -v /
+==tmpfs==
+When using an SSD, admins generally want to reduce the amount of writes performed. On gentoo, portage is a huge source of writes, and putting these writes into system memory rather than a disk is beneficial.
+If you have more than 8gb of ram you may want to consider using tmpfs, which is a way to dedicate some system memory to storage on a temporary basis.
+It's generally advised to not use more than 1/2 of your available system memory for tmpfs unless you know what you're doing. So let's assume you have 12GB of memory and want to allow up to 6 gigs of tmpfs. Edit /etc/fstab and add:
+   tmpfs			/tmp		tmpfs		noatime,nodiratime,size=6G 	0 0
+You can then tell portage to use this as it's compile scratch space in /etc/portage/make.conf:
+   PORTAGE_TMPDIR="/tmp"
+#this may fail on large compiles unless you have >20GB of system memory. scratch space for libreoffice can exceed 8GB, and the entire compile will fail if it runs out of space.
+#Ram used by TMPFS is freed back to the pool when it is no longer in use, so when using portage or other software that uses /tmp you will notice a huge performance gain.
