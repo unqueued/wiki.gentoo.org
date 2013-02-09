@@ -1,200 +1,40 @@
-{{Lowercase title}}
-{{InfoBox stack
-|{{InfoBox homepage|https://code.google.com/p/compcache/|header=true}}
-|{{InfoBox wikipedia|zRam}}
-}}
-'''zram''' (previously called '''compcache''') can create RAM based block devices. It is a module of the mainline Linux kernel since 3.14.  Starting with kernel version 3.15, zram supports multiple compression streams and the ability to change the compression algorithms used.
+[[Category:Core system]]
+== Zram compressed ramdisks ==
+
+Zram was originally started in a project called [https://code.google.com/p/compcache/ compcache].  It is now included as part of the kernel sources since 3.2.
 
 == Introduction ==
 
-The zram driver creates a compressed block device in ram. That block device can then be used for swap or general purpose ram disk. The two most popular uses for it are swap to extend the available amount of ram to processes and {{Path|/tmp}}. The ram used for the block device is dynamically obtained and released up to it's predefined uncompressed maximum size. The way it extends the amount of available ram to a system is by using a portion of the ram as compressed swap. It can therefore hold more pages of memory in the compressed swap than the amount of actual memory used. Typically it compresses to a 3:1 ratio.  So, 1G of swap uses only 333MB of ram on average. The compression ratio including memory used for disk overhead varies depending on the % maximum space used.  I found it to vary from 1.5:1 for a 1.5G disk with only 5% space used, to over 3:1 when nearly full. It also is much faster at swapping pages than typical hard disk swap.
-
-My experience with using it, my system is still fully functional, with only slight slow downs at times. This is for a [[Xfce]]4 desktop with several apps and emerge running with <code>PORTAGE_NICENESS=10</code>. The memory and swap spaces were nearly maxed out. Intel Core2 Quad core 2.6Ghz, 4G ram. I had 4 - 1.5G zram disks for swap, plus 1G partition of hard drive swap as backup. At one point during linking chromium, I saw the system using just over 5G of zram swap, while using about 1.2G of ram, about 100MB of hard disk swap. The desktop was still responsive :)
+What it does is create a compressed block device in ram.  That block device can then be used for swap or general purpose ram disk.  The two most popular uses for it are swap to extend the available amount of ram to processes and /tmp.  The ram used for the block device is dynamicaly obtained and released up to it's predefined uncompressed maximum size.  The way it extends the amount of available ram to a system is by using a portion of the ram as compressed swap.  It can therefore hold more pages of memory in the compressed swap than the amount of actual memory used.  It also is much faster at swapping pages than typical hard disk swap.
 
 == Caveats/Cons ==
 
-Prior to kernel 3.15, each zram device contains it's own compression buffer, memory pools and other metadata as well as per-device locks. This can become a serious bottleneck for multi-core machines. To work around this problem, zram is capable of initializing multiple devices. For this reason, the recommended amount of devices for swap is 1 per cpu core for kernels prior to 3.15.
+Each zram device contains it's own compression buffer, memory pools and other metadata as well as per-device locks.  This can become a serious bottleneck for multi-core machines.  To work around this problem, zram is capable of initializing multiple devices.  The recommended amount of devices for swap is 1 per cpu core.
 
-Another caveat for systems with limited memory, non swap use can reduce the amount of available memory to run applications.
+For systems with limited memory, non swap use can reduce the amount of available memory to run applications.
 
-When using this with a really fast SSD (e.g. Samsung 840 Pro), avoid setting <code>rc_parallel=YES</code> in {{Path|/etc/rc.conf}}.
-Depending on the size of the zram partitions and the speed of your RAM, some swap partitions and filesystems might not be ready when the {{c|swap}} and {{c|localmount}} services are started.
-In such case, if you absolutely have to use parallel, consider removing these services from runlevel {{c|boot}} and adding them to {{c|default}} instead.
+== Enabling Zram ==
 
-== Enabling zram support in kernel ==
+I recommend you enable zram as a loadable module.  The reason is the number of devices created are set during loading.  If you compile the module into the kernel, it will default to 1 device and size it to 25% of total memory.  It is possible to re-configure the size later, but I don't know how you can set the number of devices during boot.
 
-Enable the following options in your kernel config:
-
-{{KernelBox|
-Memory Management options  --->
-    <M> Memory allocator for compressed pages
-Device Drivers  --->
-    [*] Block devices --->
-        <M> Compressed RAM block device support
-}}
-
-It is recommended that zram be built as a loadable module. This allows you to change number of zram devices without reboot, by deactivating zram devices and re-loading module with new parameters. If you have zram built-in, then you can only change the number of devices at boot time by using the kernel boot parameter:
- zram.num_devices=#
-
-In order to use the LZ4 compression algorithm, you must also enable it in kernel config:
-
-{{KernelBox|
-Cryptographic API --->
-    *** Compression ***
-    <*> LZ4 compression algorithm
-}}
-
-== Initialization ==
-
-=== Using zram-init service ===
+{| class="wikitable"
+|-
+! Kernel Configuration
+|-
+|Device Drivers  ---><br />
+:[*] Staging drivers ---><br />
+::<M> Compressed RAM block device support<br />
+|}
+ 
+== Gentoo/OpenRC init script ==
 
 By far the easiest method of utilizing zram disk(s) is by using Martin Väth's zram-init script.
-Note, that version 2.7 is fully compatible with kernels < 3.15.  If version >= 3.0 is used, the maxs (maximum concurrent streams) and algo (compression algorithm selection) is only functional for kernels >= 3.15.
-Currently, both versions available in the main tree:
-{{Emerge|zram-init}}
-
-==== OpenRC ====
-
-Edit the {{Path|/etc/conf.d/zram-init}} file and create/configure your desired zram devices.  There is lots of comments/instructions in the file.  So, proceed with editing, save it when your done.
- 
-{{Note|
-# For multicore systems, set maxs equal to the number of cores. If you're using old kernel (< 3.15), configure separate swap devices per core
-# Set priority of hard drive swap to low, e.g. via [[fstab]]
-}}
-
-An example:
-* Specs: dual core cpu, 2G total ram
-* Configure 1G of two-stream swap, 512Mb of {{Path|/tmp}}
-
-{{FileBox|filename=/etc/conf.d/zram-init|lang=bash|1=
-load_on_start="yes"
-
-unload_on_stop="yes"
- 
-num_devices="2"
-
-type0="swap"
-flag0=
-size0="512"
-maxs0=2
-algo0=lz4
-
-type1="/tmp"
-flag1="ext4"
-size1="512"
-}}
-
-Then, add the init script to the desired runlevel, usually {{c|boot}}, and start the service:
-
-{{RootCmd
-|rc-config add zram-init boot
-|/etc/init.d/zram-init start
-}}
-
-In this case, boot is preferable to default because if your zram is providing a filesystem such as {{Path|/tmp}} or {{Path|/var/tmp}}, it would need to be mounted prior to any access to it during the default runtime.
-
-==== systemd ====
-
-{{Package|sys-block/zram-init}} provides systemd units with self explaining names:
-
-* {{Path|zram_swap.service}}
-* {{Path|zram_tmp.service}}
-* {{Path|zram_var_tmp.service}}
-
-=== Using OpenRC ===
-
-For manual creation, you can use {{Path|/etc/local.d}} and supply it with 2 files. A {{Path|zram.start}} and a {{Path|zram.stop}}. OpenRC will run these as appropriate as part of it's normal operation.
-
-An example:
-* Specs: 4 cpu cores, 4G ram total
-* Configure 4 1.5G zram swap and activate.
-* Estimated maximum ram used 2G @ 3:1 compression 
-
-{{FileBox|filename=/etc/local.d/zram.start|lang=bash|1=
-#!/bin/bash
-
-modprobe zram num_devices=4
-
-SIZE=1536
-echo $(($SIZE*1024*1024)) > /sys/block/zram0/disksize
-echo $(($SIZE*1024*1024)) > /sys/block/zram1/disksize
-echo $(($SIZE*1024*1024)) > /sys/block/zram2/disksize
-echo $(($SIZE*1024*1024)) > /sys/block/zram3/disksize
-
-mkswap /dev/zram0
-mkswap /dev/zram1
-mkswap /dev/zram2
-mkswap /dev/zram3
-
-swapon /dev/zram0 -p 10
-swapon /dev/zram1 -p 10
-swapon /dev/zram2 -p 10
-swapon /dev/zram3 -p 10
-}}
-
-{{FileBox|filename=/etc/local.d/zram.stop|lang=bash|1=
-#!/bin/bash
-
-swapoff /dev/zram0
-swapoff /dev/zram1
-swapoff /dev/zram2
-swapoff /dev/zram3
-
-echo 1 > /sys/block/zram0/reset
-echo 1 > /sys/block/zram1/reset
-echo 1 > /sys/block/zram2/reset
-echo 1 > /sys/block/zram3/reset
-
-modprobe -r zram
-}}
-
-{{Note|Disksize may also be specified using mem suffixes (K, M, G): {{c|echo 1536M > /sys/block/zram0/disksize}} }}
-
-=== Using udev ===
-
-Other possibility is to use existing configuration files - this option works on vanilla Gentoo without need to install additional software, also useful if you are using systemd instead of OpenRC. The first example can be implemented using:
-
-{{FileBox|filename=/etc/udev/rules.d/10-zram.rules|lang=bash|1=
-KERNEL=="zram0", SUBSYSTEM=="block", DRIVER=="", ACTION=="add", ATTR{disksize}=="0", ATTR{disksize}="512M", RUN+="/sbin/mkswap $env{DEVNAME}"
-KERNEL=="zram1", SUBSYSTEM=="block", DRIVER=="", ACTION=="add", ATTR{disksize}=="0", ATTR{disksize}="512M", RUN+="/sbin/mkswap $env{DEVNAME}"
-KERNEL=="zram2", SUBSYSTEM=="block", DRIVER=="", ACTION=="add", ATTR{disksize}=="0", ATTR{disksize}="512M", RUN+="/sbin/mkfs.ext4 $env{DEVNAME}"
-# if you want lz4 support (since kernel 3.15) and without ext4 journaling 
-# KERNEL=="zram2", SUBSYSTEM=="block", DRIVER=="", ACTION=="add", ATTR{initstate}=="0", ATTR{comp_algorithm}="lz4", ATTR{disksize}="512M", RUN+="/sbin/mkfs.ext4 -O ^has_journal -L $name $env{DEVNAME}"
-}}
-
-{{FileBox|filename=/etc/fstab|lang=text|1=
-/dev/zram0              swap                    swap            pri=16383                                                       0 0
-/dev/zram1              swap                    swap            pri=16383                                                       0 0
-/dev/zram2              /tmp                    ext4            defaults                                                        0 0
-}}
-
-{{FileBox|filename=/etc/modprobe.d/zram.conf|lang=modula3|1=
-options zram num_devices=3
-}}
-
-Additionally, the {{c|zramctl}} utility is part of {{Package|sys-apps/util-linux}} and can be used to configure <tt>zram</tt> devices. See {{c|man zramctl}} for examples of usage.
-
-==== systemd ====
-
-If using systemd with this method, you must ensure that the zram module is loaded by systemd. The simplest way to achieve that is to include a file in /etc/modules-load.d/ like this one:
-
-{{FileBox|filename=/etc/modules-load.d/zram.conf|lang=modula3|1=
-zram
-}}
-
-== Checking that zram is used ==
-
-Check if zram is mounted as swap:
-{{Cmd|grep zram /proc/swaps|output=<pre>
-/dev/zram0                              partition       2097148 2816    16383
-</pre>}}
-
-Check if zram is mounted as directories:
-{{Cmd|grep zram /proc/mounts|output=<pre>
-/dev/zram1 /var/tmp/portage ext4 rw,nosuid,nodev,noexec,block_validity,discard,delalloc,barrier,user_xattr,acl 0 0
-</pre>}}
-
-== External resources ==
-
-* [https://www.kernel.org/doc/Documentation/blockdev/zram.txt zram] in kernel documentation
-[[Category:Core system]]
+Currently it is available in his mv overlay.
+{| class="wikitable"
+|-
+! Header text
+|-
+| layman -a mv
+|-
+| 
+|}
