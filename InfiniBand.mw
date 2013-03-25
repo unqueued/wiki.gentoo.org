@@ -1,8 +1,3 @@
-{{InfoBox stack
-|{{InfoBox wikipedia|header=true}}
-|{{InfoBox homepage|http://www.infinibandta.org|raw=true|text=InfiniBand® Trade Association}}
-}}
-
 '''InfiniBand''' is a switched fabric communications link used in high-performance computing and enterprise data centers.
 Its features include high throughput, low latency, quality of service and failover, and it is designed to be scalable. The InfiniBand architecture specification defines a connection between processor nodes and high performance I/O nodes such as storage devices.
 
@@ -10,249 +5,24 @@ Its features include high throughput, low latency, quality of service and failov
 
 === Kernel ===
 
-Users of Mellanox hardware MSX6710, MSX8720, MSB7700, MSN2700, MSX1410, MSN2410, MSB7800, MSN2740, and MSN2100 need at least kernel 4.9.<ref>[http://www.phoronix.com/scan.php?page=news_item&px=Mellanox-Linux-4.9 Phoronix - Mellanox Platform Support Coming In Linux 4.9]</ref>
-
-The following kernel options must be activated:
-
-{{KernelBox|title=Enable InfiniBand support (<var>CONFIG_INFINIBAND</var>)|1=
+You need to activate the following kernel options:
+{{Kernel||<pre>
 Device Drivers  --->
-   <*> InfiniBand support  --->
-      <*> InfiniBand userspace MAD support
-      <*> InfiniBand userspace access (verbs and CM)
-      <M> Mellanox HCA support
-      <M> QLogic PCIe HCA support
-      <M> Ammasso 1100 HCA support
-      <M> Mellanox ConnectX HCA support
-      <M> NetEffect RNIC Driver
-      <M> Emulex One Connect HCA support
-      <M> IP-over-InfiniBand
-         [*] IP-over-InfiniBand Connected Mode support
-      <M>   InfiniBand SCSI RDMA Protocol
-}}
-
-{{Note|In this example everything is selected. Most likely the userspace API (first two options) and the HCA (host channel/control adapter) drivers are needed for system specific hardware. IP-over-InfiniBand or srp modules may also be needed if they are required features.}}
-
-==== Modules ====
-
-If built as modules some of them don't neccessary get loaded automatically. The following file is an example for [[systemd]] systems. 
-
-{{FileBox|filename=/etc/modules-load.d/InfiniBand.conf|title=modules-load.d InfiniBand modules|lang=ini|1=# Some neccessary modules for InfiniBand
-
-ib_core
-# Next one if for certain Mellanox harware. Pick appropiate for your hardware.
-ib_mthca
-ib_cm
-ib_ipoib
-ib_uverbs
-# umad is recommended, not mandatory, unless you explicitly use programs that need libibumad.
-ib_umad
-# For RDMA. You propably want these three if you have InfiniBand hardware, unless using IP-over-IB only.
-rpcrdma
-rdma_cm
-rdma_ucm}}
-
-Also make sure the module loading systemd service is enabled:
-{{RootCmd|systemctl enable systemd-modules-load.service}}
-
-=== USE flags ===
-
-{{USEflag|package=sys-fabric/ofed}}
-
-=== Emerge ===
-
-{{Emerge|sys-fabric/ofed}}
-
-== Usage ==
-
-=== IP over InfiniBand (IPoIB) ===
-
-Users of InfiniBand can also use it to carry IP-networking packets, thus allowing it to replace ethernet in some cases.
-From at least kernel version 4.10 onwards users can compile IP-over-IB in-kernel (<var>CONFIG_INFINIBAND_IPOIB</var>). However if that's not the case and the support is compiled as kernel module it may be possible that the module isn't automatically loaded.
-The module is named '''ib_ipoib''':
-
-{{RootCmd|modprobe ib_ipoib}}
-
-InfiniBand network interfaces are usually named as <code>ib<number></code>:
-
-{{Cmd|ifconfig ib0|output=<pre>
-ib0: flags=4099<UP,BROADCAST,MULTICAST>  mtu 2044
-Infiniband hardware address can be incorrect! Please read BUGS section in ifconfig(8).
-        infiniband 00:00:04:04:FE:80:00:00:00:00:00:00:00:00:00:00:00:00:00:00  txqueuelen 256  (InfiniBand)
-        RX packets 0  bytes 0 (0.0 B)
-        RX errors 0  dropped 0  overruns 0  frame 0
-        TX packets 0  bytes 0 (0.0 B)
-        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+    InfiniBand support --->
+        <*> InfiniBand userspace MAD support
+        <*> InfiniBand userspace access (verbs and CM)
+        <M> Mellanox HCA support
+        <M> QLogic PCIe HCA support
+        <M> Ammasso 1100 HCA support
+        <M> Mellanox ConnectX HCA support
+        <M> NetEffect RNIC Driver
+        <M> Emulex One Connect HCA support
+        <M> IP-over-InfiniBand
+            [*] IP-over-InfiniBand Connected Mode support
+        <M>   InfiniBand SCSI RDMA Protocol
 </pre>}}
 
-==== Performance tuning ====
+{{Note|You probably only need userspace api (first two options) and drivers needed for your hardware, and may be ip-over-ib or srp modules if you plan to use it}}
 
-When using IP over InfiniBand ther performance is usually low by default. This is because the default mtu of each InfiniBand IP interface is set to a low value.
 
-===== Automatic =====
-
-The most conveivent way is to chance mtu automatically when kernel adds the interface to the system. Before mtu can be changed the mode of the interface must be changed to 'connected' from 'datagram'
-Next example uses udev rules to accoplish that.
-
-{{FileBox|filename=/etc/udev/rules.d/2-InfiniBand.rules|title=udev rules for InfiniBand IP networking interfaces|lang=sh|1=
-# Rules to set InfiniBand device attributes.
-
-# Change mode to connected and change mtu to maximum for best performance.
-ACTION{{=}}{{=}}"add", KERNEL{{=}}{{=}}"ib[0-9]*", SUBSYSTEM{{=}}{{=}}"net", ATTR{mode}{{=}}"connected", ATTR{mtu}{{=}}"65520"
-}}
-
-It has been reported<ref>[https://forums.gentoo.org/viewtopic-p-8060796.html#8060796 Gentoo forums - post 8060796] - Udev rules don't work on ib interface</ref><ref>[[User:Zucca/wip/InfiniBand/resources#Udev_rules|Gentoo wiki - User Zucca]] - InfiniBand resources</ref> that the rule above does not work.
-Users with this problem may use the following instead:
-
-{{FileBox|filename=/etc/udev/rules.d/2-InfiniBand.rules|title=udev rules for InfiniBand IP networking interfaces|lang=sh|1=# Rules to set InfiniBand device attributes.
-
-# Change mode to connected and change mtu to maximum for best performance.
-ACTION{{=}}{{=}}"add", KERNEL{{=}}{{=}}"ib[0-9]*", SUBSYSTEM{{=}}{{=}}"net", RUN+{{=}}"/bin/sh -c 'echo connected > /sys/class/net/%k/mode && echo 65520 > /sys/class/net/%k/mtu'"
-}}
-
-===== Manual =====
-
-Mode and mtu can also be changed manually in run time.
-Next commands assume the interface in question is named <code>ib0</code>.
-
-{{RootCmd|echo connected > /sys/class/net/ib0/mode|echo 65520 > /sys/class/net/ib0/mtu}}
-
-== Performance testing ==
-
-There are several ways to test InfiniBand performance. When [[#IP_over_InfiniBand_.28IPoIB.29|IP-over-InfiniBand]] has been set up propely users can use normal network performance testing tools for IP networks like {{Package|net-misc/iperf}}. Most users however may want to use {{Package|sys-fabric/qperf}} since it has the capability of testing the [[:wikipedia:RDMA|RDMA]] performance too. For example [[nfs-utils|NFS]] can utilize RDMA in conjuction with IP networking<ref>[https://www.kernel.org/doc/Documentation/filesystems/nfs/nfs-rdma.txt NFS over RDMA]</ref>.
-
-=== sys-fabric/qperf ===
-
-Start {{c|qperf}} in one of the nodes:{{RootCmd|qperf}}This node now acts as a server.
-
-Run tests on any client that has connection to the node(s) that now runs {{c|qperf}} in server mode.
-The following example runs tcp, upd and some rdma performance tests and assumes the qperf server node has an ip adress of {{c|10.0.10.1}}:
-
-{{RootCmd|qperf 10.0.10.1 ud_lat ud_bw rc_rdma_read_bw rc_rdma_write_bw uc_rdma_write_bw tcp_bw tcp_lat udp_bw udp_lat|output=<pre>
-ud_lat:
-    latency  =  27.6 us
-ud_bw:
-    send_bw  =  676 MB/sec
-    recv_bw  =  660 MB/sec
-rc_rdma_read_bw:
-    bw  =  855 MB/sec
-rc_rdma_write_bw:
-    bw  =  738 MB/sec
-uc_rdma_write_bw:
-    send_bw  =  768 MB/sec
-    recv_bw  =  735 MB/sec
-tcp_bw:
-    bw  =  656 MB/sec
-tcp_lat:
-    latency  =  51.2 us
-udp_bw:
-    send_bw  =  719 MB/sec
-    recv_bw  =  626 MB/sec
-udp_lat:
-    latency  =  49.2 us
-</pre>}}
-
-After the needed tests are complete stop the server process(es) just by hitting {{Key|Ctrl}}+{{Key|c}} on the terminal where the server-side {{c|qperf}} runs.
-
-=== net-misc/iperf ===
-
-{{USEflag|package=net-misc/iperf}}
-
-{{c|iperf3}}, like qperf, needs a listening side to be started before actual performance testing.
-Simplest way to start a iperf server process is:{{RootCmd|iperf3 -s}}
-
-However to reduce the output of the statistics on the server side users may want to limit the interval of the status updates. Next example set the interval to 10 seconds from the 1 second default:{{RootCmd|iperf3 -s -i 10}}
-Or suppress all normal output so that only errors are displayed:{{RootCmd|iperf3 -s > /dev/null}}
-
-Next run the client side {{c|iperf3}} - again assuming the server has an ip address of 10.0.10.1:
-
-{{RootCmd|iperf3 -c 10.0.10.1 -n 256G -i 60|output=<pre>
-Connecting to host 10.0.10.1, port 5201
-[  4] local 10.0.10.2 port 37670 connected to 10.0.10.1 port 5201
-[ ID] Interval           Transfer     Bandwidth       Retr  Cwnd
-[  4]   0.00-60.00  sec  40.2 GBytes  5.76 Gbits/sec    0   3.25 MBytes
-[  4]  60.00-120.00 sec  40.2 GBytes  5.75 Gbits/sec    0   3.25 MBytes
-[  4] 120.00-180.00 sec  40.2 GBytes  5.75 Gbits/sec    0   3.25 MBytes
-[  4] 180.00-240.00 sec  40.2 GBytes  5.75 Gbits/sec    0   3.25 MBytes
-[  4] 240.00-300.00 sec  40.2 GBytes  5.76 Gbits/sec    0   3.25 MBytes
-[  4] 300.00-360.00 sec  40.2 GBytes  5.76 Gbits/sec    0   3.25 MBytes
-[  4] 360.00-382.07 sec  14.8 GBytes  5.75 Gbits/sec    0   3.25 MBytes
-- - - - - - - - - - - - - - - - - - - - - - - - -
-[ ID] Interval           Transfer     Bandwidth       Retr
-[  4]   0.00-382.07 sec   256 GBytes  5.76 Gbits/sec    0             sender
-[  4]   0.00-382.07 sec   256 GBytes  5.76 Gbits/sec                  receiver
-
-iperf Done.
-</pre>}}
-
-The command above really puts the IP connection to a stress test by transferring 256 '''gigabytes''' of data which took over six minutes on this example. Users who just want quickly to see the bandwidth may run the following:
-
-{{RootCmd|iperf3 -c 10.0.10.1 -n 25G -i 5}} ... which transfers 25 gigabytes with 5 second interval between statistic reporting.
-
-Refer to the {{c|iperf3 --help}} for more:
-
-{{Invocation|iperf3 --help|output=<pre>
-Usage: iperf [-s|-c host] [options]
-       iperf [-h|--help] [-v|--version]
-
-Server or Client:
-  -p, --port      #         server port to listen on/connect to
-  -f, --format    [kmgKMG]  format to report: Kbits, Mbits, KBytes, MBytes
-  -i, --interval  #         seconds between periodic bandwidth reports
-  -F, --file name           xmit/recv the specified file
-  -A, --affinity n/n,m      set CPU affinity
-  -B, --bind      <host>    bind to a specific interface
-  -V, --verbose             more detailed output
-  -J, --json                output in JSON format
-  --logfile f               send output to a log file
-  --forceflush              force flushing output at every interval
-  -d, --debug               emit debugging output
-  -v, --version             show version information and quit
-  -h, --help                show this message and quit
-Server specific:
-  -s, --server              run in server mode
-  -D, --daemon              run the server as a daemon
-  -I, --pidfile file        write PID file
-  -1, --one-off             handle one client connection then exit
-Client specific:
-  -c, --client    <host>    run in client mode, connecting to <host>
-  -u, --udp                 use UDP rather than TCP
-  -b, --bandwidth #[KMG][/#] target bandwidth in bits/sec (0 for unlimited)
-                            (default 1 Mbit/sec for UDP, unlimited for TCP)
-                            (optional slash and packet count for burst mode)
-  --fq-rate #[KMG]          enable fair-queuing based socket pacing in
-                            bits/sec (Linux only)
-  -t, --time      #         time in seconds to transmit for (default 10 secs)
-  -n, --bytes     #[KMG]    number of bytes to transmit (instead of -t)
-  -k, --blockcount #[KMG]   number of blocks (packets) to transmit (instead of -t or -n)
-  -l, --len       #[KMG]    length of buffer to read or write
-                            (default 128 KB for TCP, dynamic or 1 for UDP)
-  --cport         <port>    bind to a specific client port (TCP and UDP, default: ephemeral port)
-  -P, --parallel  #         number of parallel client streams to run
-  -R, --reverse             run in reverse mode (server sends, client receives)
-  -w, --window    #[KMG]    set window size / socket buffer size
-  -C, --congestion <algo>   set TCP congestion control algorithm (Linux and FreeBSD only)
-  -M, --set-mss   #         set TCP/SCTP maximum segment size (MTU - 40 bytes)
-  -N, --no-delay            set TCP/SCTP no delay, disabling Nagle's Algorithm
-  -4, --version4            only use IPv4
-  -6, --version6            only use IPv6
-  -S, --tos N               set the IP 'type of service'
-  -L, --flowlabel N         set the IPv6 flow label (only supported on Linux)
-  -Z, --zerocopy            use a 'zero copy' method of sending data
-  -O, --omit N              omit the first n seconds
-  -T, --title str           prefix every output line with this string
-  --get-server-output       get results from server
-  --udp-counters-64bit      use 64-bit counters in UDP test packets
-
-[KMG] indicates options that support a K/M/G suffix for kilo-, mega-, or giga-
-
-iperf3 homepage at: http://software.es.net/iperf/
-Report bugs to:     https://github.com/esnet/iperf
-</pre>}}
-
-After the needed tests are complete stop the server process(es) just by hitting {{Key|Ctrl}}+{{Key|c}} on the terminal where the server-side {{c|iperf3}} runs.
-
-== References ==
-
-{{reflist}}
-
-[[Category:Interfaces]]
+=== Software ===
