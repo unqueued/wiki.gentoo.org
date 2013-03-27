@@ -1,132 +1,32 @@
-{{InfoBox stack
-|{{InfoBox homepage|http://wiki.apparmor.net|header=true}}
-|{{InfoBox wikipedia}}
-|{{InfoBox gitweb|http://bazaar.launchpad.net/~apparmor-dev/apparmor/master/files|raw=true}}
-|{{InfoBox irc|apparmor}}
-}}
-'''AppArmor''' is a MAC (Mandatory Access Control) system, implemented upon LSM (Linux Security Modules). 
 
-== Installation ==
+== Introduction ==
+
+AppArmor is a MAC (Mandatory Access Control) system, implemented upon LSM (Linux Security Modules). 
+
+=== Installing and Setup AppArmor ===
+
+It can be done by installing {{Package| sys-apps/apparmor}} and {{Package| sys-apps/apparmor-utils}} from [sunrise} overlay 
 
 === Kernel ===
+We need readjusting kernel 
+{{Kernel||<pre>
+     Security options  --->
+          [*] AppArmor support
+          (1)   AppArmor boot parameter default value
+          [ ] Yama support
+          [ ] Integrity Measurement Architecture(IMA)
+          [ ] EVM support
+              Default security module (AppArmor)  --->
+</pre>}}
 
-While the Linux kernel has supported AppArmor for quite some time, some recent changes have been made that make working with AppArmor profiles much more user friendly. It is therefore highly recommended to use >={{package|sys-kernel/hardened-sources}}-3.10 or any other kernel >=3.12.
+=== GRUB and GRUB2 ==
 
-Activate the following kernel options:
-
-{{KernelBox|1=
-Security options  --->
-    [*] Enable different security models
-    [*] AppArmor support
-    (1)   AppArmor boot parameter default value
-    [*]   Enable AppArmor 2.4 compatability
-          Default security module (AppArmor)  --->
-}}
-
-Note that the ''Enable AppArmor 2.4 compatability'' option is only required with hardened-sources before 3.12
-
-=== Emerge ===
-
-Install the userspace tools. It contains the profile parser and init script:
-
-{{Emerge|{{package|sys-apps/apparmor}}}}
-
-Emerging the following package is recommended, but not required. This package contains additional userspace utilities to assist with profile management:
-
-{{Emerge|{{package|sys-apps/apparmor-utils}}}}
-
-=== Additional software ===
-
-* {{package|sys-libs/libapparmor}} - The core library to support the userspace utilities
-* {{package|sec-policy/apparmor-profiles}} - A collection of pre-built profiles contributed by the AppArmor community
-
-== Configuration ==
-
-=== Enabling AppArmor ===
-
-If you did not select AppArmor as the default security module and set the boot parameter default value in the kernel configuration, you will need to enable AppArmor manually at boot time.
-
-==== GRUB ====
-
-{{FileBox|filename=/boot/grub/grub.conf|title=Example GRUB config for AppArmor with simple kernel|1=
-title=Gentoo with AppArmor
+{{File|/boot/grub/grub.conf|Example GRUB config for apparmor with simple kernel|<pre>
+title=Gentoo with apparmor
 root (hd0,0)
 kernel /vmlinuz root=/dev/sda2 apparmor=1 security=apparmor
-}}
+</pre>}}
 
-==== GRUB 2 ====
-
-{{FileBox|filename=/etc/default/grub|title=Enabling AppArmor with GRUB 2|lang=bash|1=
+{{File|/etc/default/grub|Adding apparmor to grub 2|<pre>
 GRUB_CMDLINE_LINUX_DEFAULT="apparmor=1 security=apparmor"
-}}
-
-Apply changes by running:
-
-{{RootCmd|grub2-mkconfig -o /boot/grub2/grub.cfg}}
-
-=== securityfs ===
-
-securityfs is the filesystem used by Linux kernel security modules. The init script mounts it automatically if it is not already, but some may prefer to do it manually:
-
-{{FileBox|filename=/etc/fstab|title=securityfs entry for fstab|1=
- none     /sys/kernel/security securityfs defaults            0      0
-}}
-
-=== Services ===
-
-==== OpenRC ====
-
-Adding it to boot runlevel:
-
-{{RootCmd|rc-update add apparmor boot}}
-
-=== Working with profiles ===
-
-Profiles are stored as simple text files in {{path|/etc/apparmor.d}}. They may take any name, and may be stored in subdirectories - you may organised them however it suits you.
-
-{{RootCmd|ls /etc/apparmor.d|output=<pre>
-abstractions  program-chunks  usr.lib.apache2.mpm-prefork.apache2  usr.lib.dovecot.managesieve-login  usr.sbin.dovecot  usr.sbin.nscd
-apache2.d     sbin.klogd      usr.lib.dovecot.deliver              usr.lib.dovecot.pop3               usr.sbin.identd   usr.sbin.ntpd
-bin.ping      sbin.syslog-ng  usr.lib.dovecot.dovecot-auth         usr.lib.dovecot.pop3-login         usr.sbin.lspci    usr.sbin.smbd
-disable       sbin.syslogd    usr.lib.dovecot.imap                 usr.sbin.avahi-daemon              usr.sbin.mdnsd    usr.sbin.smbldap-useradd
-local         tunables        usr.lib.dovecot.imap-login           usr.sbin.dnsmasq                   usr.sbin.nmbd     usr.sbin.traceroute
 </pre>}}
-
-Profiles are referred to by name, including any parent subdirectories if present. 
-
-==== Automatic control ====
-
-The init script will automatically load all profiles located in your profile directory. Unless specifically specified otherwise, each profile will be loaded in enforce mode. 
-
-==== Manual control ====
-
-To activate a profile, simply set it to enforce mode:
-
-{{RootCmd|aa-enforce usr.sbin.dnsmasq|output=<pre>Setting /etc/apparmor.d/usr.sbin.dnsmasq to enforce mode.</pre>}}
-
-Similarly, to deactivate a profile, simply set it to complain mode. 
-
-{{RootCmd|aa-complain usr.sbin.dnsmasq|output=<pre>Setting /etc/apparmor.d/usr.sbin.dnsmasq to complain mode.</pre>}}
-
-The current status of your profiles may be viewed using {{path|aa-status}}:
-
-{{RootCmd|aa-status|output=<pre>
-# aa-status
-apparmor module is loaded.
-6 profiles are loaded.
-5 profiles are in enforce mode.
-   /bin/ping
-   /sbin/klogd
-   /sbin/syslog-ng
-   /usr/sbin/dnsmasq
-   /usr/sbin/identd
-1 profiles are in complain mode.
-   /usr/sbin/lspci
-1 processes have profiles defined.
-1 processes are in enforce mode.
-   /usr/sbin/dnsmasq (12905)
-0 processes are in complain mode.
-0 processes are unconfined but have a profile defined.
-</pre>}}
-
-[[Category:Security]]
