@@ -1,165 +1,61 @@
-User patches [[Article description::provide a way for users to apply patches to package source code]] if the [[ebuild]] provides this feature. Ebuilds cannot be patched by this. This is useful for applying upstream patches to unresolved bugs and for the rare cases of site-specific patches.
+The patches directory provides another way to apply user-defined patches. The advantage is if all you want is to apply a patch, you may do so without forking the entire package to an overlay, or defining a hook function, which can make following the upstream ebuild easier. This isn't a feature that's actually supplied by Portage directly. Ebuilds or eclasses must provide support for patches explicitly by calling <code>epatch_user()</code> from eutils.eclass. This works out well because you can just let the package maintainer determine an appropriate place to apply patches. For example, qt4-build.eclass implements epatch_user directly in the eclass, after programatically applying patches defined by a global PATCHES array. Different ebuilds/eclasses may have their own systems. The function writes a lockfile to <code>$T</code>, so it isn't a big deal if accidentally callled more than once.
 
-== Precondition ==
+{{File|/usr/portage/eclass/eutils.eclass||<nowiki>
+# @FUNCTION: epatch_user
+# @USAGE:
+# @DESCRIPTION:
+# Applies user-provided patches to the source tree. The patches are
+# taken from /etc/portage/patches/<CATEGORY>/<PF|P|PN>[:SLOT]/, where the first
+# of these three directories to exist will be the one to use, ignoring
+# any more general directories which might exist as well. They must end
+# in ".patch" to be applied.
+#
+# User patches are intended for quick testing of patches without ebuild
+# modifications, as well as for permanent customizations a user might
+# desire. Obviously, there can be no official support for arbitrarily
+# patched ebuilds. So whenever a build log in a bug report mentions that
+# user patches were applied, the user should be asked to reproduce the
+# problem without these.
+#
+# Not all ebuilds do call this function, so placing patches in the
+# stated directory might or might not work, depending on the package and
+# the eclasses it inherits and uses. It is safe to call the function
+# repeatedly, so it is always possible to add a call at the ebuild
+# level. The first call is the time when the patches will be
+# applied.
+#
+# Ideally, this function should be called after gentoo-specific patches
+# have been applied, so that their code can be modified as well, but
+# before calls to e.g. eautoreconf, as the user patches might affect
+# autotool input files as well.
+epatch_user() {
+	[[ $# -ne 0 ]] && die "epatch_user takes no options"
 
-=== EAPI 6 and greater ===
+	# Allow multiple calls to this function; ignore all but the first
+	local applied="${T}/epatch_user.log"
+	[[ -e ${applied} ]] && return 2
 
-User patching is supported as a requirement of EAPI 6 and greater. Failure to support user patching results in an error.
-
-=== EAPI 5 and older ===
-
-* The ebuild is calling <code>epatch_user</code> explicitly
-* The ebuild is inheriting an eclass and relying on its default implementation of <code>src_prepare</code>
-
-== Adding user patches ==
-
-First choose the location for the patches, depending on the package name and the version(s) it is intended for. Use the following locations and optionally append <code>:${SLOT}</code> to any of them:
-
-* {{Path|/etc/portage/patches/${CATEGORY}/${P} }}
-* {{Path|/etc/portage/patches/${CATEGORY}/${PN} }}
-* {{Path|/etc/portage/patches/${CATEGORY}/${P}-${PR} }}
-
-Examples:
-
-* {{Path|/etc/portage/patches/dev-lang/python}}
-* {{Path|/etc/portage/patches/dev-lang/python:3.4}}
-* {{Path|/etc/portage/patches/dev-lang/python-3.4.2}}
-* {{Path|/etc/portage/patches/dev-lang/python-3.3.5-r1}}
-
-=== Example ===
-
-An example shows how to easily apply an upstream patch for {{bug|618622|text=CVE-2017-8934}} of {{package|x11-misc/pcmanfm}}. <br />
-The affected version of that package is 1.2.5 and upstream provides the patch for it but has not yet released a new version.
-
-For applying the patch from upstream, the appropriate directory needs to be created:
-
-{{RootCmd|mkdir -p /etc/portage/patches/x11-misc/pcmanfm-1.2.5}}
-
-Next, an arbitrarily named file with suffix {{path|.patch}} has to be dropped here with the content provided from upstream:
-
-{{FileBox|filename=[https://git.lxde.org/gitweb/?p{{=}}lxde/pcmanfm.git;a{{=}}commitdiff;h{{=}}bc8c3d871e9ecc67c47ff002b68cf049793faf08 {{path|/etc/portage/patches/x11-misc/pcmanfm-1.2.5/CVE-2017-8934.patch}}]|1=
-# index 8c2049a..876f7f3 100644 (file)
-# --- a/NEWS
-# +++ b/NEWS
-# @@ -1,3 +1,7 @@
-# +* Fixed potential access violation, use runtime user dir instead of tmp dir
-# +    for single instance socket.
-# +
-# +
-#  Changes on 1.2.5 since 1.2.4:
- 
- * Removed options to Cut, Remove and Rename from context menu on mounted
-diff --git a/src/single-inst.c b/src/single-inst.c
-index 62c37b3..aaf84ab 100644 (file)
---- a/src/single-inst.c
-+++ b/src/single-inst.c
-@@ -2,7 +2,7 @@
-  *      single-inst.c: simple IPC mechanism for single instance app
-  *
-  *      Copyright 2010 Hong Jen Yee (PCMan) <pcman.tw@gmail.com>
-- *      Copyright 2012 Andriy Grytsenko (LStranger) <andrej@rep.kiev.ua>
-+ *      Copyright 2012-2017 Andriy Grytsenko (LStranger) <andrej@rep.kiev.ua>
-  *
-  *      This program is free software; you can redistribute it and/or modify
-  *      it under the terms of the GNU General Public License as published by
-@@ -404,11 +404,16 @@ static void get_socket_name(SingleInstData* data, char* buf, int len)
-     }
-     else
-         dpynum = 0;
-+#if GLIB_CHECK_VERSION(2, 28, 0)
-+    g_snprintf(buf, len, "%s/%s-socket-%s-%d", g_get_user_runtime_dir(),
-+               data->prog_name, host ? host : "", dpynum);
-+#else
-     g_snprintf(buf, len, "%s/.%s-socket-%s-%d-%s",
-                 g_get_tmp_dir(),
-                 data->prog_name,
-                 host ? host : "",
-                 dpynum,
-                 g_get_user_name());
-+#endif
- }
-}}
-
-For testing, step into the package's ebuild directory and run the {{c|ebuild pcmanfm-1.2.5.ebuild clean prepare}}:
-
-{{Cmd|cd $(portageq get_repo_path / gentoo)/x11-misc/pcmanfm
-|ebuild pcmanfm-1.2.5.ebuild clean prepare|output=<pre>
- * pcmanfm-1.2.5.tar.xz SHA256 SHA512 WHIRLPOOL size ;-) ...             [ ok ]
- * checking ebuild checksums ;-) ...                                     [ ok ]
- * checking auxfile checksums ;-) ...                                    [ ok ]
- * checking miscfile checksums ;-) ...                                   [ ok ]
->>> Unpacking source...
->>> Unpacking pcmanfm-1.2.5.tar.xz to /var/tmp/portage/x11-misc/pcmanfm-1.2.5/work
->>> Source unpacked in /var/tmp/portage/x11-misc/pcmanfm-1.2.5/work
->>> Preparing source in /var/tmp/portage/x11-misc/pcmanfm-1.2.5/work/pcmanfm-1.2.5 ...
- * Applying patches from /etc/portage/patches/x11-misc/pcmanfm-1.2.5 ...
- *   CVE-2017-8934.patch ...                               [ ok ]
- * User patches applied.
->>> Source prepared.
-</pre>}}
-
-With the message "User patches applied." all is good and the package needs to be re-emerged as normally.
-
-Once the patch gets merged to the [https://gitweb.gentoo.org/repo/gentoo.git/log ebuild repository], do not forget to remove it from the {{path|/etc/portage/patches}} directory.  Otherwise next time compiling the ebuild might fail.
-
-== Using a git directory as a source of patches ==
-
-Instead of creating the directory, a symlink can be created to a git directory on the system.
-
-{{RootCmd|mkdir -p /etc/portage/patches/sys-libs && ln -s /home/user/projects/glibc /etc/portage/patches/sys-libs/glibc}}
-
-{{Note| When using <code>userpriv</code> as a <var>[[FEATURES]]</var> value in Portage (eg. in {{Path|/etc/portage/make.conf}}), Portage drops root privileges to <code>portage:portage</code> which means that the folder that the symlink points to must be accessible by the user or group ''portage'' otherwise the patches will be silently ignored and not applied (file {{Path|epatch_user.log}} contains the string ''none''); 
-ie. in this case, all the folders of {{Path|/home/user/projects/glibc}} are already accessible due to <code>o+rx</code> permissions but in the case of root and using this path {{Path|/root/projects/glibc}} then {{Path|/root}}, unlike {{Path|/home}}, is inaccessible due to <code>u+rx</code> permissions...}}
-
-Now, in the git directory, perform the usual work. After finishing remove all patches from the previous run and use <tt>git format-patch</tt> to create a patchset from the branch based on another known branch.
-
-{{Cmd|rm -f *.patch && git format-patch origin/master}}
-
-This solution relies on the fact that only files ending with {{Path|.patch}} are processed in the patch directory.
-
-== Enabling /etc/portage/patches for all ebuilds ==
-
-If an ebuild has EAPI=5 or older and does not call <code>epatch_user</code>, but user patches are still needed to be applied, it is possible to use [[_/etc/portage/bashrc|/etc/portage/bashrc]] and hooks provided by [[Portage]]. Candidates are <code>post_src_unpack</code>, <code>pre_src_prepare</code> or <code>post_src_prepare</code>. The first two have the advantage of being run before <code>eautoreconf</code> (or similar) and the last two have the advantage of being run in the right directory, so only <code>pre_src_prepare</code> shares those advantages.
-
-Normally only ebuilds inheriting <code>epatch</code> can access <code>epatch_user</code>, so one would need to test for its presence and non-epatch ebuilds would not get patched at all. There is a trick of pulling in only the necessary bits from {{Path|epatch.eclass}}, running <code>epatch_user</code> and dropping them.
-
-With <code>pre_src_prepare</code> and the above trick, changing directories do not need to be played with, all ebuilds can be supported whether they import <code>epatch</code> or not, and the patches will applied as soon as possible in the chain. While it might still be better to have this feature as part of Portage, the following snippet should cover everyday needs pretty well.
-
-{{FileBox|filename=/etc/portage/bashrc|lang=bash|1=
-pre_src_prepare() {
-    [[ ${EAPI:-0} {{=}}{{=}} [012345] ]] {{!}}{{!}} return
-    if ! type estack_push > /dev/null 2>&1; then
-        local estack_names{{=}}"eshopts_push eshopts_pop evar_push evar_push_set evar_pop estack_push estack_pop"
-        source <(awk "/^# @(FUNCTION{{!}}VARIABLE): / { p {{=}} 0 } /^# @(FUNCTION{{!}}VARIABLE): (${estack_names// /{{!}}})\$/ { p {{=}} 1 } p { print }" ${PORTDIR}/eclass/estack.eclass)
-    fi
-    if ! type epatch_user > /dev/null 2>&1; then
-        local epatch_names{{=}}"EPATCH_SOURCE EPATCH_USER_SOURCE epatch_user_death_notice epatch_user epatch"
-        source <(awk "/^# @(FUNCTION{{!}}VARIABLE): / { p {{=}} 0 } /^# @(FUNCTION{{!}}VARIABLE): (${epatch_names// /{{!}}})\$/ { p {{=}} 1 } p { print }" ${PORTDIR}/eclass/epatch.eclass)
-    fi
-
-    epatch_user
-
-    for name in $epatch_names; do
-        unset $name
-    done
-    for name in $estack_names; do
-        unset $name
-    done
-
+	# don't clobber any EPATCH vars that the parent might want
+	local EPATCH_SOURCE check base=${PORTAGE_CONFIGROOT%/}/etc/portage/patches
+	for check in ${CATEGORY}/{${P}-${PR},${P},${PN}}{,:${SLOT}}; do
+		EPATCH_SOURCE=${base}/${CTARGET}/${check}
+		[[ -r ${EPATCH_SOURCE} ]] || EPATCH_SOURCE=${base}/${CHOST}/${check}
+		[[ -r ${EPATCH_SOURCE} ]] || EPATCH_SOURCE=${base}/${check}
+		if [[ -d ${EPATCH_SOURCE} ]] ; then
+			EPATCH_SOURCE=${EPATCH_SOURCE} \
+			EPATCH_SUFFIX="patch" \
+			EPATCH_FORCE="yes" \
+			EPATCH_MULTI_MSG="Applying user patches from ${EPATCH_SOURCE} ..." \
+			epatch
+			echo "${EPATCH_SOURCE}" > "${applied}"
+			return 0
+		fi
+	done
+	echo "none" > "${applied}"
+	return 1
 }
-}}
+</nowiki>}}
 
-== See also ==
-
-* [[Handbook:AMD64/Portage/Advanced#Using_epatch_user|Using epatch_user (AMD64 Handbook)]]
-* {{See also|patches}}
-* [https://www.gentoo.org/glep/glep-0025.html GLEP 25]
-
-== External resources ==
-
-* [https://gitweb.gentoo.org/repo/gentoo.git/commit/eclass/eutils.eclass?id=324c60a90afb8c34ba05b5b4f5814ce72e835c48 eutils.eclass: Disable epatch_user in EAPI 6.] - EAPI 6 has eapply_user which should be used instead. 
-* [https://blogs.gentoo.org/mgorny/2015/11/13/the-ultimate-guide-to-eapi-6/ The Ultimate Guide to EAPI 6]
-* [https://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/epatch/ Patching with epatch] - Patching within ebuilds, from devmanual.gentoo.org
-* How to write [https://dev.gentoo.org/~vapier/clean-patches clean patches] when not using ''git-format-patch''.
-
-[[Category:Portage]]
+=== See Also ===
+* http://www.funtoo.org/Localpatch_%28Tutorial%29
+* http://dilfridge.blogspot.com/2012/04/neat-trick-for-testing-patches-in.html
