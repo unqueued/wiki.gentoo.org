@@ -1,209 +1,27 @@
-Usually, the X11 session is started by a [[display manager]]. However, when running a single-user system you may find display managers an unnecessary waste of resources. This article [[Article description::describes how to start an X11 session without a display manager]].
+Usually, the X11 session is started by a [[Display manager]]. However, when running a single-user system you may find display managers an unnecessary waste of resources. Fortunately, you can start X11 session without a display manager.
 
 == Starting X11 from console ==
-
 === Using startx ===
 
-See the [[Xorg/Guide#Using_startx|Using startx]] section of the [[Xorg/Guide]] article.
+The standard X11 distribution contains ''startx'', a small script which can be used to start X11 session from a terminal (it's installed by {{Package|x11-apps/xinit}}).
+
+In order to start X11 this way, type in:
+
+{{Cmd|startx}}
+
+This will start the X11 server with default options and try to find an X11 session (e.g. a desktop environment) to start.
+
+If you'd like to specify the session (program to start) yourself, you can do so as an argument to startx:
+
+{{Cmd|startx /usr/bin/startxfce4}}
+
+You can also pass X11 server options, by preceding them with a double dash:
+
+{{Cmd|startx -- vt7}}
+
 
 === Using a dedicated session runner ===
-Some of the desktop environments provide their own replacements for {{c|startx}}. For example, Xfce4 provides {{c|startxfce4}}:
+
+Some of the desktop environments provide their own replacements for ''startx''. For example, Xfce4 provides ''startxfce4'':
+
 {{Cmd|startxfce4 -- vt7}}
-
-== Starting X11 automatically ==
-
-=== Starting X11 on console login ===
-
-To avoid having to type the ''startx'' command over and over again, you may decide that a login to a specific vt should start X11. One of the ways to achieve that is to put a code like the following into your shell's login script (e.g. {{Path|~/.bash_profile}}):
-
-==== OpenRC ====
-
-{{FileBox|filename=~/.bash_profile|title=X11 autostart with login on tty1|lang=bash|1=
-unset -v HOME # Force bash to obtain its value for HOME from getpwent(3) on first use, so tilde-expansion is sane.
-if shopt -q login_shell; then
-    [[ -f ~/.bashrc ]] && source ~/.bashrc
-    [[ -t 0 && $(tty) == /dev/tty1 && ! $DISPLAY ]] && exec startx
-else
-    exit 1 # Somehow this is a non-bash or non-login shell.
-fi
-}}
-
-==== systemd ====
-
-{{FileBox|filename=~/.bash_profile|title=X11 autostart with login on vt8|lang=bash|1=
-if [[ ! ${DISPLAY} && ${XDG_VTNR} == 8 ]]; then
-    exec startx
-fi
-}}
-
-The <var>XDG_VTNR</var> variable specifies the VT number. To use another VT adjust the number accordingly.
-
-The additional <var>DISPLAY</var> check is necessary because the snippet will be executed on both graphical and non-graphical logins. Since <var>XDG_VTNR</var> will be set to the same value in the shells started within the X11 session (e.g. terminals), it is necessary to prevent them from trying to start X11.
-
-The {{c|exec}} command causes the login shell to be replaced by the X11 session. This means that the user won't be able to use the shell used to start X11 anymore, and whenever the X11 session terminates, user will be logged back out. If you'd prefer to remain being logged in into vt, remove the {{c|exec}} word.
-
-{{Note|The <var>DISPLAY</var> check is fairly fragile. Make sure it isn't influenced by side-effects from earlier in the login process.}}
-
-=== Multiple X Session/Virtual Console ===
-
-An alternate method is to auto-login to a Window Manager (WM) or a Desktop Environment (DE) depending on the Virtual Console (VT) used to login.
-A ''fallback'' session can be easily achieved in this manner. Just grab the following file excerpts to get going.
-
-First, set up the sessions or WM or DE to use depending on the VT.
-
-{{FileBox|filename=[https://github.com/tokiclover/dotfiles/blob/master/.xinitrc ~/.xinitrc]|lang=bash|1=
-# $Header: ~/.xinitrc, 2014/11/22 Exp $
-...
-case $(tty {{!}} cut -b9-) in
-	(1) exec enlightenment_start;;
-	(2) exec lxsession          ;;
-	(3) exec openbox-session    ;;
-esac
-}}
-
-And then set up the login shell accordingly:
-
-{{FileBox|filename=[https://github.com/tokiclover/dotfiles/blob/master/.bash_login ~/.bash_login]|lang=bash|1=
-# $Header: ~/.bash_login, 2014/11/30 Exp $
-...
-# Auto startx depending on the VT
-if [[ -z "$DISPLAY" && $(id -u) -ge 1000 ]] ; then
-    TTY=$(tty)
-    [[ "${TTY/tty}" != "$TTY" && "${TTY:8:1}" = "3" ]] &&
-        startx 1>~/.log/xsession-errors 2>&1 &
-    unset TTY
-fi
-...}}
-Or else, a [[zsh]] variant could be used instead.
-{{FileBox|filename=[https://github.com/tokiclover/dotfiles/blob/master/.zlogin ~/.zlogin]|lang=bash|1=
-# $Header: ~/.zlogin, 2014/11/30 Exp $
-...
-# Auto startx depending on the tty
-if [[ -z $DISPLAY ]] && (( $EUID != 0 )) {
-    [[ ${TTY/tty} != $TTY ]] && (( ${TTY:8:1} <= 3 )) &&
-        startx 1>~/.log/xsession-errors 2>&1 &
-}
-...}}
-
-The previous files can be used to login into an [[Enlightenment]] or [[LXDE]] session without needing any ''middle man'' or rather Diplay Manager (DM)! and [[Openbox]] session as a fallback session using VT 1, 2, & 3.
-
-Adapt it to your favorite DE or WM.
-
-=== X11 autologin with systemd ===
-
-==== Method 1 ====
-
-In order to obtain complete X11 autologin, you can use the getty/login autologin feature along with the fore-mentioned trick.
-
-First, create a new service file like the following:
-
-{{FileBox|filename=/etc/systemd/system/x11.service|title=An example service file for X11 autologin|lang=ini|1=
-[Unit]
-After=systemd-user-sessions.service
-
-[Service]
-ExecStart=/sbin/mingetty --autologin username --noclear tty8 38400
-
-[Install]
-WantedBy=multi-user.target
-}}
-
-''username'' replaced by the user's username, and ''tty8'' being the tty the X11-starting login to be performed on. It should be noted that this tty will be used for login and console output, and X11 can be started on any other tty.
-
-{{Note|This way can only be used for vt7+. Earlier vts are used by default getty generator and require a different kind of hackery.}}
-
-Afterwards, add the fore-mentioned snippet to your bashrc (with the same vt specified), enable the service:
-
-{{RootCmd|systemctl enable x11.service}}
-
-In order to avoid relying on the ''DISPLAY+XDG_VTNR'' trick to determine whether to start X11, we can extend the two above approaches by using a dedicated environment variable to distinguish the specific shell where X11 is to be started.
-
-First, create a dedicated ''login'' wrapper:
-
-{{FileBox|filename=/usr/local/sbin/x11login|title=X11 vt login wrapper|lang=bash|1=
-#!/bin/sh
-exec /bin/login "${@}" START_X11=1
-}}
-
-This causes the user to be logged in with ''START_X11=1'' environment variable set. Then, tell getty to use that file instead of the default {{Path|/bin/login}}:
-
-{{FileBox|filename=/etc/systemd/system/x11.service|title=X11 autologin service using login wrapper|lang=ini|1=
-[Unit]
-After=systemd-user-sessions.service
-
-[Service]
-ExecStart=/sbin/mingetty --autologin username --loginprog=/usr/local/sbin/x11login --noclear tty8 38400
-
-[Install]
-WantedBy=multi-user.target
-}}
-
-Finally, modify {{Path|~/.bashrc}} (or equivalent) to use the variable rather than guessing:
-{{FileBox|filename=~/.bashrc|title=X11 autostart checking dedicated variable|lang=bash|1=
-if [[ ${START_X11} == 1 ]]; then
-    unset START_X11
-    exec startx
-fi
-}}
-
-Remember to unset the variable before starting X11 -- otherwise all the X11 terminals would have it set and try to spawn another X11 session.
-
-==== Method 2 ====
-
-In another way, you can use {{c|su}} and {{c|xinit}} for direct login in X.
-
-Service example:
-
-{{FileBox|filename=/etc/systemd/system/xinit-login.service|title=An example service file for X11 autologin using su and xinit|lang=ini|1=
-[Unit]
-After=systemd-user-sessions.service
-
-[Service]
-ExecStart=/bin/su username -l -c /usr/bin/xinit -- VT08
-
-[Install]
-WantedBy=multi-user.target
-}}
-
-{{c|startx}} can be used rather than {{c|xinit}}.
-
-=== Links ===
-
-* http://mywiki.wooledge.org/DotFiles
-
-== Automatic user selection ==
-
-On a 1-user system it's possible to avoid typing the username, so the login prompt will ask you only about the password. E.g. here we adjust {{Path|/etc/inittab}} so that the third terminal asks about the password only:
-
-{{FileBox|filename=/etc/inittab|title=Preselect user in TERMINALS section|lang=bash|1=
-c3:2345:respawn:/sbin/agetty --noclear --skip-login --login-options=my_user 38400 tty3 linux
-}}
-
-Of course, one can have various preselected users on different terminals, e.g. user_a on tty1 and user_b on tty2.
-
-== Custom text in console logon ==
-
-We can create a simple wrapper for {{Path|/bin/login}} in order to show supplementary information on the console logon screen. E.g. on a 1-user system one may wish to see if there are any new emails without logging in. First, create a simple bash wrapper for {{Path|/bin/login}}:
-
-{{FileBox|filename=/root/login.sh|title=Wrapper for /bin/login|lang=bash|<nowiki>#!/bin/bash
-
-# Show sender and subject of all new emails:
-egrep -r --max-count=2 '^(From|Subject|$):' ~email_user/.maildir/new
-
-# Show user count, terminal, time, kernel version:
-echo $(who -q) $(tty) $(date '+[%b-%-d %-H:%M]') $(uname -r)
-
-# Continue with normal login:
-exec /bin/login preselected_login_user
-</nowiki>}}
-
-The last line calls the actual {{Path|/bin/login}} which will do all the heavy lifting. You can omit the user name in that line if you want to be prompted about it. Passing a username results in being prompted about the password only.
-
-Finally edit {{Path|/etc/inittab}} to use your {{Path|login.sh}} wrapper, here we'll use it on tty2:
-
-{{FileBox|filename=/etc/inittab|title=Use login.sh wrapper|lang=bash|1=
-c2:2345:respawn:/sbin/agetty --noclear --skip-login --login-program=/root/login.sh 38400 tty2 linux
-}}
-
-[[Category:Display manager]]
-[[Category:X.Org]]
