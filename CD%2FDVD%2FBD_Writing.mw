@@ -1,137 +1,80 @@
-{{InfoBox stack
-|{{InfoBox todo|Describe how to write UDF images to CDs|Add systemd replacement for the {{Path|/etc/init.d/pktcdvd}} init script|header=true}}
-}}
-
-== Installation ==
-
-== Kernel ==
-
-Configure the kernel to support the filesystems necessary for reading and writing ISO disks.
-
-{{KernelBox|title=Enable ISO 9660 and UDF filesystem support|1=
-File systems  --->
-   CD-ROM/DVD Filesystems  --->
-      <*> ISO 9660 CDROM file system support
-      [*]   Microsoft Joliet CDROM extensions
-      [*]   Transparent decompression extension
-      <*> UDF file system support
-}}
-
-=== Emerge ===
-
+===Setup===
 Follow the [[CDROM]] page for hardware driver kernel configuration, along with including UDF write support.
 
-Install the {{Package|app-cdr/cdrtools}} or {{Package|app-cdr/dvd+rw-tools}} packages, for writing CD/DVD/BD media:
+Install cdrtools or dvd+rw-tools packages, for writing CD/DVD/BD media.
+<br><nowiki>$ emerge cdrtools</nowiki>
 
-{{Emerge|app-cdr/cdrtools}}
+Or,
+<br><nowiki>$ emerge dvd+rw-tools</nowiki>
 
-Or:
+For UDF writing, ensure you've included the above mentioned UDF kernel drivers and the following package,
+<br><nowiki>$ emerge udftools</nowiki>
 
-{{Emerge|app-cdr/dvd+rw-tools}}
+Best practice is to use read write (RW/RE) media for testing writing ISO9660/UDF filesystem images.  If a command incanatation fails to work, or the hardware or media fails, you can try try again.  Direct file copy operations with CD/DVD/BD media may be slow and still risky sometimes?
 
-For UDF writing, ensure included the above mentioned UDF kernel drivers and the following package:
-
-{{Emerge|sys-fs/udftools}}
-
-Best practice is to use read write (RW/RE) media for testing writing ISO9660/UDF [[filesystem]] images.  If a command fails to work, or the hardware or media fails, you can try again.
-
-== Usage ==
-
-Usage for the ISO9660/UDF filesystem.
-
-=== Determine the size of media ===
-
+===ISO9960/UDF Filesystem===
+====Find Size of Media====
 First, find the maximum size the media can contain.
 
-{{Cmd|dvd+rw-mediainfo /dev/sr0|output=<pre>
-Track Size:            24438784*2KB
-</pre>}}
+<br><nowiki>$ dvd+rw-mediainfo /dev/sr0</nowiki>
+<br><nowiki>Track Size:            24438784*2KB</nowiki>
+(Or 24438784*2KB = 48877568 KB)
 
-Or 24438784*2KB = 48877568 KB for 50GB BD-R DL (Blu-ray dual layer) media.
+This is for 50GB Blu-Ray media.
+<br><nowiki>$ truncate -s 48877568KB test.udf</nowiki>
 
-{{Cmd|truncate --size{{=}}48877568KB test.udf}}
+Or you can use the following with disabling Defect Management,
+<br><nowiki>$ truncate --size=50GB ./test.udf</nowiki>
 
-Or you can use the following with disabling defect management:
+NOTE: Defect Management sets aside 256MB aside during formating and also reduces write to half speed.  See below Writing section for specifics.
 
-{{Cmd|truncate --size{{=}}50GB ./test.udf}}
+====Create and Populate Filesystem====
+Create either a ISO9960 or UDF filesystem.  Microsoft Windows uses lvid.
+<br><nowiki>$ mkudffs --lvid="MY_VOLUME" --utf8 ./test.udf</nowiki>
 
-{{Note|Defect management sets aside 256MB aside during formatting and also reduces write to half-speed. See the writing section below for specifics.}}
+Mount the filesystem
+<br><nowiki>$ sudo mount -oloop,rw ./test.udf /mnt/tmp/</nowiki>
 
-=== Create and populate filesystem ===
+Populate filesystem
+<br><nowiki>$ rsync -ax --delete /home/roger/Documents/ /mnt/tmp/</nowiki>
 
-Create either a ISO9660 or a UDF filesystem. Microsoft Windows uses lvid for optical media title:
+Verify proper permissions are preserved
+<br><nowiki>$ chown -R roger.roger /mnt/tmp</nowiki>
+<br><nowiki>$ chmod -R a+r /mnt/tmp</nowiki>
+<br><nowiki>$ chmod -R go-w /mnt/tmp</nowiki>
 
-{{Cmd|mkudffs --lvid{{=}}"MY_VOLUME" --utf8 ./test.udf}}
+===Writing===
+====Normal File Copying====
+=====CD-RW Media=====
+CD-RW media requires the packet device driver and starting the /etc/init.d/pktcdvd service and the following line within /etc/fstab.
+<br><nowiki>/dev/pktcdvd/0  /mnt/udfwrite  udf             user,noauto,noatime,utf8  0  0</nowiki>
 
-Mount the filesystem:
-
-{{Cmd|sudo mount -oloop,rw ./test.udf /mnt/tmp/}}
-
-Populate filesystem:
-
-{{Cmd|rsync -ax --delete /home/larry/Documents/ /mnt/tmp/}}
-
-Verify proper permissions are preserved:
-
-{{Cmd
-|chown -R larry.larry /mnt/tmp
-|chmod -R a+r /mnt/tmp
-|chmod -R go-w /mnt/tmp
-}}
-
-=== Writing ===
-
-==== CD-RW media ====
-
-CD-RW media requires the packet device driver and starting the {{Path|/etc/init.d/pktcdvd}} service and the following line within [[fstab]]:
-
-{{FileBox|filename=/etc/fstab|1=
-/dev/pktcdvd/0  /mnt/udfwrite  udf             user,noauto,noatime,utf8  0 0
-}}
-
-==== DVD/Blu-ray (RW/RE) media ====
-
-DVD-RW, DVD+RW, and Blu-ray Recordable Erasable (BD-RE) media can be easily written by simply mounting the media and writing to the media as a normal filesystem, as these devices and media allow random writing, versus CD-RW only allowing sequential writing.
-
-=== Image writing ===
-
-==== CD writing ====
-
-===== ISO =====
-
-{{Cmd
-|cdrecord -scanbus
-|cdrecord -speed{{=}}40 dev{{=}}2,0,0 -eject -dao driveropts{{=}}burnfree test.iso
-}}
-
-===== UDF =====
-
+=====DVD/BD (RW/RE) Media=====
+DVD-RW,DVD+RW and BD-RE media can be easily written by simply mounting the media and writing to the media as a normal filesystem, as these devices and media allow random writing, versus CD-RW only allowing sequential writing.
+ 
+====Image Writing====
+=====CD Writing=====
+======ISO======
+<br><nowiki>$ cdrecord -scanbus </nowiki>
+<br><nowiki>$ cdrecord -speed=40 dev=2,0,0 -eject -dao driveropts=burnfree test.iso </nowiki>
+======UDF======
 TODO
 
-==== DVD/Blu-ray ====
+=====DVD/BD=====
+======BD Defect Management======
+By default growisofs uses Defect Management which requires 256MB extra space and uses reduced write speeds.
+You may disable this with,
+<br><nowiki>$ dvd+rw-format /dev/dvd -ssa=none</nowiki>
 
-===== BD defect management =====
+And use the following after writing to ensure files are properly written.
+<br><nowiki>$ diff -r /home/roger/Documents/ /mnt/tmp/</nowiki>
 
-By default {{c|growisofs}} uses defect management which requires 256MB extra space and uses reduced write speeds. This may be disabled via:
+======ISO======
+<br><nowiki>$ growisofs -Z /dev/sr0=test.iso</nowiki>
 
-{{Cmd|dvd+rw-format /dev/dvd -ssa{{=}}none}}
+======UDF======
+Atypically, you can write with the following as long as you are within the limits of your DVD/BD media's size limitations.
+<br><nowiki>$ growisofs -dvd-compat -Z /dev/sr0=test.udf</nowiki>
 
-And use the following after writing to ensure files are properly written:
-
-{{Cmd|diff -r /home/larry/Documents/ /mnt/tmp/}}
-
-===== ISO =====
-
-{{Cmd|growisofs -Z /dev/sr0{{=}}test.iso}}
-
-===== UDF =====
-
-Atypically, you can write with the following as long as you are within the limits of your DVD/BD media's size limitations:
-
-{{Cmd|growisofs -dvd-compat -Z /dev/sr0{{=}}test.udf}}
-
-If you have used the above truncate with 25GB/50GB, specifying the top limits of BD media, you will need to disable Defect Management requiring 256MB extra space:
-
-{{Cmd|growisofs -use-the-force-luke{{=}}spare:none -dvd-compat -speed{{=}}4 -Z /dev/sr0{{=}}test.udf}}
-
-[[Category:Multimedia]]
+If you have used the above truncate with 25GB/50GB, specifying the top limits of BD media, you will need to disable Defect Management requiring 256MB extra space.
+<br><nowiki>$ growisofs -use-the-force-luke=spare:none -dvd-compat -speed=4 -Z /dev/sr0=test.udf</nowiki>
