@@ -1,201 +1,92 @@
 <languages />
 
-{{Metadata|abstract=Dit artikel beschrijft de stappen om naar een nieuwere versie van de Linux-kernel te upgraden}}
+This article describes the steps to upgrade to a new [[kernel]].
 
-Dit artikel [[Article description::beschrijft de stappen om naar een nieuwe [[kernel]] te upgraden.]]
+== Installation ==
 
-== Installatie ==
+A kernel upgrade may be necessary when new kernel sources are installed after a system update or when you yourself install new kernel sources.
 
-Een kernel upgrade is mogelijk een goed idee wanneer nieuwe kernel broncode is geïnstalleerd. Nieuwe kernel broncode wordt soms geïnstalleerd tijdens een systeem update, bijvoorbeeld met de volgende opdracht:
+== Configuration ==
 
-{{RootCmd|emerge --ask --update --deep --with-bdeps{{=}}y --newuse @world}}
+The configuration parallels that of the [[Kernel/Configuration|manual configuration]], since only the config file is reused. All steps are mentioned here again for the sake of completeness, for a more verbose explanation see the other article.
 
-Uiteraard kunt u deze ook handmatig installeren met de volgende opdracht (vervang ''gentoo-sources'' met de variant die in gebruik is):
+=== Set symlink ===
 
-{{RootCmd|emerge --ask --update --deep --with-bdeps{{=}}y --newuse sys-kernel/gentoo-sources}}
+The symlink {{Path|/usr/src/linux}} should always point to the kernel sources that is currently being used. This can be done in one of three ways:
 
-Het installeren van nieuwe kernelbroncode geeft de gebruiker geen nieuwe kernel, het is slechts een noodzakelijke stap om een nieuwe kernel te bouwen en installeren vanuit de broncode, waarna het systeem opnieuw zal moeten worden opgestart om de nieuwe kernel te gebruiken.
+; 1. Installing the kernel sources with active ''symlink'' [[USE flag]]
+: This will make the {{Path|/usr/src/linux}} point to your newly installed kernel sources. If necessary, it can still be modified later with the following two methods:
 
-Het upgraden van een nieuwe kernel vanuit de broncode is vrijwel gelijk aan het bouwen van een kernel vanuit broncode bij het installeren van het gehele systeem. Het verschil is dat de configuratie van de oude kernel kan worden gebruikt voor de configuratie van de nieuwe kernel, wat uiteraard tijd scheelt omdat u niet alle opties opnieuw hoeft te beoordelen (bijvoorbeeld met {{c|make menuconfig}}).
+; 2. Setting the symlink with '''eselect''':
 
-De configuratie van de kernel wordt opgeslagen in een bestand met de naam {{Path|.config}} in de map met de kernel broncode. De kernel configuratie bepaalt of een optie of mogelijkheid beschikbaar zal zijn, in de kernel of wellicht in een module, die kan worden geladen wanneer dat noodzakelijk mocht blijken. Een nieuwe kernel heeft mogelijk andere opties en mogelijkheden dan de oude kernel, het configuratiebestand kan dan ook nieuwe regels hebben, maar er kunnen ook regels verwijderd zijn ten opzichte van de configuratie van de oude kernel.
+: {{RootCmd| eselect kernel list |
+  |output=Available kernel symlink targets:<br /> &nbsp; [1] linux-3.3.8-gentoo *<br /> &nbsp; [2]   linux-3.4.9-gentoo}}
 
-Om hiermee te kunnen omgaan moet de configuratie van de oude kernel worden omgezet naar een configuratie voor de nieuwe kernel. Dit artikel zal dat beschrijven.
+: This outputs the available kernel sources. The asterisk indicates the chosen sources. To change the kernel sources, e.g. to the second entry, do:
 
-=== Backup van de huidige kernelconfiguratie ===
+: {{RootCmd|eselect kernel set 2}}
 
-Het is verstandig om een backup te maken van de kernelconfiguratie zodat de vorige configuratie niet verloren gaat. Veel gebruikers besteden per slot van rekening veel tijd om de beste configuratie voor hun systeem te vinden, het is niet de bedoeling dat dat verloren gaat.
+; 3. Setting the symlink manually:
 
-Het is eenvoudig om een backup van de configuratie te maken.
+: {{RootCmd|ln -sf /usr/src/linux-3.4.9 /usr/src/linux |
+  |ls -l /usr/src/linux |
+  |output=lrwxrwxrwx 1 root root 11 Aug 29 22:10 /usr/src/linux -> /usr/src/linux-3.4.9-gentoo}}
 
-{{RootCmd|cp /usr/src/linux/.config ~/kernel-config-`uname -r`}}
-
-Vooropgesteld dat de symlink naar de kernelbroncode juist is, wordt hiermee de configuratie van de kernel die nu in gebruik is gekopieerd naar de gebuikersmap van root, waarbij de configuratie wordt hernoemd naar {{Path|kernel-config-}} gevolgd door de versie van de in gebruik zijnde Linux-kernel.
-
-== Configuratie ==
-
-=== Maak de symlink naar de nieuwe broncode ===
-
-De symbolische link {{Path|/usr/src/linux}} zou altijd moeten verwijzen naar de map waarin de kernel broncode staat van de kernel die momenteel gebruikt word. Dit kan op een van de volgende drie manieren gedaan worden:
-
-# Installeer de kernel broncode met <code>USE="symlink"</code>
-# Stel de link in met eselect
-# De symbolische link handmatig updaten
-
-==== Installeer de kernel broncode met de symlink USE flag ====
-
-This will make the {{Path|/usr/src/linux}} point to the newly installed kernel sources.
-
-If necessary, it can still be modified later with one of the other two methods.
-
-==== Stel de link in met eselect ====
-
-To set the symlink with {{c|eselect}}:
-
-{{RootCmd|eselect kernel list|output=<pre>
-Available kernel symlink targets:
- [1] linux-3.14.14-gentoo *
- [2] linux-3.16.3-gentoo
-</pre>}}
-
-This outputs the available kernel sources. The asterisk indicates the chosen sources.
-
-To change the kernel sources, e.g. to the second entry, do:
-
-{{RootCmd|eselect kernel set 2}}
-
-==== De symbolische link handmatig updaten ====
-
-To set the symbolic link manually:
-
-{{RootCmd|ln -sf /usr/src/linux-3.16.3-gentoo /usr/src/linux
-|ls -l /usr/src/linux|output=<pre>
-lrwxrwxrwx 1 root root 19 Oct  4 10:21 /usr/src/linux -> linux-3.16.3-gentoo
-</pre>}}
-
-==== Moving to the new folder ====
-
-Now that the symbolic link has been modified, change the working directory to the new kernel folder.
-
-{{RootCmd|cd /usr/src/linux}}
-
-{{Note|This command is still necessary even if the working directory was already {{Path|/usr/src/linux}} when the symlink was modified. Until the new symlink is actually followed, the console will still be in the ''old'' kernel's directory.}}
+=== Sanitize sources ===
+If you just want to rebuild the current kernel, you need sometimes to sanitize the kernel sources:
+{{RootCmd|make distclean}}
 
 === Copy previous kernel configuration ===
+The configuration from currently running kernel needs to be copied to the new one. It can be found in several places:
 
-The configuration of the old kernel needs to be copied to the new one. In addition to the backup copy that was saved to {{Path|/root}} in an earlier step, the old configuration can be found in several places:
+* In the [[procfs]] filesystem, if the kernel option ''Kernel .config support'' was activated in your present kernel:
 
-* In het [[procfs]] bestandssysteem, als de kernel optie ''Enable access to .config through /proc/config.gz'' werd geactiveerd in jouw huidige kernel:
 : {{RootCmd|zcat /proc/config.gz > /usr/src/linux/.config}}
 
-* From the old kernel. This will only work when the old kernel was compiled with CONFIG_IKCONFIG:
-: {{RootCmd|/usr/src/linux/scripts/extract-ikconfig /path/to/old/kernel >/usr/src/linux/.config}}
+* In the {{Path|/boot}} directory, if you installed the config file there:
 
-* In de map {{Path|/boot}}, als de configuratie daar aanwezig is:
-: {{RootCmd|cp /boot/config-3.14.14-gentoo /usr/src/linux/.config}}
+: {{RootCmd|cp /boot/config-3.3.8-gentoo /usr/src/linux/.config}}
 
-* In de kernel map van de huidige kernel die je draait:
-: {{RootCmd|cp /usr/src/linux-3.14.14-gentoo/.confg /usr/src/linux}}
+* In the kernel directory of the currently-running kernel:
 
-* In the {{Path|/etc/kernels/}} directory, if <code>SAVE_CONFIG="yes"</code> is set in {{Path|/etc/genkernel.conf}} and {{c|[[genkernel]]}} was previously used:
-: {{RootCmd|cp /etc/kernels/kernel-config-x86_64-3.14.14-gentoo /usr/src/linux/.config}}
+: {{RootCmd|cp /usr/src/linux-3.3.8-gentoo/.config /usr/src/linux/}}
 
-=== .config file ===
-
-To use the configuration of the old kernel with the new kernel, it needs to be converted.  The conversion can be done by running either {{c|make silentoldconfig}} or {{c|make olddefconfig}}. Use either, not both.
-
-==== make silentoldconfig ====
-
-{{Important|{{c|make silentoldconfig}} is being removed as of linux version 4.19, it will be replaced by {{c|make syncconfig}}.}}
-
-The following configuration is like the text based configuration with {{c|make config}}.  For new configuration options, the user is asked for a decision. For example:
+=== make oldconfig ===
+Now update the previous config file for your new kernel:
 
 {{RootCmd|cd /usr/src/linux
-|make silentoldconfig|output=<pre>
-Anticipatory I/O scheduler (IOSCHED_AS) [Y/n/m/?] (NEW)
-</pre>}}
+|make oldconfig}}
 
-The string ''(NEW)'' at the end of the line marks this option as new. Left to the string in square brackets are the possible answers: ''Y''es, ''n''o, ''m''odule or ''?'' to show the help. The recommend (i.e. default) answer is capitalized (here ''Y''). The help explains the option or driver.
+The following configuration parallels that of the text based configuration with '''make config'''. For every difference between the kernel versions, it asks if you want to activate the driver or feature. An example:
 
-Unfortunately {{c|make silentoldconfig}} doesn't show a lot more information for each option, such as the context, so it is sometimes difficult to give the right answer. In this case the best way to go is to remember the option name and revise it afterwards through one of the [[Kernel/Configuration#Configuration tools|graphical kernel configuration tools]].
-
-==== make olddefconfig ====
-
-If all new configuration options should be set to their recommended (i.e. default) values use {{c|make olddefconfig}}:
-
-{{RootCmd|cd /usr/src/linux
-|make olddefconfig}}
-
-==== make help ====
-
-Use {{c|make help}} to see other conversion methods available:
-
-{{RootCmd|make help}}
-
-== Bouwen ==
-
-{{Important|When external kernel modules are installed (like nvidia or zfs), it may be necessary to run {{c|make modules_prepare}} as described [[Kernel/Upgrade#Reinstalling external kernel modules|below]] before building the kernel. Some modules cannot be installed or prepared before the kernel has been built.}}
-
-{{Important|Do not forget to reconfigure the [[Bootloader|bootloader]] to account for the new kernel filenames, and rebuild the initramfs if one is used as well.}}
-
-Voor deze stap, volg je de stappen die vermeld staan in het [[Kernel/Configuration#Build|manueel configureren]] artikel.
-
-=== Automated build and installation ===
-
-It is possible to automatically build and install the newly emerged kernel using Portage hooks. While other approaches are also possible, the following is based on genkernel and gentoo-sources package. It requires the following prerequisites:
-
-# {{c|genkernel all}} is able to build and install the kernel to which the {{Path|/usr/src/linux}} symlink points into <code>$BOOTDIR</code> and the bootloader.
-# The <code>symlink</code> use flag is set for the kernel ebuild.
-
-If those are fulfilled, simply install a <code>post_pkg_postinst</code> Portage hook as shown below.
-
-{{FileBox|title=Automated kernel build and installation portage hook|filename=/etc/portage/env/sys-kernel/gentoo-sources|lang=bash|1=post_pkg_postinst() {
-	CURRENT_KV=$(uname -r)
-	# Check to see if genkernel has been run previously for the running kernel and use that config
-	if [[ -f "${EROOT}/etc/kernels/kernel-config-${CURRENT_KV}" ]] ; then
-		genkernel --kernel-config="${EROOT}/etc/kernels/kernel-config-${CURRENT_KV}" all
-	elif [[ -f "${EROOT}/usr/src/linux-${CURRENT_KV}/.config" ]] ; then # Use latest kernel config from current kernel
-		genkernel --kernel-config="${EROOT}/usr/src/linux-${CURRENT_KV}/.config" all
-	elif [[ -f /proc/config.gz ]] ; then # Use known running good kernel
-		zcat /proc/config.gz >> "${EROOT}/tmp/genkernel.config"
-		genkernel --kernel-config="${EROOT}/tmp/genkernel.config" all
-		rm "${EROOT}/tmp/genkernel.config"
-	else # No valid configs known
-		genkernel all
-	fi
-}
+{{RootCmd|make oldconfig
+|output=Anticipatory I/O scheduler (IOSCHED_AS) [Y/n/m/?] (NEW)
 }}
 
-== Externe kernel modules herinstalleren ==
+The string ''(NEW)'' at the end of the line marks this option as new. Left to the string in square brackets are the possible answers: ''Y''es, ''n''o, ''m''odule or ''?'' to show the help. The recommend answer is capitalized (here ''Y''). The help explains the option or driver.
 
-{{Note|The modules_prepare step is not required if building an entire kernel as this function is done as part of the standard process.}}
+Unfortunately '''make oldconfig''' doesn't show - next to the help - a lot more information for each option, like the context, so that it is sometimes difficult to give the right answer. In this case the best way to go is to remember the option name and revise it afterwards through one of the [[Kernel/Configuration#Configuration tools|graphical kernel configuration tools]].
 
-Enige externe kernel modules, zoals bijvoorbeeld [[:Category:Binary kernel modules|binaire kernel modules]], dienen opnieuw gebouwd te worden voor elke nieuwe kernel. Als de kernel nog niet gebouwd was, dient deze eerst voorbereid te worden voor het bouwen van externe kernel modules.
+== Reinstall external kernel modules ==
+
+Any external kernel modules, such as [[:Category:Binary kernel modules|binary kernel modules]], need to be rebuilt for each new kernel. If the kernel hasn't been built yet, it has to first be prepared for the building of the external kernel modules:
 
 {{RootCmd|make modules_prepare}}
 
-Je kan de pakketten herbouwen met de ''@module-rebuild'' verzameling:
+You can rebuild the packages using the ''@module-rebuild'' set:
 
 {{Emerge|@module-rebuild}}
 
-=== Solving build problems ===
+== Build ==
 
-When experiencing build problems while rebuilding the current kernel, it might help to sanitize the kernel sources. Make sure to backup the {{Path|.config}} file first, as the operation will remove it. Make sure not to use a {{Path|.bak}} or {{Path|~}} suffix as backup as {{c|make distclean}} will clean those up as well.
+For this step, follow the steps in the [[Kernel/Configuration#Build|manual configuration]] article.
 
-{{RootCmd|cp .config /usr/src/kernel_config_bk
-|make distclean
-|mv /usr/src/kernel_config_bk .config}}
+== Removing old kernels ==
 
-== Verwijderen ==
+See the [[Kernel/Removal|kernel removal]] article. 
 
-Zie het [[Kernel/Removal|kernel verwijderen]] artikel. 
+== External resources ==
 
-== Zie ook ==
-
-* {{See also/nl|Genkernel}}
-
-== Externe links ==
-
-* [https://kernelnewbies.org/LinuxChanges Veranderingen in de kernel met enkele uitleg van sommige nieuwe functionaliteit]
+* [http://kernelnewbies.org/LinuxChanges kernel changelog with some explanations of new features]
 
 [[Category:Kernel]]
