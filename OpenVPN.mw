@@ -1,235 +1,26 @@
-{{InfoBox stack
-|{{InfoBox homepage|https://openvpn.net/index.php/open-source.html|header=true}}
-|{{InfoBox wikipedia}}
-|{{InfoBox github|OpenVPN/openvpn}}
-|{{InfoBox ohloh}}
-}}
+{{WIP|author=Gerdesj}}
 
-OpenVPN (Open Virtual Private Network) is software that enables the creation of secure point-to-point or site-to-site connections.
+= Initial requirements =
+* TUN/TAP driver
+* Notes on USE flags
 
-== Installation ==
-
-=== Kernel ===
-
-{{KernelBox|title=Enable <var>CONFIG_TUN</var> in the kernel|1=
-Device Drivers  --->
-    [*] Network device support  --->
-        [*] Network core driver support
-        <*>   Universal TUN/TAP device driver support
-}}
-
-=== USE flags ===
-
-{{USEflag|package=net-vpn/openvpn}}
-
-=== Emerge ===
-
-Install the OpenVPN package:
-
-{{RootCmd|emerge -v net-vpn/openvpn}}
-
-Also consider installing {{Package|net-dns/openresolv}}.
-
-== Configuration ==
-
-{{Note|For a simple, single-client configuration that does not require PKI, see [https://openvpn.net/community-resources/static-key-mini-howto/ OpenVPN's official guide.] }}
-
-=== Server side ===
-
-If this is the first time setting up an openvpn server, we will need to [[Create a Public Key Infrastructure Using the easy-rsa Scripts|create a PKI (Public Key Infrastructure) from scratch]].
-
-{{Note|In this example place all generated keys into {{Path|/etc/openvpn/example/}} }}
-
-{{Note|The example will just setup a single server. For multiple OpenVPN instances see the '[[#Gentoo specifics|Gentoo specifics]]' section.}}
-
-Write a server-side openvpn configuration.
-
-{{FileBox|filename=/etc/openvpn/openvpn.conf|title=Setup a example UDP OpenVPN server|1=
-tls-server
-
-# server binding port
-port 12112
-
-# openvpn protocol, could be tcp / udp / tcp6 / udp6
-proto udp
-
-# tun/tap device
-dev tun0
-
-# keys configuration, use generated keys
-ca example/ca.crt
-cert example/example.crt
-key example/example.key
-dh example/dh2048.pem
-
-# optional tls-auth key to secure identifying
-# tls-auth example/ta.key 0
-
-# OpenVPN 'virtual' network infomation, network and mask
-server 10.100.0.0 255.255.255.0
-
-# persistent device and key settings
-persist-key
-persist-tun
-ifconfig-pool-persist ipp.txt
-
-# pushing route tables
-push "route 192.168.1.0 255.255.255.0"
-# push "dhcp-option DNS 192.168.1.1"
-
-# connection
-keepalive 10 120
-comp-lzo
-
-user nobody
-group nobody
-
-# logging
-status openvpn-status.log
-log /etc/openvpn/openvpn.log
-verb 4
-
-}}
-
-Start openvpn server, run
-
-{{RootCmd|/etc/init.d/openvpn start}}
-
-=== Client side ===
-
-Copy the necessary key files to client, via a '''secure''' way (such as SSH), including
-
-* ca.crt
-* client1.crt (in this example)
-* client1.key (in this example)
-* ta.key (if using tls-auth)
-
-Write a client-side openvpn configuration file:
-
-{{FileBox|filename=/etc/openvpn/openvpn.conf|title=client-side udp openvpn configuration|1=
-# specify client-side
-client
-
-# tun/tap device
-dev tun0
-
-# protocol, according to server
-proto udp
-
-# server address
-remote address.to.server 12112
-
-# connection
-comp-lzo
-resolv-retry 30
-nobind
-
-# persistent device and keys
-persist-key
-persist-tun
-
-# keys settings
-ca example/ca.crt
-cert example/client1.crt
-key example/client1.key
-
-# optional tls-auth
-# tls-auth exmaple/ta.key 1
-
-# pull dns settings from the server
-script-security 2
-
-# These scripts are defaults within the service script. To specify custom scripts,
-# use /etc/openvpn/${SVCNAME}- {up,down}.sh as suggested by the service script.
-# If you use systemd, SVCNAME will not get set automatically.
-# Add `setenv SVCNAME my_svc_name` to set it, where my_svc_name is determined by
-# /etc/openvpn/client/my_svc_name.conf
-up /etc/openvpn/up.sh
-down /etc/openvpn/down.sh
-
-# logging
-log /etc/openvpn/openvpn.log
-verb 4
-
-}}
-
-To automatically provide username and password, or just username with the password still prompted, add the following option, where auth is the file name containing 1 line with a username, or 2 lines with a username and password.
-
-{{FileBox|filename=/etc/openvpn/openvpn.conf|title=client-side openvpn configuration for automating username/password|1=
-auth-user-pass /etc/openvpn/auth
-}}
-
-To start client, run
-
-=== OpenRC ===
-
-{{RootCmd|/etc/init.d/openvpn start}}
-
-=== systemd ===
-
-{{RootCmd|systemctl start openvpn}}
-
-If all goes well, this would give you a working OpenVPN server and client connection.
-
-== Monitoring ==
-
-While the service is running, there are ways to monitor it.
-
-=== Syslog ===
-
-Assuming that syslog is enabled, OpenVPN's output is available, along with other services, on syslog.
-
-Additionally, you can send signal to have it displaying status.
-
-{{RootCmd|killall -USR2 openvpn ; tail -f /var/log/syslog}}
-
-{{Note|This command does nothing but requesting statistic info. Nevertheless, be careful when using {{c|killall}} command!}}
-
-== Gentoo specifics ==
-
+= Gentoo Specifics =
 The init script allows multiple tunnels. Decide on a name for the tunnel - eg EXAMPLE
 
-=== Using OpenRC ===
-
-{{RootCmd|ln -s /etc/init.d/openvpn /etc/init.d/openvpn.EXAMPLE}}
+<pre>
+#ln -s /etc/init.d/openvpn /etc/init.d/openvpn.EXAMPLE 
+</pre>
 
 Now create your config as /etc/openvpn/EXAMPLE.conf 
 
-{{RootCmd|/etc/init.d/openvpn.EXAMPLE start}}
-
-=== Using systemd ===
-Due to dependencies server and client operations are separated into two units.
-
-Create your server config as /etc/openvpn/server/EXAMPLE.conf
-{{RootCmd|systemctl start openvpn-server@EXAMPLE}}
-
-Create your client config as /etc/openvpn/client/EXAMPLE.conf
-{{RootCmd|systemctl start openvpn-client@EXAMPLE}}
+<pre>
+#/etc/init.d/openvpn.EXAMPLE start
+</pre>
 
 You can then create more tunnels by replacing EXAMPLE with more names.  Each one has its own configuration and can be stopped and started individually.  The default is simply to use openvpn.conf and not symlink the service.  You can of course use both methods.
 
-== Troubleshooting ==
+= Recipes =
 
-=== /etc/resolv.conf doesn't get updated ===
+== Site server with dial up clients ==
 
-Ensure that the option <var>up</var> and <var>down</var> on the configuration file points to the right path for the script.
-
-Also, [[dhcpcd]] is known to overwrite pre-existing file when service is ran (e.g. either automatically called by other script, or manually called thru {{Package|net-misc/netifrc}}). 
-
-In most cases, the conflict between different network programs can be resolved by installing {{Package|net-dns/openresolv}}. The configuration would work out-of-box. Most networking scripts (including Gentoo's OpenVPN up & down script; along with dhcpcd) would regard its presence.
-
-If disabling dhcpcd's resolv.conf update is necessary ('''most likely not'''), add the line below to {{Path|/etc/dhcpcd.conf}}:
-
-{{FileBox|filename=/etc/dhcpcd.conf|1=nohook resolv.conf}}
-
-== See also ==
-
-* [[VPN Services]]
-* {{See also|Resolv.conf}}
-
-== External resources ==
-
-* https://wiki.archlinux.org/index.php/OpenVPN
-* [http://forums.gentoo.org/viewtopic-t-538662.html easy vpn]
-
-[[Category:Software]]
+== Site to site ==
