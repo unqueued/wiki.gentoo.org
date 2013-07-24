@@ -1,402 +1,164 @@
 <languages />
 
-{{Metadata|abstract=Distcc is a program designed to distribute compiling tasks across a network to participating hosts. It is comprised of a server, distccd, and a client program, distcc. Distcc can work transparently with ccache, Portage, and Automake with a small amount of setup.}}
+Distcc is a program designed to distribute compiling tasks across a network to participating hosts. It is comprised of a server, <code>distccd</code>, and a client program, <code>distcc</code>. Distcc can work transparently with [http://ccache.samba.org ccache], Portage, and Automake with a little setup. 
 
-{{InfoBox stack
-|{{InfoBox homepage|https://github.com/distcc/distcc|header=true}}
-|{{InfoBox wikipedia}}
+If you are planning on using distcc to help you bootstrap a Gentoo installation, make sure you read the section [[#Using_Distcc_to_Bootstrap|Using Distcc to Bootstrap]]. 
+
+== Setup ==
+
+=== Dependencies ===
+
+In order to use Distcc, all of the computers on your network need to have the same GCC versions. For example, mixing 3.3.x (where the x varies) is okay, but mixing 3.3.x with 3.2.x '''may''' result in compilation errors or runtime errors. 
+
+=== Installing Distcc ===
+
+There are a couple of options you should be aware of before you start installing distcc. 
+
+Distcc ships with a graphical monitor to monitor tasks that your computer is sending away for compilation. If you use Gnome then put 'gnome' in your USE flags. However, if you don't use Gnome and would still like to have the monitor then you should put 'gtk' in your USE flags. 
+
+{{Emerge|distcc}}
+
+{{Important|Remember, you must be sure to install distcc on all of your participating machines.}}
+
+=== Setting up Portage to use Distcc ===
+
+Setting up Portage to use distcc is easy. Execute the following steps on each system that should participate in the distributed compiling: 
+
+{{Emerge|distcc}}
+
+Now, set the <code>MAKEOPTS</code> variable and <code>FEATURES</code> variable as shown below. For <code>MAKEOPTS</code>, use a suitable number for your particular setup. A common strategy is setting N as twice the number of total CPUs + 1 available.
+
+{{RootCmd|nano -w /etc/portage/make.conf|output=<pre>
+MAKEOPTS="-jN"
+FEATURES="distcc"
+</pre>
 }}
 
-[https://github.com/distcc/distcc Distcc] is a program designed to distribute compiling tasks across a network to participating hosts. It is comprised of a server, {{c|distccd}}, and a client program, {{c|distcc}}. Distcc can work transparently with [http://ccache.samba.org ccache], [[Portage]], and Automake with a small amount of setup. 
+=== Specifying Participating Hosts ===
 
-When planning on using {{c|distcc}} to help bootstrap a Gentoo installation, make sure to read [[#To_bootstrap|Using distcc to bootstrap]]. 
+Use the <code>distcc-config</code> command to set the list of hosts. Here is an example of some hosts that might be in your list: 
 
-== Installation ==
-
-Before configuring {{c|distcc}}, let's first look into the installation of the {{Package|sys-devel/distcc}} package on all hosts.
-
-=== Requirements across all hosts ===
-
-In order to use {{c|distcc}}, all of the computers on the network need to have the same GCC versions. For example, mixing 3.3.x (where the x varies) is okay, but mixing 3.3.x with 3.2.x may result in compilation errors or runtime errors. 
-
-Verify that all systems use the same version of binutils (eselect binutils list) or many packages will fail linking with various errors like text relocation.
-
-=== USE flags ===
-
-{{USEflag|package=sys-devel/distcc}}
-
-=== Emerge ===
-
-Distcc ships with a graphical monitor to monitor tasks that a computer is sending away for compilation. This monitor is enabled when the <code>gtk</code> USE flag is set.
-
-After configuring the USE setting, install the {{Package|sys-devel/distcc}} package:
-
-{{Emerge|sys-devel/distcc}}
-
-{{Important|Remember to install {{Package|sys-devel/distcc}} on all of the participating machines.}}
-
-== Configuration ==
-
-=== Service ===
-
-In order to have {{c|distccd}} started automatically follow the next set of instructions.
-
-==== OpenRC ====
-
-Edit {{Path|/etc/conf.d/distccd}} and make sure to set the <code>--allow</code> directive to allow only trusted clients. For added security, use the <code>--listen</code> directive to tell the {{c|distccd}} daemon what IP to listen on (for multi-homed systems). More information on {{c|distcc}} security can be found at [https://cdn.rawgit.com/distcc/distcc/master/doc/web/security.html Distcc security notes].
-
-{{Warning|Anyone who can connect to the distcc server port can run arbitrary commands on that machine as the distccd user. }}
-
-The following example allows the distcc clients running at <code>192.168.0.4</code> and <code>192.168.0.5</code> to connect to the {{c|distccd}} server running locally:
-
-{{FileBox|filename=/etc/conf.d/distccd|title=Allowing specific clients to connect to distccd|lang=bash|1=
-DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distccd.log -N 15 --allow 192.168.0.4 --allow 192.168.0.5"
-}}
-
-{{Important|It is important to use <code>--allow</code> and <code>--listen</code>. Please read the {{c|distccd}} man page or the above security document for more information.}}
-
-Now start the {{c|distccd}} daemon on all the participating computers: 
-
-{{RootCmd
-|rc-update add distccd default
-|rc-service distccd start
-}}
-
-==== systemd ====
-
-Edit the {{Path|/etc/systemd/system/distccd.service.d/00gentoo.conf}} file to add the allowed clients in [[wikipedia:CIDR|CIDR]] format. Matching the example will add all IP addresses in the 192.168.1.xxx range:
-
-{{FileBox|filename=/etc/systemd/system/distccd.service.d/00gentoo.conf|title=Setting ALLOWED_SERVERS|lang=bash|1=
-Environment="ALLOWED_SERVERS=192.168.1.0/24"
-}}
-
-{{Note| The name "ALLOWED_SERVERS" here is rather confusing as it refers to the clients that are allowed to connect to the local distccd server. Nevertheless, it is this variable which is used in the distccd service as value for the <code>--allow option</code> – see the {{Path|/usr/lib/systemd/system/distccd.service}} file for additional information.}}
-
-Reload the unit files after making such changes:
-
-{{RootCmd|systemctl daemon-reload}}
-
-Enable auto-starting {{c|distccd}} and then start the service:
-
-{{RootCmd
-|systemctl enable distccd
-|systemctl start distccd
-}}
-
-=== Specifying participating hosts ===
-
-Use the {{c|distcc-config}} command to set the list of hosts. 
-
-The following is an example list of host definitions. In most cases, variants of lines 1 and 2 suffice. The latter uses the <code>/limit</code> syntax to inform {{c|distcc}} about the maximum amount of jobs to be launched on this node. More information about the syntax used in lines 3 and 4 can be found in the [https://cdn.rawgit.com/distcc/distcc/master/doc/web/man/distcc_1.html distcc manual page].
-
-{{CodeBox|title=Examples of host definitions|1=
+{{Code|Examples of host definitions|<pre>
 192.168.0.1          192.168.0.2                       192.168.0.3
 192.168.0.1/2        192.168.0.2                       192.168.0.3/10
 192.168.0.1:4000/2   192.168.0.2/1                     192.168.0.3:3632/4
 @192.168.0.1         @192.168.0.2:/usr/bin/distccd     192.168.0.3
+</pre>
 }}
 
-There are also several other methods of setting up hosts.  See the {{c|distcc}} man page ({{c|man distcc}}) for more details.
+There are also several other methods of setting up hosts.  See the distcc manpage for more details.
 
-If compilations should also occur on the local machine, put <code>localhost</code> in the hosts list.  Conversely if the local machine is not to be used to compile, omit it from the hosts list.  On a slow machine using localhost may actually slow things down. Make sure to test the settings for performance.
+If you wish to compile on the local machine you should put 'localhost' in the hosts list.  Conversely if you do not wish to use the local machine to compile (which is often the case) omit it from the hosts list.  On a slow machine using localhost may actually slow things down. Make sure to test your settings for performance.
 
-Let's configure {{c|distcc}} to use the hosts mentioned on the first line in the example:
+It may all look complicated, but in most cases a variant of line 1 or 2 will work. 
+
+Since most people won't be using lines 3 or 4, I'll [http://distcc.samba.org/man/distcc_1.html refer to] the distcc docs (man distcc) for more information, which includes being able to run distcc over an SSH connection. 
+
+For instance, to set the first line in the previous example: 
 
 {{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1 192.168.0.2 192.168.0.3"}}
 
-Distcc also supports a ''pump'' mode, by invoking the {{c|pump}} command. This may significantly reduce build time when multiple files are compiled in parallel. It caches preprocessed headers on the server side and, as a result, gets rid of repeated uploading and preprocessing of these header files.
+Edit {{Path|/etc/conf.d/distccd}} to your needs and be sure to set the <code>--allow</code> directive to allow only hosts you trust. For added security, you should also use the <code>--listen</code> directive to tell the distcc daemon what IP to listen on (for multi-homed systems). More information on distcc security can be found at [http://distcc.samba.org/security.html Distcc Security Design] . 
 
-To configure a host for pump mode, add the <code>,cpp,lzo</code> suffix to the hosts definitions. Pump mode requires both <code>cpp</code> ''and'' <code>lzo</code> flags (regardless of the files being C or C++).
+{{Important|It is important to use --allow and --listen. Please read the distccd manpage or the above security document for more information.}}
 
-{{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1,cpp,lzo 192.168.0.2,cpp,lzo 192.168.0.3,cpp,lzo"}}
+Now start the distcc daemon on all the participating computers: 
 
-== Usage ==
+{{RootCmd|rc-update add distccd default
+|/etc/init.d/distccd start}}
 
-=== With Portage ===
+=== Setting up Distcc to Work With Automake ===
 
-Setting up [[Portage]] to use {{c|distcc}} is easy. It is a matter of enabling the {{c|distcc}} feature, and setting a decent value for the number of simultaneous build jobs (as {{c|distcc}} increases the amount of build resources).
-
-Set the <var>MAKEOPTS</var> variable and <var>FEATURES</var> variable as shown below.
-
-A common strategy is to
-* set the value of <code>N</code> to ''twice'' the number of ''total'' (local + remote) CPU cores + 1, and
-* set the value of <code>M</code> to the number of ''local'' CPU cores
-
-The use of <code>-lM</code> in the <var>MAKEOPTS</var> variable will prevent spawning too many tasks when some of the {{c|distcc}} cluster hosts are unavailable (increasing the amount of simultaneous jobs on the other systems) or when an ebuild is configured to disallow remote builds (such as with gcc). This is accomplished by refusing to start additional jobs when the system load is at or above the value of <code>M</code>.
-
-{{FileBox|filename=/etc/portage/make.conf|title=Setting MAKEOPTS and FEATURES|lang=bash|1=
-# Replace N and M with the right value as calculated previously
-MAKEOPTS="-jN -lM"
-FEATURES="distcc"
-}}
-
-{{Warning|distcc-pump is known to break multiple packages in unpredictable ways. Do not ever use it system-wide. Bug reports filed with distcc-pump enabled may be rejected.}}
-
-For instance, when there are two quad-core host PCs running {{c|distccd}} and the local PC has a dual core CPU, then the <var>MAKEOPTS</var> variable could look like this:
-
-{{FileBox|filename=/etc/portage/make.conf|title=MAKEOPTS example for 2 quad-core (remote) and one dual core (local) PC|lang=bash|1=
-# 2 remote hosts with 4 cores each = 8 cores remote
-# 1 local host with 2 cores = 2 cores local
-# total number of cores is 10, so N = 2*10+1 and M=2
-MAKEOPTS="-j21 -l2"
-}}
-
-==== CFLAGS and CXXFLAGS ====
-
-While editing the {{Path|make.conf}} file, make sure that it does not have <code>-march=native</code> in the <var>CFLAGS</var> or <var>CXXFLAGS</var> variables. {{c|distccd}} will not distribute work to other machines if <code>march</code> is set to <code>native</code>. An approximate set of <code>-march=</code> and machine flags can be obtained by running the following command:
-
-{{Cmd|gcc -v -E -x c -march{{=}}native -mtune{{=}}native - < /dev/null 2>&1 {{!}} grep cc1 {{!}} perl -pe 's/^.* - //g;'}}
-
-See [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <code>-march=native</code> for distcc] for more information.
-
-A GCC [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=39851 bug] has recently been fixed in the 8.0 dev tree which facilitates a more reliable and succinct mechanism for extrapolating appropriate machine flags.  The fix has been backported to the 6 and 7 branches and should be released fairly soon.  Some processing is still required and a script can be found in the [https://github.com/daniel-santos/distccflags distccflags repo], or via {{c|wget}}:
-
-{{Warning|Downloading scripts and executing them without any validation is a security risk. Before executing such scripts, take a good look at what they want to accomplish and refrain from executing it when the content or behavior is not clear and purposeful.}}
-
-{{Cmd
-|wget 'https://raw.githubusercontent.com/daniel-santos/distccflags/master/distccflags'
-|chmod +x distccflags
-|./distccflags -march{{=}}native
-}}
-
-=== With automake ===
-
-This is, in some cases, easier than the Portage setup. All that is needed is to update the <var>PATH</var> variable to include {{Path|/usr/lib/distcc/bin/}} in front of the directory that contains {{c|gcc}} ({{Path|/usr/bin/}}). However, there is a caveat. If {{c|ccache}} is used, then put the {{c|distcc}} location after the {{c|ccache}} one: 
+This is, in some cases, easier than the Portage setup. What you have to do is update your <code>PATH</code> variable to include {{Path|/usr/lib/distcc/bin}} in front of the directory that contains <code>gcc</code> ( {{Path|/usr/bin}} ). However, there is a caveat. If you use ccache you have to put distcc after the ccache part: 
 
 {{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
 
-Put this in the user's {{Path|~/.bashrc}} or equivalent file to have the <var>PATH</var> set every time the user logs in, or set it globally through an {{Path|/etc/env.d/}} file.
+You can put this in your {{Path|~/.bashrc}} or equivalent file to have the PATH set every time you log in.
 
-Instead of calling {{c|make}} alone, add in <code>-jN</code> (where <code>N</code> is an integer). The value of <code>N</code> depends on the network and the types of computers that are used to compile. A heuristic approach to the right value is given earlier in this article.
+Then, as you would normally type <code>make</code> , you would type <code>make -jN</code> (where N is an integer). The value of N depends on your network and the types of computers you are using to compile. Test your own settings to find the number that yields the best performance. 
 
-=== To bootstrap ===
+== Cross-Compiling ==
 
-Using {{c|distcc}} to bootstrap (i.e. build a working toolchain before installing the remainder of the system) requires some additional steps to take.
+Cross-compiling is using one architecture to build programs for another architecture. This can be as simple as using an Athlon (i686) to build a program for a K6-2 (i586), or using a Sparc to build a program for a ppc. This is documented in our [http://www.gentoo.org//doc/en/cross-compiling-distcc.xml DistCC Cross-compiling Guide] . 
 
-==== Step 1: Configure Portage ====
+== Using Distcc to Bootstrap ==
 
-Boot the new box with a Gentoo Linux LiveCD and follow the [[Handbook:AMD64|installation instructions]], while keeping track of the instructions in the [[FAQ|Gentoo FAQ]] for information about bootstrapping. Then configure Portage to use {{c|distcc}}: 
+=== Step 1: Configure Portage ===
 
-{{FileBox|filename=/etc/portage/make.conf|title=Configure Portage to use distcc|lang=bash|1=
+Boot your new box with a Gentoo Linux LiveCD and follow the [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part=1 installation instructions] up until the bootstrapping part. (See the [http://www.gentoo.org//doc/en/faq.xml#stage12 Gentoo FAQ] for more information about bootstrapping.) Then configure Portage to use distcc: 
+
+{{RootCmd|nano -w /etc/portage/make.conf|output=<pre>
 FEATURES="distcc"
 MAKEOPTS="-jN"
+</pre>
 }}
-
-Update the <var>PATH</var> variable in the installation session as well:
 
 {{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
 
-==== Step 2: Getting distcc ====
+=== Step 2: Getting Distcc ===
 
-Install {{Package|sys-devel/distcc}}: 
+Install distcc: 
 
 {{RootCmd|USE{{=}}'-*' emerge --nodeps sys-devel/distcc}}
 
-==== Step 3: Setting up distcc ====
+=== Step 3: Setting Up Distcc ===
 
-Run {{c|distcc-config --install}} to setup distcc; substitute the <code>host#</code> in the example with the IP addresses or hostnames of the participating nodes.
+Run <code>distcc-config --install</code> to setup distcc; substitute <code>host*</code> with the IP addresses or hostnames of the participating DistCC nodes.
 
 {{RootCmd|/usr/bin/distcc-config --set-hosts "localhost host1 host2 host3 ..."}}
 
-Distcc is now set up to bootstrap! Continue with the proper installation instructions and do ''not'' forget to run {{c|emerge distcc}} after running {{c|emerge @system}}. This is to make sure that all of the necessary dependencies are installed. 
+Distcc is now set up to bootstrap! Continue with the official installation instructions and ''do not forget'' to re-emerge distcc after <code>emerge system</code> . This is to make sure that all of the dependencies you want are installed as well. 
 
-{{Note|During bootstrap and {{c|emerge @system}} {{c|distcc}} may not appear to be used. This is expected as some ebuilds do not work well with distcc, so they intentionally disable it.}}
-
-=== Extras ===
-
-The {{c|distcc}} application has additional features and applications to support working in a {{c|distcc}} environment.
-
-=== Monitoring utilities === 
-
-Distcc ships with two monitoring utilities. The text-based monitoring utility is always built and is called {{c|distccmon-text}}. Running it for the first time can be a bit confusing, but it is really quite easy to use. If the program is run with no parameter it will run just once. However, if it is passed a number it will update every <code>N</code> seconds, where <code>N</code> is the argument that was passed.
-
-{{Cmd|distccmon-text 10}}
-
-The other monitoring utility is only enabled when the <code>gtk</code> USE flag is set. This one is GTK+ based, runs in an X environment, and it is quite lovely. For Gentoo, the GUI monitor has been renamed to {{c|distccmon-gui}} to make it less confusing (it is originally called {{c|distccmon-gnome}}).
-
-{{Cmd|distccmon-gui}}
-
-To monitor Portage's {{c|distcc}} usage:
-
-{{RootCmd|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-text 10
-|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-gui}}
-
-{{Important|If the distcc directory is elsewhere, change the <var>DISTCC_DIR</var> variable accordingly.}}
-
-A trick is to set <var>DISTCC_DIR</var> in environment variables:
-
-{{RootCmd|echo 'DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/"' >> /etc/env.d/02distcc}}
-
-Now update the environment:
-
-{{RootCmd|env-update
-|source /etc/profile}}
-
-Finally, start the GUI application:
-
-{{RootCmd|distccmon-gui}}
-
-=== SSH for communication ===
-
-Setting up distcc via SSH includes some pitfalls. First, generate an SSH key pair without password setup. Be aware that portage compiles programs as the Portage user (or as root if <code>FEATURES="userpriv"</code> is not set). The home folder of the Portage user is {{Path|/var/tmp/portage/}}, which means the keys need to be stored in {{Path|/var/tmp/portage/.ssh/}}
-
-{{RootCmd|ssh-keygen -b 2048 -t rsa -f /var/tmp/portage/.ssh/id_rsa}}
-
-Second, create a section for each host in the SSH configuration file:
-
-{{FileBox|filename=/var/tmp/portage/.ssh/config|title=Add per-host sections|1=
-Host test1
-    HostName 123.456.789.1
-    Port 1234
-    User UserName
- 
-Host test2
-    HostName 123.456.789.2
-    Port 1234
-    User UserName
-}}
-
-Send the public key to each compilation node:
-
-{{RootCmd|ssh-copy-id -i /var/tmp/portage/.ssh/id_rsa.pub UserName@CompilationNode}}
-
-Also make sure that each host is available in the {{Path|known_hosts}} file:
-
-{{RootCmd|ssh-keyscan -t rsa <compilation-node-1> <compilation-node-2> [...] > /var/tmp/portage/.ssh/known_hosts}}
-
-Fix the file ownership as follows:
-
-{{RootCmd|chown -R portage:portage /var/tmp/portage/.ssh/}}
-
-To set up the hosts <code>test1</code> and <code>test2</code>, run:
-
-{{RootCmd|/usr/bin/distcc-config --set-hosts "@test1 @test2"}}
-
-Please note the <code>@</code> (@ sign), which specifies ssh hosts for distcc.
-
-Finally, tell {{c|distcc}} which SSH binary to use:
-
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-DISTCC_SSH="ssh"
-}}
-
-It is not necessary to run the {{Path|distccd}} initscript on the hosts when {{c|distcc}} communicates via SSH.
-
-=== Testing ===
-
-To test {{c|distcc}}, write a simple ''Hello distcc'' program and run {{c|distcc}} in verbose mode to see if it communicates properly.
-
-{{FileBox|filename=main.c|lang=c|1=
-#include <stdio.h>
- 
-int main() {
-    printf("Hello distcc!\n");
-    return 0;
-}
-}}
-
-Next, turn on verbose mode, compile the program using {{c|distcc}} and link the generated object file into an executable:
-
-{{Cmd
-|export DISTCC_VERBOSE{{=}}1
-|distcc gcc -c main.c -o main.o # or 'pump distcc <...>'
-|gcc main.o -o main
-}}
-
-{{Note|Replace {{c|distcc}} command with {{c|pump distcc}} for use pump mode.}}
-
-There should be a bunch of output about {{c|distcc}} finding its configuration, selecting the host to connect to, starting to connect to it, and ultimately compile {{Path|main.c}}. If the output does not list the desired {{c|distcc}} hosts, check the configuration.
-
-Finally, ensure the compiled program works properly. To test each host, enumerate each compile host in the hosts file.
-
-{{Cmd|./main|output=<pre>Hello distcc!</pre>}}
+{{Note|During bootstrap and <code>emerge system</code> distcc may not appear to be used. This is expected as some ebuilds do not work well with distcc, so they intentionally disable it.}}
 
 == Troubleshooting ==
 
-<!-- Consider moving this section to a separate subpage if it becomes too large -->
+=== Some Packages Don't Use Distcc ===
 
-If a problem occurs while using {{c|distcc}}, then this section might help in resolving the problem.
+As you emerge various packages, you'll notice that some of them aren't being distributed (and aren't being built in parallel). This may happen because the package's Makefile doesn't support parallel operations or the maintainer of the ebuild has explicitly disabled parallel operations due to a known problem. 
 
-=== ERROR: failed to open {{Path|/var/log/distccd.log}} ===
+Sometimes distcc might cause a package to fail to compile. If this happens for you, please [http://bugs.gentoo.org report] it to us. 
 
-<!-- To be removed when the bug is resolved and the fixed package is stable -->
+=== Mixed GCC Versions ===
 
-As of January 22nd, 2015 emerging fails to create the proper {{Path|distccd.log}} file in {{Path|/var/log/}}. This apparently only effects version 3.1-r8 of distcc. This bug is in the process of being corrected (see {{Bug|477630}}). It is possible to work around this by manually creating the log file, giving it proper ownership, and restarting the distccd daemon:
+If you have different GCC versions on your hosts, there will likely be very weird problems. The solution is to make certain all hosts have the same GCC version. 
 
-{{RootCmd
-|mkdir -p /var/log/distcc
-|touch /var/log/distcc/distccd.log
-|chown distcc:daemon /var/log/distcc/distccd.log
-}}
+Recent Portage updates have made Portage use <code>${CHOST}-gcc</code> instead of <code>gcc</code> . This means that if you're mixing i686 machines with other types (i386, i586) you will run into problems. A workaround for this may be to <code>export CC='gcc' CXX='c++'</code> or to put it in {{Path|/etc/portage/make.conf}} . 
 
-Next update the {{Path|/var/log}} path of the {{c|distccd}} configuration file in {{Path|/etc/conf.d/distccd}} to the {{Path|distcc}} directory created in the step before:
-
-{{FileBox|filename=/etc/conf.d/distccd|title=Updating log path|lang=bash|1=
-DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distcc/distccd.log -N 15 
-}}
-
-Finally, restart the distccd service:
-
-{{RootCmd|/etc/init.d/distccd restart}}
-
-=== Some packages do not use distcc ===
-
-As various packages are installed, users will notice that some of them aren't being distributed (and aren't being built in parallel). This may happen because the package' {{Path|Makefile}} doesn't support parallel operations, or the maintainer of the ebuild has explicitly disabled parallel operations due to a known problem. 
-
-Sometimes {{c|distcc}} might cause a package to fail to compile. If this happens, please [https://bugs.gentoo.org/ report] it.
-
-=== Mixed GCC versions ===
-
-If the environment hosts different GCC versions, there will likely be very weird problems. The solution is to make certain all hosts have the same GCC version. 
-
-Recent Portage updates have made Portage use <code>${CHOST}-gcc</code> (minus gcc) instead of <code>gcc</code>. This means that if i686 machines are mixed with other types (i386, i586) then the builds will run into troubles. A workaround for this may be to run:
-
-{{RootCmd|export CC{{=}}'gcc' CXX{{=}}'c++'}}
-
-It is also possible to set the <var>CC</var> and <var>CXX</var> variables in {{Path|/etc/portage/make.conf}} to the values list in the command above.
-
-{{Important|Doing this explicitly redefines some behavior of Portage and may have some weird results in the future. Only do this if mixing CHOSTs is unavoidable.}}
-
-{{Note|Having the right version of gcc as a slot on a server isn’t enough. Portage uses {{c|distcc}} as a replacement for the compiler referenced by the <var>CHOST</var> variable (i.e. <code>x86_64-pc-linux-gnu</code>) and {{c|distccd}} invokes it by exactly same name. The right version of gcc should be a default system’s compiler on all involved compilation hosts.}}
+{{Important|Doing this explicitly redefines some behavior of Portage and may have some weird results in the future. Only do this if you're mixing CHOSTs.}}
 
 === -march=native ===
 
-Starting with GCC 4.3.0, the compiler supports the <code>-march=native</code> option which turns on CPU auto-detection and optimizations that are worth being enabled on the processor on which GCC is running. This creates a problem when using {{c|distcc}} because it allows the mixing of code optimized for different processors. For example, running {{c|distcc}} with <code>-march=native</code> on a system that has an AMD Athlon processor and doing the same on ''another'' system that has an Intel Pentium processor will mix code compiled on both processors together.
+Starting with GCC 4.3.0, the compiler supports the <code>-march=native</code> switch which turns on CPU autodetection and optimizations that are worth being enabled on the processor the GCC is running at. This is a problem with <code>distcc</code> as it allows mixing of code optimized for different processors (like AMD Athlon and Intel Pentium). ''Don't'' use <code>-march=native</code> or <code>-mtune=native</code> in your <code>CFLAGS</code> or <code>CXXFLAGS</code> when compiling with <code>distcc</code> . 
 
-Heed the following warning:
+== Distcc Extras ==
 
-{{Warning|Do '''not''' use <code>-march{{=}}native</code> or <code>-mtune{{=}}native</code> in the <var>CFLAGS</var> or <var>CXXFLAGS</var> variables of {{Path|make.conf}} when compiling with {{c|distcc}}.}}
+=== Distcc Monitors ===
 
-See the [[#CFLAGS_and_CXXFLAGS|CFLAGS and CXXFLAGS section]] and [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <code>-march=native</code> for distcc] for more information.
+Distcc ships with two monitors. The text-based one is always built and is called <code>distccmon-text</code> . Running it for the first time can be a bit confusing, but it is really quite easy to use. If you run the program with no parameter it will run once. However, if you pass it a number it will update every N seconds, where N is the argument you passed. 
 
-=== Get more output from emerge logs ===
+The other monitor is only turned on if you enabled <code>gtk</code> or <code>gnome</code> in your <code>USE</code> flags. This one is GTK+ based, runs in an X environment and it is quite lovely. For Gentoo the GUI monitor has been called <code>distccmon-gui</code> for less confusion. Elsewhere it may be referred to as <code>distccmon-gnome</code> . 
 
-It is possible to obtain more logging by enabling verbose mode. This is accomplished by adding <var>DISTCC_VERBOSE</var> to {{Path|/etc/portage/bashrc}}:
+{{RootCmd|distccmon-text N}}
 
-{{FileBox|title=Enabling verbose logging|filename=/etc/portage/bashrc|lang=bash|1=
-export DISTCC_VERBOSE=1
-}}
+or run <code>distccmon-gui</code>:
 
-The verbose logging can then be found in {{Path|/var/tmp/portage/$CATEGORY/$PF/temp/build.log}}.
+{{RootCmd|distccmon-gui}}
 
-Keep in mind that the first {{c|distcc}} invocation visible in {{Path|build.log}} isn’t necessary the first {{c|distcc}} call during a build process. For example a build server can get a one-minute backoff period during the configuration stage when some checks are performed using a compiler ({{c|distcc}} sets a backoff period when compilation on a remote server failed, it doesn’t matter whether it failed on local machine or not).
+To monitor Portage's distcc usage you can use:
+{{RootCmd|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-text N
+|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-gui}}
 
-Dig into the {{Path|/var/tmp/portage/$CATEGORY/$PF/work/}} directory to investigate such situations. Find other logs, or call {{c|make}} explicitly from within the working directory.
+{{Important|If your distcc directory is elsewhere, change the DISTCC_DIR variable accordingly.}}
 
-Another interesting variable to use is <var>DISTCC_SAVE_TEMPS</var>. When set, it saves the standard output/error from a remote compiler which, for Portage builds, results in files in the {{Path|/var/tmp/portage/$CATEGORY/$PF/temp/}} directory.
+== Acknowledgements ==
 
-{{FileBox|title=Saving temporary output|filename=/etc/portage/bashrc|lang=bash|1=
-export DISTCC_SAVE_TEMPS=1
-}}
+We would like to thank the following authors and editors for their contributions to this guide:
 
-== See also ==
-
-* The [[Distcc/Cross-Compiling|DistCC Cross-compiling guide]] explains how using one architecture to build programs for another architecture is done through {{c|distcc}}. This can be as simple as using an Athlon (i686) to build a program for a K6-2 (i586), or using a SPARC to build a program for a PowerPC.
-
-== External resources ==
-
-* [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <code>-march=native</code> for distcc]
-* [https://github.com/distcc/distcc Distcc homepage]
-
-[[Category:Compilation]]
-{{Migrated|originalauthors=Lisa Seelye, {{Dev|floppym}}, Erwin, {{Dev|SwifT}}, Lars Weiler, Tiemo Kieft, and {{Dev|nightmorph}}}}
+* Lisa Seelye
+* Mike Frysinger
+* Erwin
+* Sven Vermeulen
+* Lars Weiler
+* Tiemo Kieft
+* nightmorph
