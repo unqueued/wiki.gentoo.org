@@ -1,540 +1,164 @@
 <languages />
 
-{{Metadata|abstract=Distcc derleme görevlerini ağdaki istemcilere yayarak gerçekleştiren bir yazılımdır. Sunucu servisi <code>distccd</code>, istemci servisi <code>distcc</code>'dir. Ufak bir yapılandırma ile [http://ccache.samba.org ccache], Portage ve Automake ile uyumlu şekilde çalışabilir.}}
+Distcc is a program designed to distribute compiling tasks across a network to participating hosts. It is comprised of a server, <code>distccd</code>, and a client program, <code>distcc</code>. Distcc can work transparently with [http://ccache.samba.org ccache], Portage, and Automake with a little setup. 
 
-<div class="mw-translate-fuzzy">
-{{InfoBox stack
-|{{InfoBox homepage|https://code.google.com/p/distcc/|header=true}}
-|{{InfoBox wikipedia}}
-}}
-</div>
+If you are planning on using distcc to help you bootstrap a Gentoo installation, make sure you read the section [[#Using_Distcc_to_Bootstrap|Using Distcc to Bootstrap]]. 
 
-<div class="mw-translate-fuzzy">
-[http://distcc.samba.org Distcc], derleme görevlerini ağdaki istemcilere yayarak gerçekleştiren bir yazılımdır. Sunucu servisi <code>distccd</code>, istemci servisi <code>distcc</code>'dir. Ufak bir yapılandırma ile [http://ccache.samba.org ccache], [[Portage]] ve Automake ile uyumlu şekilde çalışabilir.
-</div> 
+== Setup ==
 
-<div class="mw-translate-fuzzy">
-Eğer <tt>distcc</tt>'yi yeni bir Gentoo kurulumunda (bootstrap) kullanmak istiyorsanız makalenin ilgili bölümünü okuduğunuza emin olun.
-</div> 
+=== Dependencies ===
 
-== Kurulum ==
+In order to use Distcc, all of the computers on your network need to have the same GCC versions. For example, mixing 3.3.x (where the x varies) is okay, but mixing 3.3.x with 3.2.x '''may''' result in compilation errors or runtime errors. 
 
-<div class="mw-translate-fuzzy">
-<tt>distcc</tt>'yi yapılandırmadan önce, tüm makinelere {{Package|sys-devel/distcc}} paketini kuralım.
-</div>
+=== Installing Distcc ===
 
-=== Tüm makinelerdeki gereksinimler ===
+There are a couple of options you should be aware of before you start installing distcc. 
 
-<div class="mw-translate-fuzzy">
-<tt>distcc</tt>'yi kullanabilmek için ağınızdaki tüm bilgisayarların birbirine yakın GCC sürümlerini kullanması gerekmektedir. Örneğin, 3.3.x (x değişebilir) sürümlerini birlikte kullanmanız problem oluşturmaz ancak 3.3.x ile 3.2.x sürümleri karıştığında derleme veya derlenmiş programların çalışması sırasında problem oluşabilir.
-</div> 
+Distcc ships with a graphical monitor to monitor tasks that your computer is sending away for compilation. If you use Gnome then put 'gnome' in your USE flags. However, if you don't use Gnome and would still like to have the monitor then you should put 'gtk' in your USE flags. 
 
-Verify that all systems use the same version of binutils (eselect binutils list) or many packages will fail linking with various errors like text relocation.
-
-=== USE flags ===
-
-{{USEflag|package=sys-devel/distcc}}
-
-=== Emerge ===
-
-<div class="mw-translate-fuzzy">
-Distcc giden görevlerin gösterilmesi için bir arayüze sahip. Bu özelliği kullanmak istiyorsanız <code>USE</code> bayraklarınıza <code>gtk</code> eklediğinize emin olun.
-</div>
-
-<div class="mw-translate-fuzzy">
-<code>USE</code> yapılandırmasının ardından {{Package|sys-devel/distcc}} kurulabilir:
-</div>
-
-<div class="mw-translate-fuzzy">
 {{Emerge|distcc}}
-</div>
 
-{{Important/tr|Dahil edeceğiniz tüm bilgisayarlarda {{Package|sys-devel/distcc}}'yi kurmanız gerekmektedir.}}
+{{Important|Remember, you must be sure to install distcc on all of your participating machines.}}
 
-== Configuration ==
+=== Setting up Portage to use Distcc ===
 
-=== Service ===
+Setting up Portage to use distcc is easy. Execute the following steps on each system that should participate in the distributed compiling: 
 
-<div class="mw-translate-fuzzy">
-<tt>distccd</tt> servisinin otomatik olarak başlaması için yapmanız gerekenler, kullandığınız init sistemine bağlı olarak, aşağıdaki gibidir.
-</div>
+{{Emerge|distcc}}
 
-<div class="mw-translate-fuzzy">
-==== OpenRC kullanıyorsanız ====
-</div>
+Now, set the <code>MAKEOPTS</code> variable and <code>FEATURES</code> variable as shown below. For <code>MAKEOPTS</code>, use a suitable number for your particular setup. A common strategy is setting N as twice the number of total CPUs + 1 available.
 
-<div class="mw-translate-fuzzy">
-{{Path|/etc/conf.d/distccd}} dosyasını ihtiyacınıza göre düzenleyin ve <code>--allow</code> izinlerini yalnızca güvendiğiniz istemcilere verin. Ek güvenlik önlemi olarak hangi istemcilerin dinleneceğini <code>--listen</code> ile belirleyebilirsiniz. Güvenlik kaygıları için lütfen [http://distcc.samba.org/security.html Distcc güvenlik belgesini] inceleyin.
-</div>
-
-{{Warning|Anyone who can connect to the distcc server port can run arbitrary commands on that machine as the distccd user. }}
-
-<div class="mw-translate-fuzzy">
-Aşağıdaki örnek <tt>192.168.0.4</tt> ve <tt>192.168.0.5</tt> adreslerinde çalışan istemcilerin çalıştırdığımız <tt>distccd</tt> servisine erişebilmesine izin verir:
-</div>
-
-{{FileBox|filename=/etc/conf.d/distccd|title=distccd'ye bağlanabilmesi için istemcilerin seçimi|lang=bash|1=
-DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distccd.log -N 15 --allow 192.168.0.4 --allow 192.168.0.5"
+{{RootCmd|nano -w /etc/portage/make.conf|output=<pre>
+MAKEOPTS="-jN"
+FEATURES="distcc"
+</pre>
 }}
 
-<div class="mw-translate-fuzzy">
-{{Important/tr|<tt>--allow</tt> ve <tt>--listen</tt>'ın kullanımı önemlidir. Lütfen <tt>distccd</tt> yardım sayfalarını incelediğinize emin olun.}}
-</div>
+=== Specifying Participating Hosts ===
 
-<div class="mw-translate-fuzzy">
-Şimdi dahil olan tüm bilgisayarlarda <tt>distccd</tt> servisini başlatalım:
-</div> 
+Use the <code>distcc-config</code> command to set the list of hosts. Here is an example of some hosts that might be in your list: 
 
-<div class="mw-translate-fuzzy">
-{{RootCmd|rc-update add distccd default
-|rc-service distccd start}}
-</div>
-
-<div class="mw-translate-fuzzy">
-==== systemd kullanıyorsanız ====
-</div>
-
-<div class="mw-translate-fuzzy">
-{{Path|/etc/systemd/system/distccd.service.d/00gentoo.conf}} dosyasını düzenleyin ve izin veirlen istemcileri CIDR formatina göre ekleyin. Örnek olarak:
-</div>
-
-{{FileBox|filename=/etc/systemd/system/distccd.service.d/00gentoo.conf|title=ALLOWED_SERVERS yapılandırması|lang=bash|1=
-Environment="ALLOWED_SERVERS=192.168.1.0/24"
-}}
-
-{{Note| The name "ALLOWED_SERVERS" here is rather confusing as it refers to the clients that are allowed to connect to the local distccd server. Nevertheless, it is this variable which is used in the distccd service as value for the <code>--allow option</code> – see the {{Path|/usr/lib/systemd/system/distccd.service}} file for additional information.}}
-
-Değişikliğin ardından unit dosyalarını yeniden yüklemelisiniz:
-
-{{RootCmd|systemctl daemon-reload}}
-
-<div class="mw-translate-fuzzy">
-Açılışta <tt>distcc</tt> servisinin çalışmasını açıp, ardından servisi başlatın:
-</div>
-
-<div class="mw-translate-fuzzy">
-{{RootCmd|systemctl enable distccd
-|systemctl start distccd}}
-</div>
-
-=== Dahil olacak istemcileri belirleme ===
-
-<div class="mw-translate-fuzzy">
-Katılacak istemcileri ayarlamak için <tt>distcc-config</tt> komutunu kullanabilirsiniz.
-</div> 
-
-<div class="mw-translate-fuzzy">
-Aşağıdaki örnek istemci listesini inceleyin. Çoğu durumda 1. ve 2. satırların türevleri yeterli olmaktadır. 3. ve 4. satırlardaki kullanımın detayını [http://distcc.googlecode.com/svn/trunk/doc/web/man/distcc_1.html distcc yardım sayfaları]nda bulabilirsiniz.
-</div>
-
-{{CodeBox|title=İstemci tanımlarına örnekler|1=
+{{Code|Examples of host definitions|<pre>
 192.168.0.1          192.168.0.2                       192.168.0.3
 192.168.0.1/2        192.168.0.2                       192.168.0.3/10
 192.168.0.1:4000/2   192.168.0.2/1                     192.168.0.3:3632/4
 @192.168.0.1         @192.168.0.2:/usr/bin/distccd     192.168.0.3
+</pre>
 }}
 
-<div class="mw-translate-fuzzy">
-Daha farklı yöntemler kullanabilirsiniz. <tt>distcc</tt> yardım sayfalarına (<kbd>man distcc</kbd>) bakmanızı öneririz.
-</div>
+There are also several other methods of setting up hosts.  See the distcc manpage for more details.
 
-Bulunduğunuz bilgisayarı da derlemeye dahil etmek istiyorsanız listeye <code>localhost</code> da eklemeniz gerek. Yavaş bir bilgisayar ise, işlemin genelini yavaşlatacağı için bulundurmamayı seçebilirsiniz.
+If you wish to compile on the local machine you should put 'localhost' in the hosts list.  Conversely if you do not wish to use the local machine to compile (which is often the case) omit it from the hosts list.  On a slow machine using localhost may actually slow things down. Make sure to test your settings for performance.
 
-<div class="mw-translate-fuzzy">
-<tt>distcc</tt>'yi örneğin ilk satırında belirtilen bilgisayarları kullanacak şekilde yapılandıralım:
-</div>
+It may all look complicated, but in most cases a variant of line 1 or 2 will work. 
+
+Since most people won't be using lines 3 or 4, I'll [http://distcc.samba.org/man/distcc_1.html refer to] the distcc docs (man distcc) for more information, which includes being able to run distcc over an SSH connection. 
+
+For instance, to set the first line in the previous example: 
 
 {{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1 192.168.0.2 192.168.0.3"}}
 
-Distcc also supports a ''pump'' mode, by invoking the {{c|pump}} command. This may significantly reduce build time when multiple files are compiled in parallel. It caches preprocessed headers on the server side and, as a result, gets rid of repeated uploading and preprocessing of these header files.
+Edit {{Path|/etc/conf.d/distccd}} to your needs and be sure to set the <code>--allow</code> directive to allow only hosts you trust. For added security, you should also use the <code>--listen</code> directive to tell the distcc daemon what IP to listen on (for multi-homed systems). More information on distcc security can be found at [http://distcc.samba.org/security.html Distcc Security Design] . 
 
-To configure a host for pump mode, add the <code>,cpp,lzo</code> suffix to the hosts definitions. Pump mode requires both <code>cpp</code> ''and'' <code>lzo</code> flags (regardless of the files being C or C++).
+{{Important|It is important to use --allow and --listen. Please read the distccd manpage or the above security document for more information.}}
 
-{{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1,cpp,lzo 192.168.0.2,cpp,lzo 192.168.0.3,cpp,lzo"}}
+Now start the distcc daemon on all the participating computers: 
 
-== Usage ==
+{{RootCmd|rc-update add distccd default
+|/etc/init.d/distccd start}}
 
-<div class="mw-translate-fuzzy">
-=== Portage'ı distcc ile kullanmak ===
-</div>
+=== Setting up Distcc to Work With Automake ===
 
-<div class="mw-translate-fuzzy">
-[[Portage]] ile <tt>distcc</tt> kullanımı kolaydır. Yapmanız gereken <tt>distcc</tt> özelliğini açıp, aynı anda yapılacak işlem sayısını artırmaktan ibaret (çünkü <tt>distcc</tt> bize bu imkanı sağlıyor).
-</div>
-
-<div class="mw-translate-fuzzy">
-Ardından <code>MAKEOPTS</code> ve <code>FEATURES</code> değişkenlerini aşağıdaki gibi düzenlemeniz gerek.
-</div>
-
-Genel strateji şöyledir
-* <code>N</code> değerini ''toplam'' (sunucu+istemciler) CPU sayısının ''iki katına'', ve
-* <code>M</code> değerini ''sunucu''daki işlemcilerin sayısına ayarlayın
-
-<div class="mw-translate-fuzzy">
-<code>MAKEOPTS</code> için yapılandırmanıza uygun bir değer kullanmalısınız. Distcc hostları erişilemez durumda veya paket yerel olarak derlenmeliyse (gcc gibi) <code>-lM</code> bayrağı eklemeniz çok fazla işlem üretilmesini engeller.
-</div>
-
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/portage/make.conf|title=MAKEOPTS ve FEATURES yapılandırması|lang=bash|1=
-# N ve M değerlerini önceden belirtilen hesaba göre düzenleyin
-MAKEOPTS="-jN -lM"
-FEATURES="distcc distcc-pump"
-}}
-</div>
-
-{{Warning|distcc-pump is known to break multiple packages in unpredictable ways. Do not ever use it system-wide. Bug reports filed with distcc-pump enabled may be rejected.}}
-
-<div class="mw-translate-fuzzy">
-Örneğin <tt>distccd</tt> çalışan iki tane 4 çekirdekli işlemciye sahip bilgisayara sahipseniz ve sunucu çift çekirdekli ise, gerekli <code>MAKEOPTS</code> değişkeni şöyle olabilir:
-</div>
-
-{{FileBox|filename=/etc/portage/make.conf|title=Çift çekirdekli sunucu ve 2 tane 4 çekirdekli istemci için MAKEOPTS örneği|lang=bash|1=
-# 4 çekirdekli 2 istemci = 8 çekirdek uzak
-# 2 çekirdekli 1 sunucu = 2 çekirdek yerel
-# Toplam sayı 10, yani N = 2*10+1 and M=2
-MAKEOPTS="-j21 -l2"
-}}
-
-==== CFLAGS and CXXFLAGS ====
-
-<div class="mw-translate-fuzzy">
-{{Path|make.conf}} dosyasını düzenlerken, <code>CFLAGS</code> veya <code>CXXFLAGS</code> içerisinde <tt>-march=native</tt> bulunmadığına dikkat edin. Eğer <code>march</code> değerinde <code>native</code> bulunuyorsa <tt>distccd</tt> kodu diğer sunuculara göndermeyecektir. Hedef için uygun <tt>-march=</tt> değeri şu komut ile bulunabilir:
-</div>
-
-<div class="mw-translate-fuzzy">
-{{Cmd|gcc -v -E -x c -march{{=}}native -mtune{{=}}native - < /dev/null 2>&1 {{!}} grep cc1 {{!}} perl -pe 's/ -mno-\S+//g; s/^.* - //g;'}}
-</div>
-
-<div class="mw-translate-fuzzy">
-Daha fazla bilgi için [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <tt>-march=native</tt> for distcc] sayfasına bakabilirsiniz.
-</div>
-
-A GCC [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=39851 bug] has recently been fixed in the 8.0 dev tree which facilitates a more reliable and succinct mechanism for extrapolating appropriate machine flags.  The fix has been backported to the 6 and 7 branches and should be released fairly soon.  Some processing is still required and a script can be found in the [https://github.com/daniel-santos/distccflags distccflags repo], or via {{c|wget}}:
-
-{{Warning|Downloading scripts and executing them without any validation is a security risk. Before executing such scripts, take a good look at what they want to accomplish and refrain from executing it when the content or behavior is not clear and purposeful.}}
-
-{{Cmd
-|wget 'https://raw.githubusercontent.com/daniel-santos/distccflags/master/distccflags'
-|chmod +x distccflags
-|./distccflags -march{{=}}native
-}}
-
-<div class="mw-translate-fuzzy">
-=== Distcc'yi automake ile kullanmak ===
-</div>
-
-<div class="mw-translate-fuzzy">
-Bu işlem genelde Portage yapılandırmasından daha kolaydır. Yapmanız gereken şey <code>PATH</code> ortam değişkenine <code>gcc</code>'yi barındıran dizinden ( {{Path|/usr/bin}} ) önce {{Path|/usr/lib/distcc/bin}} eklemek. Ancak ccache kullanıyorsanız ccache bölümünün ardına yerleştirmeniz gerek:
-</div> 
+This is, in some cases, easier than the Portage setup. What you have to do is update your <code>PATH</code> variable to include {{Path|/usr/lib/distcc/bin}} in front of the directory that contains <code>gcc</code> ( {{Path|/usr/bin}} ). However, there is a caveat. If you use ccache you have to put distcc after the ccache part: 
 
 {{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
 
-<div class="mw-translate-fuzzy">
-Bu komutu kullanıcı bazlı {{Path|~/.bashrc}} veya global {{Path|/etc/env.d/}} gibi otomatik yüklenen bir dosyaya ekleyip her sisteme girdiğinizde çalışmasını sağlayabilirsiniz.
-</div>
+You can put this in your {{Path|~/.bashrc}} or equivalent file to have the PATH set every time you log in.
 
-<div class="mw-translate-fuzzy">
-Ardından normalde <code>make</code> komutu ile iş yaparken, <code>make -jN</code> tarzında (buradaki N bir sayıdır) kullanabilirsiniz. N değeri ağınızın hızına ve işlemci sayınıza göre değişecektir. Size en uyumlu değeri bulmak için deneme yapmanızı tavsiye ederiz.
-</div>
+Then, as you would normally type <code>make</code> , you would type <code>make -jN</code> (where N is an integer). The value of N depends on your network and the types of computers you are using to compile. Test your own settings to find the number that yields the best performance. 
 
-<div class="mw-translate-fuzzy">
-== distcc'yi bootstrap ile (sıfır kurulumda) kullanmak ==
-</div>
+== Cross-Compiling ==
 
-<div class="mw-translate-fuzzy">
-<tt>distcc</tt>'yi sıfır kurulumda kullanmak bazı ek adımlar gerektirir.
-</div>
+Cross-compiling is using one architecture to build programs for another architecture. This can be as simple as using an Athlon (i686) to build a program for a K6-2 (i586), or using a Sparc to build a program for a ppc. This is documented in our [http://www.gentoo.org//doc/en/cross-compiling-distcc.xml DistCC Cross-compiling Guide] . 
 
-<div class="mw-translate-fuzzy">
-=== Adım 1: Portage'ı yapılandırın ===
-</div>
+== Using Distcc to Bootstrap ==
 
-<div class="mw-translate-fuzzy">
-Distcc'yi yapılandırmak için <code>distcc-config --install</code> komutunu çalıştırın. Aşağıdaki komutta <code>host</code> ile başlayan yerleri DistCC derlemesine katılan cihazların IP adresi veya hostname adresi ile değiştirin:
-</div> 
+=== Step 1: Configure Portage ===
 
-{{FileBox|filename=/etc/portage/make.conf|title=Portage için distcc yapılandırması|lang=bash|1=
-FEATURES="distcc"
-MAKEOPTS="-jN"
-}}
+Boot your new box with a Gentoo Linux LiveCD and follow the [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part=1 installation instructions] up until the bootstrapping part. (See the [http://www.gentoo.org//doc/en/faq.xml#stage12 Gentoo FAQ] for more information about bootstrapping.) Then configure Portage to use distcc: 
 
-<div class="mw-translate-fuzzy">
-Kurulum oturumunda <code>PATH</code> değişkeninin de güncellenmesi gerekmekte:
-</div>
-
-{{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
-
-<div class="mw-translate-fuzzy">
-== Adım 2: Distcc kurulumu ==
-</div>
-
-{{Package|sys-devel/distcc}} paketini kurun: 
-
-{{RootCmd|USE{{=}}'-*' emerge --nodeps sys-devel/distcc}}
-
-<div class="mw-translate-fuzzy">
-=== Adım 3: Distcc'yi yapılandırma ===
-</div>
-
-<div class="mw-translate-fuzzy">
-Distcc'yi yapılandırmak için <code>distcc-config --install</code> komutunu çalıştırın. Aşağıdaki komutta <code>host</code> ile başlayan yerleri DistCC derlemesine katılan cihazların IP adresi veya hostname adresi ile değiştirin:
-</div>
-
-{{RootCmd|/usr/bin/distcc-config --set-hosts "localhost host1 host2 host3 ..."}}
-
-<div class="mw-translate-fuzzy">
-Distcc artık sıfırdan kuruluma hazır! Kuruluma devam edebilirsiniz. Ancak <tt>emerge @system</tt> komutunun ardından <tt>emerge distcc</tt> komutunu çalıştırıp tüm gerekli bağımlılıkların yüklendiğinden emin olun.
-</div> 
-
-<div class="mw-translate-fuzzy">
-{{Note/tr|<code>emerge @system</code> komutu ile paketler kurulurken bazne <tt>distcc</tt> çalışmıyor görülebilir. Bunun sebebi bazı paketlerin distcc ile kurulumu problemli olduğu için bu paketler için pasif konuma getirilmiş olmasıdır.}}
-</div>
-
-<div class="mw-translate-fuzzy">
-== Distcc Ekstraları ==
-</div>
-
-<div class="mw-translate-fuzzy">
-<tt>Distcc</tt> uygulamasının bazı özellikleri ve yardımcı uygulamaları bulunmakta.
-</div>
-
-<div class="mw-translate-fuzzy">
-=== Distcc İzleme Araçları ===
-</div> 
-
-<div class="mw-translate-fuzzy">
-Distcc iki tane izleme aracı ile gelmekte. Bunlardan metin tabanlı olanı <code>distccmon-text</code>. İlk kez kullanıyorsanız biraz kafa karıştırıcı olabilir ancak kullanımı kolaydır. Eğer herhangi bir parametre vermezseniz bir defa, herhangi bir numara -örneğin <code>N</code>- verirseniz her <code>N</code> saniyede bir çalışacaktır.
-</div>
-
-{{Cmd|distccmon-text 10}}
-
-<div class="mw-translate-fuzzy">
-Diğer izleme aracı da yalnızca <code>gtk</code> <code>USE</code> bayrağı açıksa kurulacaktır. GTK+ temelli, X ortamında çalışan sevimli bir uygulamadır. Gentoo'da, kafa karışıklığını önlemek için bu uygulamaya <tt>distccmon-gui</tt> (orijinal ismi <tt>distccmon-gnome</tt>'dur).
-</div>
-
-{{Cmd|distccmon-gui}}
-
-<div class="mw-translate-fuzzy">
-Portage'ın <tt>distcc</tt> kullanımını ölçmek için:
-</div>
-
-{{RootCmd|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-text 10
-|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-gui}}
-
-<div class="mw-translate-fuzzy">
-{{Important/tr|Eğer distcc dizini farklı yerde ise,  <code>DISTCC_DIR</code> değişkenini ayarlamayı unutmayın.}}
-</div>
-
-<div class="mw-translate-fuzzy">
-<code>DISTCC_DIR</code> değişkenini ortam değişkenleriyle ayarlamak için bir ipucu:
-</div>
-
-{{RootCmd|echo 'DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/"' >> /etc/env.d/02distcc}}
-
-Ardından ortam değişkenlerini güncelleyin:
-
-{{RootCmd|env-update
-|source /etc/profile}}
-
-Ardından grafiksel uygulamayı başlatabilirsiniz:
-
-{{RootCmd|distccmon-gui}}
-
-<div class="mw-translate-fuzzy">
-=== İletişimde SSH kullanılması ===
-</div>
-
-<div class="mw-translate-fuzzy">
-== Cross-Compiling (Çapraz derleme) ==
-</div>
-
-<div class="mw-translate-fuzzy">
-Cross-compiling (çapraz derleme), derleme işlemini kullandığınız işlemci mimarisinden farklı bir mimaride çalışması için yaptığınız duruma verilen addır. Yani Athlon (i686) işlemci ile  K6-2 (i586) için veya Sparc işlemci ile ppc için derleme yapmak gibi. Bu konuya Distcc/Cross-Compiling|DistCC Cross-compiling Belgesinde]] değinilmiştir.
-</div>
-
-<div class="mw-translate-fuzzy">
-== Distcc'yi Kurulum (Bootstrap) için Kullanmak ==
-</div>
-
-<div class="mw-translate-fuzzy">
-=== Adım 1: Portage'ı Yapılandırın ===
-</div>
-
-Send the public key to each compilation node:
-
-{{RootCmd|ssh-copy-id -i /var/tmp/portage/.ssh/id_rsa.pub UserName@CompilationNode}}
-
-<div class="mw-translate-fuzzy">
-Yeni bilgisayarı Gentoo Linux CD'si ile başlatıp [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part=1 kurulum dökümanlarındaki] adımlardan bootstrap'a kadar gelin. (Bootstrap için detaylı bilgiyi [http://www.gentoo.org//doc/en/faq.xml#stage12 buradan] bulabilirsiniz.) Ardından portage'ı distcc kullanmak için yapılandırın:
-</div>
-
-{{RootCmd|ssh-keyscan -t rsa <compilation-node-1> <compilation-node-2> [...] > /var/tmp/portage/.ssh/known_hosts}}
-
-Fix the file ownership as follows:
-
-{{RootCmd|chown -R portage:portage /var/tmp/portage/.ssh/}}
-
-To set up the hosts <code>test1</code> and <code>test2</code>, run:
-
-<div class="mw-translate-fuzzy">
 {{RootCmd|nano -w /etc/portage/make.conf|output=<pre>
 FEATURES="distcc"
 MAKEOPTS="-jN"
 </pre>
 }}
-</div>
 
-<div class="mw-translate-fuzzy">
 {{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
-</div>
 
-Finally, tell {{c|distcc}} which SSH binary to use:
+=== Step 2: Getting Distcc ===
 
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-DISTCC_SSH="ssh"
-}}
+Install distcc: 
 
-It is not necessary to run the {{Path|distccd}} initscript on the hosts when {{c|distcc}} communicates via SSH.
+{{RootCmd|USE{{=}}'-*' emerge --nodeps sys-devel/distcc}}
 
-=== Testing ===
+=== Step 3: Setting Up Distcc ===
 
-To test {{c|distcc}}, write a simple ''Hello distcc'' program and run {{c|distcc}} in verbose mode to see if it communicates properly.
+Run <code>distcc-config --install</code> to setup distcc; substitute <code>host*</code> with the IP addresses or hostnames of the participating DistCC nodes.
 
-{{FileBox|filename=main.c|lang=c|1=
-#include <stdio.h>
- 
-int main() {
-    printf("Hello distcc!\n");
-    return 0;
-}
-}}
+{{RootCmd|/usr/bin/distcc-config --set-hosts "localhost host1 host2 host3 ..."}}
 
-Next, turn on verbose mode, compile the program using {{c|distcc}} and link the generated object file into an executable:
+Distcc is now set up to bootstrap! Continue with the official installation instructions and ''do not forget'' to re-emerge distcc after <code>emerge system</code> . This is to make sure that all of the dependencies you want are installed as well. 
 
-{{Cmd
-|export DISTCC_VERBOSE{{=}}1
-|distcc gcc -c main.c -o main.o # or 'pump distcc <...>'
-|gcc main.o -o main
-}}
+{{Note|During bootstrap and <code>emerge system</code> distcc may not appear to be used. This is expected as some ebuilds do not work well with distcc, so they intentionally disable it.}}
 
-{{Note|Replace {{c|distcc}} command with {{c|pump distcc}} for use pump mode.}}
+== Troubleshooting ==
 
-There should be a bunch of output about {{c|distcc}} finding its configuration, selecting the host to connect to, starting to connect to it, and ultimately compile {{Path|main.c}}. If the output does not list the desired {{c|distcc}} hosts, check the configuration.
+=== Some Packages Don't Use Distcc ===
 
-Finally, ensure the compiled program works properly. To test each host, enumerate each compile host in the hosts file.
+As you emerge various packages, you'll notice that some of them aren't being distributed (and aren't being built in parallel). This may happen because the package's Makefile doesn't support parallel operations or the maintainer of the ebuild has explicitly disabled parallel operations due to a known problem. 
 
-{{Cmd|./main|output=<pre>Hello distcc!</pre>}}
+Sometimes distcc might cause a package to fail to compile. If this happens for you, please [http://bugs.gentoo.org report] it to us. 
 
-<div class="mw-translate-fuzzy">
-{{Important/tr|Bunu yapmak Portage'ın davranışını değiştireceğinden garip sorunlara yol açabilir. Yalnıca farklı CHOST değerlerini karıştırıyorsanız bu yöntemi kullanın.}}
-</div>
+=== Mixed GCC Versions ===
 
-<!-- Consider moving this section to a separate subpage if it becomes too large -->
+If you have different GCC versions on your hosts, there will likely be very weird problems. The solution is to make certain all hosts have the same GCC version. 
 
-If a problem occurs while using {{c|distcc}}, then this section might help in resolving the problem.
+Recent Portage updates have made Portage use <code>${CHOST}-gcc</code> instead of <code>gcc</code> . This means that if you're mixing i686 machines with other types (i386, i586) you will run into problems. A workaround for this may be to <code>export CC='gcc' CXX='c++'</code> or to put it in {{Path|/etc/portage/make.conf}} . 
 
-=== ERROR: failed to open {{Path|/var/log/distccd.log}} ===
+{{Important|Doing this explicitly redefines some behavior of Portage and may have some weird results in the future. Only do this if you're mixing CHOSTs.}}
 
-<!-- To be removed when the bug is resolved and the fixed package is stable -->
-
-As of January 22nd, 2015 emerging fails to create the proper {{Path|distccd.log}} file in {{Path|/var/log/}}. This apparently only effects version 3.1-r8 of distcc. This bug is in the process of being corrected (see {{Bug|477630}}). It is possible to work around this by manually creating the log file, giving it proper ownership, and restarting the distccd daemon:
-
-{{RootCmd
-|mkdir -p /var/log/distcc
-|touch /var/log/distcc/distccd.log
-|chown distcc:daemon /var/log/distcc/distccd.log
-}}
-
-Next update the {{Path|/var/log}} path of the {{c|distccd}} configuration file in {{Path|/etc/conf.d/distccd}} to the {{Path|distcc}} directory created in the step before:
-
-{{FileBox|filename=/etc/conf.d/distccd|title=Updating log path|lang=bash|1=
-DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distcc/distccd.log -N 15 
-}}
-
-Finally, restart the distccd service:
-
-{{RootCmd|/etc/init.d/distccd restart}}
-
-<div class="mw-translate-fuzzy">
 === -march=native ===
-</div>
 
-<div class="mw-translate-fuzzy">
-GCC 4.3.0 sürümünden itibaren derleyici <code>-march=native</code> parametresi ile işlemcinizin türünü ve kullanılması gereken derleme seçeneklerini otomatik olarak tanımlayabiliyor. Bu durum <code>distcc</code> gibi farklı işlemcileri aynı anda kullanan bir sistem için problem oluşturmakta. Bu sebeple <code>distcc</code> kullanırken <code>CFLAGS</code> veya <code>CXXFLAGS</code> değerlerinizde <code>-march=native</code> or <code>-mtune=native</code> '''kullanmayın'''.
-</div> 
+Starting with GCC 4.3.0, the compiler supports the <code>-march=native</code> switch which turns on CPU autodetection and optimizations that are worth being enabled on the processor the GCC is running at. This is a problem with <code>distcc</code> as it allows mixing of code optimized for different processors (like AMD Athlon and Intel Pentium). ''Don't'' use <code>-march=native</code> or <code>-mtune=native</code> in your <code>CFLAGS</code> or <code>CXXFLAGS</code> when compiling with <code>distcc</code> . 
 
-<div class="mw-translate-fuzzy">
-== Distcc Ekstraları ==
-</div>
+== Distcc Extras ==
 
-<div class="mw-translate-fuzzy">
-=== Distcc İzleme Araçları ===
-</div>
+=== Distcc Monitors ===
 
-<div class="mw-translate-fuzzy">
-Distcc iki tane izleme aracı ile gelmekte. Bunlardan metin tabanlı olanı <code>distccmon-text</code>. İlk kez kullanıyorsanız biraz kafa karıştırıcı olabilir ancak kullanımı kolaydır. Eğer herhangi bir parametre vermezseniz bir defa, herhangi bir numara -örneğin N- verirseniz her N saniyede bir çalışacaktır.
-</div> 
+Distcc ships with two monitors. The text-based one is always built and is called <code>distccmon-text</code> . Running it for the first time can be a bit confusing, but it is really quite easy to use. If you run the program with no parameter it will run once. However, if you pass it a number it will update every N seconds, where N is the argument you passed. 
 
-<div class="mw-translate-fuzzy">
-Diğer izleme aracı da <code>USE</code> bayraklarınızda <code>gtk</code> veya <code>gnome</code> açık durumda ise derlenecek olan, GTK+ temelli grafiksel arayüzdür. Diğer dağıtımlarda genellikle <code>distccmon-gnome</code> ismiyle bilinen bu arayüz Gentoo'da karışıklığa sebep olmamak için <code>distccmon-gui</code> ismindedir.
-</div>
+The other monitor is only turned on if you enabled <code>gtk</code> or <code>gnome</code> in your <code>USE</code> flags. This one is GTK+ based, runs in an X environment and it is quite lovely. For Gentoo the GUI monitor has been called <code>distccmon-gui</code> for less confusion. Elsewhere it may be referred to as <code>distccmon-gnome</code> . 
 
-{{RootCmd|export CC{{=}}'gcc' CXX{{=}}'c++'}}
-
-It is also possible to set the <var>CC</var> and <var>CXX</var> variables in {{Path|/etc/portage/make.conf}} to the values list in the command above.
-
-<div class="mw-translate-fuzzy">
 {{RootCmd|distccmon-text N}}
-</div>
 
-{{Note|Having the right version of gcc as a slot on a server isn’t enough. Portage uses {{c|distcc}} as a replacement for the compiler referenced by the <var>CHOST</var> variable (i.e. <code>x86_64-pc-linux-gnu</code>) and {{c|distccd}} invokes it by exactly same name. The right version of gcc should be a default system’s compiler on all involved compilation hosts.}}
+or run <code>distccmon-gui</code>:
 
-<div class="mw-translate-fuzzy">
-veya <code>distccmon-gui</code> için:
-</div>
-
-<div class="mw-translate-fuzzy">
 {{RootCmd|distccmon-gui}}
-</div>
 
-Heed the following warning:
+To monitor Portage's distcc usage you can use:
+{{RootCmd|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-text N
+|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-gui}}
 
-{{Warning|Do '''not''' use <code>-march{{=}}native</code> or <code>-mtune{{=}}native</code> in the <var>CFLAGS</var> or <var>CXXFLAGS</var> variables of {{Path|make.conf}} when compiling with {{c|distcc}}.}}
+{{Important|If your distcc directory is elsewhere, change the DISTCC_DIR variable accordingly.}}
 
-See the [[#CFLAGS_and_CXXFLAGS|CFLAGS and CXXFLAGS section]] and [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <code>-march=native</code> for distcc] for more information.
+== Acknowledgements ==
 
-=== Get more output from emerge logs ===
+We would like to thank the following authors and editors for their contributions to this guide:
 
-It is possible to obtain more logging by enabling verbose mode. This is accomplished by adding <var>DISTCC_VERBOSE</var> to {{Path|/etc/portage/bashrc}}:
-
-{{FileBox|title=Enabling verbose logging|filename=/etc/portage/bashrc|lang=bash|1=
-export DISTCC_VERBOSE=1
-}}
-
-The verbose logging can then be found in {{Path|/var/tmp/portage/$CATEGORY/$PF/temp/build.log}}.
-
-Keep in mind that the first {{c|distcc}} invocation visible in {{Path|build.log}} isn’t necessary the first {{c|distcc}} call during a build process. For example a build server can get a one-minute backoff period during the configuration stage when some checks are performed using a compiler ({{c|distcc}} sets a backoff period when compilation on a remote server failed, it doesn’t matter whether it failed on local machine or not).
-
-Dig into the {{Path|/var/tmp/portage/$CATEGORY/$PF/work/}} directory to investigate such situations. Find other logs, or call {{c|make}} explicitly from within the working directory.
-
-Another interesting variable to use is <var>DISTCC_SAVE_TEMPS</var>. When set, it saves the standard output/error from a remote compiler which, for Portage builds, results in files in the {{Path|/var/tmp/portage/$CATEGORY/$PF/temp/}} directory.
-
-{{FileBox|title=Saving temporary output|filename=/etc/portage/bashrc|lang=bash|1=
-export DISTCC_SAVE_TEMPS=1
-}}
-
-<div class="mw-translate-fuzzy">
-=== Adım 2: Distcc Kurulumu ===
-</div>
-
-<div class="mw-translate-fuzzy">
-Distcc'yi kurun:
-</div>
-
-== External resources ==
-
-* [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <code>-march=native</code> for distcc]
-* [https://github.com/distcc/distcc Distcc homepage]
-
-[[Category:Compilation]]
-{{Migrated|originalauthors=Lisa Seelye, {{Dev|floppym}}, Erwin, {{Dev|SwifT}}, Lars Weiler, Tiemo Kieft, and {{Dev|nightmorph}}}}
+* Lisa Seelye
+* Mike Frysinger
+* Erwin
+* Sven Vermeulen
+* Lars Weiler
+* Tiemo Kieft
+* nightmorph
