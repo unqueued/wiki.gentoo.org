@@ -26,44 +26,40 @@ The primary purpose of this document is to introduce you, Gentoo users, to the N
 == Setting Up Nagios ==
 
 === Installing Nagios ===
+
 Before you start installing Nagios, draw out and decide which system will become your master Nagios system (i.e. where the Nagios software is fully installed upon and where all metrics are stored) and what kind of metrics you want to obtain. You will not install Nagios on every system you want to monitor, but rather install Nagios on the master system and the TODO on the systems you want to receive metrics from. 
 
 Install the Nagios software on your central server: 
+
 {{Emerge|nagios}}
 
 Follow the instructions the ebuild displays at the end of the installation (i.e. adding <code>nagios</code> to your active runlevel, configuring web server read access and more). 
+
 Really. Read it. 
 
-Install plugins on the server as well:
-{{emerge|nagios-plugins}}  {{emerge|nagios-plugins-snmp}}
-
 === Restricting Access to the Nagios Web Interface ===
+
 The Nagios web interface allows for executing commands on the various systems monitored by the Nagios plugins. For this purpose (and also because the metrics can have sensitive information) it is best to restrict access to the interface. 
 
 For this purpose, we introduce two access restrictions: one on IP level (from what systems can a user connect to the interface) and a basic authentication one (using the username / password scheme). 
 
-First, edit {{Path|/etc/apache2/modules.d/99_nagios3.conf}} and edit the <code>allow from</code> definitions: 
+First, edit {{Path|/etc/apache2/modules/99_nagios3.conf}} and edit the <code>allow from</code> definitions: 
 
-{{CodeBox|title=Allow from definitions for Apache <=2.2|1=
+{{Code|Allow from definitions|<pre>
 ## (Example allowing access from the local host and the local network)
 Order allow,deny
 Allow from 127.0.0.1 192.168.1.1/24
-}}
-
-For Apache >=2.4, "Order" and "Allow" as been deprecated and need to be changed for:
-
-{{CodeBox|title=Allow from definitions for Apache >=2.4|1=
-## (Example allowing access from the local host and the local network)
-Require ip 127.0.0.1 192.168.1.1/24
+</pre>
 }}
 
 Next, create an Apache authorization table where you define the users who have access to the interface as well as their authorizations. The authentication definition file is called {{Path|.htaccess}} and contains where the authentication information itself is stored. 
 
-{{CodeBox|title=Example .htaccess file|1=
+{{Code|Example .htaccess file|<pre>
 AuthName "Nagios Access"
 AuthType Basic
 AuthUserFile /etc/nagios/auth.users
 Require valid-user
+</pre>
 }}
 
 Place this file inside the {{Path|/usr/share/nagios/htdocs}} and {{Path|/usr/lib/nagios/cgi-bin}} directories. 
@@ -80,53 +76,59 @@ Once Nagios and its dependencies are installed, fire up Apache and Nagios:
 {{RootCmd|/etc/init.d/nagios start
 |/etc/init.d/apache2 start}}
 
-Next, fire up your browser and connect to [http://localhost/nagios http://localhost/nagios] . Log on as the <code>nagiosadmin</code> user and navigate to the ''Host Detail'' page. You should be able to see the monitoring states for the local system.
+Next, fire up your browser and connect to [http://localhost/nagios http://localhost/nagios] . Log on as the <code>nagiosadmin</code> user and navigate to the ''Host Detail'' page. You should be able to see the monitoring states for the local system. 
 
-== Monitoring nodes ==
-There are various methods available to monitor nodes. 
-# Collect data using {{Path|check_nrpe}} plugin where ''NRPE'' daemon is available on ssh hosts 
+== Installing Client Daemons ==
+
+
+=== Introduction ===
+
+There are various methods available to monitor remote hosts. 
+
+# Use the ''NRPE'' daemon on the remote host and have Nagios communicate to this daemon using the {{Path|check_nrpe}} plugin
 # Use a password-less SSH connection to execute the command remotely
-# Poll hosts with [[SNMP]]
-# Receive SNMP traps send by nodes and create alerts from it.
+# Trap SNMP events and create Nagios alerts from it
 
-Monitoring via NRPE and SNMP are 2 different approaches, a significant difference between NRPE and SNMP monitoring is:
-* configuration of NRPE is more ''node'' focused, where you actually have privileged access to a monitored node, and define there which checks are interesting for your monitoring system, and allow them.
-* configuration of SNMP is more ''server'' focused, f.e. where there is no possibility to configure each node, you get only the SNMP community/SNMP user to a certain device, and configure checks on the server side.
+We focus on using the NRPE method as it is the most popular one and leave the other methods as an interesting excercise. 
 
-=== Using NRPE method ===
+=== Installing NRPE ===
+
 With NRPE, each remote host runs a daemon (the NRPE deamon) which allows the main Nagios system to query for certain metrics. One can run the NRPE daemon by itself or use an inetd program. I'll leave the inetd method as a nice exercise to the reader and give an example for running NRPE by itself. 
 
 First install the NRPE plugin: 
 
-{{Emerge|nrpe}}
+{{Emerge|nagios-nrpe}}
 
-Next, edit {{Path|/etc/nagios/nrpe.cfg}} to allow your main Nagios system to access the NRPE daemon and customize the installation to your liking. Another important change to the {{Path|nrpe.cfg}} file is the list of commands that NRPE supports. For instance, to use <code>nrpe</code> version 2.12 with Nagios 3, you'll need to change the paths from {{Path|/usr/nagios/libexec}} to {{Path|/usr/lib/nagios/plugins}} . Finally, launch the NRPE daemon: 
+Next, edit {{Path|/etc/nagios/nrpe.cfg}} to allow your main Nagios system to access the NRPE daemon and customize the installation to your liking. Another important change to the {{Path|nrpe.cfg}} file is the list of commands that NRPE supports. For instance, to use <code>nagios-nrpe</code> version 2.12 with Nagios 3, you'll need to change the paths from {{Path|/usr/nagios/libexec}} to {{Path|/usr/lib/nagios/plugins}} . Finally, launch the NRPE daemon: 
 
 {{RootCmd|/etc/init.d/nrpe start}}
 
 Finally, we need to configure the main Nagios system to connect to this particular NRPE instance and request the necessary metrics. To introduce you to Nagios' object syntax, our next section will cover this a bit more throroughly. 
 
-==== Configuring a Remote Host ====
+=== Configuring a Remote Host ===
+
 {{Note|The following hands-on tutorial is an example, used to introduce the user to Nagios' object model. Do not see this as the "Best Practice" for configuring Nagios.}}
 
 First, edit {{Path|/etc/nagios/nagios.cfg}} and place a <code>cfg_dir</code> directive. This will tell Nagios to read in all object configuration files in the said directory - in our example, the directory will contain the definitions for remote systems. 
 
-{{FileBox|filename=/etc/nagios/nagios.cfg|1=
+{{Code|Editing /etc/nagios/nagios.cfg|<pre>
 cfg_dir=/etc/nagios/objects/remote
+</pre>
 }}
 
 Create the directory and start with the first file, {{Path|nrpe-command.cfg}} . In this file, we configure a Nagios command called <code>check_nrpe</code> which will be used to trigger a plugin (identified by the placeholder <code>$ARG1$</code> ) on the remote system (identified by the placeholder <code>$HOSTADDRESS$</code> ). The <code>$USER1$</code> variable is a default pointer to the Nagios installation directory (for instance, {{Path|/usr/nagios/libexec}} ). 
 
-{{FileBox|filename=/etc/nagios/objects/remote/nrpe-command.cfg|title=Configuration example 1|1=
+{{RootCmd|nano /etc/nagios/objects/remote/nrpe-command.cfg|output=<pre>
 define command {
   command_name check_nrpe
   command_line $USER1$/check_nrpe -H $HOSTADDRESS$ -c $ARG1$
 }
+</pre>
 }}
 
 Next, create a file {{Path|nrpe-hosts.cfg}} where we define the remote host(s) to monitor. In this example, we define two remote systems: 
 
-{{FileBox|filename=/etc/nagios/objects/remote/nrpe-hosts.cfg|title=Configuration example 2|1=
+{{RootCmd|nano /etc/nagios/objects/remote/nrpe-hosts.cfg|output=<pre>
 define host {
   use linux-server
   host_name webber
@@ -140,11 +142,12 @@ define host {
   alias Gentoo Linux RSync server
   address 192.168.2.2
 }
+</pre>
 }}
 
 Finally, define the service(s) you want to check on these hosts. As a prime example, we run the system load test and disk usage plugins: 
 
-{{FileBox|filename=/etc/nagios/objects/remote/nrpe-services.cfg|title=Configuration example 3|1=
+{{RootCmd|nano /etc/nagios/objects/remote/nrpe-services.cfg|output=<pre>
 define service {
   use generic-service
   host_name webber,isync
@@ -158,11 +161,13 @@ define service {
   service_description Root Partition
   check_command check_nrpe!check_disk
 }
+</pre>
 }}
 
-That's it. If you now check the service details on the Nagions monitoring site you'll see that the remote hosts are connected and are transmitting their monitoring metrics to the Nagios server.
+That's it. If you now check the service details on the Nagions monitoring site you'll see that the remote hosts are connected and are transmitting their monitoring metrics to the Nagios server. 
 
-==== Using Passwordless SSH Connection ====
+=== Using Passwordless SSH Connection ===
+
 Just as we did by creating the <code>check_nrpe</code> command, we can create a command that executes a command remotely through a passwordless SSH connection. We leave this up as an interesting exercise to the reader. 
 
 A few pointers and tips: 
@@ -170,54 +175,15 @@ A few pointers and tips:
 * Make sure the passwordless SSH connection is set up for a dedicated user (definitely not root) - most checks you want to execute do not need root privileges anyway
 * Creating a passwordless SSH key can be accomplished with <code>ssh-keygen</code> , you install a key on the destination system by adding the public key to the {{Path|.ssh/authorized_keys}} file
 
-=== Using SNMP method ===
-With SNMP each node runs a SNMP daemon, not every node will offer SSH and NRPE monitoring, as a example network infrastructure often offers only to monitor via SNMP.
-
-====Configuring nodes====
-Configure SNMP access on remote nodes as explained in [[SNMP]] wiki article.
-Start SNMP daemon on remote node
-{{RootCmd|/etc/init.d/snmpd start}}
-
-====Configuring polling server====
-On server configure {{Path|/etc/nagios/resources.cfg}}, add the '''SNMP community''' used on remote nodes:
-
-{{FileBox|filename=/etc/nagios/resources.cfg|1=
-[...]
-USER161$=my-own-SNMP-community
-[...]
-}}
-
-emerge {{Package|net-analyzer/nagios-plugins}}
-{{Emerge|net-analyzer/nagios-plugins}}
-
-Define a SNMP check for remote hosts, getting the usage of remote hard disk. notice the usage of '''$USER161$''' in that check:
-{{FileBox|filename=/etc/nagios/objects/commands/chec_snmp_disk.cfg|1=
-define command{
-        command_name    check_snmp_disk
-        command_line    $USER1$/check_snmp_disk.pl -H $HOSTADDRESS$ -C $USER161$ -m $ARG1$ -s
-        }
-}}
-
-Test the previously defined check, as nagios user
-{{Note|Don't gather SNMP data as root, not even once, in normal nagios operation it could lead not being able to write temporary files and folders using a SNMP check as user ''nagios''}}
-{{RootCmd|su - nagios}}
-These commands are runs as the '''nagios''' system user:
-{{Cmd|cd /usr/lib/nagios/plugins}}
-Possible output from example host '''gentoo''', showing a WARNING state, the target rootfilesystem '''/''' exceeds the defined warning level '''-w 80'''%, 
-{{Cmd|./check_snmp_disk_monitor.pl -H gentoo -C my-own-SNMP-community -m / -w 80 -c 90|output=<pre>
-Disk WARNING - 85% used on /|/,124223229952,105289957376
-</pre>}}
-
-'''-s''' shows staticstical or sometimes called ''performance data'' which can be used to create MRTG graphs with {{package|net-analyzer/pnp4nagios}} visualizing usage of service parameters over a period of time.
-{{Emerge|net-analyzer/pnp4nagios}}
-
 == More Resources ==
+
 === Adding Gentoo Checks ===
 
 It is quite easy to extend Nagios to include Gentoo-specific checks, such as security checks (GLSAs). Gentoo developer Wolfram Schlich has a <code>check_glsa.sh</code> script [http://dev.gentoo.org/~wschlich/misc/nagios/nagios-plugins-extra/nagios-plugins-extra-4/plugins/ available] amongst others. 
 
-== External resources ==
-*  [http://www.nagios.org the official Nagios website]
-*  [http://www.nagiosexchange.org Nagios Exchange], where you can find Nagios plugins and addons
-*  [http://www.nagiosforge.org Nagios Forge], where developers host Nagios addon projects
-*  [http://docs.pnp4nagios.org/pnp-0.6/start PNP4Nagios official website], to create graphs with collected Nagios data
+=== Nagios Resources ===
+
+*  [http://www.gentoo.org/ http://www.nagios.org] , the official Nagios website
+*  [http://www.gentoo.org/ http://www.nagiosexchange.org] , where you can find Nagios plugins and addons
+*  [http://www.gentoo.org/ http://www.nagiosforge.org] , where developers host Nagios addon projects
+*  [http://www.gentoo.org/ http://www.nagioswiki.org] , for more information and tutorials on Nagios
