@@ -1,32 +1,30 @@
 <languages />
 
-{{Metadata|abstract=Данная статья покажет вам, как анализировать логи системы с помощью программы logcheck.}}
+This guide shows you how to analyze system logs with logcheck.
 
-Это руководство продемонстрирует Вам как анализировать системные лог-файлы с помощью logcheck.
+== Getting Started With logcheck ==
 
-== Начало работы ==
+=== Background ===
 
-=== Основы ===
+<code>logcheck</code> is an updated version of<code>logsentry</code> (from the<code>sentrytools</code> package), which is a tool to analyze the system logs. Additionally,<code>logcheck</code> comes with a built-in database of common, not-interesting log messages to filter out the noise. The general idea of the tool is that all messages are interesting, except the ones explicitly marked as noise.<code>logcheck</code> periodically sends you an e-mail with a summary of interesting messages. 
 
-{{Package|app-admin/logcheck}} - это обновленная версия команды {{Package|app-admin/logsentry}}, которая является инструментом для анализа системных лог-файлов. В дополнение, logcheck поставляется со встроенной базой данных общих, не представляющих интереса лог-сообщений для фильтрации помех. В основу инструмента положена идея что нас интересуют все сообщения, за исключением тех, которые явно помечены как шум. logcheck периодически отсылает Вам e-mail со сводкой интересующих сообщений.
+=== Installing logcheck ===
 
-=== Установка logcheck ===
-
-{{Important/ru|Строго рекомендуется удалить logsentry, если этот пакет уже установлен на Вашу систему. Вдобавок, Вы должны удалить каталог {{Path|/etc/logcheck}}, чтобы избежать проблем с разрешениями и конфликтами между файлами.}}
+{{Important|It is strongly recommended to remove logsentry if you have it installed on your system. Additionally, you should remove /etc/logcheck to avoid permission and file collision problem.}}
 
 {{RootCmd|emerge -c logsentry}}
 
 {{RootCmd|rm -rf /etc/logcheck}}
 
-Теперь Вы можете продолжить с установкой logcheck. 
+Now you can proceed with the installation of logcheck. 
 
 {{Emerge|app-admin/logcheck}}
 
-=== Основная конфигурация ===
+=== Basic configuration ===
 
-{{Package|app-admin/logcheck}} создает отдельного пользователя ''logcheck'' во избежание запуска с правами root. Фактически, он откажется от запуска с правами администратора. Для того, чтобы разрешить этой команде анализ лог-файлов, Вы должны убедиться, что ей разрешен доступ на чтение этих файлов. Ниже приведен пример для {{Package|app-admin/syslog-ng}}: 
+<code>logcheck</code> creates a separate user "logcheck" to avoid running as root. Actually, it will refuse to run as root. To allow it to analyze the logs, you need to make sure they are readable by logcheck. Here is an example for<code>syslog-ng</code> : 
 
-{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|title=/etc/syslog-ng/syslog-ng.conf snippet|1=
+{{Code|/etc/syslog-ng/syslog-ng.conf snippet|<pre>
 options {
         owner(root);
   
@@ -34,9 +32,10 @@ options {
         group(logcheck);
         perm(0640);
 };
+</pre>
 }}
 
-Теперь, перезагрузите конфигурацию и убедитесь, что изменения работают так, как положено. 
+Now reload the configuration and make sure the changes work as expected. 
 
 {{RootCmd|/etc/init.d/syslog-ng reload
 |ls -l /var/log/messages|output=<pre>
@@ -44,45 +43,50 @@ options {
 </pre>
 }}
 
-Вам теперь необходимо отрегулировать несколько базовых настроек logcheck в файле {{Path|/etc/logcheck/logcheck.conf}} . 
+You should now adjust some basic <code>logcheck</code> settings in {{Path|/etc/logcheck/logcheck.conf}} . 
 
-{{FileBox|filename=/etc/logcheck/logcheck.conf|title=Основная настройка /etc/logcheck/logcheck.conf|1=
-# Управление уровнем фильтрации:
-# Может быть установлено в "workstation", "server" или "paranoid" для разных
-# уровней фильтрации. По умолчанию настроено на сервер.
-## (Уровень workstation включает server, а server включает paranoid.
-Уровень paranoid практически не фильтрует сообщения)
+{{Code|Basic /etc/logcheck/logcheck.conf setup|<pre>
+# Controls the level of filtering:
+# Can be Set to "workstation", "server" or "paranoid" for different
+# levels of filtering. Defaults to server if not set.
+## (The workstation level includes server, and server includes paranoid.
+The paranoid level filters almost no messages)
 REPORTLEVEL="server"
   
-# Управление адресом поступления почты:
-# *Замечание* скрипт не устанавливает значение по умолчанию!
-# Должно быть установлено в сторонний адрес "emailaddress@some.domain.tld"
-## (Убедитесь, что Вы можете получить e-mail от logcheck. Тестирование строго рекомендуется.)
+# Controls the address mail goes to:
+# *NOTE* the script does not set a default value for this variable!
+# Should be set to an offsite "emailaddress@some.domain.tld"
+## (Make sure you can receive the logcheck e-mails. Testing is strongly
+recommended)
 SENDMAILTO="root"
   
-# Контроль за исполнением syslog-summary над каждой секцией.
-# Альтернативно, установите в "1" для включения расширенных сводок.
-# СОВЕТ: необходимо установить пакет syslog-summary.
-## (Если Вы получаете много похожих сообщений в лог-файлах, Вы, вероятно, пожелаете установить пакет app-admin/syslog-summary и включить эту настройку)
+# Controls if syslog-summary is run over each section.
+# Alternatively, set to "1" to enable extra summary.
+# HINT: syslog-summary needs to be installed.
+## (If you get a lot of similar messages in the logs, you
+may want to install app-admin/syslog-summary and enable
+this setting)
 SYSLOGSUMMARY=0
+</pre>
 }}
 
-Вам также потребуется сообщить logcheck какие лог-файлы нуждаются в сканировании ( {{Path|/etc/logcheck/logcheck.logfiles}} ). 
+You also have to tell <code>logcheck</code> which log files to scan ( {{Path|/etc/logcheck/logcheck.logfiles}} ). 
 
-{{FileBox|filename=/etc/logcheck/logcheck.logfiles|title=Базовая настройка /etc/logcheck/logcheck.logfiles|1=
-## (Приведен пример для syslog-ng)
+{{Code|Basic /etc/logcheck/logcheck.logfiles setup|<pre>
+## (This is an example for syslog-ng)
 /var/log/messages
+</pre>
 }}
 
-И наконец, запустите задание cron для logcheck. 
+Finally, enable the logcheck cron job. 
 
 {{RootCmd|nano -w /etc/cron.hourly/logcheck.cron}}
 
-{{Note|Чтобы получить больше информации о cron, прочтите [[Cron/ru|статью Cron]].}}
+{{Note|For more information about cron read the [https://wiki.gentoo.org/wiki/Cron Cron Guide] .}}
 
-Поздравляем! Теперь Вы будете регулярно получать важные log-сообщения по email. Пример сообщения выглядит следующим образом: 
+Congratulations! Now you will be regularly getting important log messages by email. An example message looks like this: 
 
-{{CodeBox|title=Пример сообщения logcheck|lang=bash|1=
+{{Code|Example logcheck message|<pre>
 System Events
 =-=-=-=-=-=-=
 Feb 10 17:13:53 localhost kernel: [30233.238342] conftest[25838]: segfault at 40 ip 40061403 sp bfc443c4 error 4
@@ -90,13 +94,14 @@ in libc-2.10.1.so[4003e000+142000]
 Feb 11 12:31:21 localhost postfix/pickup[18704]: fatal: could not find any active network interfaces
 Feb 11 12:31:22 localhost postfix/master[3776]: warning: process //usr/lib/postfix/pickup pid 18704 exit status 1
 Feb 11 12:31:22 localhost postfix/master[3776]: warning: //usr/lib/postfix/pickup: bad command startup -- throttling
+</pre>
 }}
 
-== Устранение проблем ==
+== Troubleshooting ==
 
-=== Общие рекомендации ===
+=== General tips ===
 
-Вы можете использовать параметр <code>-d</code> команды logcheck для отображения дополнительной отладочной информации. Например: 
+You can use the logcheck's <code>-d</code> switch to display more debugging information. Example: 
 
 {{RootCmd|su -s /bin/bash -c '/usr/sbin/logcheck -d' logcheck|output=<pre>
 D: [1281318818] Turning debug mode on
@@ -133,4 +138,10 @@ D: [1281318835] cleanup: Removing - /tmp/logcheck.uIFLqU
 </pre>
 }}
 
-{{Migrated|originalauthors=phajdan.jr, nightmorph}}
+== Acknowledgements ==
+
+We would like to thank the following authors and editors for their contributions to this guide:
+
+
+* phajdan.jr
+* nightmorph
