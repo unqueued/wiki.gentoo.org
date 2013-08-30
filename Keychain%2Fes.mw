@@ -1,177 +1,145 @@
 <languages />
 
-{{Metadata|abstract=Este documento describe cómo utilizar las claves compartidas SSH así como el programa keychain. Asume un conocimiento básico de criptografía de clave pública por parte del lector.}}
+This document describes how to use SSH shared keys along with the keychain program. It assumes basic knowledge of public key cryptography.
 
-<div class="mw-translate-fuzzy">
-Este documento describe cómo usar claves compartidas de SSH
-junto con el programa keychain. Asume un conocimiento básico de
-criptografía con clave pública.
-</div>
+== Background ==
 
-== Conceptos previos ==
+=== The problem at hand ===
 
-=== Descripción del problema ===
+So you have all of these lovely Gentoo machines running <code>sshd</code>, but it's a little inconvenient for you to keep typing in all of those login passwords, right? Or maybe you have a script or cron-job that needs a convenient way to use an ssh connection. Either way, there is a solution to this problem, and it begins with public key authentication. 
 
-Tener que teclear contraseñas para todos y cada uno de los sistemas es bastante pesado, especialmente si se gestionan muchso sistemas. Algunos administradores podrían echar en falta un guión o trabajo programado que necesita una forma adecuada de utilizar una conexión ssh. De cualquier forma, hay una solución a este problema, que comienza con la autenticación mediante clave pública. 
+=== How does public key authentication work? ===
 
-=== ¿Cómo funciona la autenticación con clave pública? ===
+Assume we have a client that wants to connect to sshd on a server. The client first generates a key pair and gives the public key to the server. Afterwards, whenever the client attempts to connect, the server sends a challenge that is encrypted with that public key. Only the holder of the corresponding private key (the client) is able to decrypt it, so as you might have guessed, the correct response leads to successful authentication. 
 
-Asumamos que un cliente quiere conectarse al demonio ssh de un servidor. El cliente, en primer lugar, genera un par de claves y le entrega la clave pública al servidor. Después de esto, cada vez que el cliente intente conectarse, el servidor envía un reto cifrado con la clave pública. Solamente el titular de la correspondiente clave privada (el cliente) puede descifrar el reto, así pues, la respuesta correcta conduce a una autenticación exitosa. 
+== How to use public key authentication ==
 
-== Cómo utilizar la autenticación de clave pública ==
+=== Generating your key pair ===
 
-=== Generar un par de claves ===
+The first step is to create your key pair. To do this, we will use the <code>ssh-keygen</code> command as follows: 
 
-El primer paso consiste en crear un par de claves. Para hacer esto, se usa la orden {{c|ssh-keygen}}: 
+{{Cmd|ssh-keygen -t dsa}}
 
-{{Cmd|ssh-keygen}}
+Just accept the default values, and make sure to enter a strong passphrase.
 
-Acepte los valores por defecto y asegúrese de introducir una
-contraseña (passphrase) robusta.
+{{Warning|Be sure to choose a strong passphrase, especially if this key is used for root logons!}}
 
-{{Warning|Asegúrese de elegir una contraseña robusta, ¡Especialmente si esta clave se va a utilizar para autenticar al usuario root!}}
+You should now have a private key in {{Path|~/.ssh/id_dsa}} and a public key in {{Path|~/.ssh/id_dsa.pub}} . We are ready to copy the public key over to the remote host. 
 
-Una vez haya finalizado la generación, debería aparecer una clave privada en {{Path|~/.ssh/id_rsa}} y una clave pública en {{Path|~/.ssh/id_rsa.pub}}. La clave pública está ahora preparada para copiarse al equipo remoto.
+=== Preparing the server ===
 
-=== Preparar el servidor ===
+We will be copying the {{Path|~/.ssh/id_dsa.pub}} file over to the server that runs sshd. We will also be adding it to the {{Path|~/.ssh/authorized_keys}} file that belongs the connecting user on that server. Here's an example of how to do that if you already have ssh access to the server. 
 
-Se necesita copiar el archivo {{Path|~/.ssh/id_rsa.pub}} al servidor lanzando {{c|sshd}}. Se debe añadir al archivo {{Path|~/.ssh/authorized_keys}} que pertenece al usuario que se conecta al servidor remoto. Una vez se haya concedido acceso {{c|ssh}} al servidor por el personal de infraestructura, se pueden realizar los siguientes pasos para configurar el acceso atuomático usando una clave pública en el servidor remoto:
+{{Cmd|scp ~/.ssh/id_dsa.pub server_user@server:~/myhost.pub
+|ssh server_user@server "cat ~/myhost.pub &gt;&gt; ~/.ssh/authorized_keys"
+|ssh server_user@server "cat ~/.ssh/authorized_keys"}}
 
-{{Cmd|ssh-copy-id usuario_servidor@servidor -i ~/.ssh/id_rsa.pub}}
+The output from that last line should show you the contents of the {{Path|~/.ssh/authorized_keys}} file. Make sure it looks correct. 
 
-{{c|ssh-copy-id}} es un guión envoltorio para realizar estos pasos. Si no se dispone de este guión, entonces se puede serguir estos pasos:
+=== Testing the setup ===
 
-{{Cmd|scp ~/.ssh/id_rsa.pub usuario_del_servidor@servidor:~/miequipo.pub |ssh usuario_del_servidor@servidor "cat ~/miequipo.pub &gt;&gt; ~/.ssh/authorized_keys" |ssh usuario_del_servidor@servidor "cat ~/.ssh/authorized_keys"}}
+Theoretically, if all went well, and the ssh daemon on the server allows it, we should be able to get ssh access without a password on the server now. We will still need to decrypt the private key on the client with the passphrase we used before, but this should not be confused with the passphrase of the user account on the server. 
 
-La salida de la última línea debería mostrar el contenido del fichero {{Path|~/.ssh/authorized_keys}}. Asegúrese de que la salida es correcta.
+{{Cmd|ssh server_user@server}}
 
-=== Probar la configuración ===
+Hopefully, it asked you for your passphrase for id_dsa, and you were able to gain ssh access as server_user on the server. If not, login as server_user, and verify the contents of {{Path|~/.ssh/authorized_keys}} to make sure each entry is on a single line. You might also want to check the sshd configuration to make sure that it prefers to use public key authorization when available. 
 
-Teóricamente, si todo ha ido bien y el demonio {{c|ssh}} del servidor lo permite (ya que esto se puede configurar), debería obtener acceso {{c|ssh}} al servidor sin tener que introducir la contraseña. Todavía hace falta descifrar la clave privada en el cliente con la contraseña establecida anteriormente, pero no se debe confundir esto con la contraseña de la cuenta del usuario en el servidor.
+At this point, you're probably thinking, "What's the point, I just replaced one password with another?!" Relax, the next section will show you exactly how we can use this to save your precious time. 
 
-{{Cmd|ssh <usuario_del_servidor>@<servidor>}}
+== Making public key authentication convenient ==
 
-Se debería haber pedido una contraseña para {{Path|id_rsa}}, y entonces conceder el acceso vía {{c|ssh}} como el usuario <code><usuario_del_servidor></code> al servidor. Si no es así, entre como <code><usuario_del_servidor></code>, y verifique que el contenido de {{Path|~/.ssh/authorized_keys}} tiene todas las entradas (que representan una clave pública) en una sola línea. También es una buena idea comprobar la configuración de sshd para asegurarse que permite la autorización mediante clave pública cuando está disponible.
+=== Typical key management with ssh-agent ===
 
-En este momento, el lector podría estar pensando "¿Cuál es la gracia? ¡Solo he cambiado una contraseña por otra!" Relájese, en la siguiente sección se muestra exactamente como podemos utilizar esto para introducir la contraseña una vez y reutilizarla (descifrada) varias veces para realizar múltiples accesos.
+If you've been following along, you're probably thinking that it would be great if we could somehow decrypt our private key(s) once, and gain the ability to ssh freely, without any passwords. You are in luck, that is exactly what the program <code>ssh-agent</code> is for. 
 
-== Hacer que la autenticación por clave pública merezca la pena ==
-
-=== Gestión típica de claves con ssh-agent ===
-
-El siguiente paso es descifrar la(s) clave(s) privada(s) una sola vez y así poder usar ssh libremente sin más
-contraseñas. Eso es exactamente para lo que sirve el programa {{c|ssh-agent}}. 
-
-<div class="mw-translate-fuzzy">
-{{c|ssh-agent}} normalmente se inicia al comienzo de la sesión X, o al iniciar una sesión con un guión como {{Path|~/.bash_profile}}. Para funcionar, crea un zócalo (socket) unix y registra las variables de entorno adecuadas para que cualquier aplicación posterior pueda aprovechar sus servicios al conectarse a este zócalo. Por supuesto, solo tiene sentido ejecutarlo en el proceso padre de una sesión X si desea usar las claves privadas descifradas en las aplicaciones X posteriores.
-</div> 
+The program <code>ssh-agent</code> is usually started at the beginning of your X session, or from a shell startup script like {{Path|~/.bash_profile}} . It works by creating a unix-socket, and registering the appropriate environment variables so that all subsequent applications can take advantage of it's services by connecting to that socket. Clearly, it only makes sense to start it in the parent process of your X session if you want to use the set of decrypted private keys in all subsequent X applications. 
 
 {{Cmd|eval `ssh-agent`}}
 
-{{Note|Este {{c|ssh-agent}} mantendrá las claves descifradas hasta que acabe con el proceso. Si desea establecer un límite de tiempo de vida para las claves, se usa el argumento <code>-t</code> tal y como se describe en {{c|man ssh-agent}}.}}
+{{Note|This ssh-agent will keep keys decrypted until you kill ssh-agent. If you want to set a lifetime for the keys, use the -t argument as described in <code>man ssh-agent</code> .}}
 
-<div class="mw-translate-fuzzy">
-Cuando se corre {{c|ssh-agent}}, se debería motrar el  identificador del proceso (PID) además de establecer valores para algunas variables de entorno, en particular, <var>SSH_AUTH_SOCK</var> y <var>SSH_AGENT_PID</var>. Debería también agregar automáticamente {{Path|~/.ssh/ir_dsa}} a su colección y pedirle al usuario la correspondiente contraseña. Si se tienen otras claves privadas que se quieran agregar al ssh-agent que está corriendo, se puede utilizar la orden {{c|ssh-add}} de la siguiente forma:
-</div> 
+When you run ssh-agent, it should tell you the PID of the running ssh-agent, and also set a few environment variables, namely <code>SSH_AUTH_SOCK</code> and <code>SSH_AGENT_PID</code> . It should also automatically add {{Path|~/.ssh/id_dsa}} to it's collection and ask you for the corresponding passphrase. If you have other private keys you want to add to the running ssh-agent, you can use the <code>ssh-add</code> command as follows: 
 
-{{Cmd|ssh-add algun_fichero_de_claves}}
+{{Cmd|ssh-add somekeyfile}}
 
-Ahora viene la magia. Con la clave privada descifrada, podrá acceder al servidor (configurado para utilizar clave pública) mediante ssh sin teclear contraseña alguna: 
+Now for the magic. Since you should now have your decrypted private key ready, you should be able to ssh into the server without entering any passwords. 
 
 {{Cmd|ssh server}}
 
-Para apagar ssh-agent (y de este modo se solicitará la contraseña de nuevo más tarde):
+It would be nice to know how to shut down ssh-agent in case you need to, right? 
 
 {{Cmd|ssh-agent -k}}
 
-{{Note|Es posible tener varios procesos {{c|ssh-agent}} corriendo, especialmente cuando la configuración inicial necesitó mucho esfuerzo y varias pruebas. Estos procesos se pueden matar igual que cualquier otro proceso lanzando {{c|killall ssh-agent}}.}}
+{{Note|If you had problems getting ssh-agent to work, it might still be running. You can kill it like any other process by running <code>killall ssh-agent</code> .}}
 
-Para tener más comodidad al utilizar ssh-agent, proceda a la siguiente sección sobre el uso de keychain. Asegúrese de acabar con el ssh-agent que está corriendo ya que keychain gestiona el mismo la sesiones de {{c|ssh-agent}}.
+If you want even more convenience from ssh-agent, proceed to the next section on using keychain. Be sure to kill the running ssh-agent as in the example above if you decide to do so.
 
-=== Sacar hasta la última gota de comodidad de ssh-agent ===
+=== Squeezing the last drop of convenience out of ssh-agent ===
 
-Keychain permitirá reutilizar un ssh-agent entre un acceso y otro y opcionalmente, le pedirá la contraseña cada vez que el usuario acceda. Se debe hacer emerge en primer lugar:
+Keychain will allow you to reuse an ssh-agent between logins, and optionally prompt for passphrases each time the user logs in. Before we get ahead of ourselves though, let's emerge it first. 
 
-{{Emerge|net-misc/keychain}}
+{{Emerge|keychain}}
 
-Asumiendo que no hubo problemas, se puede ahora utilizar {{c|keychain}}. Agregue lo siguiente al archivo {{Path|~/.bash_profile}} para habilitarlo: 
+Assuming that was successful, we can now use keychain freely. Add the following to your {{Path|~/.bash_profile}} to enable it: 
 
-<div class="mw-translate-fuzzy">
-{{CodeBox|title=Habilitar keychain en .bash_profile|<pre> 
-keychain ~/.ssh/ir_dsa
+{{Code|Enabling keychain in .bash_profile|<pre>
+keychain ~/.ssh/id_dsa
 . ~/.keychain/$HOSTNAME-sh
 . ~/.keychain/$HOSTNAME-sh-gpg
 </pre>
 }}
-</div>
 
-{{Note|Si se desea, se pueden agregar más claves privadas a la línea de la orden. Además, si se quiere solicitar la contraseña cada vez que inicie un intérprete de órdenes, agregue la opción <code>--clear</code>.}}
+{{Note|You can add more private keys to the command line as you desire. Also, if you want it to ask for passphrases each time you spawn a shell, add the --clear option.}}
 
-{{Note|Cuándo no se esté usando bash, revise la sección '''EXAMPLES''' de {{c|man keychain}} para ver ejemplos de cómo usarlo con otros intérpretes de órdenes. La idea es que estas órdenes se ejecuten cada vez que se utilice un intérprete de órdenes.}}
+{{Note|If you are not using bash, check the '''EXAMPLES''' section of <code>man keychain</code> for examples of use in other shells. The idea is to get those commands to run each time you use a shell.}}
 
-Ahora se puede probar. En primer lugar asegúrese de que ha acabado con los ssh-agent iniciados en la sección anterior. A continuación iniciamos un nuevo intérprete de órdenes, normalmente accediendo a nuestro sistema o abriendo un nuevo terminal. Debería pedir la contraseña para cada clave especificada en la línea de la orden. Todos los intérpretes de órdenes que se abran a partir de este momento deberían reutilizar el ssh-agent, permitiéndole realizar conexiones ssh sin utilizar contraseña una y otra vez.
+Let's test it. First make sure we killed the ssh-agent from the previous section, then start up a new shell, usually by just logging in, or spawning a new terminal. It should prompt you for the password for each key you specified on the command line. All shells opened after that point should reuse the ssh-agent, allowing you to make passwordless ssh connections over and over. 
 
-=== Usar keychain con Plasma 5 ===
+=== Using keychain with KDE ===
 
-<div class="mw-translate-fuzzy">
-Los usuarios de Plasma 5, en lugar de utilizar {{Path|~/.bash_profile}}, pueden dejar a Plasma 5 que se encargue del ssh-agent. Para ello, tendrán que editar el fichero {{Path|/etc/plasma/startup/agent-startup.sh}}, que se lee durante el inicio de Plasma, y el fichero {{Path|/etc/plasma/shutdown/10-agent-shutdown.sh}}, que se ejecuta durante su apagado. A continuación se muestra como podrían editarse estos ficheros:
-</div> 
+If you are a KDE user, instead of using {{Path|~/.bash_profile}} , you can let KDE manage ssh-agent for you. In order to do so, you will have to edit {{Path|/etc/kde/agent-startup.sh}} , which is read during KDE's startup, and {{Path|/etc/kde/shutdown/agent-shutdown.sh}} , which is executed during KDE's shutdown. Here is how you could edit those files: 
 
-<div class="mw-translate-fuzzy">
-{{CodeBox|title=Editar /etc/plasma/startup/10-agent-startup.sh|1=
-SSH_AGENT=true
+{{Code|Editing /etc/kde/agent-startup.sh|<pre>
+if [ -x /usr/bin/ssh-agent ]; then
+  eval "$(/usr/bin/ssh-agent -s)"
+fi
+</pre>
 }}
-</div>
 
-<div class="mw-translate-fuzzy">
-{{CodeBox|title=Editar /etc/plasma/shutdown/10-agent-shutdown.sh|1=
+{{Code|Editing /etc/kde/shutdown/agent-shutdown.sh|<pre>
 if [ -n "${SSH_AGENT_PID}" ]; then
   eval "$(ssh-agent -k)"
-fi}}
-</div>
-
-Ahora, todo lo que se tiene que hacer es lanzar el terminal que se desee, por ejemplo, {{Package|kde-apps/konsole}} y cargar el conjunto de claves apropiadas que se van a utilizar. Por ejemplo: 
-
-{{Cmd|keychain ~/.ssh/id_rsa}}
-
-<div class="mw-translate-fuzzy">
-Se recordarán las claves hasta que finalice la sesión Plasma (o hasta que se termine con el proceso ssh-agent de forma manual).
-</div>
-
-==== Alternatively use KWallet with kde-plasma/ksshaskpass under Plasma 5 ====
-
-You can also have Plasma automatically ask you for your passphrase upon desktop login.  Emerge kde-plasma/ksshaskpass, which will set up an environment variable to use the ksshaskpass application whenever ssh-add is run outside of a terminal.  Then create a script as follows, and install it via the Plasma -> System Settings -> Startup and Shutdown -> Autostart.
-
-{{FileBox|title=Create ssh.sh script|filename=~/ssh.sh|lang=bash|1=
-#!/bin/sh
-ssh-add < /dev/null
+fi
+</pre>
 }}
-{{Note|Recent versions of plasma seem to require autostart scripts to have user-only permissions.  You may need to <code>chmod 700 ssh.sh</code> before adding the script via the Autostart GUI}}
 
-=== Usar keychain con Plasma 4 ===
+Now, all you have to do is launch a term of your choice, like Konsole, and load the keys you would like to use. For example: 
 
-Al igual que arriba para Plasma 5 pero reemplazando {{Path|/etc/plasma}} por {{Path|/etc/kde}}.
+{{Cmd|keychain ~/.ssh/id_dsa}}
 
-== Comentarios finales ==
+Your keys will be remembered until you end your KDE session or kill the ssh-agent manually. 
 
-=== Consideraciones sobre la seguridad ===
+== Concluding remarks ==
 
-Por supuesto, el uso de ssh-agent puede añadir un poco de inseguridad al sistema. Si otro usuario obtiene acceso al intérprete de órdenes, podría acceder a todos los servidores sin utilizar contraseña alguna. Por tanto, esto es una amenaza para los servidores a los cuales se conecta, por lo que se debería consultar la directriz de seguridad local (si existe alguna). Asegúrese de tomar las medidas apropiadas para asegurar todas las sesiones. 
+=== Security considerations ===
 
-=== Solución de problemas ===
+Of course, the use of ssh-agent may add a bit of insecurity to your system. If another user were to use your shell while you were in the bathroom, he could login to all of your servers without passwords. As a result, it is a risk to the servers you are connecting to, and you should be sure to consult the local security policy. If you do use it, be sure to take the appropriate measures to ensure the security of your sessions. 
 
-La mayor parte de esto debería funcionar correctamente, pero si aparecen los problemas, se puede buscar la solución en los siguientes documentos. 
+=== Troubleshooting ===
 
-* Si al conectar con {{c|ssh-agent}} las cosas no parecen funcionar, se puede considerar el uso de ssh con las opciones <code>-vvv</code> para averiguar qué puede estar sucediendo. A veces es servidor no está configurado para usar autenticación con clave pública, ¡Incluso a veces está configurado para solicitar las claves locales!. Si este es el caso, intente utilizar la opción <code>-o</code> con {{c|ssh}} o cambie el fichero {{Path|sshd_config}} del servidor.
-* Si al conectar con {{c|ssh-agent}} o {{c|keychain}} las cosas no parecen funcionar, entonces puede ocurrir que el intérprete de órdenes actual no comprenda las órdenes utilizadas. Consulte las páginas del manual de ssh-agent y keychain para obtener detalles sobre su funcionamiento en otros intérpretes de órdenes.
+Most of this should work pretty well, but if you encounter problems, you'll certainly want to know a few useful things. 
 
-== Recursos externos ==
+* If you are unable to connect without ssh-agent, consider using ssh with the arguments -vvv to find out what's happening. Sometimes the server is not configured to use public key authentication, sometimes it is configured to ask for local passwords anyway! If that is the case, you may want to also use the -o option with ssh, or change the server sshd_config.
+* If you are having problems with ssh-agent or keychain, it may be that you are not using a shell that understands the commands they use. Consult the man pages for ssh-agent and keychain for details on working with other shells.
+* You may also want to visit the [https://github.com/funtoo/keychain keychain homepage] for more usage tips.
 
-* [http://www.funtoo.org/Keychain La página oficial del proyecto Keychain] en Funtoo.org
-* [http://www.funtoo.org/OpenSSH_Key_Management,_Part_1 Series de artículos de IBM developerWorks] que presentan los conceptos detrás de Keychain
+== Acknowledgements ==
+
+We would like to thank the following authors and editors for their contributions to this guide:
 
 
-{{Migrated|originalauthors=Eric Brown, Marcelo Goes, {{Dev|nightmorph}}}}
+* Eric Brown
+* Marcelo Goes
+* nightmorph
 
-[[Category:Server and Security]] 
-[[Category:SSH]]
+[[Category:Server and Security]]
