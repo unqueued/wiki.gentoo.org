@@ -3,89 +3,66 @@ Since Linux kernel version 3.7 onwards, support has been added for signed kernel
 == Enabling module signature verification ==
 
 Enabling support is a matter of toggling a few settings in the Linux kernel configuration. Unless you want to use your own keypair, this is all that has to be done to enable kernel module support.
-It must also be noted that a change of file structure occurred in kernel version 4.3.3. So from this version and above the certificates and a sign files used to manually sign modules has moved into: {{Path|/usr/src/linux/certs/}}
-Also the sign-file perl script is now directly executable in later kernel versions and does not require you to execute the {{c|perl}} command. Adjust the installation and setup methods accordingly to the kernel version that will be used.
 
 === Configuring module signature verification ===
 
 Module signature verification is a kernel feature, so has to be enabled through the Linux kernel configuration. You can find the necessary options under ''Enable loadable module support''.
 
-{{KernelBox|title=Enable module signature verification|1=
+{{Kernel|Enable module signature verification|<pre>
 --- Enable loadable module support
 [*]   Module signature verification
 [*]     Require modules to be validly signed
 [*]     Automatically sign all modules
       Which hash algorithm should modules be signed with? (Sign modules with SHA-512) --->
-}}
+</pre>}}
 
-The option ''Module signature verification'' (<var>CONFIG_MODULE_SIG</var>) enables the module signature verification in the Linux kernel. It supports two approaches on signed module support: a rather permissive one and a strict one. By default, the permissive approach is used, which means that the Linux kernel module either has to have a valid signature, or no signature. With the strict approach, a valid signature must be present. In the above example, the strict approach is used by selecting ''Require modules to be validly signed'' (<var>CONFIG_MODULE_SIG_FORCE</var>). Another way of enabling this strict approach is to set the kernel boot option <code>module.sig_enforce=1</code>.
+The option ''Module signature verification'' (CONFIG_MODULE_SIG) enables the module signature verification in the Linux kernel. It supports two approaches on signed module support: a rather permissive one and a strict one. By default, the permissive approach is used, which means that the Linux kernel module either has to have a valid signature, or no signature. With the strict approach, a valid signature must be present. In the above example, the strict approach is used by selecting ''Require modules to be validly signed'' (CONFIG_MODULE_SIG_FORCE). Another way of enabling this strict approach is to set the kernel boot option <code>enforcemodulesig=1</code>.
 
-When building the Linux kernel, the kernel modules will not be signed automatically unless you select ''Automatically sign all modules'' (<var>CONFIG_MODULE_SIG_ALL</var>).
+When building the Linux kernel, the kernel modules will not be signed automatically unless you select ''Automatically sign all modules'' (CONFIG_MODULE_SIG_ALL).
 
 Finally, we need to select the hash algorithm to use with the cryptographic signature. In the above example, we use SHA-512.
 
 === Building the kernel with proper keys ===
 
-When the Linux kernel is building with module signature verification support enabled, then you can use your own keys or have the Linux kernel build infrastructure create a set for you. If you want the Linux kernel build infrastructure to create it for you, just continue as you always do with a {{c|make}} and {{c|make modules_install}}. At the end of the build process, you will notice that {{Path|signing_key.priv}} ({{Path|/certs/signing_key.pem}} in kernel 4.3.3 or higher) and {{Path|signing_key.x509}} will be available on the root of the Linux kernel sources.
+When the Linux kernel is building with module signature verification support enabled, then you can use your own keys or have the Linux kernel build infrastructure create a set for you. If you want the Linux kernel build infrastructure to create it for you, just continue as you always do with a <code>make</code> and <code>make modules_install</code>. At the end of the build process, you will notice that {{Path|signing_key.priv}} and {{Path|signing_key.x509}} will be available on the root of the Linux kernel sources.
 
-If we want to use our own keys, you can use {{c|openssl}} to create a key pair (private key and public key). The following command, taken from {{Path|kernel/Makefile}}, creates such a key pair.
+If we want to use our own keys, you can use <code>openssl</code> to create a key pair (private key and public key). The following command, taken from {{Path|kernel/Makefile}}, creates such a key pair.
 
-Note: For kernels 4.3.3 and above x509.genkey is located in:
-
-<code>{{Path|/usr/src/linux/certs/x509.genkey}}</code>
-
-{{FileBox|filename=x509.genkey|title=Key generation configuration file|lang=ini|1=
+{{File|x509.genkey|Key generation configuration file|<pre>
 [ req ]
 default_bits = 4096
 distinguished_name = req_distinguished_name
 prompt = no
 string_mask = utf8only
 x509_extensions = myexts
-
+  
 [ req_distinguished_name ]
-CN = Modules
-
+O = GenFic
+CN = Kernel Signing Key
+emailAddress = server.support@genfic.com
+  
 [ myexts ]
 basicConstraints=critical,CA:FALSE
 keyUsage=digitalSignature
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid
-}}
+</pre>}}
 
-{{Cmd|openssl req -new -nodes -utf8 -sha512 -days 36500 -batch -x509 -config x509.genkey -outform DER -out signing_key.x509 -keyout signing_key.priv}} ({{Path|/certs/signing_key.pem}} in kernel 4.3.3 or higher)
+{{Cmd|openssl req -new -nodes -utf8 -sha512 -days 36500 -batch -x509 -config x509.genkey -outform DER -out signing_key.x509 -keyout signing_key.priv}}
 
-The resulting files need to be stored as {{Path|signing_key.x509}} and {{Path|signing_key.priv}} ({{Path|/certs/signing_key.pem}} in kernel 4.3.3 or higher) in the root of the Linux kernel source tree.
+The resulting files need to be stored as {{Path|signing_key.x509}} and {{Path|signing_key.priv}} in the root of the Linux kernel source tree.
 
-The public key part will be build inside the Linux kernel. If you configured the kernel to sign modules, this signing will take place during the {{c|make modules_install}} part.
+The public key part will be build inside the Linux kernel. If you configured the kernel to sign modules, this signing will take place during the <code>make modules_install</code> part.
 
 === Validating module signature support ===
 
-Reboot with the newly configured kernel. In the output of {{c|dmesg}} you should be able to confirm that the proper certificate is loaded:
+Reboot with the newly configured kernel. In the output of <code>dmesg</code> you should be able to confirm that the proper certificate is loaded:
 
-{{RootCmd|dmesg {{!}} grep -i 'x.*509'|output=<pre>
-[    1.279874] Asymmetric key parser 'x509' registered
-[    1.286431] Loading compiled-in X.509 certificates
-[    1.292031] Loaded X.509 cert 'Modules: b03b5edb5700f9d5d785eb2d6f3e19d34a20205b'
+{{Cmd|dmesg {{!}} grep MODSIGN|output=<pre>
+[    2.450021] MODSIGN: Loaded cert 'GenFic: Kernel Signing Key: b923a5f44eae25bbad52c8bf2742e7b7e6fb0c0e'
 </pre>}}
 
-If <var>CONFIG_KEYS_DEBUG_PROC_KEYS</var> is enabled, then root user can view certificate in {{Path|/proc/keys}} file:
-
-{{RootCmd|cat /proc/keys|output=<pre>
-011aee9c I------     1 perm 1f030000     0     0 asymmetri Modules: b03b5edb5700f9d5d785eb2d6f3e19d34a20205b: X509.RSA 4a20205b []
-0b5726c7 I--Q---     1 perm 1f3f0000     0 65534 keyring   _uid_ses.0: 1
-0b6539f7 I------     1 perm 1f0b0000     0     0 keyring   .system_keyring: 1
-3b688504 I--Q---     2 perm 1f3f0000     0 65534 keyring   _uid.0: empty
-</pre>}}
-
-{{c|modinfo}} should display same key:
-
-{{Cmd|modinfo usbcore {{!}} grep '^sig'|output=<pre>
-signer:         Modules
-sig_key:        B0:3B:5E:DB:57:00:F9:D5:D7:85:EB:2D:6F:3E:19:D3:4A:20:20:5B
-sig_hashalgo:   sha512
-</pre>}}
-
-The kernel modules have the digital signature appended at the end. A simple {{c|hexdump}} can confirm if a signature is present or not:
+The kernel modules have the digital signature appended at the end. A simple <code>hexdump</code> can confirm if a signature is present or not:
 
 {{Cmd|hexdump -C vxlan.ko {{!}} tail|output=<pre>
 00008880  cf 0e e7 cb 10 9e 98 5f  4b 21 d4 03 ba 3d 7e e7  |......._K!...=~.|
@@ -102,7 +79,7 @@ The kernel modules have the digital signature appended at the end. A simple {{c|
 
 The string <code>~Module signature appended~</code> at the end confirms that ''a signature'' is present. Of course, it does not confirm that the signature is valid or not.
 
-To remove the signature, we can use the {{c|strip}} command:
+To remove the signature, we can use the <code>strip</code> command:
 
 {{RootCmd|strip --strip-debug vxlan.ko
 |hexdump -C vxlan.ko {{!}} tail|output=<pre>
@@ -132,42 +109,25 @@ Once the kernel boots and we have validated that the signed kernel module suppor
 
 === Protecting the private key ===
 
-The private key, stored as {{Path|signing_key.priv}} ({{Path|/certs/signing_key.pem}} in kernel 4.3.3 or higher), needs to be moved to a secure location (unless you will be creating new keys for new kernels, in which case the file can be removed). Do not keep it at {{Path|/usr/src/linux}} on production systems as malware can then easily use this key to sign the malicious kernel modules (such as rootkits) and compromise the system further.
-
-The best way to do this is to move the key to a USB stick that you will unplug from your computer after it has been moved. That way if you update a driver such asd you graphics drivers which do not require a kernel re-compile you can insert the USB stick for that moment to sign your driver modules and unplug it after you have done so.
-
-Other methods include technology such as a TPM yet these are not favored by many as the TPM module is burnt from manufacture with a key that the manufacturer has control over.
+The private key, stored as {{Path|signing_key.priv}}, needs to be moved to a secure location (unless you will be creating new keys for new kernels, in which case the file can be removed). Do not keep it at {{Path|/usr/src/linux}} on production systems as malware can then easily use this key to sign the malicious kernel modules (such as rootkits) and compromise the system further.
 
 === Manually signing modules ===
 
 If you ever need to manually sign a kernel module, you can use the {{Path|scripts/sign-file}} script available in the Linux kernel source tree. It requires four arguments:
 
-# The hash algorithm to use, such as {{c|sha512}}.
-# The private key location.
-# The certificate (which includes the public key) location.
-# The kernel module to sign.
+# The hash algorithm to use, such as <code>sha512</code>
+# The private key location
+# The certificate (which includes the public key) location
+# The kernel module to sign
 
 In this case, the key pair does not need to be named {{Path|signing_file.priv}} and such, nor do they need to be in the root of the Linux kernel source tree location.
 
-{{RootCmd|perl /usr/src/linux/scripts/sign-file sha512 /usr/src/linux/kernel-signkey.priv /usr/src/linux/kernel-signkey.x509 vxlan.ko}}
-
-For Kernel 4.3.3 or higher the perl script is no more. <code>"sign-file"</code> is an executable and its usage is as shown bellow, Note how the perl has been removed from the beginning of the command.
-The location of the certificates have also moved from the root source directory {{Path|/usr/src/linux}} to the {{Path|/usr/src/linux/certs}} directory and now uses {{Path|signing-key.pem}} instead of {{Path|signing-key.priv}}.
-
-See command bellow:
-
-{{RootCmd|/usr/src/linux/scripts/sign-file sha512 /usr/src/linux/certs/signing_key.pem /usr/src/linux/certs/signing_key.x509 vxlan.ko}}
-
-Using the command for kernels prior to kernel version 4.3.3 on kernels after this version will produce error:
-
-{{RootCmd|Unrecognized character \ ; marked by <-- HERE after <-- HERE near column 1 at /usr/src/linux/scripts/sign-file line 1.}}
+{{Cmd|perl /usr/src/linux/scripts/sign-file sha512 /mnt/sdcard/kernel-signkey.priv /mnt/sdcard/kernel-signkey.x509 vxlan.ko}}
 
 === Distributing the kernel and modules ===
 
-If we create a kernel package through {{c|make tarbz2-pkg}}, the modules in it will be signed already so we do not need to manually sign them afterwards. The signing keys themselves are not distributed with it.
+If we create a kernel package through <code>make tarbz2-pkg</code>, the modules in it will be signed already so we do not need to manually sign them afterwards. The signing keys themselves are not distributed with it.
 
-== External resources ==
+== More resources ==
 
-* [http://www.kroah.com/log/blog/2013/09/02/booting-a-self-signed-linux-kernel/ Booting a self-signed Linux kernel] - Greg Kroah-Hartman describes how to boot a self-signed Linux kernel from EFI. As having signed kernel module support is only secure if the Linux kernel is trusted, this is an important (and related) feature to work with.
-
-[[Category:Server and Security]] [[Category:Kernel]]
+In [http://www.kroah.com/log/blog/2013/09/02/booting-a-self-signed-linux-kernel/ Booting a self-signed Linux kernel] Greg Kroah-Hartman describes how to boot a self-signed Linux kernel from EFI. As having signed kernel module support is only secure if the Linux kernel is trusted, this is an important (and related) feature to work with.
