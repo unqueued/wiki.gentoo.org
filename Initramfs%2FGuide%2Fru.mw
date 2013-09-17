@@ -1,160 +1,163 @@
 <languages />
 
 
-<div class="mw-translate-fuzzy">
-{{Metadata|abstract=Все больше и больше систем требуют initramfs для правильной загрузки. В этом руководстве мы займемся рассмотрением основных понятий initramfs, в том числе и того, как должным образом создать и управлять initramfs на отдельных примерах.}}
-</div>
+More and more systems require an initramfs to boot up properly. In this guide, we tackle the concepts of the initramfs as well as how to properly create and manage initramfs instances.
 
-<div class="mw-translate-fuzzy">
-Все больше и больше систем требуют '''initramfs''' для правильной загрузки. В этом руководстве будет рассмотрены основные понятия initramfs, а также как правильно создать и управлять initramfs на отдельных примерах.
-</div>
+== Initramfs concepts ==
 
-== Основные понятия initramfs ==
+=== Introduction ===
 
-=== Введение ===
+For many users, an initramfs system is of no concern. Their system uses a simple partitioning schema with no exotic drivers or setups (like encrypted file systems), so the Linux kernel is well able to hand over control to the <code>init</code> binary on their system. But for many systems, an initramfs is almost mandatory. 
 
-Для большинства пользователей initramfs не является чем-то необходимым. Их система использует простую схему разбиения жесткого диска без экзотических драйверов или установок (таких как зашифрованные файловые системы), поэтому ядро Linux вполне способно передать управление двоичному файлу {{c|init}} на их системе. Но для большинства систем, использование initramfs почти обязательно. 
+The key concept to understanding what an initramfs is (or is needed for) is to understand how the Linux boot process works, even in a high-level approach. 
 
-Основной ключ к пониманию того, чем является initramfs (или для чего она необходима) - это понимание того, как работает процесс загрузки Linux, даже в достаточно высокоуровневом подходе. 
+=== Linux boot process ===
 
-=== Процесс загрузки Linux ===
+Once the Linux kernel has control over the system (which it gets after being loaded by the boot loader), it prepares its memory structures and drivers as well as it can. It then hands over control to an application (usually <code>init</code>) whose task it is to further prepare the system and make sure that, at the end of the boot process, all necessary services are running and the user is able to log on. The <code>init</code> application does that by launching, among other services, the <code>udev</code> daemon who will further load up and prepare the system based on the detected devices. When <code>udev</code> is launched, all remaining file systems that have not been mounted are mounted, and the remainder of services is started. 
 
-Как только ядро Linux получает контроль над системой (который был передан ему после загрузки загрузчиком), оно подготавливает свои области памяти и драйвера. Затем оно передает управление приложению (обычно {{c|init}}), чьей задачей является дальнейшая подготовка системы и проверка того, что в конце процесса загрузки, все необходимые сервисы запущены и пользователь способен войти в систему. Приложение {{c|init}} делает это с помощью запуска, в числе прочих сервисов, демона {{c|udev}}, который далее загружает и подготавливает систему, основываясь на обнаруженных устройствах. Когда {{c|udev}} запущен, все оставшиеся файловые системы, которые не были примонтированы, монтируются, и запускаются остальные сервисы. 
+For systems where all necessary files and tools reside on the same file system, the <code>init</code> application can perfectly control the further boot process. But when multiple file systems are defined (or more exotic installations are done), this might become a bit more tricky: 
 
-Для систем, где все необходимые файлы и инструменты располагаются на той же самой файловой системе, приложение {{c|init}} может в совершенстве управлять дальнейшим процессом загрузки. Но когда определены множественные файловые системы (или в случае более неординарных установок), этот процесс может стать немного более усложненным: 
+* When the {{Path|/usr}} partition is on a separate file system, tools and drivers that have files stored within {{Path|/usr}} cannot be used unless {{Path|/usr}} is available. If those tools are needed to make {{Path|/usr}} available, then we cannot boot up the system.
 
-* В случае, когда раздел {{Path|/usr}} размещается на отдельной файловой системе, инструменты и драйвера, чьи файлы хранятся на {{Path|/usr}} не могут использоваться, пока раздел {{Path|/usr}} не станет доступным. Если эти инструменты требуются для предоставления доступа к разделу {{Path|/usr}}, то мы не сможем загрузить систему.
+* If the root file system is encrypted, then the Linux kernel will not be able to find the <code>init</code> application, resulting in an unbootable system.
 
-* Если файловая система root зашифрована, то ядро Linux не сможет найти приложение {{c|init}} и это приведет к тому что система не сможет загрузиться.
+The solution for this problem has since long been to use an ''initrd'' (initial root device). 
 
-С давних пор решением для этой проблемы является использование "initrd" (initial root device). 
+=== The initial root disk ===
 
-=== Корневой диск для начальной инициализации (initial root disk) ===
+The ''initrd'' is an in-memory disk structure (ramdisk) that contains the necessary tools and scripts to mount the needed file systems before control is handed over to the <code>init</code> application on the root file system. The Linux kernel triggers the setup script (usually called <code>linuxrc</code> but that is not mandatory) on this root disk, which prepares the system, switches to the real root file system and then calls <code>init</code>. 
 
-'''initrd''' — это дисковая структура в оперативной памяти (ramdisk), которая содержит необходимые инструменты и скрипты для монтирования требуемых файловых систем ''перед'' тем как управление передается приложению {{c|init}} на корневой файловой системе. Ядро Linux запускает скрипт настройки (обычно называемый {{Path|linuxrc}}, но не обязательно такое имя) на этом корневом диске, который подготавливает систему, переключается к действительной корневой файловой системе и затем вызывает {{c|init}}. 
+Although the initrd method is all that is needed, it had a few drawbacks: 
 
-Хотя способ, включающий в себя initrd - это все, что требуется, он имеет несколько недостатков: 
+* It is a full-fledged block device, requiring the overhead of an entire file system on it, and has a fixed size. Choose an initrd that is too small, and you won't be able to fit in all needed scripts. Make it too big, and you're wasting memory.
 
-* Это полноценное блочное устройство, требующее дополнительные расходы на целую файловую систему, и оно имеет фиксированный размер. Если выбрать initrd достаточно маленьким, то все требуемые скрипты не поместятся. Если сделайте его слишком большим, то растратите память впустую.
+* Because it is a real device, it also consumes cache memory in the Linux kernel and is prone to the memory- and file management methods in use (such as paging), making it even worse in memory consumption.
 
-* По той причине, что это действительное устройство, оно также требует кэш-память ядра Linux и подлежит используемым методам управления памятью и файлами (таким как подкачка страниц), что делает расходы памяти еще более худшими.
+To resolve these (for some perhaps hardly called) problems, the initramfs was created. 
 
-Чтобы решить эти вопросы, была создана initramfs.
+=== The initial ram file system ===
 
-=== Файловая система в памяти для начальной инициализации (initramfs) ===
+An ''initramfs'' is an initial ram file system based on ''tmpfs'' (a size-flexible, in-memory lightweight file system), which also didn't use a separate block device (so no caching was done and all overhead mentioned earlier disappears). Just like the initrd, it contains the tools and scripts needed to mount the file systems before the <code>init</code> binary on the real root file system is called. These tools can be decryption abstraction layers (for encrypted file systems), logical volume managers, software raid, bluetooth driver based file system loaders, etc. 
 
-'''initramfs''' - это начальная файловая система в оперативной памяти, основанная на ''tmpfs'' (легковесной файловой системе в памяти с изменяемым размером), которая также не использовала отдельное блочное устройство (чтобы отсутствовало кэширование и все накладные расходы, упомянутые ранее, исчезли). Так же как и initrd, она содержит утилиты и скрипты, требуемые для монтирования файловых систем перед вызовом бинарного файла {{c|init}}, располагающегося на действительной корневой файловой системе. Эти утилиты могут быть уровнями абстракции расшифровывающих процедур (для зашифрованных файловых систем), менеджерами логических томов, программными (software) raid массивами, загрузчиками файловых систем, основанными на драйверах bluetooth, и так далее. 
+The content of the initramfs is made by creating a cpio archive. <code>cpio</code> is an old (but proven) file archiver solution (and its resulting archive files are called ''cpio files''). You can definitely compare it to <code>tar</code>. The choice of <code>cpio</code> here was because it is easier to implement (code-wise) and supported (back then) device files (which <code>tar</code> couldn't). 
 
-<div class="mw-translate-fuzzy">
-Содержимое initramfs делается путем создания cpio-архива. {{c|cpio}} — это старое (но проверенное) решение для архивирования файлов (архивы, получаемые в результате его работы называются ''cpio-архивы''). Безусловно cpio можно сравнить с {{c|tar}} архиватором. Здесь {{c|cpio}} был выбран потому, что проще создать (с программной точки зрения) и поддерживать (на то время) файлы устройств (тогда как {{c|tar}} этого не мог).
-</div>
+All files, tools, libraries, configuration settings (if applicable), etc. are put into the cpio archive. This archive is then compressed using the <code>gzip</code> utility and stored alongside the Linux kernel. The boot loader will then offer it to the Linux kernel at boot time so the kernel knows an initramfs is needed. 
 
-Все файлы, утилиты, библиотеки, настройки конфигурации (если они применимы), и т.д. помещаются в cpio-архив. Этот архив затем сжимается с использованием утилиты {{c|gzip}} и сохраняется в том же месте, что и ядро Linux. Далее, загрузчик передаст его ядру Linux во время загрузки, чтобы ядро знало о том, что требуется initramfs. 
+Once detected, the Linux kernel will create a tmpfs file system, extract the contents of the archive on it, and then launches the <code>init</code> script located in the root of the tmpfs file system. This script will then mount the real root file system (after making sure it can mount it, for instance by loading additional modules, preparing an encryption abstraction layer, etc.) as well as vital other file systems (such as {{Path|/usr}} and {{Path|/var}} ). 
 
-При его обнаружении, ядро Linux создаст файловую систему tmpfs, извлечет на нее содержимое архива и затем запустит {{Path|init}}-скрипт, расположенный в корневом каталоге файловой системы tmpfs. Этот скрипт затем примонтирует действительную корневую файловую систему (после того, как убедится, что он может ее примонтировать, например, с помощью загрузки дополнительных модулей, подготовки уровней абстракции шифрования, и т.д.), также как и другие существенно важные файловые системы (такие как {{Path|/usr}} и {{Path|/var}}). 
+Once the root file system and the other vital file systems are mounted, the <code>init</code> script from the initramfs will switch the root towards the real root file system and finally call the <code>/sbin/init</code> on that system to continue the boot process. 
 
-Как только корневая файловая система и другие существенные файловые системы примонтированы, {{Path|init}}-скрипт из initramfs затем переключает root на действительную корневую файловую систему и, в завершение, вызывает {{Path|/sbin/init}} на этой системе, для продолжения процесса загрузки.
+== Creating an initramfs ==
 
-== Создание initramfs ==
+=== Introduction and bootloader configuration ===
 
-=== Введение и настройка загрузчика ===
+To create an initramfs, it is important that you know what additional drivers, scripts and tools you need to boot your system. For instance, if you use LVM, then you will need to support LVM tools on the initramfs. Likewise, if you use software RAID, you need <code>mdadm</code>, etc. 
 
-Для создания initramfs, важно знать какие дополнительные драйверы, скрипты и утилиты необходимы для загрузки системы. Например, если используется LVM, то потребуется инструменты LVM в initramfs. Таким же образом, если используется программный RAID, будут нужна утилита {{c|mdadm}}, и так далее. 
+Some tools exist that help you create initramfs' (compressed cpio archives) for your system. But for those that want total control, you can easily create your own initramfs as well. 
 
-Существуют несколько инструментов, которые помогут создать initramfs (сжатые {{c|cpio}}-архивы) для системы. Тем, кому требуется полный контроль, также могут легко создать собственный, пользовательский образ initramfs. 
+Once created, you will need to adjust the bootloader configuration to tell it that an initramfs is to be used. For instance, if the initramfs file is stored as {{Path|/boot/initramfs-3.2.2-gentoo-r5}} , then the configuration in {{Path|/boot/grub/grub.conf}} could look like so: 
 
-После создания initramfs, необходимо настроить конфигурацию загрузчика для сообщения загрузчику, что будет использоваться initramfs. Например, если файл initramfs сохранен как {{Path|/boot/initramfs-3.2.2-gentoo-r5}}, то конфигурация в {{Path|/boot/grub/grub.conf}} будет выглядеть следующим образом: 
-
-{{FileBox|filename=grub.conf|title=Пример записи в grub.conf для загрузки с initramfs|1=
+{{File|grub.conf|Example entry in grub.conf for booting with an initramfs|<pre>
 title Gentoo Linux 3.2.2-r5
 root (hd0,0)
 kernel /boot/kernel-3.2.2-gentoo-r5
 initrd /boot/initramfs-3.2.2-gentoo-r5
+</pre>
 }}
 
-=== Использование genkernel ===
+=== Using genkernel ===
 
-Утилита для сборки ядра Gentoo, {{c|genkernel}}, может использоваться для генерирования initramfs, даже если не использовался {{c|genkernel}} для конфигурации и сборки ядра. 
+Gentoo's kernel building utility, <code>genkernel</code>, can be used to generate an initramfs, even if you didn't use <code>genkernel</code> to configure and build your kernel. 
 
-Чтобы использовать {{c|genkernel}} для генерации initramfs, рекомендуется все необходимые драйверы и код, который требуется для монтирования {{Path|/}} и {{Path|/usr}} файловых систем, включить в ядро (а не как модули). Затем, вызвать команду {{c|genkernel}} следующим образом: 
+To use <code>genkernel</code> for generating an initramfs, it is recommended that you include all necessary drivers and code that is needed to mount your {{Path|/}} and {{Path|/usr}} file systems in the kernel (and not as modules). Then, call <code>genkernel</code> as follows: 
 
 {{RootCmd|genkernel --install --no-ramdisk-modules initramfs}}
 
-В зависимости от системы, одна или более из следующих опций могут быть необходимы: 
+Depending on your system, you might want to add one or more of the following options: 
 
-{| class="table" style="text-align: left;" 
+{| class="wikitable" style="text-align: left;" 
 |- 
-! Опция
-! Описание
+! Option
+! Description
 |- 
-| <code>--disklabel</code>
-| Включить поддержку <code>LABEL=</code> настроек в файл {{Path|/etc/fstab}} 
+| --disklabel
+| Add support for <code>LABEL=</code> settings in your {{Path|/etc/fstab}} 
 |- 
-| <code>--dmraid</code>
-| Включить поддержку fake hardware RAID
+| --dmraid
+| Add support for fake hardware RAID
 |- 
-| <code>--firmware</code>
-| Включить firmware code, найденный на системе
+| --firmware
+| Add in firmware code found on the system
 |- 
-| <code>--gpg</code>
-| Включить поддержку GnuPG
+| --gpg
+| Add in GnuPG support
 |- 
-| <code>--iscsi</code>
-| Включить поддержку iSCSI
+| --iscsi
+| Add support for iSCSI
 |- 
-| <code>--luks</code>
-| Включить поддержку зашифрованных контейнеров luks
+| --luks
+| Add support for luks encryption containers
 |- 
-| <code>--lvm</code>
-| Включить поддержку LVM
+| --lvm
+| Add support for LVM
 |- 
-| <code>--mdadm</code>
-| Включить поддержку программного (software) RAID
+| --mdadm
+| Add support for software RAID
 |- 
-| <code>--multipath</code>
-| Включить поддержку множественного I/O-доступа к SAN
+| --multipath
+| Add support for multiple I/O access towards a SAN
 |- 
-| <code>--zfs</code>
-| Включить поддержку ZFS
+| --zfs
+| Add support for ZFS
 |-
 |}
 
-По завершении, файл initramfs, полученный в результате, будет сохранен в каталоге {{Path|/boot}}.
+When finished, the resulting initramfs file will be stored in your {{Path|/boot}} . 
 
-=== Использование dracut ===
+=== Using dracut ===
 
-Утилита {{c|dracut}} создана с единственной целью управления файлами initramfs. Она использует весьма модульный подход в плане выбора поддержки; что требуется включить, а что нет. 
+{{Warning|At the time of writing, dracut is not marked stable yet, so you might need to unmask it before continuing.}}
 
-<div class="mw-translate-fuzzy">
-Рекомендуется установить (или убрать) необходимые модули. После настройки переменной <var>DRACUT_MODULES</var> в файле {{Path|/etc/portage/make.conf}} запустите команду {{c|emerge dracut}} для установки утилиты Dracut.
-</div>
+The <code>dracut</code> utility is created for the sole purpose of managing initramfs files. It uses a highly modular approach on which support you want to include and which not. 
 
-Далее необходимо настроить {{c|dracut}} посредством редактирования {{Path|/etc/dracut.conf}}. В файле конфигурации, который хорошо прокомментирован, включите поддержку необходимых модулей.
+When you install <code>dracut</code>, you will need to take care to include support for the correct <code>DRACUT_MODULES</code> . This is a variable you can set in {{Path|/etc/portage/make.conf}} to include support for specific setups: 
 
-После конфигурации, создайте initramfs вызовом {{c|dracut}} следующим образом: 
+{{File|make.conf|Preparing to install dracut|<pre>
+DRACUT_MODULES="dmraid lvm syslog -biosdevname -btrfs -caps -crypt -crypt-gpg
+-dmsquash-live -gensplash -iscsi -livenet -mdraid -multipath -nbd -nfs -plymouth
+-ssh-client"
+</pre>
+}}
+
+It is advisable to set (or unset) those modules you need (and don't need). Afterwards, <code>emerge dracut</code> to install the utility on your system. 
+
+The next step is to configure <code>dracut</code> by editing {{Path|/etc/dracut.conf}}. In the configuration file, which is well commented, you can add in support for specific modules where needed. 
+
+Once configured, create an initramfs by calling <code>dracut</code> as follows: 
 
 {{RootCmd|dracut}}
 
-Образ, полученный в результате, поддерживает общую загрузку системы, основанную на конфигурации в {{Path|/etc/dracut.conf}}. Также, можно выбрать генерирование initramfs специально приспособленной под ''вашу'' систему (в которой {{c|dracut}} пытается определить необходимые инструменты, драйверы, и так далее из существующей системы). Если модули и драйверы встроены в ядро (не отдельными модулями и ссылками на firmware), то можно добавить опцию <code>--no-kernel</code>: 
+The resulting image supports generic system boots based on the configuration in {{Path|/etc/dracut.conf}}. You can also opt to generate an initramfs specifically tailored to your system (in which <code>dracut</code> tries to detect the needed tools, drivers, etc. from your existing system). If you know that the needed support (code and drivers) is built in in your kernel (and not as module), then you can even add in <code>--no-kernel</code>: 
 
 {{RootCmd|dracut --host-only --no-kernel}}
 
-Чтобы найти больше информации, проконсультируйтесь с man-страницами:
-{{Cmd
-|man dracut
-|man dracut.cmdline
-}}
+For more information, check out the <code>dracut</code> and <code>dracut.cmdline</code> manual pages. 
 
-== Смотрите также ==
+== Additional resources ==
 
-<div class="mw-translate-fuzzy">
-* [[Initramfs]] на официальной Gentoo Wiki
-* [[Dracut]] на официальной Gentoo Wiki
-</div>
+=== Gentoo-specific ===
 
-== Ссылки ==
+* [http://en.gentoo-wiki.com/wiki/Initramfs Initramfs] on Gentoo-wiki.com
+* [[Initramfs]] on the official Gentoo Wiki
+* [[Dracut]] on the official Gentoo Wiki
 
-* [https://www.kernel.org/doc/Documentation/filesystems/ramfs-rootfs-initramfs.txt ramfs-rootfs-initramfs.txt] файл в документации ядра Linux.
+=== General resources ===
+
+* [https://www.kernel.org/doc/Documentation/filesystems/ramfs-rootfs-initramfs.txt ramfs-rootfs-initramfs.txt] within the Linux kernel documentation
+
+== Acknowledgements ==
+
+We would like to thank the following authors and editors for their contributions to this guide:
 
 
-[[Category:Initramfs]]
+* Sven Vermeulen
