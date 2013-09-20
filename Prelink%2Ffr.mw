@@ -1,151 +1,156 @@
 <languages />
 
-{{Metadata|abstract=Ce document explique comment utiliser la prise en charge de prelink dans les versions 2.0.46 et postérieures de Portage.}}
-
-Ce guide vous explique comment utiliser <code>prelink</code> dans Portage 2.0.46 et postérieur.
+This guide tells you how to make use of prelink support in Portage 2.0.46 and later.
 
 == Introduction ==
 
-=== Qu'est-ce que Prelink et que peut-il faire pour moi ? ===
+=== What is Prelink and how can it help me? ===
 
-La plupart des applications utilisent des bibliothèques partagées (''shared libraries'' ). Ces bibliothèques partagées ont besoin d'être chargées en mémoire lors de l'exécution de l'application et les références aux différents symboles doivent être résolues. Pour la plupart des petits programmes, cette liaison dynamique est très rapide. Mais pour les programmes écrits en C++ qui ont beaucoup de dépendances, la liaison dynamique peut prendre un temps considérable. 
+Most common applications make use of shared libraries. These shared libraries need to be loaded into memory at runtime and the various symbol references need to be resolved. For most small programs this dynamic linking is very quick. But for programs written in C++ and that have many library dependencies, the dynamic linking can take a fair amount of time. 
 
-Sur la plupart des systèmes, les bibliothèques ne changent pas souvent et quand un programme est en cours d'exécution l'opération de liaison est toujours la même. Prelink utilise ceci à son avantage en établissant la liaison et en l'enregistrant dans l'exécutable, dans les fait en le pré-liant. 
+On most systems, libraries are not changed very often and when a program is run, the operations taken to link the program are the same every time. Prelink takes advantage of this by carrying out the linking and storing it in the executable, in effect prelinking it. 
 
-Le pré-lien peut raccourcir le temps de démarrage des applications. Par exemple, le temps de chargement d'un programme KDE normal peut être réduit de plus de 50%. La seule opération de maintenance nécessaire est de ré-exécuter <code>prelink</code> chaque fois qu'une bibliothèque est mise à jour pour un exécutable pré-lié. 
+Prelinking can cut the startup times of applications. For example, a typical KDE program's loading time can be cut by as much as 50%. The only maintenance required is re-running prelink every time a library is upgraded for a pre-linked executable. 
 
-{{Warning|  Prelink ne fonctionne pas avec la version sécurisée Hardened de Gentoo parce que les deux systèmes essaient de modifier les adresses des bibliothèques partagées. L'option -R de prelink offre un certain niveau de sécurité en utilisant des adresses aléatoires.}}
+{{Warning|Prelink will not work with Hardened Gentoo. This is because both projects try to change the address space mapping of shared libraries. But prelink with the -R option randomises library base addresses, providing some degree of hardened protection.}}
 
-=== Résumé ===
+=== Summary ===
 
-* La pré-liaison s'effectue via un programme appelé, de manière originale, . Il modifie le binaire afin de lui permettre de démarrer plus rapidement.
-* Si une application pré-liée voit une de ses bibliothèques modifiée (mise à jour), alors il faut relancer <code>prelink</code> sur l'application, dans le cas contraire vous n'obtiendrez aucune amélioration de vitesse. En fait, à chaque fois que vous mettez à jour, via Portage,  un paquet  qui met à jour des bibliothèques, vous devez relancer <code>prelink</code> sur ces bibliothèques.
-* Les modifications effectuées sur le binaire sont complètement réversibles. <code>prelink</code> dispose d'une fonction d'annulation.
-* Les versions récentes de Portage peuvent gérer, via <code>prelink</code>, les changements de ''MD5sum'' et ''mtime'' des binaires.
-* Il n'est pas nécessaire de définir FEATURES="prelink" dans le fichier {{Path|make.conf}}, car Portage utilise <code>prelink</code> automatiquement quand le programme <code>prelink</code> est installé sur votre système.
+* Prelinking is done via a program called, surprisingly, <code>prelink</code> . It changes the binary to make it start faster.
+* If an application's dependent libraries change after you have prelinked it, you need to re-prelink the application, otherwise you lose the speed advantage. This is to say, everytime you update a package via portage that updates libraries, they need to be re-prelinked.
+* The change to the binary is fully reversible. <code>prelink</code> has an undo function.
+* Current versions of Portage can handle, via <code>prelink</code> , the changing MD5sums and mtimes of the binaries.
+* You do not need to set <code>FEATURES="prelink"</code> in your {{Path|make.conf}} file; Portage will automatically support prelink if it can find the prelink binary.
 
-== Configurer Prelink ==
+== Setting up Prelink ==
 
-=== Installer les programmes ===
+=== Installing the Programs ===
 
-Vous devez d'abord installer le programme <code>prelink</code>. Le processus ''emerge'' vérifie automatiquement que votre système peut utiliser <code>prelink</code> en toute sécurité. 
+First you need to install the <code>prelink</code> tool. The emerge process automatically verifies that your system can prelink safely. 
 
 {{Emerge|prelink}}
 
-Un certain nombre de personnes ont obtenu des erreurs lors de l'installation parce que des tests ont échoué. Ces tests ont été mis en place pour des raisons de sécurité ; le comportement de ''prelink'' est incertain si vous les désactivez. Les erreurs d'''emerge'' proviennent habituellement des paquets de base : ''binutils'', ''gcc'' et ''glibc''. Essayez de réinstaller ces paquets dans cet ordre. 
+A number of people get errors in emerging prelink because of the failed tests. The tests were put in for safety reasons, prelink's behavior is undefined if you disable them. The emerge errors are usually only dependent on the core packages; binutils, gcc, and glibc. Try re-emerging those packages in that order. 
 
-{{Note|Astuce : Si vous obtenez une erreur essayez de compiler et de tester <code>prelink</code> vous-même ( <code>./configure</code> ; <code>make</code> ; <code>make check</code> ). En cas d'échec, vous pouvez consulter les fichiers *.log dans le répertoire ''testsuite''. Ils peuvent vous procurer quelques indices utiles.}}
+{{Note|Tip: If you get an error try compiling and testing <code>prelink</code> yourself ( <code>./configure</code> ; <code>make</code> ; <code>make check</code> ). On a failure you can view the *.log files in the testsuite directory. They may provide you with some useful clues.}}
 
-Si vous avez repéré un ensemble d'étapes qui reproduisent une erreur d'''emerge'' même sur un autre système, veuillez vérifier si le problème n'a pas déjà été signalé sur  [http://bugzilla.gentoo.org Bugzilla] , et créez un nouveau bug si besoin. 
+If you have a set of steps that reproduces the emerge error on another system please check [http://bugzilla.gentoo.org Bugzilla] and create a bug report if it has not already been reported. 
 
-=== Préparer votre système ===
+=== Preparing your System ===
 
-Veuillez aussi vérifier que l'option de compilation -fPIC n'est pas définie dans les variables CFLAGS et CXXFLAGS. Si vous avez utilisé cette option, vous devrez recompiler tout votre système sans elle 
+Also make sure that you do ''not'' have -fPIC set in your CFLAGS/CXXFLAGS. If you do, you will need to rebuild your entire system without. 
 
 === Configuration ===
 
-La commande <code>env-update</code> génère le fichier {{Path|/etc/prelink.conf}} qui indique à <code>prelink</code> quels fichiers  doivent être pré-liés. 
+Running <code>env-update</code> will generate the {{Path|/etc/prelink.conf}} file that tells {{Path|prelink}} which files to prelink. 
 
 {{RootCmd|env-update}}
 
-Malheureusement vous ne pourrez pas passer à <code>prelink</code> les fichiers qui ont été compilés par d'anciennes versions de <code>binutils</code>. La plupart de ces applications proviennent de paquets binaires pré-compilés qui sont installés dans  {{Path|/opt}} . Créer le fichier suivant indiquera à <code>prelink</code> de ne pas essayer de les pré-lier. 
+Unfortunately you cannot prelink files that were compiled by old versions of binutils. Most of these applications come from pre-compiled, binary only packages which are installed in {{Path|/opt}} . Making the following file will tell prelink not to attempt to prelink them. 
 
-{{FileBox|filename=/etc/env.d/60prelink|lang=bash|1=
+{{Code|/etc/env.d/60prelink|<pre>
 PRELINK_PATH_MASK="/opt"
+</pre>
 }}
 
-{{Note| Vous pouvez ajouter des répertoires dans la liste ; séparez-les par deux points  ''':''' .}}
+{{Note|You can add more or less directories to the colon separated list.}}
 
-== L'opération de pré-liage ==
+== Prelinking ==
 
-=== Utiliser Prelink ===
+=== Prelink Usage ===
 
-J'utilise la commande suivante pour pré-lier tous les binaires dans les répertoires indiqués dans  {{Path|/etc/prelink.conf}}. 
+I use the following command to prelink all the binaries in the directories given by {{Path|/etc/prelink.conf}} . 
 
 {{RootCmd|prelink -amR}}
 
-{{Warning|Si l'espace disque disponible est limité <code>prelink</code> risque de tronquer vos binaires si vous traitez l'intégralité de votre système, ce qui rendra votre système inutilisable. Utilisez les commandes <code>file</code> ou <code>readelf</code> afin de vérifier l'état d'un fichier binaire. Vous pouvez également vérifier l'espace libre de vos disques avant de lancer <code>prelink</code> avec <code>df -h</code> .}}
+{{Warning|It has been observed that if you are low on disk space and you prelink your entire system then there is a possibility that your binaries may be truncated. The result being a b0rked system. Use the <code>file</code> or <code>readelf</code> command to check the state of a binary file. Alternatively, check the amount of free space on your harddrive ahead of time with <code>df -h</code> .}}
 
 {| class="wikitable" style="text-align: left;" 
 |- 
-! Explication sur les options :
+! The options explained:
 |- 
 ! -a
-| "All": pré-lie tous les binaires
+| "All": prelinks all the binaries
 |- 
 ! -m
-| Conserve l'espace de mémoire virtuelle. Ceci est nécessaire si vous avez beaucoup de bibliothèques qui ont besoin d'être pré-liées. 
+| Conserve the virtual memory space. This is needed if you have a lot of libraries that need to be prelinked.
 |- 
 ! -R
-| Random -- rend aléatoire l'ordre des adresses pour améliorer la sécurité contre les débordements de mémoire tampon. 
+| Random -- randomize the address ordering, this enhances security against buffer overflows.
 |-
 |}
 
-{{Note|Pour plus d'informations et d'options, consultez <code>man prelink</code> .}}
+{{Note|For more options and details see <code>man prelink</code> .}}
 
-=== Tâches de cron et Prelink ===
+=== Prelink Cron Job ===
 
-<div class="mw-translate-fuzzy">
-À partir de la version <code>sys-devel/prelink-20060213</code>, une tâche de ''cron''est installée dans {{Path|/etc/cron.daily/prelink}} . Pour l'activer, éditez le fichier {{Path|/etc/conf.d/prelink}} . Ceci permet d'exécuter <code>prelink</code> automatiquement une fois par jour en arrière-plan sans que vous ayez à exécuter la commande à la main.
-</div> 
+<code>sys-devel/prelink-20060213</code> and later install a cron job in {{Path|/etc/cron.daily/prelink}} . To enable it, edit the configuration file {{Path|/etc/conf.d/prelink}} . This will run prelink daily in the background, as needed, saving you running the command manually. 
 
-=== Accélérer le chargement de KDE après la pré-liaison ===
+=== Speeding Up KDE After Prelinking ===
 
-Le temps de chargement de KDE peut être considérablement réduit après la pré-liaison. Si vous informez KDE qu'il a été pré-lié, il désactivera le chargement de <code>kdeinit</code> (car il n'est plus requis à présent) et cela accélérera KDE encore plus. 
+KDE's loading time can be greatly reduced after prelinking. If you inform KDE that it has been prelinked it will disable the loading of <code>kdeinit</code> (as it isn't required anymore) which speeds up KDE even more. 
 
-Mettez <code>KDE_IS_PRELINKED=1</code> dans {{Path|/etc/env.d/*kdepaths*}}  pour informer KDE qu'il a été pré-lié.
+Set <code>KDE_IS_PRELINKED=1</code> in {{Path|/etc/env.d/*kdepaths*}} to inform KDE about the prelinking.
 
-=== Retirer prelink ===
+=== Removing prelink ===
 
-S'il vous venait l'envie de supprimer <code>prelink</code> de votre système, vous devrez d'abord supprimer la tâche planifiée dans {{Path|/etc/cron.daily}} puis le fichier {{Path|/etc/conf.d/prelink}}. Ensuite, vous devrez retirer le pré-lien de tous les binaires : 
+If you ever change your mind about prelinking, before you unmerge prelink, you'll first need to remove the prelink cronjob from {{Path|/etc/cron.daily}} and {{Path|/etc/conf.d/prelink}} . Next, you'll have to remove prelinking from all binaries: 
 
 {{RootCmd|prelink -au}}
 
-Enfin, désinstallez le paquet <code>prelink</code> lui-même. 
+Finally, unmerge the <code>prelink</code> package itself: 
 
 {{RootCmd|emerge -c prelink}}
 
-== Problèmes connus et leur correction ==
+== Known Problems and Fixes ==
 
 === "Cannot prelink against non-PIC shared library" ===
 
-La cause de ce problème provient de bibliothèques partagées qui ont été mal compilées, sans l'option -fPIC de gcc pour tous leurs fichiers objets. 
+The cause of this problem is from badly compiled shared libraries that were compiled without the -fPIC gcc option for all their object files. 
 
-Voici les bibliothèques qui n'ont pas encore été corrigées ou qui ne peuvent l'être : 
+Here are the libraries that haven't been fixed or cannot be fixed: 
 
-* Les bibliothèques du paquet wine, ainsi que winex. Le pré-liage n'accellèrerait pas les exécutables MS Windows de toute manière.
-* La bibliothèque dans media-video/mjpegtools, {{Path|/usr/lib/liblavfile-1.6.so.0}}.
-* Les bibliothèques OpenGL de Nvidia ( {{Path|/usr/lib/opengl/nvidia/lib/libGL.so.*}}) ont été compilées sans le support PIC pour des raisons de performance.
+* The libraries in the wine package, including winex. Prelinking wouldn't speed up MS Windows executables anyway.
+* The library in media-video/mjpegtools, {{Path|/usr/lib/liblavfile-1.6.so.0}} .
+* Nvidia OpenGl libraries, {{Path|/usr/lib/opengl/nvidia/lib/libGL.so.*}} . Due to performance reasons they were compiled without PIC support.
 
-Si votre bibliothèque problématique n'est pas présente dans la liste, nous vous prions de nous le rapporter avec, de préférence, un correctif pour ajouter -fPIC au CFLAGS approprié. 
+If your problem library was not listed please report it with, preferably, a patch to add <code>-fPIC</code> to the relevant CFLAGS. 
 
-=== Quand je traite mon système, quelques binaires statiques ne fonctionnent plus ===
+=== When I prelink my system some static binaries don't work anymore ===
 
-Dans le cas de la glibc, il n'y a pas de tels binaires 100% statiques. Si vous compilez statiquement un binaire avec la glibc, il peut toujours rester dépendant d'autres fichiers du système. Ci-dessous vous trouverez une explication de Dick Howell : 
+Where glibc is concerned, there is no such thing as a 100% static binary. If you statically compile a binary with glibc, it may still depend on other system files. Below is an explanation by Dick Howell, 
 
-« Je suppose que tout se trouve dans le fichier téléchargé, et donc que rien ne dépendra des bibliothèques locales sur le système cible. Malheureusement avec Linux, et, je pense, avec quoi que ce soit d'autre utilisant la GLIBC, ce n'est plus tout à fait vrai. Prenons ''libnss'' (« Sélecteur de Service de Nom », certains semblent appeler ça « Système de Sécurité Réseau ») qui procure des fonctions permettant l'utilisation de diverses bases de données pour l'authentification, les informations sur le réseau et autres. C'est supposé rendre les programmes indépendants de l'environnement réseau actuel de la machine, configuré séparément. Bonne idée, mais les changements de la GLIBC peuvent entraîner des problèmes lors de son chargement. Et vous ne pouvez pas lier statiquement ''libnss'', car elle est configurée indépendamment pour chaque machine. Je pense que le problème provient principalement de la liaison statique des autres bibliothèques de la GLIBC, notamment ''libpthread'', ''ibm'' et ''libc'' desquelles proviennent des appels aux fonctions de ''libnss'' incompatibles. » 
+"I suppose the idea is that everything will be in the downloaded file, so nothing depends on the local libraries on the target system. Unfortunately with Linux, and I think anything else using GLIBC, this still isn't quite true. There's this "libnss" (name service switch, some people seem to call it network security system) which provides functions for accessing various databases for authentication, network information, and other things. It's supposed to make application programs independent of the separately configured actual network environment of the machine. A nice idea, but changes to GLIBC can lead to problems loading it. And you can't statically link "libnss", since it is configured for each machine individually. The problem comes, I think, mainly from statically linking other GLIBC libraries, notably "libpthread", "libm", and "libc", from which come incompatible calls to "libnss" functions." 
 
-=== Prelink échoue avec l'erreur « prelink: dso.c:306: fdopen_dso: Assertion 'j == k' failed. » ===
+=== Prelink aborts with "prelink: dso.c:306: fdopen_dso: Assertion `j == k' failed." ===
 
-C'est un problème connu, diagnostiqué [http://bugs.gentoo.org/show_bug.cgi?id=13878 ici] . Prelink ne gère pas les exécutables compressés avec UPX. Jusqu'à prelink-20021213, il n'existe pas d'autre méthode que de cacher les exécutables concernés au moment du prelink. Lisez la section Configuration ci-dessus pour savoir comment faire cela facilement. 
+This a known problem, kindly diagnosed [http://bugs.gentoo.org/show_bug.cgi?id=13878 here] . Prelink cannot cope with UPX-compressed executables. As of prelink-20021213 there is no fix except to hide the executables while you are prelinking. See the section above for an easy way to do this. 
 
-=== J'utilise grsecurity et il semble que le pré-liage ne fonctionne pas ===
+=== I use grsecurity and it seems that prelinking doesn't work. ===
 
-Pour faire marcher prelink sur un système sous grsecurity qui utilise une base mmap() aléatoire, il est nécessaire de désactiver « randomized mmap() base » pour les fichiers {{Path|/lib/ld-2.3.*.so}} . Pour ce faire, vous devez utiliser l'utilitaire <code>chpax</code>, mais vous devez le faire sans que le fichier ne soit utilisé (par exemple démarrez sur un LiveCD). 
+In order to prelink on a system with grsecurity using a randomized mmap() base, it is necessary to turn "randomized mmap() base" OFF for {{Path|/lib/ld-2.3.*.so}} . This can be done with the <code>chpax</code> utility, but it must be done when the file is not in use (f.i. boot from a rescue CD). 
 
-=== Prelink échoue avec l'erreur "prelink: Can't walk directory tree XXXX: Too many levels of symbolic links" ===
+=== Prelink fails with error "prelink: Can't walk directory tree XXXX: Too many levels of symbolic links" ===
 
-Vos liens symboliques sont entremêlés trop profondément. Cela arrive quand un lien symbolique pointe vers lui-même. Par exemple, {{Path|/usr/lib/lib -> lib}} est le plus fréquent. Pour y remédier, vous pouvez trouver le lien symbolique à la main, ou bien utiliser l'utilitaire fourni dans le paquet <code>symlinks</code>  : 
+Your symlinks are nested too deeply. This happens when a symlink points to itself. For example, {{Path|/usr/lib/lib -> lib}} is the most common. To fix this, you can find the symlink manually or use the utility provided by the <code>symlinks</code> package: 
 
 {{RootCmd|emerge symlinks
 |symlinks -drv /}}
 
-Plus de détails peuvent être trouvés sur [http://bugs.gentoo.org/show_bug.cgi?id=82117 Bugzilla]  ainsi que ce [http://forums.gentoo.org/viewtopic-t-458144-highlight-prelink.html fil de discussion] . 
+More details can be found at [http://bugs.gentoo.org/show_bug.cgi?id=82117 Bugzilla] and this [http://forums.gentoo.org/viewtopic-t-458144-highlight-prelink.html forum post] . 
 
 == Conclusion ==
 
-Le pré-liage peut considérablement réduire le temps de démarrage d'un bon nombre de grosses applications. Portage le gère très bien. C'est aussi sans danger puisque vous pouvez annuler la pré-liaison d'un quelconque binaire si vous rencontrez un problème. Rappelez-vous juste qu'il faut relancer prelink à chaque fois que vous mettez à jour la glib ou une autre bibliothèque pré-liée. Pour faire court : Bonne chance ! 
+Prelinking can drastically speed up the start up times for a number of large applications. Support is built into Portage. Prelinking is also safe as you can always undo the prelinking for any binary if you come across any problems. Just remember that when you update glibc or other libraries that you prelinked with, you need to rerun {{Path|prelink}} ! In short good luck! 
 
-{{Migrated|originalauthors=Stefan Jones, John P. Davis, Jorge Paulo, Erwin, nightmorph}}
+== Acknowledgements ==
 
-[[Category:Portage]]
+We would like to thank the following authors and editors for their contributions to this guide:
+
+
+* Stefan Jones
+* John P. Davis
+* Jorge Paulo
+* Sven Vermeulen
+* Erwin
+* nightmorph
