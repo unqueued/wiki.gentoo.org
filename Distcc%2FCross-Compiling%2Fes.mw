@@ -1,227 +1,104 @@
 <languages />
 
+This guide shows you how to set up distcc for cross-compiling across different processor architectures.
 
-{{Metadata|abstract=Esta guía muestra como configurar distcc para compilación cruzada entre diferentes arquitecturas de procesador.}}
+== Cross-compiling with distcc ==
 
-Esta guía le muestras cómo configurar distcc para realizar compilación cruzada entre diferentes arquitecturas de procesador.
+=== Introduction ===
 
-== Compilación cruzada con distcc ==
+<code>distcc</code> is a tool that lets you share the burden of software compiling across several networked computers. As long as the networked boxes are all using the same toolchain built for the same processor architecture, no special<code>distcc</code> setup is required. But what do you do if you need to compile for a different architecture using differing computers? This guide will show you how to configure<code>distcc</code> to compile for different architectures. 
 
-== Introducción ==
+=== Emerge the needed utilities ===
 
-{{c|distcc}} es una herramienta que permite compartir la carga de compilación de software entre varios computadores en una red. Mientras todos los computadores usen las mismas herramientas de sistema (toolchain) construidas para la misma arquitectura de procesador no hace falta ninguna configuración especial para {{c|distcc}}. 
+First, you will need to emerge <code>crossdev</code> on all the machines that will be involved in the compiling process. <code>crossdev</code> is a tool that makes building cross-architecture toolchains easy. It was originally written by Joshua Kinard and was re-written from the ground up by Mike Frysinger. Its usage is straightforward: <code>crossdev -t sparc</code> will build a full cross-toolchain targetting the Sparc architecture. This includes binutils, gcc, glibc, and linux-headers. If you need more help, try running <code>crossdev --help</code> . Obviously, you will need to emerge the proper cross-toolchain on all the helper boxes. 
 
-'''Esta guía ofrece instrucciones sobre cómo configurar distcc para compilar en distintas arquitecturas.''' 
+Next, you will need to emerge <code>distcc</code> on all the machines that will be involved in the process. This includes the box that will run emerge and the boxes with the cross-compilers. Please see the [http://www.gentoo.org//doc/en/distcc.xml Gentoo Distcc Documentation] for more information on setting up and using <code>distcc</code> .
 
-=== Hacer emerge de la utilidades necesarias ===
+=== Arch-specific notes ===
 
-En primer lugar necesitará hacer emerge de {{c|crossdev}} en cada uno de los equipos involucrados en el proceso de compilación. La herramienta {{c|crossdev}} hace más fácil la construcción de herramientas de sistema para arquitecturas de forma cruzada. Su uso es sencillo: {{c|crossdev -t sparc}} construirá un conjunto de herramientas de sistema cruzado para la arquitectura sparc. Esto incluye binutils, gcc, glibc y linux-headers. 
+==== Intel x86 subarchitectures ====
 
-Necesitará hacer emerge de la cadena de herramientas para compilación cruzada adecuada en todos los equipos que vayan a participar. Si necesita más ayuda, lance {{c|crossdev --help}}.
-
-Si desea realizar un ajuste fino de la cadena de herramientas de compilación cruzada, a continuación se muestra un guión que producirá una línea de comandos con las versiones exactas de los paquetes de desarrollo cruzado que deben ser construidos en los equipos que participan en la compilación (El guión se debe lanzar en el equipo destino).
-
-<div class="mw-translate-fuzzy">
-{{CodeBox|title=Guión para realizar un ajuste fino de las herramientas de desarrollo|lang=bash|1=
-#! /bin/bash
-A="binutils" ; B=`eselect $A show` ; BINUTILS_VER=`echo $B {{!}} cut -d- -f5-`
-A=`/usr/bin/gcc-config -c` ; B=`echo $A {{!}} cut -d- -f5` ; GCC_VER=`equery l sys-devel/gcc {{!}} grep $B {{!}} cut -d- -f3-`
-KERNEL_VER=`uname -r {{!}} sed s/-gentoo//`
-A="sys-libs/glibc" ; B=`equery l $A` ; LIBC_VER=`echo $B {{!}} cut -d- -f3-`
-echo "crossdev --b =$BINUTILS_VER --g =$GCC_VER --k =$KERNEL_VER --l =$LIBC_VER -t `uname -m`"
-}}
-</div>
-
-A continuación necesitará hacer emerge de {{c|distcc}} en todas las máquinas involucradas en el proceso. Esto incluye la máquina en la que lanzará emerge y las máquinas con los compiladores cruzados. Por favor, lea la [[Distcc/es|Documentación sobre Distcc de Gentoo]] para obtener más información acerca de cómo configurar y usar {{c|distcc}}.
-
-{{Note|Las versiones actuales de {{c|crossdev}} tienen un ajuste <code>-S</code> (<code>--stable)</code> para instalar únicamente las versiones estables de las herramientas de compilación (esto es, {{c|crossdev -t i686-pc-linux-gnu --stable --ex-gcc --ex-gdb --portage --pretend}}). Sin esta opción, {{c|crossdev}} instala los últimos paquetes experimentales de la herramientas de compilación!. Cuando se utiliza esta opción ya no es necesario el guión de arriba a menos que se hayan desenmascarado versiones específicas de los paquetes de herramientas o ficheros de cabecera.}}
-
-=== Notas específicas de las arquitecturas ===
-
-{{Note|Se puede obtener la arquitectura echando un vistazo a la variable <var>CHOST</var> del destino de la compilación en {{Path|/etc/make.conf}}. Cuando se ensambla el nombre de arquitectura para la opción {{c|crossdev -t}}, {{c|crossdev}} intentará de buen grado instalar las herramientas utilizando el nombre de la arquitectura que se ha ensamblado para los nombres de los directorios dentro de {{Path|/usr}} (esto es, {{Path|/usr/i686-pc-linux-gnu/}}, {{Path|/usr/i686-linux-gnu/}}, ...). Para arreglar esto se debe indicar cada nombre de arquitectura ensamblado o nombre de directorio a {{c|crossdev --clean}} para desinstalarlo o eliminar manualmente los directorios dentro del sistema.}}
-
-==== Subarquitecturas Intel x86 ====
-
-Si está realizando una compilación cruzada entre distintas subarquitecturas de Intel {{Keyword|x86}} (por ejemplo i586 e i686), deberá construir una cadena de herramientas completa para el <var>CHOST</var> deseado o de lo contrario la construcción fallará. Esto es debido a que i586 e i686 son realmente CHOSTs diferentes a pesar del hecho de que ambos se consideran "x86". Por favor, recuerde esto cuando construya cadenas de herramientas de compilación cruzada. Por ejemplo, si la máquina destino es una i586 esto significa que debe construir cadenas de herramientas de compilación cruzada para i586 en sus máquinas participantes i686. 
+If you are cross-compiling between different subarchitectures for Intel x86 (e.g. i586 and i686), you must still build a full cross-toolchain for the desired CHOST, or else the compilation will fail. This is because i586 and i686 are actually different CHOSTs, despite the fact that they are both considered "x86." Please keep this in mind when you build your cross-toolchains. For example, if the target box is i586, this means that you must build i586 cross-toolchains on your i686 helper boxes. 
 
 ==== SPARC ====
 
-El uso de {{c|crossdev -t sparc}} podría fallar arrojando los siguientes errores:
+Using <code>crossdev -t sparc</code> might fail with one of the following errors:
 
-{{CodeBox|title=Errores mostrados cuando se lanza crossdev -t sparc|1=
+{{Code|Errors displayed when running crossdev -t sparc|<pre>
 linker with -z relro support required
 support for the tls_model attribute is required
 this configuration requires -mlong-double-128 support
-}}
+</pre>}}
 
-Si esto sucede, intente utilizar la siguiente orden:
+If this happens, try using the following command instead:
 
 {{Cmd|crossdev --lenv "CC{{=}}sparc-unknown-linux-gnu-gcc" -t sparc-unknown-linux-gnu}}
 
-=== Configurar distcc para realizar compilaciones cruzadas correctas ===
+=== Configuring distcc to cross-compile correctly ===
 
-En la configuración por defecto de distcc, la compilación cruzada "no" funcionará correctamente. El problema es que muchos paquetes llaman a {{c|gcc}} en lugar de usar el nombre completo (por ejemplo,
-{{c|sparc-unknown-linux-gnu-gcc</code>}}). Cuando esta tarea de compilación se distribuye a un equipo participante, se invoca al compilador nativo en lugar del compilador cruzado. 
+In the default distcc setup, cross-compiling will ''not'' work properly. The problem is that many builds just call <code>gcc</code> instead of the full compiler name (e.g. <code>sparc-unknown-linux-gnu-gcc</code> ). When this compile gets distributed to a distcc helper box, the native compiler gets called instead of your shiny new cross-compiler. 
 
-Por suerte, existe una solución a este pequeño problema. Lo único que se requiere es un guión o envoltorio y algunos enlaces simbólicos en el equipo que lanza la orden {{c|emerge}}. Usaremos un equipo Sparc como ejemplo. Donde quiera que vea <code>sparc-unknown-linux-gnu</code> más abajo, sustitúyalo por su propio <var>CHOST</var> (por ejemplo, <code>x86_64-pc-linux-gnu</code> para un equipo AMD64). Al hacer emerge de distcc, el directorio {{Path|/usr/lib/distcc/bin}} tendrá el siguiente aspecto: 
+Fortunately, there is a workaround for this little problem. All it takes is a wrapper script and a few symlinks on the box that will be running <code>emerge</code> . I'll use my Sparc box as an example. Wherever you see <code>sparc-unknown-linux-gnu</code> below, you will want to insert your own CHOST ( <code>x86_64-pc-linux-gnu</code> for an AMD64 box, for example). When you first emerge distcc, the {{Path|/usr/lib/distcc/bin}} directory looks like this: 
 
-{{Note|Las siguientes órdenes se deben lanzar únicamente en la máquina que invoca a emerge. No realice estos pasos en el resto de máquinas participantes.}}
+{{Note|The following instructions are to be performed only on the box running the emerge. Do not perform these steps on the helper boxes.}}
 
-{{RootCmd|cd /usr/lib/distcc/bin |ls -l|output=<pre>
+{{RootCmd|cd /usr/lib/distcc/bin
+|ls -l|output=<pre>
 total 0
-lrwxrwxrwx 1 root root 15 Dec 23 20:13 c++ -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Dec 23 20:13 cc -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Dec 23 20:13 g++ -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Dec 23 20:13 gcc -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Dec 23 20:13 sparc-unknown-linux-gnu-c++ -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Dec 23 20:13 sparc-unknown-linux-gnu-g++ -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Dec 23 20:13 sparc-unknown-linux-gnu-gcc -> /usr/bin/distcc 
+lrwxrwxrwx  1 root root 15 Dec 23 20:13 c++ -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Dec 23 20:13 cc -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Dec 23 20:13 g++ -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Dec 23 20:13 gcc -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Dec 23 20:13 sparc-unknown-linux-gnu-c++ -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Dec 23 20:13 sparc-unknown-linux-gnu-g++ -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Dec 23 20:13 sparc-unknown-linux-gnu-gcc -> /usr/bin/distcc
 </pre>
 }}
 
-Esto es lo que debe hacer: 
+Here is what you want to do: 
 
 {{RootCmd|rm c++ g++ gcc cc}}
 
-A continuación crearemos un guión nuevo para esta máquina. Use su editor de texto preferido y cree un archivo con el siguiente texto, luego guárdelo como {{Path|sparc-unknown-linux-gnu-wrapper}}. Recuerde
-cambiar el <var>CHOST</var> (en este caso <code>sparc-unknown-linux-gnu</code>) a la definición de <var>CHOST</var> del equipo que correrá emerge. 
+Next, we'll create the new script on this box. Fire up your favorite editor and create a file with the following text in it, then save it as {{Path|sparc-unknown-linux-gnu-wrapper}} . Remember to change the CHOST (in this case, <code>sparc-unknown-linux-gnu</code> ) to the actual CHOST of the box that will be running the emerge. 
 
-{{CodeBox|title=El nuevo guión envoltorio|lang=bash|1=
+{{Code|The new wrapper script|<pre>
 #!/bin/bash
 exec /usr/lib/distcc/bin/sparc-unknown-linux-gnu-g${0:$[-2]} "$@"
+</pre>
 }}
 
-A continuación haremos que el guión sea ejecutable y crearemos los enlaces simbólicos adecuados: 
+Next, we'll make the script executable and create the proper symlinks: 
 
 {{RootCmd|chmod a+x sparc-unknown-linux-gnu-wrapper
 |ln -s sparc-unknown-linux-gnu-wrapper cc
 |ln -s sparc-unknown-linux-gnu-wrapper gcc
 |ln -s sparc-unknown-linux-gnu-wrapper g++
-|ln -s sparc-unknown-linux-gnu-wrapper c++
-}}
+|ln -s sparc-unknown-linux-gnu-wrapper c++}}
 
-Cuando haya terminado, {{Path|/usr/lib/distcc/bin}} tendrá el siguiente aspecto: 
+When you're done, {{Path|/usr/lib/distcc/bin}} will look like this: 
 
 {{RootCmd|ls -l|output=<pre>
 total 4
-lrwxrwxrwx 1 root root 25 Jan 18 14:20 c++ -> sparc-unknown-linux-gnu-wrapper
-lrwxrwxrwx 1 root root 25 Jan 18 14:20 cc -> sparc-unknown-linux-gnu-wrapper
-lrwxrwxrwx 1 root root 25 Jan 18 14:20 g++ -> sparc-unknown-linux-gnu-wrapper
-lrwxrwxrwx 1 root root 25 Jan 18 14:20 gcc -> sparc-unknown-linux-gnu-wrapper lrwxrwxrwx 1 root root 15 Nov 21 10:42 sparc-unknown-linux-gnu-c++ -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Nov 21 10:42 sparc-unknown-linux-gnu-g++ -> /usr/bin/distcc
-lrwxrwxrwx 1 root root 15 Jul 27 10:52 sparc-unknown-linux-gnu-gcc -> /usr/bin/distcc
--rwxr-xr-x 1 root root 70 Jan 18 14:20 sparc-unknown-linux-gnu-wrapper
+lrwxrwxrwx  1 root root 25 Jan 18 14:20 c++ -> sparc-unknown-linux-gnu-wrapper
+lrwxrwxrwx  1 root root 25 Jan 18 14:20 cc -> sparc-unknown-linux-gnu-wrapper
+lrwxrwxrwx  1 root root 25 Jan 18 14:20 g++ -> sparc-unknown-linux-gnu-wrapper
+lrwxrwxrwx  1 root root 25 Jan 18 14:20 gcc -> sparc-unknown-linux-gnu-wrapper
+lrwxrwxrwx  1 root root 15 Nov 21 10:42 sparc-unknown-linux-gnu-c++ -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Nov 21 10:42 sparc-unknown-linux-gnu-g++ -> /usr/bin/distcc
+lrwxrwxrwx  1 root root 15 Jul 27 10:52 sparc-unknown-linux-gnu-gcc -> /usr/bin/distcc
+-rwxr-xr-x  1 root root 70 Jan 18 14:20 sparc-unknown-linux-gnu-wrapper
 </pre>
 }}
 
-{{Note|En las nuevas versiones de distcc ya no son necesarios los siguientes pasos, se puede hacer en su lugar emerge de distcc en el cliente con el ajuste USE <code>crossdev</code> habilitado para obtener el mismo resultado.}}
+Congratulations; you now have a (hopefully) working cross-distcc setup. 
 
-A continuación queremos asegurarnos de que estos envoltorios están disponibles después de actualizar el paquete distcc ya que se sobrescribirán los enlaces simbólicos. Podemos hacer esto a través del fichero {{Path|/etc/portage/bashrc}} que tiene el siguiente aspecto:
+=== How this works ===
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/portage/bashrc|lang=bash|1=
-case ${CATEGORY}/${PN} in
-<pre>                 sys-devel/distcc | sys-devel/gcc&#41;</pre>
-			if [ "${EBUILD_PHASE}" == "postinst" ]; then
-				/usr/local/sbin/distcc-fix &
-			fi
-		;;
-esac
-}}
-</div>
+When <code>distcc</code> is called, it checks to see what it was called as (e.g. <code>i686-pc-linux-gnu-gcc</code> , <code>sparc-unknown-linux-gnu-g++</code> , etc.) When distcc then distributes the compile to a helper box, it passes along the name it was called as. The distcc daemon on the other helper box then looks for a binary with that same name. If it sees just <code>gcc</code> , it will look for <code>gcc</code> , which is likely to be the native compiler on the helper box, if it is not the same architecture as the box running <code>emerge</code> . When the ''full'' name of the compiler is sent (e.g. <code>sparc-unknown-linux-gnu-gcc</code> ), there is no confusion. 
 
-<div class="mw-translate-fuzzy">
-A continuación, crear este fichero:
-</div>
+== Acknowledgements ==
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/usr/local/sbin/distcc-fix|lang=bash|1=
-#!/bin/bash	                
- 
-sleep 20
-# Cambiar TUPLE para que concuerde con la máquina
-TUPLE="sparc-unknown-linux-gnu"
-cd /usr/lib/distcc/bin
-rm cc c++ gcc g++ ${TUPLE}-wrapper
-echo '#!/bin/bash' > ${TUPLE}-wrapper
-echo "exec ${TUPLE}-g\${0:\$[-2]}" "\"\$@\"" >> ${TUPLE}-wrapper
-chmod 755 ${TUPLE}-wrapper
-ln -s ${TUPLE}-wrapper cc
-ln -s ${TUPLE}-wrapper c++
-ln -s ${TUPLE}-wrapper gcc
-ln -s ${TUPLE}-wrapper g++
-}}
-</div>
+We would like to thank the following authors and editors for their contributions to this guide:
 
-If you ARE using clang:
-
-{{FileBox|filename=/usr/local/sbin/distcc-fix|lang=bash|<nowiki>
-#!/bin/bash	                
-#clang aware, now your >chromium-65 ebuilds will use distcc just like before ;) 
-sleep 20
-# We extract $TUPLE from make.conf to avoid editing the script for each architecture.
-TUPLE=$(portageq envvar CHOST)
-GCC_VER=$(gcc-config -c|cut -d "-" -f5)
-CLANG_VER=$(clang --version|grep version|cut -d " " -f3|cut -d'.' -f1,2)
-cd /usr/lib/distcc/bin
-rm cc c++ gcc g++ gcc-${GCC_VER} g++-${GCC_VER} clang clang++ clang-${CLANG_VER} clang++-${CLANG_VER} ${TUPLE}-wrapper ${TUPLE}-clang-wrapper 
-echo '#!/bin/bash' > ${TUPLE}-wrapper
-echo "exec ${TUPLE}-g\${0:\$[-2]}" "\"\$@\"" >> ${TUPLE}-wrapper
-echo '#!/bin/bash' > ${TUPLE}-clang-wrapper
-echo "exec ${TUPLE}-\$(basename \${0}) \"\$@\"" >> ${TUPLE}-clang-wrapper
-chmod 755 ${TUPLE}-wrapper
-chmod 755 ${TUPLE}-clang-wrapper
-ln -s ${TUPLE}-wrapper cc
-ln -s ${TUPLE}-wrapper c++
-ln -s ${TUPLE}-wrapper gcc
-ln -s ${TUPLE}-wrapper g++
-ln -s ${TUPLE}-wrapper gcc-${GCC_VER}
-ln -s ${TUPLE}-wrapper g++-${GCC_VER}
-ln -s ${TUPLE}-clang-wrapper clang
-ln -s ${TUPLE}-clang-wrapper clang++
-ln -s ${TUPLE}-clang-wrapper clang-${CLANG_VER}
-ln -s ${TUPLE}-clang-wrapper clang++-${CLANG_VER}
-</nowiki>}}
-
-Asignar los permisos apropiados:
-
-{{RootCmd|chmod 755 /usr/local/sbin/distcc-fix}}
-
-¡Enhorabuena!. Probablemente tenga ahora una configuración de compilación cruzada con distcc en funcionamiento.
-
-=== Como funciona esto ===
-
-Cuando llamamos a {{c|distcc}}, comprueba que se ha invocado (por ejemplo, como <code>i686-pc-linux-gnu-gcc</code>,
-<code>sparc-unknown-linux-gnu-g++</code>, etc.). Entonces, cuando distcc
-distribuya la tarea de compilación a un equipo participante, pasa también el mismo nombre con el que se llamó. El demonio distcc en el equipo participante busca un binario con el mismo nombre. Si solo
-ve {{c|gcc}}, buscará {{c|gcc}}, que probablemente será el
-compilador nativo en el equipo participante si la arquitectura no es la misma que el equipo que corre {{c|emerge}}. Cuando pasamos el nombre "completo" del compilador (por ejemplo <code>sparc-unknown-linux-gnu-gcc</code>), entonces no habrá confusión.
-
-=== Resolución de problemas ===
-
-Esta sección cubre algunos problemas comunes cuando se utiliza {{c|distcc}} para realizar una compilación cruzada.
-
-==== Remote host distccd COMPILE ERRORS ====
-
-Cuando se lee el mensaje <code>COMPILE ERRORS</code> dentro del fichero {{Path|/var/log/distccd.log}} de un equipo remoto, lea las notas de arriba que se refieren a la especificación correcta del nombre de arquitectura (esto es, {{c|crossdev -t $DESTINO}}).
-
-Otra solución es desinstalar y volver a instalar las herramientas de compilación {{c|crossdev}} usando la opción {{c|crossdev --clean}} o asegurándose de que ya no existe {{Path|/usr/$TARGET}} e instalar completamente el compilador cruzado a continuación.
-
-Se recomienda editar el fichero {{Path|/usr/$DESTINO/etc/portage/make.conf}}, del equipo remoto y asegurarse de que los valores de la variable <var>CFLAGS</var> son los mismos en todos los equipos que participan en las operaciones de compilación. También asegúrese de que los ajustes <var>USE</var> para el compilador cruzado son suficientes si construyó GCC con <code>USE=graphite</code> en el cliente, necesitará también una línea como <code>cross-i686-pc-linux-gnu/gcc graphite</code> en {{Path|/etc/portage/package.use}}.
-
-==== Failed to exec $DESTINO-unknown-linux-gnu-gcc: No such file or directory ====
-
-Los guiones envoltorio pueden fallar en su ejecución incluso con los permisos correctos:
-
-{{CodeBox|title=Mensaje de error del guión envoltorio|1=
-distcc[6195] (dcc_execvp) ERROR: failed to exec i686-unknown-linux-gnu-gcc: No such file or directory
-}}
-
-Para arreglar esto, asegúrese de haber creado el guión envoltorio con el nombre completo de la arquitectura destino:
-
-{{Cmd|ls -alh /usr/lib/distcc/bin/c++|output=<pre>
-/usr/lib/distcc/bin/c++ ->./i686-pc-linux-gnu-wrapper
-</pre>}}
-
-[[Category:Compilation]]
-{{Migrated|originalauthors=Andrew Gaffney, Joshua Saddler}}
+* Andrew Gaffney
+* Joshua Saddler
