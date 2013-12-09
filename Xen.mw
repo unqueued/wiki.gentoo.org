@@ -1,668 +1,197 @@
-{{InfoBox stack
-|{{InfoBox homepage|https://xenproject.org/|header=true}}
-|{{InfoBox blog|https://blog.xenproject.org}}
-|{{InfoBox project|Xen}}
-|{{InfoBox wikipedia|Xen}}
-|{{InfoBox odoc|https://xenproject.org/help/documentation/}}
-}}
+This guide describes how to start using Xen on your Gentoo system
 
-[https://xenproject.org/about-us/ Xen] is [[Article description::a native, or bare-metal, [[:Wikipedia:Hypervisor|hypervisor]] that allows multiple distinct virtual machines (referred to as domains) to share a single physical machine.]] As the highest privilege process on the system, Xen is responsible for the distribution of processor and memory resources between guest domains on the host. Other hardware resources such as network interfaces, disks, or direct PCI/USB devices are controlled by a privileged domain known as domain-0 (dom0).
+== Introduction ==
 
-From its inception Xen has focused on the [[:Wikipedia:Paravirtualization|para-virtualization]] approach to hypervisor design. As a result, Xen guests or unprivileged domains (domU) are typically aware of the hypervisor and their status as guests. The base system, Domain-0, must have inherent Xen support, however, unmodified domU guests are supported on hardware which implements Intel (VT-x) or AMD (SVM) virtualization technology.
+The [http://www.xen.org/ Xen] technology allows you to run multiple operating systems on a single physical system, govern resource consumption and even migrate domains (which are the virtual environments in which a guest operating system runs) from one Xen-powered system to another. Xen requires the host operating system to support Xen (which, in this case, will be a Linux kernel) but guest operating systems can run unmodified ''if'' your hardware supports Intel Virtualization Technology (VT-x) or AMD Virtualization Technology (SVM). Otherwise your guest operating systems must also support Xen. 
 
-== Host configuration (domain-0) ==
+This guide will talk you through the configuration steps necessary to get Xen up and running on Gentoo Linux. We will not discuss Xen itself (the Xen project has [http://xen.org/support/documentation.html decent documentation] available) nor will we talk about specialized setups that might be very interesting for Xen setups but are not Xen-related (like exporting Portage through NFS, booting Linux using PXE, etc.) 
 
-=== Preparation ===
+== Preparing Domain0 ==
 
-==== BIOS and UEFI firmware ====
+=== Introduction ===
 
-While paravirtualized (PV) guests can run on a host without any form of hardware accelerated virtualization extensions this severely restricts the set of available guests and prevents the use of new and exciting modes such as [https://wiki.xenproject.org/wiki/PVH_(v2)_Domu PVH]. 
+''Domain0'' is the primary domain under Xen, hosting the host operating system which governs all other domains. In this chapter we will prepare an existing Gentoo installation to become the host operating system in this domain and build the Xen-powered kernel so that Gentoo is ready to host other Xen domains. 
 
-The following command should provide a highlighted row for each processor if the corresponding feature is present:
+=== Rebuilding the Gentoo Installation? ===
 
-{{cmd|grep --color -E "vmx{{!}}svm" /proc/cpuinfo}}
+A dramatic change that might be necessary is to rebuild the entire Gentoo installation with a different <code>CFLAGS</code> setting. Guest operating systems running under Xen might otherwise see major performance degradation. If you, however, are planning on checking out Xen rather than installing it for production use and are not terribly fond of rebuilding all programs, you can skip this step. In this case you will notice performance degradation but you will still be able to use Xen. 
 
-Unfortunately motherboard manufacturers often explicitly disable these virtualization extensions via [[BIOS]] or UEFI settings. If you don't see support listed check your BIOS/UEFI configuration for flags related to virtualization.
+{{Important|It is advised that, if you change your <code>CFLAGS</code> and build your system with a gcc lower than version 4, you do not have <code>-Os</code> set as it has been reported to produce broken code.}}
 
-==== Rebuilding the Gentoo installation? ====
+Add -mno-tls-direct-seg-refs ONLY if you have a 32-bit dom0. You don't need this flag if you have a 64-bit dom0.
 
-A dramatic change that might be necessary on 32-bit systems is to rebuild the entire Gentoo installation with a different <var>CFLAGS</var> setting. Guest operating systems running under Xen might otherwise see major performance degradation. If you, however, are planning on checking out Xen rather than installing it for production use and are not terribly fond of rebuilding all programs, you can skip this step. In this case you will notice performance degradation but you will still be able to use Xen. 
+{{File|/etc/portage/make.conf|CFLAGS change for mno-tls-direct-seg-refs|<pre>
+CFLAGS="-O2 -march=pentium4 -pipe -mno-tls-direct-seg-refs"
+</pre>}}
 
-{{Important|It is advised that, if you change your <var>CFLAGS</var> and build your system with a GCC lower than version 4, you do not have <code>-Os</code> set as it has been reported to produce broken code.}}
-
-Add <code>-mno-tls-direct-seg-refs</code> ONLY if you have a 32-bit dom0. You don't need this flag if you have a 64-bit dom0.
-
-{{FileBox|filename=/etc/portage/make.conf|title=CFLAGS change for mno-tls-direct-seg-refs|lang=bash|1=
-CFLAGS="... -mno-tls-direct-seg-refs"
-}}
-
-{{RootCmd|emerge -e @world}}
+{{RootCmd|emerge -e world}}
 
 If you boot your system using an initial ramdisk (initrd) you need to rebuild the initrd as well (which is best done by running all steps you would do when you rebuild your kernel). 
 
-==== Kernel ====
+=== Installing Xen ===
+
+Xen actually contains many components, so you'll need to install a few packages. 
+
+{{RootCmd|emerge xen xen-tools gentoo-sources}}
+
+=== Building the Kernel ===
 
 Next we'll build the Linux kernel with Xen support. This kernel, whose sources are available at {{Path|/usr/src/linux}} , will be our main running kernel (i.e. the one running domain 0). In the <code>XEN</code> section you'll find drivers for all kinds of input/output, each driver having a ''backend'' and ''frontend'' implementation available. For the domain 0 kernel you need to select the ''backend'' implementation: these are used by the other domains (who use the ''frontend'' drivers) to communicate directly with the hardware. However, you should be able to configure the kernel to provide support for both frontend (guest) and backend (host) drivers. 
 
 If you're wondering about networking: each interface in a domain has a point-to-point link to an interface on domain 0 (called {{Path|vifX.Y}} where X is the domain number and Y the Yth interface of that domain), so you can configure your network the way you want (bridging, NAT, etc.) 
 
-Enable general Xen support:
-
-{{KernelBox|title=Xen Base|1=
+{{Kernel|Enabling Xen Support|<pre>
 Processor type and features  --->
-   [*] Linux guest support  --->
-      [*]   Enable paravirtualization code
-      [*]     Paravirtualization layer for spinlocks
-      [*]     Xen guest support
-      [*]       Support for running as a PVH guest
-       
+    [*] Paravirtualized guest support --->
+        [*] Xen guest support
+</pre>
 }}
 
-Add support for paravirtualized console connections:
-
-{{KernelBox|title=PV Console|1=
-Device Drivers  --->
-   Character devices  --->
-      [*] Xen Hypervisor Console support
-      [*]   Xen Hypervisor Multiple Consoles support
-}}
-
-Facilitates guest access to block and network devices via dom0:
-
-{{KernelBox|title=Disk and Network|1=
-Device Drivers  --->
-   [*] Block devices  --->
-      <*>   Xen virtual block device support
-   [*] Network device support  --->
-      <*>   Xen network device frontend driver
-}}
-
-In some configurations it can be desirable to provide a guest with direct access to a PCI device. This is known as [https://wiki.xenproject.org/wiki/Xen_PCI_Passthrough Xen PCI Passthrough]:
-
-{{KernelBox|title=Guest PCI Passthrough|1=
+{{Kernel|Kernel Config|<pre>
 Bus options (PCI etc.)  --->
-   <*> Xen PCI Frontend
-}}
-
-Keyboard, mouse, and display support via dom0 backend:
-
-{{KernelBox|title=Guest human interface|1=
-Device Drivers  --->
-   Input device support  --->
-      [*] Miscellaneous devices  --->
-         <*>   Xen virtual keyboard and mouse support
-   Graphics support  --->
-         Frame buffer Devices  --->
-            <*> Xen virtual frame buffer support
-}}
-
-Xen dom0 support depends on ACPI; without it dom0 related options will be hidden:
-
-{{KernelBox|title=ACPI support|1=
-Power management and ACPI options  --->
-   [*] ACPI (Advanced Configuration and Power Interface) Support  --->
-}}
-
-Typical network configurations depend on Linux bridge functionality:
-
-{{KernelBox|title=Linux bridge|1=
+    [*] Xen PCI Frontend
+  
 [*] Networking support --->
-   Networking options  --->
-         <*> 802.1d Ethernet Bridging
-	 [*] Network packet filtering framework (Netfilter) --->
-            [*] Advanced netfilter configuration
-            [*]   Bridged IP/ARP packets filtering
+    Networking options  --->
+        <*> 802.1d Ethernet Bridging
+	[*] Network packet filtering framework (Netfilter) --->
+	    [*] Advanced netfilter configuration
+	        [*] Bridged IP/ARP packets filtering
+  
+Device Drivers --->
+    [*] Block devices (NEW) --->
+        <*> Xen block-device backend driver
+    [*] Network device support --->
+        <*> Xen backend network device
+    Xen driver support --->
+        [*] Xen memory balloon driver (NEW)
+	[*]   Scrub pages before returning them to system (NEW)
+	<*> Xen /dev/xen/evtchn device (NEW)
+	[*] Backend driver support (NEW)
+	<*> Xen filesystem (NEW)
+	[*]   Create compatibility mount point /proc/xen (NEW)
+	[*] Create xen entries under /sys/hypervisor (NEW)
+	<*> userspace grant access device driver (NEW)
+	<M> user-space grant reference allocator driver (NEW)
+	<M> xen platform pci device driver (NEW)
+</pre>
 }}
 
-[https://wiki.xenproject.org/wiki/Xen_Project_Software_Overview#HVM_and_its_variants_.28x86.29 Fully virtualized (HVM)] guests depend on Universal TUN/TAP device driver support for their network interfaces. This option is required if you plan to create fully [https://wiki.xenproject.org/wiki/Xen_Networking#Emulated_Network_Devices Emulated Network Devices] within Dom0/DomU configuration.
+The shown kernel configuration should allow the kernel image to boot both as a host as well as a guest. However, if you want to, you can slim down the guest image kernel considerably. Refer to the Xen documentation for more information. 
 
-{{KernelBox|title=TUN and TAP virtual network kernel devices|1=
-[*] Device Drivers  --->
-   Network device support --->
-      <M> Universal TUN/TAP device driver support
+Once the kernel is built you'll find the kernel image immediately in the build directory (not inside {{Path|arch/}} or any other directory) called {{Path|vmlinuz}} . Copy it to {{Path|/boot}} and then configure your bootloader to use the Xen hypervisor (one of the components installed previously) which is stored as {{Path|/boot/xen.gz}} . In the bootloader configuration, add your newly built kernel as the kernel that Xen should boot. For instance, for GRUB: 
+
+{{File|/boot/grub/grub.conf|GRUB Configuration for Xen|<pre>
+title Xen Gentoo Linux 3.5
+root (hd0,0)
+kernel /boot/xen.gz
+module /boot/kernel-3.5.x.y-xen0 root=/dev/sda3
+</pre>
 }}
 
-The remaining drivers flesh out memory management, domain-to-domain communication, and communication to Xen via sysfs interfaces:
+Now reboot your system into Xen and check if you can do whatever you normally do on your system. If this is the case, you can edit your bootloader configuration to always boot into Xen. 
 
-{{KernelBox|title=Xen Drivers|1=
-Device Drivers  --->
-   [*] Block devices  --->
-         <*>   Xen block-device backend driver
-   [*] Network device support --->
-         <*>   Xen backend network device
-   Xen driver support  --->
-         [*] Xen memory balloon driver
-         [*]   Scrub pages before returning them to system
-         <*> Xen /dev/xen/evtchn device
-         [*] Backend driver support
-         <*> Xen filesystem
-         [*]   Create compatibility mount point /proc/xen
-         [*] Create xen entries under /sys/hypervisor
-         <*> userspace grant access device driver
-         <*> User-space grant reference allocator driver
-         <M> Xen PCI-device backend driver
-         <*> Xen ACPI processor
-         [*] Xen platform mcelog
-}}
+{{Note|If you wish to start guest domains automatically on boot add <code>xendomains</code> to the default runlevel as well and create a symlink in {{Path|/etc/xen/auto/}} to the Xen configuration files for the domains you wish to start.}}
 
-With all of the above configuration enabled, this kernel image should be able to boot as the dom0 host or as another domU guest. Note that the domU kernel can be slimmed down significantly if desired.
+== Creating an Unpriviledged Domain ==
 
-=== USE flags ===
-
-The first set of use flags correspond directly to the Xen hypervisor. Of these, ensure that EFI support is selected if you plan to configure EFI boot.
-
-{{USEflag|package=app-emulation/xen}}
-
-In addition to the core hypervisor Xen depends on a set of supporting libraries and management tools.
-
-{{USEflag|package=app-emulation/xen-tools}}
-
-{{Note|In case you need hardware virtualization, the <code>hvm</code> USE flag must be enabled for the xen-tools package.  This flag can not be enabled on no-multilib installations.  You need a multilib installation (and have a multilib profile selected) to enable the <code>hvm</code> USE flag.  (You also need a CPU which supports hardware virtualization.)
-
-In case {{c|equery uses xen-tools}} does not list the <code>hvm</code> flag at all, or when {{c|emerge -a xen-tools}} shows this flag in brackets, the flag cannot be enabled (unless you figure out how to unmask it).  Simply selecting a multilib profile on hosts that do not have a multilib installation is likely to give you error messages like about a missing stub-32.h when the xen-tools package is compiled, and emerging the package fails.  You may need to re-install the host to a multilib installation then. (32-bit support in the kernel is not required.)
-}}
-
-=== Installation ===
-
-==== Emerge ====
-
-Xen will automatically deploy the compiled, boot-able hypervisor in {{Path|/boot}}. If you have a separate [[Handbook:AMD64/Installation/Disks#Creating_the_boot_partition|boot partition]] ensure that it is mounted.
-
-{{RootCmd|mount /boot}}
-
-After you have reviewed and updated the relevant USE flags, emerge xen and xen-tools:
-
-{{RootCmd|emerge --ask app-emulation/xen app-emulation/xen-tools}}
-
-Once the installation process completes {{Path|/boot/xen.gz}} should be present.
-
-==== Performance tuning ====
-
-When configuring a host with a significant amount of memory it is beneficial to fix the allocated to dom0 and disable ballooning functionality. This ensures Xen and the dom0 operating system are able to build working structures based on the memory available at boot-time and have their assumptions hold throughout operation. Additionally, in the event that a large number of guests are created, dom0 is explicitly protected from external memory pressure.
-
-In a GRUB2 environment the following directive assigns 1 GiB of memory to the dom0 guest:
-
-{{FileBox|filename=/etc/default/grub|title=GRUB2 Limit dom0 Memory|1=
-GRUB_CMDLINE_XEN_DEFAULT="dom0_mem=1024M,max:1024M"
-}}
-
-Ballooning should also be disabled by setting autoballoon to either "off" or "auto" in {{Path|/etc/xen/xl.conf}}.
-
-Further detail on this topic and other related tuning suggestions can be found on the [https://wiki.xen.org/wiki/Tuning_Xen_for_Performance Tuning Xen for Performance] article on the Xen wiki.
-
-==== Runlevel ====
-
-In order for your new Xen environment to function correctly a number of daemons must be started. The following table provides a brief overview of each daemon and its function.
-
-{| class="table table-striped table-condensed"
-! Init Script !! Required !! Description
-|-
-| xencommons
-| {{Yes|Yes}}
-| This daemon ensures all Xen related kernel modules are loaded in a dom0 system. Additionally, in dom0 and domU pv_ops systems it mounts {{Path|/proc/xen}} as type xenfs.
-|-
-| xenconsoled
-| {{Yes|Yes}}
-| Manages xl console sessions between dom0 and domU guests.
-|-
-| xendomains
-| {{No|No}}
-| Automatically starts all domU configuration files found in {{Path|/etc/xen/auto/}}.
-|-
-| xenstored
-| {{Yes|Yes}}
-| Manages both disk and network I/O configuration and operations between the dom0 environment and other domU guests.
-|-
-| xen-watchdog
-| ?
-| Probably kills the dom0 environment or Xen in general if it becomes unresponsive for too long. It looks like this may have been removed
-|-
-| xenqemudev
-| ?
-| Facilitates QEMU based disks for Xen guests. This comment is incomplete.
-|}
-
-{{Note|The xen-watchdog init script currently has not been migrated from sysvinit to the runscript/openRC format.}}
-
-To add these daemons directly to the default runlevel perform the following:
-
-{{RootCmd
-|rc-update add xencommons default
-|rc-update add xenconsoled default
-|rc-update add xendomains default
-|rc-update add xenstored default
-|rc-update add xen-watchdog default
-}}
-
-These daemons should only be started when the system boots into Xen. As this may not always be the case, it may be desirable to keep these services out of the default runlevel. One possible alternative is to utilize an alternate default runlevel via the softlevel kernel parameter. The following example, based on [https://michaelmk.blogspot.com/2012/05/different-runlevels-in-gentoo.html this blog post], creates a new runlevel named xen. 
-
-First create the new runlevel:
-
-{{RootCmd
-|install -d /etc/runlevels/xen
-}}
-
-Stack the default runlevel onto it:
-
-{{RootCmd|rc-update -s add default xen}}
-
-Then instead of adding the xen daemons to the default runlevel add them to the xen level:
-
-{{RootCmd
-|rc-update add xencommons xen
-|rc-update add xenconsoled xen
-|rc-update add xendomains xen
-|rc-update add xenstored xen
-|rc-update add xen-watchdog xen
-}}
-
-Once all of these steps have been completed add the following statement to the grub default file:
-
-{{FileBox|filename=/etc/default/grub|title=Setting the softlevel|1=
-# Replace the default runlevel with "xen"
-GRUB_CMDLINE_LINUX_XEN_REPLACE_DEFAULT="softlevel=xen"
-}}
-
-==== Bootloader ====
-
-In order for Xen to be the highest privilege process it must be the initial boot target, however, it must also subsequently boot the dom0 kernel.
-
-===== Default: GRUB2 =====
-
-[[GRUB2]] provides auto-configuration scripts through {{c|grub-mkconfig}} which will generate the appropriate settings based on the kernel {{Path|.config}}. If the scripts detect Xen dom0 options they will append Xen hypervisor boot lines to the grub menu. Note that for this to function correctly the kernel config file must be located in one of the following directories with a suffix matching the desired kernel:
-
-{| class="table table-striped table-condensed"
-! Directory !! File Prefix !! Example
-|-
-| /etc/kernels/ || kernel-config-* || /etc/kernels/kernel-config-4.0.5-gentoo
-|-
-| /boot || config-* || /boot/config-4.0.5-gentoo
-|}
-
-The example column above assumes a kernel named /boot/kernel-4.0.5-gentoo.
-
-The following variables in {{Path|/etc/default/grub}} are the most common ones to set to control how GRUB2 will function:
-
-{| class="table table-striped table-condensed"
-! Variable
-! Explanation
-|-
-| <var>GRUB_CMDLINE_XEN</var>
-| Extra parameters to be passed on the Xen command line for all Xen menu entries. For instance, to have a timestamped Xen dmesg, users will need to add <code>GRUB_CMDLINE_XEN="console_timestamps=boot"</code>.
-|-
-| <var>GRUB_CMDLINE_XEN_DEFAULT</var>
-| Parameters to be passed on the Xen command line for non-recovery Xen menu entries.
-|-
-| <var>GRUB_CMDLINE_LINUX_XEN_REPLACE_DEFAULT</var>
-| Overrides the <var>GRUB_CMDLINE_LINUX_DEFAULT</var> variable from the above Linux section for Xen boot lines only. Users may prefer to start a specific softlevel for xen via <code>GRUB_CMDLINE_LINUX_XEN_REPLACE_DEFAULT="softlevel=xen"</code>
-|}
-
-For a more complete list, please refer to the [[GRUB2/Configuration variables|GRUB2 configuration variables]] sub-page.
-
-Now update the grub configuration file in the boot directory.
-
-{{RootCmd
-| grub-mkconfig -o /boot/grub/grub.cfg
-}}
-
-GRUB2 support is also included in {{c|[[genkernel]]}} and can be triggered during the build process:
-
-{{RootCmd|genkernel --oldconfig --menuconfig --install --bootloader{{=}}grub --symlink --disklabel --lvm --mdadm --makeopts{{=}}-j9 all}}
-
-===== Alternative: LILO =====
-
-To make lilo load the kernel, you need to pack the hypervisor, dom0 and initrd images into a single image. This can be achieved with the tool <code>mbootpack</code>. You need to decompress all images in order to pass them to <code>mbootpack</code>.
-
-{{RootCmd|mbootpack -o /boot/kernel-4.0.x.y-xen0-pack -m /boot/kernel-4.0.x.y-xen0.decompressed -m /boot/initrd-4.0.x.y-xen0.decompressed /boot/xen.decompressed}}
-
-Then you can configure lilo to use the newly created image.
-
-{{FileBox|filename=/etc/lilo.conf|title=LILO Configuration for Xen|1=
-image=/boot/kernel-4.0.x.y-xen0-pack
-	label=XENGentoo4
-	read-only
-	root=/dev/sda3
-	softlevel=xen
-}}
-
-Finally, run the <code>lilo</code> binary.
-
-{{RootCmd|lilo}}
-
-==== Booting Xen ====
-
-Once you are satisfied with your configuration, reboot the system into Xen. Assuming everything worked correctly Xen should transfer display control to the dom0 environment, which will operate just like the original bare-metal system.
-
-Running {{c|xl list}} should result in output similar to the following if Xen is functioning correctly:
-
-{{RootCmd|xl list
-<pre>Name                                        ID   Mem VCPUs      State   Time(s)
-Domain-0                                     0  1024    24     r-----      22.0</pre>
-}}
-
-At this point you may want to configure your system to boot into Xen by default. If you are utilizing GRUB2, add the following lines to the grub defaults file:
-
-{{FileBox|filename=/etc/default/grub|title=Enabling Saved Defaults|lang=bash|1=
-# Default menu entry
-GRUB_DEFAULT="saved"
-GRUB_SAVEDEFAULT="true"
-}}
-
-Then, copy the name or ID of the Xen boot config and set it via grub-set-default:
-
-{{RootCmd|grub-set-default 'Gentoo GNU/Linux, with Xen hypervisor'}}
-
-== Creating an unprivileged domain (domU) ==
-
-=== Building the kernel ===
+=== Building the Kernel ===
 
 Go to the Xen-powered Linux kernel source and, if necessary, update the configuration. It is wise to keep as many topics as possible similar to the main kernel. Then build the kernel and place the resulting {{Path|vmlinuz}} file where you want (we assume this is {{Path|/mnt/data/xen/kernel}} ): 
 
-{{RootCmd
-|make O{{=}}~/build/domU
-|cp ~/build/domU/vmlinuz /mnt/data/xen/kernel/kernel-3.5.x.y-xen
-}}
+{{RootCmd|make O{{=}}~/build/domU
+|cp ~/build/domU/vmlinuz /mnt/data/xen/kernel/kernel-3.5.x.y-xen}}
 
-{{Note|On modern systems (e.g. xen-4.3.2, kernel-3.12) it is possible to use only one kernel for both: dom0 and domU. Just configure all options needed for a guest system in the main kernel. Don't forget to copy the modules {{Path|/lib/modules/<your kernel>}} to the guest system. }}
-
-If you'd like to trim down the domU kernel the following flags are necessary.
-
-Enable general Xen support:
-
-{{KernelBox|title=Xen base support|1=
-Processor type and features  --->
-     [*] Linux guest support  --->
-          [*]   Enable paravirtualization code
-          [*]     Xen guest support
-          [*]       Support for running as a PVH guest
-          [*]     Paravirtualization layer for spinlocks          
-}}
-
-Facilitates guest access to block and network devices via dom0:
-
-{{KernelBox|title=Disk and network|1=
-Device Drivers  --->
-     [*] Block devices  --->
-          <*>   Xen virtual block device support
-     [*] Network device support  --->
-          <*>   Xen network device frontend driver
-}}
-
-In some configurations it can be desirable to provide a guest with direct access to a PCI device. This is known as [https://wiki.xenproject.org/wiki/Xen_PCI_Passthrough Xen PCI Passthrough]:
-
-{{KernelBox|title=Guest PCI passthrough|1=
-Bus options (PCI etc.)  --->
-     [*] Xen PCI Frontend
-}}
-
-Keyboard, mouse, and display support via dom0 backend:
-
-{{KernelBox|title=Guest human interface|1=
-Device Drivers  --->
-     Input device support  --->
-          [*]   Miscellaneous devices  --->
-               <*>   Xen virtual keyboard and mouse support
-     Graphics support  --->
-          Frame buffer Devices  --->
-               <*> Xen virtual frame buffer support
-}}
-
-The remaining drivers flesh out memory management, domain-to-domain communication, and communication to Xen via sysfs interfaces:
-
-{{KernelBox|title=Xen drivers|1=
-Device Drivers  --->
-     Xen driver support  --->
-          [*] Xen memory balloon driver
-          [*]   Scrub pages before returning them to system
-          <*> Xen /dev/xen/evtchn device
-          <*> Xen filesystem
-          [*]   Create compatibility mount point /proc/xen
-          [*] Create xen entries under /sys/hypervisor
-          <*> userspace grant access device driver
-          <*> User-space grant reference allocator driver
-          <*> Xen ACPI processor
-          [*] Xen platform mcelog
-}}
-
-=== Creating the domain disks ===
+=== Creating the Domain Disks ===
 
 For best performance, it is best to dedicate a partition (or logical volume) to a domain rather than a file based filesystem. However, if you are going to use Xen primarily for tests using a file based filesystem does have its advantages (especially regarding maintenance). 
 
-You can create a file based filesystem using {{c|dd}} and {{c|mke2fs}} (or any other file system creation tool). For instance, to create a 4 Gbyte ext4 filesystem: 
+You can create a file based filesystem using <code>dd</code> and <code>mke2fs</code> (or any other file system creation tool). For instance, to create a 4 Gbyte ext4 filesystem: 
 
-{{RootCmd
-|dd if{{=}}/dev/zero of{{=}}/mnt/data/xen/disks/ext4root.img bs{{=}}1M count{{=}}4096
-|mkfs.ext4 /mnt/data/xen/disks/ext4root.img
-}}
+{{RootCmd|dd if{{=}}/dev/zero of{{=}}/mnt/data/xen/disks/ext4root.img bs{{=}}1M count{{=}}4096
+|mkfs.ext4 /mnt/data/xen/disks/ext4root.img}}
 
-=== Configuring a domain ===
+=== Configuring a Domain ===
 
-Next we create a Xen configuration file for a domain. You can store these configuration files where you want, for instance at {{Path|/mnt/data/xen/configs}}. As an example, we create a configuration file for a small Gentoo environment which uses the disk image we created previously: 
+Next we create a Xen configuration file for a domain. You can store these configuration files where you want, for instance at {{Path|/mnt/data/xen/configs}} . As an example, we create a configuration file for a small Gentoo environment which uses the disk image we created previously: 
 
-{{FileBox|filename=/mnt/data/xen/configs/gentoo|lang=python|1=
-kernel = "/mnt/data/xen/kernel/kernel-4.12.5-xen"
-memory = 2048
-vcpus  = 2
+{{File|/mnt/data/xen/configs/gentoo||<pre>
+kernel = "/mnt/data/xen/kernel/kernel-3.5.x.y-xen"
+memory = 512
 name   = "gentoo"
-disk   = ['file:/mnt/data/xen/disks/ext4root.img,xvda1,w'] # Map the disk image to the virtual /dev/xvda1
-root   = "/dev/xvda1 ro"
-vif    = ['bridge=br0'] # set the bridge name to br0 (see later), otherwise xen will use xenbr0
+(Map the disk image to the virtual /dev/sda1)
+disk   = ['file:/mnt/data/xen/disks/ext4root.img,sda1,w']
+root   = "/dev/sda1 ro"
+</pre>
 }}
 
 If you are using a block device (such as an lvm volume or partition) for the disk use 'phy:' instead of 'file:' and leave off /dev. For example: 
 
-{{CodeBox|title=Using a block device|lang=python|1=
+{{Code|Using a block device|<pre>
 (LVM Volume)
-disk = [ 'phy:lvm/xen-guest-root,xvda1,w' ]
+disk = [ 'phy:lvm/xen-guest-root,sda1,w' ]
   
 (Physical Partition)
-disk = [ 'phy:sdb6,xvda1,w' ]
+disk = [ 'phy:sdb6,sda1,w' ]
+</pre>
 }}
 
-You can find example configuration files in {{Path|/etc/xen}}, which is also the default location for domU config files.
+You can find example configuration files in {{Path|/etc/xen}} . 
 
-=== Launching the new domain ===
+=== Launching the New Domain ===
 
-Now we're all set and we can launch the new domain. If the disk image contained an operating system, we could just create and attach the domain using the {{c|xl}} command: 
+Now we're all set and we can launch the new domain. If the disk image contained an operating system, we could just create and attach the domain using the <code>xl</code> command: 
 
-{{RootCmd|xl create /mnt/data/xen/gentoo -c}}
+{{RootCmd|xl create /mnt/data/xen/configs/gentoo -c}}
 
 The domain would be booted inside the terminal in which you executed the command. However, in our case, the disk image is empty so the domain won't boot up in anything useful. To fix this, you can loop-mount the image and install Gentoo as you're used to. 
 
-If you want to disconnect from the domain, press {{Key|Ctrl}}+{{Key|]}}. You can always reconnect to the domains' console using {{c|xl console gentoo}}. However, there is only one console per domain, so only use it when you can't access the domain otherwise (for instance, through SSH).
+If you want to disconnect from the domain, press {{Path|Ctrl+]}} . You can always reconnect to the domains' console using <code>xl console gentoo</code> . However, there is only one console per domain, so only use it when you can't access the domain otherwise (for instance, through SSH). 
 
-If you are missing login prompt on the console, make sure you have entries like this in your inittab files on dom0 and domU pointing to {{Path|/dev/hvc0}}:
-
-{{FileBox|filename=dom0:/etc/inittab|1=
-c0:2345:respawn:/sbin/agetty 38400 hvc0 linux
-}}
-
-{{FileBox|filename=domU:/etc/inittab|1=
-c0:2345:respawn:/sbin/agetty 38400 hvc0 linux
-}}
-
-To apply the changes in {{Path|/etc/inittab}} without a reboot issue the following command:
-
-{{RootCmd|telinit q}}
-
-If it still does not work, check the kernel config for <var>DEVTMPFS</var> and <var>DEVTMPFS_MOUNT</var>. These two values should be enabled in either module or built in format.
-
-{{KernelBox|title=Setting <var>DEVTMPFS</var> and <var>DEVTMPFS_MOUNT</var>|1=
-Device Drivers --->
-   Generic Driver Options  --->
-      -*- Maintain a devtmpfs filesystem to mount at /dev
-      [*]   Automount devtmpfs at /dev, after the kernel mounted the rootfs
-}}
-
-== Networking on domains ==
+== Networking on Unpriviledged Domains ==
 
 === Introduction ===
 
 Xen works best when using a bridged mode network configuration. This means that your default network interface on the administrative domain becomes a bridge which accepts connections to the virtual domains as well as to the IP address your administrative domain has. 
 
-=== Bridged interfaces ===
+=== Bridged Interfaces ===
 
 Create a bridge interface by creating a new link to the networking init script as provided by Gentoo: 
 
-{{RootCmd
-|cd /etc/init.d
-|ln -s net.lo net.br0
-|ln -s net.lo net.eth0
-}}
+{{RootCmd|cd /etc/init.d
+|ln -s net.lo net.br0}}
 
 Next, edit {{Path|/etc/conf.d/net}} and setup the bridge: 
 
-{{FileBox|filename=dom0:/etc/conf.d/net|lang=bash|1=
-# eth0 should NOT have an ip configured
-config_eth0="null"
-
-# configure bridge to replace eth0 on dom0. Make sure the netmask for the bridge includes ip addresses of all your domUs!
+{{File|/etc/conf.d/net||<pre>
 bridge_br0="eth0"
-config_br0="192.168.XX.XX netmask 255.255.0.0 brd 192.168.255.255"
-routes_br0="default via 192.168.XX.XX"
-mac_br0="00:16:3e:5b:XX:XX"
-
-# bridge options to make interface come up immediately
-bridge_stp_state_br0="0"
-bridge_forward_delay_br0="0"
-bridge_hello_time_br0="1000"
-
-rc_net_br0_need="net.eth0"
-rc_net_br0_provide="!net"
-}}
-
-Alternatively the bridge may request IP information from DHCP. 
-
-{{FileBox|filename=dom0:/etc/conf.d/net|lang=bash|1=
-# eth0 should NOT have an ip configured
-config_eth0="null"
-
-config_br0="dhcp"
-
-# bridge options to make interface come up immediately
-bridge_stp_state_br0="0"
-bridge_forward_delay_br0="0"
-bridge_hello_time_br0="1000"
-
-rc_net_br0_need="net.eth0"
-rc_net_br0_provide="!net"
-}}
-
-{{FileBox|filename=domU:/etc/conf.d/net|lang=bash|1=
-config_eth0="192.168.1.200 netmask 255.255.255.0 brd 192.168.1.255"
-# route all traffic through dom0 bridge address
-routes_eth0="default via 192.168.XX.XX"
-# make sure all your domUs have different mac addresses! Set them if needed in xen domU 
-# config files in /etc/xen/<domU_name> with "vif = [ "ip=192.68.XX.XX,mac=XX:XX:XX:XX:XX:XX,bridge=br0" ];" !
+config_br0="192.168.1.200 netmask 255.255.255.0 brd 192.168.1.255"
+routes_br0="default via 192.168.1.1"
+</pre>
 }}
 
 Finally, install the {{Package|net-misc/bridge-utils}} package, and make sure the {{Path|net.br0}} init script is loaded at boot. 
 
-{{Emerge|net-misc/bridge-utils}}
+{{RootCmd|emerge net-misc/bridge-utils
+|rc-update add net.br0 default}}
 
-{{RootCmd|rc-update add net.br0 default}}
+== Further Resources ==
 
-To start the interface immediately
-{{RootCmd|/etc/init.d/net.br0 start}}
+=== Xen Documentation ===
 
-If you use bridged networks with real internet IP's in hosted environments, it may be necessary to add one or all of the following lines (depending on your environment) in your {{Path|/etc/sysctl.conf}} file to prevent redirects, that can cause intermittent network interruptions:
+*  [http://www.xen.org/support/documentation.html Official Xen documentation] 
 
-{{FileBox|filename=/etc/sysctl.conf|lang=ini|1=
-net.ipv4.conf.all.send_redirects=0
-net.ipv4.conf.eth0.send_redirects=0
-net.ipv4.conf.br0.send_redirects=0
-net.ipv4.conf.default.send_redirects=0
-}}
+*  [http://wiki.xen.org/ Xen Wiki] 
 
-To get the changes in {{Path|/etc/sysctl.conf}} to work, use:
+=== Xen Tools ===
 
-{{RootCmd|sysctl -p /etc/sysctl.conf}}
+*  [http://virt-manager.org/ app-emulation/virt-manager] is a graphical tool for administering virtual machines
 
-If encountering poor network performance or if your domU network permanently stops working under heavy load (backup jobs, etc) (from outside it looks like the instance would crash, but deactivating and activating the interface e.g. from the <code>xl console <domU name></code> with <code>/etc/init.d/net.eth0 stop/start</code>, restores normal operation), use {{c|ethtool}} to improve/prevent it on all interfaces connected to the bridge (don't forget the bridge itself):
+== Acknowledgements ==
 
-{{RootCmd|ethtool --offload <network device> gso off tso off sg off gro off}}
+We would like to thank the following authors and editors for their contributions to this guide:
 
-{{Note|You have to do it after each reboot, so use e.g. {{Path|/etc/crontab}} to make it permanent.}}
+* Sven Vermeulen
+* nightmorph
 
-== Troubleshooting ==
-
-=== Unable to passthrough USB mouse and keyboard to HVM (Windows 7) domU in Xen 4.7.3 ===
-
-If using the latest stable version of Xen (i.e. app-emulation/xen-4.7.3), you find yourself unable to passthrough an emulated USB device (in other words, you cannot use a mouse and keyboard in a HVM windows guest domU OS), note that QEMU-emulated USB controllers are '''not''' present in Xen 4.7.3. Observe that the emulated USB controller (a.k.a. usbctrl=["type=devicemodel"]) is absent from the Xen 4.7 official documentation.
-
-In order to use a USB keyboard and mouse in a Win7 domU:
-
-* If your setup is capable of supporting it, consider passing through the entire USB host controller using [https://wiki.xenproject.org/wiki/Xen_PCI_Passthrough PCI Passthrough]. Note that this will likely require some IOMMU/VT-d and will depend on how your motherboard and chipset were designed; or
-
-* Unmask Xen 4.8.2 in portage and upgrade to it, following which USB mouse and keyboard passthrough may be achieved with the following changes to domU's config file:
-
-Assuming that the Xen configs are located, as above, at {{Path|/mnt/data/xen/configs}}, and that the HVM Windows 7 config file is called "win7":
-{{FileBox|filename=/mnt/data/xen/configs/win7|lang=bash|1=
-#This creates a USB1.1 emulated controller for a dom0 on Xen 4.8.2 (NOT 4.7.3)
-usb = 1
-usbdevice = ['host:XXXX:XXXX','host:XXXX:XXXX'] #Replace with the IDs of your mouse and keyboard, respectively.
-}}
-
-You can find the IDs of your mouse and keyboard by issuing the command:
-{{cmd|lsusb}}
-
-=== Xen domU hanging with kernel 4.3+ ===
-
-tl;dr:
-
-{{FileBox|filename=/etc/default/grub|title=increase gnttab_max_frames|lang=bash|1=
-GRUB_CMDLINE_XEN="... gnttab_max_frames=256"
-}}
-
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg}}
-{{RootCmd|reboot}}
-
-Kernel 4.3 added blk-mq support for xen-blkfront. In some cases (heavy IO/networking/high number of CPU), you may observe domU hangs. Kernel 4.12 added some mitigation, but it still happens from time to time (depends on your workload). In kernels 4.13+ you at least see the following message in the dmesg:
-
-{{RootCmd|dmesg
-<pre>Jan 10 12:15:19 domU kernel: xen:grant_table: xen/grant-table: max_grant_frames reached cur=32 extra=1 limit=32 gnttab_free_count=0 req_entries=24</pre>
-}}
-
-As both xen-netfront and xen-blkfront support multi-queue, they would consume a lot of grant table references when there are many paravirtual devices and vcpus assigned to guest. Guest domU might panic or hang due to grant allocation failure when nr_grant_frames in guest has reached its max value.
-
-You can use the xen-diag tool from Xen 4.10 to see if you're reaching the limit with your domUs.
-
-{{RootCmd|xl list
-<pre>Name                                        ID   Mem VCPUs      State   Time(s)
-Domain-0                                     0  4096    24     r-----     895.4
-domU                                         1  4992    24     r-----    2065.5</pre>
-}}
-
-{{RootCmd|xen-diag gnttab_query_size 1
-<pre>domid=1: nr_frames=13, max_nr_frames=32</pre>
-}}
-
-The default limit for Xen 4.9 is 32, Xen 4.10 increased the limit to 64. You can change it via the xen "gnttab_max_frames" command line options. A novell support page recommended to set it to 256.
-
-You can add the xen-diag tool to Xen 4.9:
-[https://xenbits.xen.org/gitweb/?p=xen.git;a=patch;h=df36d82e3fc91bee2ff1681fd438c815fa324b6a commit1]
-[https://xenbits.xen.org/gitweb/?p=xen.git;a=patch;h=04e0457e1e786a3a33d1854275fd6cd7ba6306f7 commit2]
-
-More information:
-[https://bugs.gentoo.org/643208 Gentoo bug]
-[https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=880554 Debian bug]
-[https://www.novell.com/support/kb/doc.php?id=7018590 Novell workaround]
-[https://www.mail-archive.com/xen-devel@lists.xen.org/msg116412.html Kernel 4.13 grant table optimization]
-
-=== Xen dom0 fails to boot on hardened ===
-
-You'll probably see "panic on CPU X\ndouble fault - system shutdown" messages when using the hardened profile ({{Bug|636770|text=bug report}}). Until this is resolved, please use the default profiles (rebuilding libtool/gcc/binutils/glibc and xen/xen-tools afterwards).
-
-== See also ==
-
-* {{See also|KVM}}
-
-== External resources ==
-
-*  [https://wiki.xen.org/ Xen Wiki]
-*  [https://virt-manager.org/ virt-manager] - A graphical tool for administering virtual machines.
-*  [http://cloudnull.io/2012/07/xenserver-network-tuning Xen network tuning].
-*  [https://wiki.xenproject.org/wiki/Xen_Project_Beginners_Guide Xen Project Beginners Guide] - Nice introduction although written for Debian.
-*  [https://wiki.xenproject.org/wiki/Xen_On_Funtoo_From_Scratch Xen On Funtoo From Scratch] - An installation guide, somewhat closer to Gentoo.
-
-[[Category:Hypervisor]] [[Category:virtualization]] {{Migrated|originalauthors={{Dev|nightmorph}}}}
+[[Category:Hypervisor]]
