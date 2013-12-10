@@ -1,7 +1,5 @@
 This document details how to create a mail hosting system based upon netqmail, vpopmail, courier-imap, mysql, and horde's imp.
 
-{{WIP|author=Vapier}}
-
 == Introduction ==
 
 Whether you're providing e-mail for just system daemons, a single server, a domain, or for many virtual domains, netqmail can easily be setup to handle your needs. This guide will help you setup netqmail for all of these scenarios with a focus on remote access and encrypted communications the whole way through. 
@@ -48,14 +46,14 @@ We want to make sure netqmail is working correctly, so here's a quick test.
 
 {{RootCmd|ssh vapier@localhost
 |maildirmake .maildir
-|qmail-inject root << EOF<br />
-test root e-mail!<br />
+|qmail-inject root << EOF
+test root e-mail!
 EOF
-|qmail-inject postmaster << EOF<br />
-test postmaster e-mail!<br />
+|qmail-inject postmaster << EOF
+test postmaster e-mail!
 EOF
-|qmail-inject vapier << EOF<br />
-test vapier e-mail!<br />
+|qmail-inject vapier << EOF
+test vapier e-mail!
 EOF
 |mutt}}
 
@@ -71,7 +69,7 @@ wh0rd.org</pre>}}
 {{RootCmd|cat me|output=<pre>
 wh0rd.org</pre>}}
 
-{{RootCmd|cat defaultdomain|output=<pre>
+{{RootCmd|cat defaultdomain|output=<per>
 wh0rd.org</pre>}}
 
 {{RootCmd|cat plusdomain|output=<pre>
@@ -83,6 +81,7 @@ wh0rd.org</pre>}}
 {{RootCmd|cat rcpthosts|output=<pre>
 wh0rd.org
 </pre>}}
+}}
 
 Same but for a 3rd level domain:
 
@@ -122,11 +121,11 @@ If you just emerged mysql for the first time, make sure you run the ebuild <mysq
 
 Change the password from 'secret' to 'vpoppw'.
 
-{{RootCmd|mysql -p << EOF<br />
-create database vpopmail;<br />
-use mysql;<br />
-grant select, insert, update, delete, create, drop on vpopmail.* to vpopmail@localhost identified by 'vpoppw';<br />
-flush privileges;<br />
+{{RootCmd|mysql -p << EOF
+create database vpopmail;
+use mysql;
+grant select, insert, update, delete, create, drop on vpopmail.* to vpopmail@localhost identified by 'vpoppw';
+flush privileges;
 EOF}}
 
 The following steps may or may not be needed, but we run them just to be sure.
@@ -161,7 +160,7 @@ If you don't see something similar to above, then permissions somewhere are inco
 
 {{RootCmd|vadduser vapier@wh0rd.org vappw}}
 
-Every domain that vpopmail creates comes with a 'postmaster' account. Here we told vpopmail that the password for the postmaster account is 'postpass'. Before vpopmail can be truly useful, we'll need to be able to receive mail via courier and send mail via netqmail and SMTP.
+Every domain that vpopmail creates comes with a 'postmaster' account. Here we told vpopmail that the password for the postmaster account is 'postpass'. Before vpopmail can be truly useful, we'll need to be able to receive mail via courier and send mail via netqmail and SMTP. 
 
 == Courier POP/IMAP ==
 
@@ -197,35 +196,7 @@ Edit the [ req_dn ] section.
 |rc-update add courier-imapd-ssl default
 |/etc/init.d/courier-imapd-ssl start}}
 
-Your mail client should now be able to login to the host running courier and retrieve mail for the virtual host. In my case, I am now able to login with the username 'vapier@wh0rd.org' and password 'vappw'.
-
-If you receive similar errors in the log files:
-imapd-ssl: LOGIN FAILED, user=vapier@wh0rd.org , ip=[::ffff:123.123.123.123]
-authdaemond: file not found
-
-{{RootCmd|nano /etc/courier/authlib/authdaemonrc}}
-
-Set the authmodulelist variable to only contain "authmysql".
-
-{{RootCmd|nano /etc/courier/authlib/authmysqlrc}}
-
-If the file doesn't exist, use authmysqlrc.dist as a template.
-Set the MYSQL_SERVER, MYSQL_USERNAME, MYSQL_PASSWORD, MYSQL_SOCKET, MYSQL_PORT, MYSQL_DATABASE, DEFAULT_DOMAIN variables to your configuration.
-Make sure that you have this line "MYSQL_CRYPT_PWFIELD     crypt"
-
-Set the MYSQL_SELECT_CLAUSE variable (somewhere at the end of the file)
-
-MYSQL_SELECT_CLAUSE     SELECT CONCAT(pw_name, '@', pw_domain) AS username, pw_passwd AS cryptpw, '' AS clearpw, '89' AS uid,'89' AS gid, pw_dir AS home, '.maildir' AS maildir, pw_shell AS quota, pw_gecos AS fullname, 'disablewebmail=0,disablepop3=0,disableimap=0' AS options FROM vpopmail WHERE pw_name = '$(local_part)' AND pw_domain = '$(domain)'
-
-{{RootCmd|/etc/init.d/courier-authlib restart}}
-
-For MS Outlook Clients, set the DHE key length > 1024, or else Outlook won't connect to your IMAP server (https://technet.microsoft.com/library/security/MS15-055). On my example, I've set it to 2048
-
-{{RootCmd|nano /usr/sbin/mkdhparams}}
-
-BITS=2048
-
-{{RootCmd|/usr/sbin/mkdhparams}}
+Your mail client should now be able to login to the host running courier and retrieve mail for the virtual host. In my case, I am now able to login with the username 'vapier@wh0rd.org' and password 'vappw'. 
 
 == netqmail (talking to the world) ==
 
@@ -245,20 +216,7 @@ Edit the [ req_dn ] section.
 |ln -s /var/qmail/supervise/qmail-smtpd qmail-smtpd
 |/etc/init.d/svscan restart}}
 
-Assuming you haven't tweaked the netqmail control files at all, netqmail will now accept mail for the wh0rd.org virtual domain and for users of the local machine. Furthermore, netqmail will relay mail for anyone who sends via 127.0.0.1 and for anyone who is able to authenticate with vpopmail. When you setup your mail client to send mail, make sure you select options like 'Server requires authentication'. In my case, I set the user as 'vapier@wh0rd.org' and my password as 'vappw'. The last detail is to make sure you tell your mail client to use SSL/TLS for SMTP communication. netqmail will not let you authenticate if the session is not encrypted.
-
-If you receive the error message
-
-imapd-ssl: Unexpected SSL connection shutdown. 
-
-Please try to increase the Softlimit
-
-{{RootCmd|nano /var/qmail/control/conf-common}}
-
-Change the SOFTLIMIT_OPTS line to
-SOFTLIMIT_OPTS="-m 32000000"
-
-{{RootCmd|/etc/init.d/svscan restart}}
+Assuming you haven't tweaked the netqmail control files at all, netqmail will now accept mail for the wh0rd.org virtual domain and for users of the local machine. Furthermore, netqmail will relay mail for anyone who sends via 127.0.0.1 and for anyone who is able to authenticate with vpopmail. When you setup your mail client to send mail, make sure you select options like 'Server requires authentication'. In my case, I set the user as 'vapier@wh0rd.org' and my password as 'vappw'. The last detail is to make sure you tell your mail client to use SSL/TLS for SMTP communication. netqmail will not let you authenticate if the session is not encrypted. 
 
 == Horde / IMP Webmail Client ==
 
@@ -275,7 +233,7 @@ Now we setup IMP real quick.
 
 Edit the $servers['imap'] array:
 
-{{FileBox|filename=servers.php|title=Editing imap info|lang=php|1=
+{{File|servers.php|Editing imap info|<pre>
 $servers['imap'] = array(
   'name' => 'wh0rd.org',
   'server' => 'localhost',
@@ -288,6 +246,7 @@ $servers['imap'] = array(
   'realm' => '',
   'preferred' => ''
 );
+</pre>
 }}
 
 Finally, we bring up apache so we can start using webmail. 
@@ -346,10 +305,10 @@ One of the best Open Source spam filters out there is [http://www.spamassassin.o
 
 At the bare minimum, add these options:
 
-{{FileBox|filename=local.cf|title=Minimum settings|1=
+{{File|local.cf|Minimum settings|<pre>
 required_hits 6
 skip_rbl_checks 1
-}}
+</pre>}}
 
 {{RootCmd|rc-update add spamd default
 |/etc/init.d/spamd start
@@ -383,61 +342,19 @@ If it is set to '', then see the note below.
 
 {{RootCmd|nano /var/qmail/control/conf-common}}
 
-If ClamAV reports memory problems or /var/log/qmail/qmail-send/current reports something like "Can't load '/usr/lib/perl5/5.8.5/x86_64-linux/auto/Sys/Syslog/Syslog.so' for module Sys::Syslog: /usr/lib/perl5/5.8.5/x86_64-linux/auto/Sys/Syslog/Syslog.so: failed to map segment from shared object: Cannot allocate memory at /usr/lib/perl5/5.8.5/x86_64-linux/DynaLoader.pm line 230. " try rasing the softlimit.
-
-If /var/log/qmail/qmail-smtp/current reports clamdscan: corrupt or unknown clamd scanner error or memory/resource/perms problem - exit status 512/2 and ClamAV (/var/log/clamav/clamd.log) claims permission problems -> WARNING: lstat() failed on: /var/spool/qscan/tmp/ . Check owner of /var/spool/qscan/tmp/ .
-
-{{RootCmd|ls -al /var/spool/qscan/tmp/
-total 8
-drwxr-x--- 2 qscand root   4096 Jan 18 00:31 .
-drwxr-xr-x 6 qscand qscand 4096 Jan 18 00:09 ..}}
-
-check clamav User line
-
-{{RootCmd|vi /etc/clamd.conf}}
-adapt User line
-
-in my case I replaced "User clamav" with "User qscand"
+If ClamAV reports memory problems try rasing the softlimit.
 
 {{Important|If you did not have Clam AntiVirus on your system before you emerged qmail-scanner, you will have to re-emerge qmail-scanner now. Its build process is pretty ugly and will only add in features for packages it detects on the system at build time.}}
 
-At this point, incoming mail should be sent through qmail-scanner which will run it through Clam AntiVirus for you.
-
-=== Spamdyke ===
-For greylisting, rdns checks, sender blacklists, whitelists, and many more features
-
-{{RootCmd|emerge spamdyke}}
-{{RootCmd|vi /var/qmail/control/conf-smtpd }}
-
-add these two lines
-
-SPAMDYKE_OPTIONS="--hostname '$HOSTNAME' --config-file /etc/spamdyke/spamdyke.conf"
-
-QMAIL_SMTP_PRE="${QMAIL_SMTP_PRE} /usr/bin/spamdyke $SPAMDYKE_OPTIONS"
-
-{{RootCmd|/etc/init.d/svscan restart}}
-
-{{RootCmd|vi /etc/spamdyke/spamdyke.conf}}
-adapt your configuration with your needed features.
-
-my example configuration:
-{{RootCmd|cat /etc/spamdyke/spamdyke.conf|output=<pre> 
-# Configuration option for spamdyke
-tls-certificate-file=/var/qmail/control/clientcert.pem
-graylist-level=always-create-dir
-graylist-dir=/var/tmp/spamdyke/graylist
-reject-empty-rdns
-reject-unresolvable-rdns
-dns-blacklist-entry=zen.spamhaus.org
-local-domains-file=/var/qmail/control/rcpthosts
-log-level=verbose
-reject-missing-sender-mx</pre>}}
-
-Check the spamdyke website for more information
-http://www.spamdyke.org
+At this point, incoming mail should be sent through qmail-scanner which will run it through Clam AntiVirus for you. 
 
 == Final Notes ==
 
-I have no final notes other than if you experience any troubles with the guide, use the [[Talk:Virtual mail hosting with qmail|talk page]] for this article. If you have some interesting bits you think would enhance this guide, by all means suggest them or make the changes. I love netqmail and would gladly add stuff that could possibly enhance a user's experience with the mta.
+I have no final notes other than if you experience any troubles with the guide, please contact {{Mail|me}}or file a bug with [http://bugs.gentoo.org/ Gentoo's Bugtracking Website] . If you have some interesting bits you think would enhance this guide, by all means send it my way for inclusion. I love netqmail and would gladly add stuff that could possibly enhance a user's experience with the mta. 
 
-{{Migrated|originalauthors= vapier, nightmorph}}
+== Acknowledgements ==
+
+We would like to thank the following authors and editors for their contributions to this guide:
+
+* vapier
+* nightmorph
