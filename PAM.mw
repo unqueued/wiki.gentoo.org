@@ -1,140 +1,51 @@
-<languages/>
-<translate>
+PAM, or Pluggable Authentication Modules, is a modular approach to authentication. It allows (third party) services to provide an authentication module for their service which can then be used on PAM enabled systems. Services that use PAM for authentication can immediately use these modules without the need for a rebuild.
 
-<!--T:1-->
-{{InfoBox stack
-|{{InfoBox homepage|http://www.linux-pam.org/|header=true}}
-|{{InfoBox wikipedia|Linux_PAM}}
-|{{InfoBox package|virtual/pam}}
-|{{InfoBox package|sys-libs/pam}}
-|{{InfoBox project|PAM}}
-}}
+== Introduction ==
 
-<!--T:2-->
-PAM, or '''P'''luggable '''A'''uthentication '''M'''odules, is a modular approach to authentication. It [[article description::allows (third party) services to provide an authentication module for their service which can then be used on PAM enabled systems.]] Services that use PAM for authentication can immediately use these modules without the need for a rebuild.
-
-== Introduction == <!--T:3-->
-
-<!--T:4-->
 Authentication management (part of access management) on a Linux server can be handled by PAM (Pluggable Authentication Modules). With PAM, services do not need to provide authentication services themselves. Instead, they rely on the PAM modules available on the system. Each service can use a different PAM configuration if it wants, although most of the time authentication is handled similarly across services. By calling PAM modules, services can support two-factor authentication out-of-the-box, immediately use centralized authentication repositories and more.
 
-<!--T:5-->
 PAM provides a flexible, modular architecture for the following services:
 
-<!--T:6-->
-* Authentication management - verify if a user trying to authenticate a user account is actually the user.
-* Account management - check if that users' password has expired or if the user is allowed to access this particular service.
-* Session management - execute certain tasks on logon or logoff of a user (auditing, mounting of file systems, ...).
-* Password management - offer an interface for password resets and the like.
+* Authentication management, to verify if a user is who it says it is
 
-<!--T:7-->
-{{Note|PAM does ''not'' provide any services for authorizations. Generally, authorizations are done within an application. Some applications support group-based authorizations (so being a member of a group allows for being granted proper authorizations). A common (but not as common as PAM) approach for this is to support NSS (Name Service Switch). NSS is similar to PAM in its design principles. In fact, authorizations on Linux systems are handled through the NSS libraries.}}
+* Account management, to check if that users' password has expired or if the user is allowed to access this particular service
 
-=== Principles behind PAM === <!--T:8-->
+* Session management, to execute certain tasks on logon or logoff of a user (auditing, mounting of file systems, ...)
 
-<!--T:9-->
-When working with PAM, administrators quickly find out what the principles are that PAM works with.
+* Password management, offering an interface for password resets and the like
 
-<!--T:10-->
-The first one is ''back-end independence''. Applications that are PAM-aware do not need to incorporate any logic to deal with back-ends such as databases, LDAP service, password files, WS-Security enabled web services or other back-ends that have not been invented yet. By using PAM, applications segregate the back-end integration logic from their own. All they need to do is call PAM functions.
-
-<!--T:11-->
-Another principle is ''configuration independence''. Administrators do not need to learn how to configure dozens of different applications on how to interact with an LDAP server for authentication. Instead, they use the same configuration structure provided by PAM.
-
-<!--T:12-->
-The final principle, which is part of the PAM name, is its ''pluggable architecture''. When new back-ends need to be integrated, all the administrator has to do is to install the library for this back-end (by placing it in the right directory on the system) and configure this module (most of the modules use a single configuration file). From that point onward, the module is usable for applications. Administrators can configure the authentication to use this back-end and usually just need to restart the application.
-
-=== How PAM works === <!--T:13-->
-
-<!--T:14-->
 Applications that want to use PAM link with the PAM library (libpam) and call the necessary functions that reflect the above services. Other than that, the application does not need to implement any specific features for these services, as it is all handled by PAM. So when a user wants to authenticate itself against, say, a web application, then this web application calls PAM (passing on the user id and perhaps password or challenge) and checks the PAM return to see if the user is authenticated and allowed access to the application. It is PAMs task underlyingly to see where to authenticate against (such as a central database or LDAP server).
 
-<!--T:15-->
 The strength of PAM is that everyone can build PAM modules to integrate with any PAM-enabled service or application. If a company releases a new service for authentication, all it needs to do is provide a PAM module that interacts with its service, and then all software that uses PAM can work with this service immediately: no need to rebuild or enhance those software titles.
 
-== Configuration == <!--T:16-->
+== Configuration ==
 
-<!--T:17-->
-Another important aspect of PAM is that it supports chaining of multiple modules. Let's look at a PAM configuration file for an unnamed service:
+A second important aspect of PAM is that it supports chaining of multiple modules. Let's look at a PAM configuration file for an unnamed service:
 
-<!--T:18-->
-{{FileBox|filename=/etc/pam.d/someservice|title=Example PAM configuration file for a service called "someservice"|1=
-# Authentication
+{{File|/etc/pam.d/someservice|Example PAM configuration file for a service called "someservice"|<pre>
 auth         required        pam_env.so
 auth         required        pam_ldap.so
-# Account management
+
 account      required        pam_ldap.so
-# Password management
+
 password     required        pam_ldap.so
-# Session management
+
 session      optional        pam_loginuid.so
 session      required        pam_selinux.so close
 session      required        pam_env.so
 session      required        pam_log.so level=audit
 session      required        pam_selinux.so open multiple
 session      optional        pam_mail.so
-}}
+</pre>}}
 
-<!--T:19-->
-We see that the configuration file is structured in the four service domains that PAM supports: authentication, account management, password management and session management.
+For the authentication part, first pam_env.so is called, which sets or unsets environment variables for the authentication session. These variables can be used by modules later in the chain. Then, if pam_env.so succeeds in its tasks (the module is required to succeed), pam_ldap.so is called, which will do the authentication against an LDAP server.
 
-<!--T:20-->
-Each of the sections in the configuration file calls one or more PAM modules. For instance, {{Path|pam_env.so}} sets the environment variable which can be used by subsequent modules. The return code provided by the PAM module, together with the control directive (required or optional in the above example), allow PAM to decide how to proceed.
+In the session part, some modules are marked as optional. In this case, if the module fails but, without this module, the remainder of the service succeeds, then the service is granted. Only if no success is granted through other modules will the service be denied.
 
-=== Control directives === <!--T:21-->
+Other supported types are requisite (if the module fails, then immediately deny the service - do not first go through other modules), sufficient (if the module succeeds, then the service is granted - no other modules are consulted) or include (source another file and execute the chain in that file).Chaining of modules allows for multiple authentications to be done, multiple tasks to be performed upon creating a session and more.
 
-<!--T:22-->
-PAM supports the following control directives.
+== PAM and Gentoo ==
 
-<!--T:23-->
-{| class="table table-striped table-condensed"
-! Control
-! Description
-|-
-| <code>required</code>
-| The provided PAM module must succeed in order for the entire service (such as authentication) to succeed. If a PAM module fails, other PAM modules are still called upon (even though it is already certain that the service itself will be denied).
-|-
-| <code>requisite</code>
-| The provided PAM module must succeed in order for the entire service to succeed. Unlike ''required'', if the PAM module fails, control is immediately handed back and the service itself is denied.
-|-
-| <code>sufficient</code>
-| If the provided PAM module succeeds, then the entire service is granted. The remainder of the PAM modules is not checked. If however the PAM module fails, then the remainder of the PAM modules is handled and the failure of this particular PAM module is ignored.
-|-
-| <code>optional</code>
-| The success or failure of this particular PAM module is only important if it is the only module in the stack.
-|}
+Applications that can support PAM conditionally will use the 'pam' USE flag.
 
-<!--T:24-->
-Chaining of modules allows for multiple authentications to be done, multiple tasks to be performed upon creating a session and more.
-
-=== Managing PAM configuration files === <!--T:25-->
-
-<!--T:26-->
-As the PAM configuration files control the authentication steps in an application, it is very important to safely manage the configuration files. These are generally stored in {{Path|/etc/pam.d/}}.
-
-<!--T:27-->
-In larger enterprises, or security-sensitive systems, any modification of PAM configuration files should be properly audited.
-
-<!--T:28-->
-The same goes for the location where the PAM modules themselves are stored ({{Path|/lib/security}} or {{Path|/lib64/security}}).
-
-== PAM and Gentoo == <!--T:29-->
-
-<!--T:30-->
-Applications that can support PAM conditionally will use the [https://packages.gentoo.org/useflags/pam <code>pam</code>] USE flag. Although it is possible to run Gentoo systems without PAM (by setting <code>USE="-pam"</code>), but the default is to run with PAM support enabled.
-
-== See also == <!--T:31-->
-
-<!--T:32-->
-* [[Security Handbook/PAM|PAM (Security Handbook)]]
-* [[Pam_ssh_agent_auth|PAM ssh agent module]] article explaining how to install and configure a custom PAM module that authenticates through the SSH public key infrastructure
-* {{See also|Google Authenticator}}
-
-== External resources == <!--T:33-->
-
-<!--T:34-->
-* [https://devmanual.gentoo.org/tasks-reference/pam/index.html Working with PAM], a section inside the Gentoo developer manual
-
-</translate>
-
-[[Category:Core_system]] [[Category:Authentication]]
+[[Category:Core_system]]
