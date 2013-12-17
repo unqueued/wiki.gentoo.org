@@ -1,132 +1,25 @@
-{{Important|Older versions of {{Package|sys-apps/portage}} included {{c|repoman}}. Starting from portage-2.3.0, {{c|repoman}} has been 'unbundled' into separate package. Be sure it is installed before following this guide:
+Someone handed you an ebuild, and you don't know what to do with it? Fear not, for here be instructions!
 
-{{Emerge|app-portage/repoman}}
-}}
-
-== Creating a local repository ==
-
-See [[Handbook:AMD64/Portage/CustomTree#Defining a custom repository]]
-
-== Adding an ebuild to the repository ==
-
-Now that the basic layout is in order, an [[ebuild]] could be added to the repository. In this example, app-dicts/artha-1.0.2 (available at [https://bugs.gentoo.org/show_bug.cgi?id=312313]). Assumed the ebuild is in the homedir of the user {{c|[[Larry the cow|larry]]}}, and named {{Path|artha-1.0.2.ebuild}}.
-
+== Creating a local overlay ==
+You can create a local overlay with a few easy steps.
 {{RootCmd
-|mkdir -p /var/db/repos/localrepo/app-dicts/artha
-|cp ~larry/artha-1.0.2.ebuild /var/db/repos/localrepo/app-dicts/artha/artha-1.0.2.ebuild
-|chown -R portage:portage /var/db/repos/localrepo
-|pushd /var/db/repos/localrepo/app-dicts/artha
-|repoman manifest
-|popd
-}}
+| mkdir -p /usr/local/portage/{metadata,profiles}
+| echo 'NameOfYourOverlay' > /usr/local/portage/profiles/repo_name
+| echo 'masters {{=}}  gentoo' > /usr/local/portage/metadata/layout.conf
+| chown -R portage:portage /usr/local/portage}}
 
-It should now be possible to install the package from the ebuild repository with the emerge command:
+Next, tell portage about the overlay.
+{{RootCmd|echo 'PORTDIR_OVERLAY{{=}}"/usr/local/portage ${PORTDIR_OVERLAY}"' >> /etc/portage/make.conf}}
 
-{{Emerge|params+=--verbose|app-dicts/artha}}
-
-<!-- If you're doing this often, you might consider using a bash script to semi-automate the process, such as:
-
-{{FileBox|filename=repoAdd.sh|title=Automated example|lang=bash|1=
-#!/bin/sh
-mkdir -p /usr/local/portage/$1/$2
-cp $3 /usr/local/portage/$1/$2/
-chown -R portage:portage /usr/local/portage
-pushd /usr/local/portage/$1/$2
-repoman manifest
-popd
-}}
-
-For the above app-dicts/artha ebuild example, presuming the script is named {{Path|repoAdd.sh}}, the command would be:
-
-{{RootCmd|repoAdd app-dicts artha ~larry/artha-1.0.2.ebuild}}
-
-With the syntax (<code><package_category></code> <code><package_name></code> <code><ebuild></code>) -->
-
-== Simple version bump of an ebuild in the local repository ==
-
-In theory one can update an ebuild to the next version number with a "simple version bump". 
-Indicators that this is promising are:
-
-* Upstream fixed only minor bugs
-* Dependencies did not change
-* Upstream uses semantic version numbers and changed only the minor number <ref>one example of semantic version number is described on http://semver.org/</ref>
-* The ebuild file is short and does not use many patches
-
-For the simplest bump place a copy of the ebuild in the local repository and update the version number in the filename.
-
-We assume you have prepared your local repository in bobs-repository already and want to bump to a newer version of {{Package|app-emulation/docker}}.
-
-{{Cmd
-|mkdir -v /usr/local/portage/bobs-repository/app-emulation
-|cd /usr/local/portage/bobs-repository/app-emulation 
-|cp -r /usr/portage/app-emulation/docker .
-|cd docker/
-|cp docker-1.11.0.ebuild docker-1.12.6.ebuild
-|repoman --digest{{=}}y -d full 
-}}
-
-Now test the installation:
-
-{{Emerge|{{=}}app-emulation/docker-1.12.6}}
-
-Finished ebuilds should be added to the version control system. If using git, consider [[Gentoo_Github|adding a pull request]] to [https://github.com/gentoo/gentoo/pulls GitHub].
-
-==== Avoid a direct version bump ====
-
-The direct version bump in the official ebuild repository is often suggested, but should be avoided, because:
-
-* All changes get lost on the next sync of the repository (unless [[:/etc/portage/repos.conf#Attributes_supported_in_sections_of_repositories|sync-type git]] is in use, in that case a [[Github_Pull_Requests#Step_3:_User_updates_the_local_repository|topic branch]] could be used)
-* User contributions should be separated from the official ebuild repository
-
-Do '''''not''''' do this:
-
+== Adding an ebuild to the overlay ==
+Now that the basic layout is in order, you can add an ebuild to the overlay. In this example, {{Package|app-dicts/artha-1.0.2}}. We will assume the ebuild is in the homedir of the user ''gentoo'', and named '''artha-1.0.2.ebuild'''.
 {{RootCmd
-| # cd /usr/portage/app-emulation/docker
-| # cp docker-1.11.0 docker-1.12.6
-| # repoman --digest{{=}}y -d full 
-}}
+| mkdir -p /usr/local/portage/app-dicts/artha
+| cp ~gentoo/artha-1.0.2.ebuild /usr/local/portage/app-dicts/artha/artha-1.0.2.ebuild
+| pushd /usr/local/portage/app-dicts/artha
+| repoman manifest
+| popd
+| chown -R portage:portage /usr/local/portage}}
 
-== Crossdev ==
-
-{{Package|sys-devel/crossdev}} will place the ebuilds/categories it generates into one of four places in this order.
-# An overlay specified on the command-line with the <code>--ov-output (-oO)</code> option
-# An overlay named 'cross-${CTARGET}'
-# An overlay named 'crossdev'
-# Finally, it falls back on the overlay having the lowest priority value in {{Path|/etc/portage/repos.conf/}}. 
-If the overlays have the same priority, it will use the overlay determined to be the first, alphabetically.
-
-Most users will want to prevent [[crossdev]] from disturbing [[layman]]'s overlays or the user's personal per-machine overlay (commonly created at {{Path|/usr/local/portage}}). The best solution is to create an overlay specifically for [[crossdev]]'s use:
-
-{{RootCmd
-|mkdir -p /usr/local/portage-crossdev/{profiles,metadata}
-|echo 'crossdev' > /usr/local/portage-crossdev/profiles/repo_name
-|echo 'masters {{=}} gentoo' > /usr/local/portage-crossdev/metadata/layout.conf
-|chown -R portage:portage /usr/local/portage-crossdev
-}}
-
-If the main Portage tree is synchronized by using Git, or any other method with Manifest files that do not include checksums for ebuilds, prevent "masked by: corruption" errors with:
-
-{{FileBox|filename=/usr/local/portage-crossdev/metadata/layout.conf|lang=ini|1=
-masters = gentoo
-thin-manifests = true
-}}
-
-Then instruct Portage and crossdev to use this overlay:
-
-{{FileBox|filename=/etc/portage/repos.conf/crossdev.conf|lang=ini|1=
-[crossdev]
-location = /usr/local/portage-crossdev
-priority = 10
-masters = gentoo
-auto-sync = no
-}}
-
-== See also ==
-
-* See [[Handbook:AMD64/Portage/CustomTree#Defining a custom repository|Defining a custom repository]] ({{Keyword|amd64}} handbook)
-* {{See also|Repository format}}
-* {{See also|Gentoo GitHub}}
-
-== References ==
-
-{{reflist}}
+You should now be able to install the package from your overlay with emerge.
+{{RootCmd|emerge -av1 app-dicts/artha}}
