@@ -1,147 +1,105 @@
 <languages />
 
-{{Metadata|abstract=이 문서는 사용자를 GCC 업그레이드 과정으로 안내합니다.}}
 
-이 문서는 사용자를 GCC 업그레이드 과정으로 안내합니다.
+{{Metadata|abstract=This document will guide the user through the process of upgrading GCC.}}
 
-Please note that ''downgrading'' GCC might have unwanted side effects. Refer to the [[#Troubleshooting|troubleshooting section]] for some commonly reported issues.
+This document will guide the user through the process of upgrading GCC.
 
-=== 간단한 버전 ===
+== Quickstart ==
 
-다음 섹션에서는 GCC 업그레이드(그리고 이게 얼마나 쉬운가!)에 대한 간단한 핵심 내용을 전달하겠습니다. GCC 업그레이드 전에 장황한 핑계(?)를 읽어보려 한다면, [[#.EC.9E.90.EC.84.B8.ED.95.9C_.EB.82.B4.EC.9A.A9.EC.9D.98_GCC_.EC.97.85.EA.B7.B8.EB.A0.88.EC.9D.B4.EB.93.9C|자세한 내용의 GCC 업그레이드]]편으로 계속 진행하십시오.
+=== Introduction ===
 
-GCC를 업그레이드 한다면 컴파일러 버전을 바꾸고 libtool을 다시 빌드하는것 이외에는 필요한 일이 없습니다:
+This is about ''upgrading'' GCC. Downgrading GCC might have unwanted side effects. Please refer to the troubleshooting section for some commonly reported issues. 
 
-{{Emerge|sys-devel/gcc|params+=--oneshot}}
+The next section gives a quick primer into GCC upgrades (and how easy they are). If you want to read the lengthy reasoning behind GCC upgrades, please continue with [[#GCC Upgrading Explained|GCC Upgrading Explained]].
 
-{{RootCmd|emerge -u sys-devel/gcc
+=== Short Version ===
+
+If you are upgrading GCC then you do not need to do anything except switch compiler version and rebuild libtool: 
+
+{{RootCmd|emerge -u gcc
 |gcc-config -l|output=<pre>
 [1] i686-pc-linux-gnu-4.4.5 *
 [2] i686-pc-linux-gnu-4.5.3
 </pre>}}
 
-{{RootCmd
-|gcc-config 2
-|env-update && source /etc/profile}}
+{{RootCmd|gcc-config 2
+|env-update && source /etc/profile
+|emerge --oneshot libtool}}
 
-{{Emerge|sys-devel/libtool|params+=--oneshot}}
+If you upgrade GCC from a version earlier than 3.4.0 (for the 3.x series) or 4.1, you will need to run <code>revdep-rebuild</code> as well: 
 
-{{Note|If you are upgrading from gcc 4.x to gcc 5.x or later, additional instructions apply; please see then the separate page [[Upgrading from gcc-4.x to gcc-5.x]].}}
+{{RootCmd|revdep-rebuild --library libstdc++.so.5}}
 
-현재 버전을 확인하고 이전 버전을 삭제하십시오:
+There you go. Enjoy the new compiler! 
 
-{{RootCmd|gcc --version}}
+== GCC Upgrading Explained ==
 
-{{Emerge|{{=}}sys-devel/gcc-4.4.5|params+=--depclean}}
+=== Introduction ===
 
-After that, verify system integrity running revdep-rebuild:
-{{RootCmd|revdep-rebuild}}
+GCC upgrading has always been mystified, with suggestions ranging from "You do not need to do anything" up to "You will need to rebuild your entire system twice". Most of this FUD comes from the confusion surrounding ABI incompatibility. But first a quick pointer towards <code>libtool</code>.
 
-Enjoy the new compiler!
+=== libtool and fix_libtool_files.sh ===
 
-== 자세한 내용의 GCC 업그레이드 ==
+Earlier installments of GCC on Gentoo required you to run a specific command called <code>fix_libtool_files.sh</code>. Some time ago, the execution of this command has been integrated in the package deployments itself (through the toolchain eclass) so there is no need for users to call this themselves anymore. 
 
-GCC 업그레이드는 "더이상 뭘 할 필요가 없다"부터 시작해서 "시스템 전체를 한번 더 빌드해야 한다"까지 여러가지로 햇갈립니다. 대부분의 두려움, 불확실성, 혼동은 ABI 비호환성으로 인한 혼동에서 옵니다. 그러나 우선 간편한 포인터에서는 {{c|libtool}}를 가리킵니다.
+The reason we need to rebuild libtool after the upgrade of gcc versions is because of its main purpose: ''libtool'' is a toolset that aggregates platform-specific code in a generic interface, allowing applications to build against shared libraries without needing to deal with the platform specific aspects of shared libraries. To fulfill its function properly, the <code>libtool</code> script uses various library locations that have hardcoded GCC version information in them.
 
-=== libtool과 fix_libtool_files.sh ===
+=== ABI Changes ===
 
-{{c|gcc}} 버전을 업그레이드 한 후 libtool을 다시 빌드해야 하는 이유는 주된 이유 하나 때문입니다. ''libtool''은 공유 라이브러리의 플랫폼 기반 양상을 판단하기 위해 무언가를 처리할 필요 없이 공유 라이브러리를 통해 프로그램을 빌드할 수 있도록 하는 공통 인터페이스에서 플랫폼 관련 코드를 모으는 도구셋입니다. 이 기능 속성대로 동작하기 위해, {{c|libtool}} 스크립트는 하드코딩한 {{c|gcc}} 버전을 보유한 다양한 라이브러리 위치를 각 위치에서 사용합니다.
+An ABI, or ''Application Binary Interface'', is a set of conventions used by all tools that deal with binary representation of programs, including compilers, assemblers, linkers and language runtime support (source: [http://gcc.gnu.org/onlinedocs/gcc/Compatibility.html GCC Binary Compatibility]). When the ABI used for binary applications and libraries is changed, you will risk getting linker errors or malfunctioning programs unless you rebuild all libraries that use C++ code. Yes, C++, since most incompatibilities occur within the C++ ABI. This is also why we use the <code>revdep-rebuild</code> command against the {{Path|libstdc++.so.5}} library. 
 
-== ABI 변경 ==
+{{RootCmd|revdep-rebuild --library libstdc++.so.5}}
 
-[https://en.wikipedia.org/wiki/Application_binary_interface "Application Binary Interface"]라고 하는 ABI는 컴파일러, 어셈블러, 링커, 언어  런타임 지원을 포함하는 프로그램의 바이너리 표현을 다루는 모든 도구에서 사용하는 관례(원본: [https://gcc.gnu.org/onlinedocs/gcc/Compatibility.html GCC 바이너리 호환성]<sup style="color:#ff0077;">en</sup>)입니다. 이진 프로그램과 라이브러리가 사용하던 ABI가 바뀌면 C++ 코드를 사용하는 모든 라이브러리를 다시 빌드하지 않는 한 프로그램이 링커 오류가 뜨거나 제대로 동작하지 않아 피해를 볼 수 있습니다. 
+So why is this only needed up to GCC 3.4.0/4.1? That's because from that version onwards, GCC uses a forward compatible ABI, which removes the need for rebuilding applications and libraries. Of course, guarantees can never be given indefinitely, but when an incompatibility occurs again, we'll definitely document it here. In that case, the version of the {{Path|libstdc++.so}} library will probably be increased.
 
-예, 대부분의 비호환성은 C++ ABI에서 기인합니다. GCC 4.1 또는 5.1로 업그레이드한다면 몇가지 ABI 문제에 부딪힙니다. 때문에 (GCC 3에서 4.1로 업그레이드할 때) {{Path|libstdc++.so.5}} 또는 (GCC 4에서 5.1로 업그레이드할 때){{Path|libstdc++.so.6}}에 대해 {{c|revdep-rebuild}} 명령을 사용해야 합니다.
+=== Rebuilding Everything ===
 
-{{RootCmd|revdep-rebuild --library 'libstdc\+\+.so.6' -- --exclude gcc}}
+Some people swear that they need to rebuild every single package on their system when a new GCC version is made available. Of course, that doesn't make sense, since there are many applications that are not using GCC for their build and install process anyhow, so they would never be affected by such changes. 
 
-그래서 왜 GCC 3.4.0/4.1/5.1 이상에서만 필요할까요? 버전에 따른 이유인데, GCC는 프로그램과 라이브러리를 다시 빌드할 필요성을 제거한 차기 호환 ABI를 사용합니다. 물론 보증은 확실히 못하지만 비호환성이 또 발생하면 여기에 문서로 남겨놓도록 하겠습니다. 이 경우, {{Path|libstdc++.so}} 라이브러리의 버전은 증가할 것입니다.
+That however doesn't mean they are completely incorrect: newer GCC versions often include better support for the processors' instruction set, which might influence the performance of some applications in a positive way. Although it is expected that this improvement is generally only marginally, in some cases (especially CPU intensive applications) this might yield notable improvements. 
 
-==== 특별한 경우 C++11(및 C++ 14) ====
+There are also known cases where packages need to be built with the same compiler. Although these packages are usually bumped by Gentoo simultaneously (so that they are always built with the same GCC version) cherry-picking reinstalls on these packages might prove to be troublesome. The various {{Path|qt-*}} packages are a nice example on this matter. 
 
-GCC(또는 좀 더 구체적으로 libstdc++의 경우)가 최대한 ABI의 안정성을 추구하기를 보장하는데 반해, 보장 범위는 libstdc++의 모든 C++ 부분으로 확대되지는 않습니다. 보통, 3.4부터는 GCC/libstdc++는 C++98/C++03 ABI 안정성만을 보장하며 그 이상은 감당하지 않습니다. 이는 C++11에 관련된 꾸러미에게 결정적인 문제입니다. GCC는 5.1부터 C++11 ABI 안정성을 보장합니다. 무슨 얘기냐 하면, gcc 버전(4.7.3에서 4.7.4로 바꾼다고 해보죠)을 (마이너 버전일지라도) 바꾸면 C++11 코드에서 빌드한 바이너리의 ABI가 깨질 수 있단 의미입니다.
+== Troubleshooting ==
 
-더 많은 내용은 다음을 참조하십시오:
+=== libstdc++.so.6: version `GLIBCXX_3.4.15' not found ===
 
-* * {{Bug|513386}}
-* https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61758
-* https://blogs.gentoo.org/blueness/2015/03/10/the-c11-abi-incompatibility-problem-in-gentoo/
-* https://stackoverflow.com/questions/16190269/g-always-backward-compatible-with-older-static-libraries/16196475#16196475
+During updates, you might encounter an error like the following: 
 
-=== 다시 빌드해야 하는 꾸러미는 무엇인지요? ===
+{{Code|GLIBCXX_x.y.z not found|<pre>
+cmake_bootstrap_28021_test: /usr/lib/gcc/i486-pc-linux-gnu/4.1.2/libstdc++.so.6:
+version `GLIBCXX_3.4.11' not found 
+</pre>
+}}
 
-다음 테이블에서 ''설치했을 경우'' 꾸러미 이름과 왜 다시 빌드해야 하는지를 보여줍니다. 
+This means that you are trying to build a package with an ''older'' GCC version than with which some depending libraries were built. Remember when we told that the C++ ABI if forward-compatible? That is true, but it ensures only that ''higher'' (or same) GCC versions can be used when building applications and linking libraries (compared to the GCC version used to build those libraries). 
+
+=== Which packages are known to need a rebuild? ===
+
+The following table gives the packages that, ''if installed'', need to be rebuild and why. 
 
 {| class="wikitable" style="text-align: left;" 
 |- 
-! 꾸러미
-! 다시 빌드해야 하는 이유 ...
+! Package
+! Rebuild needed because ...
 |- 
-| {{Package|sys-devel/libtool}}
-| GCC 내부 라이브러리에 대해 libtool 프로그램 경로를 하드코딩 했음
-|- 
-| {{Package|sys-devel/llvm}}
-| 정확히 gcc 버전에 따라, LLVM 을 활용하는 다른 ebuild(e.g. {{Package|media-libs/mesa}})를 다시 빌드하지 않으면 링크 에러가 나타남
+| sys-devel/libtool
+| libtool application has hardcoded paths towards GCC internal libraries
+|-
 |}
 
-{{Emerge|sys-devel/libtool sys-devel/llvm sys-devel/clang|params+=--oneshot --usepkg=n --verbose}}
+== Resources ==
 
-동일한 컴파일러로 빌드할 필요가 있는 꾸러미에 대해 몇가지 알려진 경우가 더 있습니다. 젠투 꾸러미 관리자가 보통 여러 꾸러미 버전을 동시에 올리긴 하지만(그래서 항상 동일한 GCC 버전으로 빌드합니다), 이 꾸러미를 따로 골라서 재설치하는 경우는 문제가 있음을 찾아볼 수 있습니다. 다양한 {{Path|qt-*}} 꾸러미는 이러한 상황에 대한 바람직한 예입니다.
+=== Gentoo Guides and Resources ===
 
-어떤 사람들은 새 GCC 버전이 동작하게 하려면 시스템의 모든 단일 꾸러미를 다시 빌드해야 한다고 주장합니다. 물론, 딱히 문제가 되는건 아니고, 어쨌듵 빌드 및 설치 과정에서 GCC를 사용하지 않는 프로그램이 많이 있기 때문에, 이런 바뀐 상황에 영향을 주진 않습니다. 
+*  [https://wiki.gentoo.org/wiki/Upgrade_GCC_up_to_4.1 GCC Upgrading up to 4.1], the previous version of this document
 
-그러나 이러한 주장은 확실히 잘못됐습니다: 새 GCC 버전은 일부 프로그램의 동작을 더 좋게 하는 프로세서 명령 셋을 종종 더 많이 지원합니다. 이런 개선사항이 잉여스러운 것 같지만, 어떤 경우에는(특히 CPU를 중점적으로 다루는 프로그램) 주목할만한 성능 향상을 보일 때도 있습니다.
+== Acknowledgements ==
 
-Apart from such "benign" benefits, rebuilding everything from scratch may be necessary in some cases to fix problems that don't seem to have any obvious cause.
+We would like to thank the following authors and editors for their contributions to this guide:
 
-Some software problems are inherently difficult to diagnose and yet could be solved by simply rebuilding one or more appropriate packages. If such a problem has arisen following a GCC upgrade and persists after using the revdep-rebuild approach described above (and after rebuilding any other obviously relevant packages), a complete system rebuild may be the answer.
 
-The "safest" (but also most time-consuming) way to accomplish this is to use the <code>--emptytree</code> (<code>-e</code>) option of emerge to rebuild the [[System set (Portage)|system set]] and then the [[World set (Portage)|world set]]:
-
-{{Emerge|@system|params+=--emptytree --usepkg=n}}
-{{Emerge|@world|params+=--emptytree --usepkg=n}}
-
-Users are urged to try this approach before reporting any bugs that might have been caused by a GCC upgrade.
-
-(Note that the commands above will cause the packages in the "system" set to be rebuilt twice, which is necessary to be ''absolutely certain'' that every package gets built in the same [presumably] "problem-free" environment. Any problems that remain after doing this are due to either "genuine bugs" that should be reported or poor system configuration.)
-
-== 문제 해결 ==
-
-=== rebuild of boost ===
-
-If {{Package|dev-libs/boost}} needs to be rebuilt, one will get the following error message:
-
-{{RootCmd|emerge ... |output=<pre> 
-checking for the Boost _____ library... no
-configure: error: cannot find the flags to link with Boost _____
-</pre>}} 
-
-One can rebuild with:
-
-{{Emerge|dev-libs/boost|params+=--oneshot --usepkg=n --verbose}}
-
-=== libstdc++.so.6: `GLIBCXX_3.4.15' 버전을 찾을 수 없음 ===
-
-업데이트 하는 동안 다음과 같은 오류를 만날 수 있습니다: 
-
-{{CodeBox|title=GLIBCXX_x.y.z를 찾을 수 없음|1=
-cmake_bootstrap_28021_test: /usr/lib/gcc/i486-pc-linux-gnu/4.1.2/libstdc++.so.6:
-version `GLIBCXX_3.4.11' not found 
-}}
-
-이는 빌드한 의존 라이브러리보다 "오래된" GCC 버전으로 패키지를 빌드하려 함을 의미합니다. 차기 호환성이 있는 C++ ABI를 호출했음을 기억하십니까? 맞는 말이긴 한데, 프로그램을 빌드하고 라이브러리에 연결(이들 라이브러리를 빌드할때 사용한 GCC 버전과 비교했을 때)할 때는 "더 높은" GCC버전에 대해서만 동작이 보장됩니다.
-
-libstdc++에 의존하는 모든 꾸러미를 다시 빌드하려면 이전의 revdep-rebuild 부분을 참고하십시오.
-
-== 추가 참조 ==
-
-* 이 문서의 이전 버전인 [[Upgrade_GCC_up_to_4.1|GCC 4.1로 업그레이드 하기]]<sup style="color:#ff0077;">en</sup> 위키 문서
-* [[Upgrading from gcc-4.x to gcc-5.x]]
-* [https://fedoraproject.org/wiki/Changes/GCC6 Fedora's 'Changes/GCC6' Wiki Page]
-
-== References ==
-
-{{reflist}}
-
+* swift
 
 [[Category:Core system]]
