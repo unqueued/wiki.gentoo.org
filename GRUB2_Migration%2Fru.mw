@@ -1,41 +1,33 @@
 <languages />
 
 
-{{Metadata|abstract=Цель данной статьи - предоставить читающему возможность простой миграции с GRUB Legacy на GRUB2.}}
+{{Metadata|abstract=The goal of this guide is to provide you with a smooth migration from GRUB Legacy to GRUB2.}}
 
-<div class="mw-translate-fuzzy">
-Цель данной статьи - предоставить читающему возможность простой миграции с [[GRUB Legacy]] на [[GRUB2/ru|GRUB2]].
-</div>
+The goal of this guide is to provide you with a smooth migration from GRUB Legacy to GRUB2.
 
-== Основы ==
+== Background ==
 
-=== Что такое GRUB? ===
+=== What's Grub? ===
 
-GRUB это один из самых частоиспользуемых загрузчиков, который используется на всех компьютерах с Linux, кроме встраиваемых. Роль GRUB состоит в загрузке ядра Linux с диска в память, а также передаче ему управления. 
+Grub is one of the most commonly found boot loaders in use on non-embedded Linux machines. The role of Grub is to facilitate the Linux kernel being loaded from your disk into memory and start executing the Linux kernel. 
 
-=== Зачем переходить? ===
+=== So Why Migrate? ===
 
-Прежде всего, GRUB Legacy больше не поддерживается, и, поэтому, больше не обновляется. GRUB Legacy был создан в то время, когда разработчики могли сделать несколько предположений при разработке, которые сегодня являются ложными. Например, GRUB Legacy не может загружаться с дисков, размером больше, чем 2 Тб, и предполагает, что никакие новые файловые системы не заменят {{Path|/boot}}. 
+Firstly, GRUB Legacy is no longer maintained and as such no longer receives updates. GRUB Legacy was created at a time when the developers felt safe in making several assumptions which no longer hold true today. For example, GRUB Legacy is unable to boot from disks larger than 2TB and assumes that newer filesystems wouldn't come to replace {{Path|/boot}} . 
 
-GRUB2 стремится быть более ясным, более портируемым, более мощным, и имеет более чистую кодовую базу. GRUB2 поддерживает большее число конфигураций оборудования, большее число файловых систем, и большее число разметок диска, чем его предшественник. 
+GRUB2 aims to be more robust, more portable, more powerful and is maintained with a cleaner code base. GRUB2 supports more hardware configurations, more filesystems and more drive layouts than its predecessor. 
 
-== Переход на GRUB2 ==
+== Migration to GRUB2 ==
 
-Переход на GRUB2 достаточно прост: он будет установлен в процессе обычного обновления системы пакетным менеджером. Если он не будет загружен автоматически, его всегда можно установить командой <code>sys-boot/grub:2</code>:
+Migration to GRUB2 is fairly straightforward: it will be pulled in as part of your regular upgrade process by your package manager. If it is not pulled in automatically, you can always install <code>sys-boot/grub:2</code> . 
 
-{{Emerge|sys-boot/grub:2}}
+=== Boot Drive ===
 
-=== Загрузочный диск ===
+The first important part is to understand what your bootable drive is. For many people it will be {{Path|/dev/sda}} . The easiest way to find this is to look at how your existing GRUB Legacy is setup by viewing {{Path|/boot/grub/grub.conf}}. An example one is provided below. 
 
-Первая важная часть состоит в том, чтобы понять, какой диск загрузочный. Для тех, кто делал установку по Gentoo Handbook, это будет {{Path|/dev/sda}}. Если не уверены, то простой способ это проверить это посмотреть настройки установленного GRUB Legacy. Проверка файла {{Path|/boot/grub/grub.conf}} это основное место для проверки. 
+{{Note|You must have your {{Path|/boot}} mounted to be able to view these files. It should be as simple as <code>mount /boot</code> to mount {{Path|/boot}}.}}
 
-{{Note|Убедитесь, что раздел {{Path|/boot}} смонтирован, чтобы эти файлы были доступны. Просто выполните команду
-{{RootCmd|mount /boot}}
-}}
-
-Файл {{Path|grub.conf}} должен выглядеть примерно так:
-
-{{FileBox|filename=/boot/grub/grub.conf|1=
+{{File|/boot/grub/grub.conf||<pre>
 default 0
 timeout 30
 splashimage=(hd0,0)/boot/grub/splash.xpm.gz
@@ -44,37 +36,31 @@ title Gentoo Linux 3.2.12
 root (hd0,0)
 kernel /boot/kernel-3.2.12-gentoo root=/dev/sda3 quiet dolvm
 initrd /boot/initramfs-genkernel-x86_64-3.2.12-gentoo
+</pre>
 }}
 
-На основании данного файла, можно узнать, что <code>(hd0)</code> это устройство загрузки, но нам нужно преобразовать его в настоящее устройство. Чтобы узнать это, просмотрите файл {{Path|/boot/grub/device.map}}. Пример такого файла приведен ниже. 
+Based on the above file we know that <code>(hd0)</code> is the boot drive but we must map this to a real device. To know this you must view {{Path|/boot/grub/device.map}} . An example one is provided below. 
 
-{{FileBox|filename=/boot/grub/device.map|1=
+{{File|/boot/grub/device.map||<pre>
 (fd0) /dev/fd0
 (hd0) /dev/sda
 (hd1) /dev/sdb
+</pre>
 }}
 
-{{Note|Если подозреваете, что файл {{Path|/boot/grub/device.map}} неправилен, запустите следующую команду, чтобы пересоздать его:
-{{RootCmd|grub-install --recheck /dev/sda}}
-}}
+Based on the above file we know that {{Path|/dev/sda}} is the boot drive. 
 
-На основании вышеприведенного файла, мы знаем, что {{Path|/dev/sda}} это устройство загрузки.
+=== Installing and Configuring GRUB2 ===
 
-=== Установка и конфигурация GRUB2 ===
+The next step is to install and configure GRUB2 on your {{Path|/boot}} partition without removing GRUB Legacy from your MBR. The example below uses {{Path|/dev/sda}} but you must replace it with your boot drive path. The first step installs the necessary GRUB2 files to {{Path|/boot/grub}} , while the second step scans your available kernels and generates a suitable config file to {{Path|/boot/grub/grub.cfg}} . Skip the second step when using a [[GRUB2_Quick_Start#Manual_Configuration|Manual Configuration]].
 
-Следующим шагом будет установка и конфигурация GRUB2 в раздел {{Path|/boot}} без удаления GRUB Legacy из Master Boot Record (MBR). Пример ниже использует {{Path|/dev/sda}} — замените его на корректный путь к загрузочному диску.
+{{Warning|GRUB 2 uses the configuration file {{Path|/boot/grub/grub.'''cfg'''}} whereas GRUB Legacy used {{Path|/boot/grub/grub.'''conf'''}} so please make sure you don't use the old file by mistake, e.g. by using tab-completion if the old file is still there.}}
 
-Сперва установите необходимые файлы GRUB2 в каталог {{Path|/boot/grub}}.
-
-{{RootCmd|grub-install --grub-setup{{=}}/bin/true /dev/sda|output=<pre>
+{{RootCmd|grub2-install --grub-setup{{=}}/bin/true /dev/sda|output=<pre>
 Installation finished. No error reported.
 </pre>}}
 
-{{Warning|Параметр <code>--grub-setup{{=}}/bin/true</code> сообщает {{c|grub-install}}, чтобы он ''не'' устанавливал GRUB2 в MBR. Если этот параметр опущен, GRUB Legacy будет перезаписан и [[#Запуск GRUB2 из GRUB Legacy для тестирования настроек|запуск GRUB2 из GRUB Legacy]] в дальнейшем будет невозможен.}}
-
-Теперь мы можем просканировать доступные ядра и сгенерировать соответствующий конфигурационный файл {{Path|/boot/grub/grub.cfg}}. Пропустите этот шаг, если делали [[GRUB2_Quick_Start/ru#Ручная настройка|ручную настройку]].
-
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg|output=<pre>
+{{RootCmd|grub2-mkconfig -o /boot/grub/grub.cfg|output=<pre>
 Generating grub.cfg ...
 Found linux image: /boot/kernel-3.2.12-gentoo
 Found initrd image: /boot/initramfs-genkernel-x86_64-3.2.12-gentoo
@@ -82,21 +68,15 @@ done
 </pre>
 }}
 
-{{Warning|GRUB2 использует файл конфигурации {{Path|/boot/grub/grub.'''cfg'''}}, в то время как GRUB Legacy использует {{Path|/boot/grub/grub.'''conf'''}}, поэтому, пожалуйста, удостоверьтесь, что по ошибке не используется старый файл, например, при использовании автодополнения по tab, если, конечно, старые файлы уже не стерты.}}
+{{Note|<code>grub2-mkconfig</code> has strict naming requirements for kernels and initramfs images. A kernel must be named <code>kernel-${version}</code> or <code>vmlinuz-${version}</code> while an initramfs must be named <code>initramfs-${version}.img</code>, <code>initramfs-genkernel-${version}</code>, <code>initramfs-genkernel-${arch}-${version}</code>, <code>initrd-${version}.img</code>, <code>initrd.img-${version}</code>, <code>initrd-${version}.gz</code>, or <code>initrd-${version}</code>. Together with ${version}, the filename must match a corresponding kernel that is available in {{Path|/boot}}.}}
 
-{{Note|{{c|grub-mkconfig}} имеет строгие требования к названиям образов ядра и initramfs. Ядро должно называться <code>kernel-${version}</code> или <code>vmlinuz-${version}</code>, а initramfs должен называться <code>initramfs-${version}.img</code>, <code>initramfs-genkernel-${version}</code>, <code>initramfs-genkernel-${arch}-${version}</code>, <code>initrd-${version}.img</code>, <code>initrd.img-${version}</code>, <code>initrd-${version}.gz</code>, либо <code>initrd-${version}</code>. Эти файлы должны находиться в {{Path|/boot}}.}}
+=== Chainloading GRUB2 from GRUB Legacy to test the setup ===
 
-{{Note|Файл {{Path|/etc/default/grub}} контролирует работу {{c|grub-mkconfig}}. Если необходимо передать ядру параметр (например при использовании genkernel и загрузке с LVM или RAID-массива), необходимо отредактировать данный файл перед генерацией {{Path|/boot/grub/grub.cfg}}. Например, это можно сделать так:
-{{RootCmd|nano /etc/default/grub}}
-Посмотрите статью о [[GRUB2/ru#Конфигурация|настройке GRUB2]] на Gentoo Wiki, либо [http://www.gnu.org/software/grub/manual/html_node/Simple-configuration.html официальное руководство по GRUB2], чтобы решить, как правильно модифицировать файл. Большинству пользователей понадобится изменить <code>GRUB_CMDLINE_LINUX</code>, чтобы указать параметры, передаваемые в командной строке ядра.}}
+Because a broken GRUB configuration could mean an unbootable system, we want to test our GRUB2 configuration before making it permanent. To do this we will chainload GRUB2 from GRUB Legacy. This is done by adding a new section into {{Path|/boot/grub/grub.conf}} . An example is shown below. 
 
-=== Запуск GRUB2 из GRUB Legacy для тестирования настроек ===
+{{Note|Be aware that your root may be different from <code>(hd0,0)</code> used in the example, and make sure you reuse the same root value from your {{Path|/boot/grub/grub.conf}} .}}
 
-Так как из-за неправильной конфигурации GRUB вы можете получить незагружающуюся систему, давайте проверим конфигурацию GRUB2, прежде чем сделаем ее постоянной. Чтобы это сделать, мы запустим GRUB2 из GRUB Legacy. Это можно сделать, добавив новый раздел к файлу {{Path|/boot/grub/grub.conf}}. Пример показан ниже. 
-
-{{Note|Заметьте, что корневая система может быть и не на <code>(hd0,0)</code>, который мы использовали в примере. Удостоверьтесь, что она совпадает со значением из конфигурационного файла {{Path|/boot/grub/grub.conf}}.}}
-
-{{FileBox|filename=/boot/grub/grub.conf|1=
+{{File|/boot/grub/grub.conf||<pre>
 default 0
 timeout 30
 splashimage=(hd0,0)/boot/grub/splash.xpm.gz
@@ -110,38 +90,33 @@ title Gentoo Linux 3.2.12
 root (hd0,0)
 kernel /boot/kernel-3.2.12-gentoo root=/dev/sda3 quiet dolvm
 initrd /boot/initramfs-genkernel-x86_64-3.2.12-gentoo
+</pre>
 }}
 
-Теперь необходимо перезагрузить компьютер, и выбрать <code>GRUB2 Chainload</code> из меню GRUB, когда машина начнет загрузку. Отобразится другое меню GRUB, которое должно назваться как GRUB 2.0.0, или выше, в верхней части экрана, и показать существующие ядра для загрузки. Если это не заработает, просто перезагрузите систему, и выберите нормальную опцию загрузки, вместо <code>GRUB2 Chainload</code>. 
+At this point you should reboot your machine and select <code>GRUB2 Chainload</code> from the GRUB menu when your machine begins to boot. You will be presented with another GRUB menu which should advertise itself as GRUB 2.0.0 or higher at the top and show your available kernel(s) to boot. Should this not work, simply reboot your system and pick your normal boot option instead of <code>GRUB2 Chainload</code> . 
 
-=== Замена и удаление GRUB Legacy ===
+=== Replacing and removing GRUB Legacy ===
 
-Если все хорошо работает, можно заменить GRUB Legacy, и удалить его из системы. 
+At this point, if everything worked successfully, you can replace GRUB Legacy and remove it from your system. 
 
-{{Warning|Так как система была только что перезагружена, необходимо снова смонтировать {{Path|/boot}}. Проверьте, что используете именно правильное загрузочное устройство, и не {{Path|/dev/sda}}, хотя это всего лишь пример. Если {{Path|/boot}} не смонтирован до запуска {{c|grub-install}}, то система может стать не загружаемой.}}
+{{Note|Since you've rebooted your system, you may need to mount {{Path|/boot}} again. Make sure to use your own boot drive path instead of {{Path|/dev/sda}} .}}
 
-{{Note|Как ранее упоминалось, если GRUB2 был установлен с USE-флагом <code>multislot</code>, то будет использоваться  {{c|grub2-install}} заместо {{c|grub-install}}. В этом случае после удаления GRUB Legacy в следующем шаге, GRUB2 должен быть переустановлен без USE-флага <code>multislot</code>, так чтобы {{c|grub-install}} и {{c|grub-mkconfig}} стали командами GRUB2.}}
-
-{{RootCmd|grub-install /dev/sda|output=<pre>
+{{RootCmd|grub2-install /dev/sda|output=<pre>
 Installation finished. No error reported.
 </pre>
 }}
 
-Сейчас можно воспользоваться пакетным менеджером, чтобы удалить <code>sys-boot/grub:0</code>. 
+At this point you can use your package manager to remove <code>sys-boot/grub:0</code> . 
+{{RootCmd|emerge -avC "{{=}}sys-boot/grub-0.97*"|}}
+The migration is complete.
 
-<div class="mw-translate-fuzzy">
-{{RootCmd|emerge -avC "{{=}}sys-boot/grub-0.97*"}}
-</div>
+== Maintaining GRUB2 ==
 
-Миграция теперь завершена.
+Whenever you install a new kernel, you must perform the next step so that your GRUB2 configuration recognizes the new kernel (unless you are using a [[GRUB2_Quick_Start#Manual_Configuration|manual configuration]]). 
 
-== Поддержка GRUB2 ==
+{{Note|You must have your {{Path|/boot}} partition mounted for this step.}}
 
-После установки нового ядра, нужно выполнить следующий шаг, чтобы удостовериться, что конфигурация GRUB2 определяет новое ядро (если только не используете [[GRUB2_Quick_Start/ru#Ручная_настройка|ручную настройку]]). 
-
-{{Note|Убедитесь, что раздел {{Path|/boot}} смонтирован до выполнения следующей команды.}}
-
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg|output=<pre>
+{{RootCmd|grub2-mkconfig -o /boot/grub/grub.cfg|output=<pre>
 Generating grub.cfg ...
 Found linux image: /boot/kernel-3.3.8-gentoo
 Found initrd image: /boot/initramfs-genkernel-x86_64-3.3.8-gentoo
@@ -151,7 +126,9 @@ done
 </pre>
 }}
 
+== Acknowledgements ==
 
-[[Category:Bootloaders]]
+We would like to thank the following authors and editors for their contributions to this guide:
 
-{{Migrated|originalauthors=Cardoe}}
+
+* cardoe
