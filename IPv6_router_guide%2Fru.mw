@@ -1,103 +1,98 @@
 <languages />
 
 
-{{Metadata|abstract=В этом руководстве объясняется как настроить маршрутизацию IPv6 в системе Gentoo Linux.}}
-{{Dirty|date=February 3, 2016}}
+{{Metadata|abstract=This guide explains how to use an IPv6 setup and routing on a Gentoo Linux system.}}
 
-== Предварительные настройки ==
+== Preliminaries ==
 
-=== Основные настройки ядра ===
+=== Basic Kernel Configuration ===
 
-Любое из доступных в Gentoo ядер версии 2.6 без проблем поддерживает соединения IPv6. Новый стек IPv6 (USAGI) интегрирован в ядро начиная с версии Linux 2.6.0. 
+Any of the 2.6 kernel trees available in Gentoo will easily support IPv6 connections. The new USAGI IPv6 stack is integrated to the kernel since Linux 2.6.0. 
 
-{{Emerge|sys-kernel/gentoo-sources}}
+{{Emerge|gentoo-sources}}
 
-Теперь мы готовы перейти в каталог с исходным кодом ядра и начать его конфигурацию. 
+Now we are ready to enter the kernel source directory and begin our actual kernel configuration. 
 
-{{RootCmd
-|cd /usr/src/linux
-|make menuconfig
-}}
+{{RootCmd|cd /usr/src/linux
+|make menuconfig}}
 
-{{Note|Предполагается, что символьная ссылка {{Path|/usr/src/linux}} ссылается на исходный код ядра, который будет использоваться как часть этого гайда.}}
+{{Note|This assumes the symlink {{Path|/usr/src/linux}} points to the sources you will be using.}}
 
-<div class="mw-translate-fuzzy">
-{{KernelBox|title=Параметры для 'make menuconfig'|<pre>
+{{Kernel|'make menuconfig' options|<pre>
 Networking support --->
   Networking options --->
     <*> The IPv6 protocol --->
-## (Параметы IPv6 ниже этого элемента меню могут пригодиться для многих других приложений,
-## но не требуются для базовой установки)
- 
-## (Этот параметр требуется только когда для преобразования 6to4 используется ptrtd)
+## (The IPv6 options beneath this one can be useful for many other applications,
+## but should not be needed for a basic setup)
+
+## (This option is only required if you are using ptrtd for 6to4 conversion)
 Device Drivers --->
   Network device support --->
     <*> Universal TUN/TAP device driver support
 </pre>
 }}
-</div>
 
-=== Проверка поддержки IPv6 ===
+=== Testing IPv6 Support ===
 
-После включения рекомендуемых параметров, перекомпилируйте ядро с поддержкой IPv6 и перезагрузитесь. 
+After enabling the recommended options, recompile your kernel and reboot into your new IPv6-enabled kernel. 
 
-Если программа {{c|iproute2}} все еще не установлена, сделать это настоятельно рекомендуется. iproute2 — это набор инструментов для конфигурации сети, содержащий {{c|ip}} — замечательную замену для {{c|ifconfig}}, {{c|route}}, {{c|iptunnel}} и других программ… 
+If you don't already have '''iproute2''' installed, we urge you to do it now. iproute2 is a network configuration suite that contains <code>ip</code>, the famous replacement for <code>ifconfig</code>, <code>route</code>, <code>iptunnel</code> and others... 
 
 {{Emerge|sys-apps/iproute2}}
 
-{{Warning|Использование {{c|ifconfig}} может вызвать серьезные неприятности при наличии нескольких туннельных устройств. Туннели нужно убирать в обратном порядке, что означает, что самый последний из созданных должен быть убран первым.}}
+{{Warning|Use of ifconfig can cause serious headaches if you have multiple tunnel devices. You have to remove the tunnels in backorder, which means that the latest created must be removed first. You have been warned!}}
 
-Если IPv6 работает, loopback-устройство должно показывать IPv6-адрес: 
+If IPv6 is working, the loopback device should show an IPv6 address: 
 
 {{RootCmd|ip -6 addr show lo|output=<pre>
 1: lo: <LOOPBACK,UP> mtu 16436
     inet6 ::1/128 scope host 
        valid_lft forever preferred_lft forever
-    ## (Строки выше показывают, что все работает)
+    ## (The above lines show things are working)
 </pre>
 }}
 
-Перед тем, как продолжить, убедитесь, что <code>ipv6</code> находится в списке переменных USE в файле {{Path|make.conf}}, чтобы пакеты, которые будут установлены позже, включали поддержку IPv6.
+Before going any further, make sure that you add ''ipv6'' to your list of USE variables in {{Path|make.conf}}, so that future emerges of packages will include IPv6 support.
 
-== Настройка туннеля ==
+== Tunnel Configuration ==
 
-=== Основная конфигурация ===
+=== Basic Configuration ===
 
-Большинство провайдеров все еще не предоставляют нативные соединения IPv6. Для обхода этого ограничения есть разбросанные по всему миру провайдеры туннелей (tunnel brokers), предлагающие свободные IPv6-туннели. Благодаря им можно туннелировать IPv6-соединения через IPv4. 
+Most ISPs still do not offer any native IPv6 connections. To get around this limitation, there are several "tunnel brokers" around the globe that offer free IPv6 tunnels. This will allow you to tunnel all your IPv6 connections through an IPv4 connection. 
 
-{| class="table table-striped table-condensed" style="text-align: left;" 
+{| class="wikitable" style="text-align: left;" 
 |- 
-! Поставщик
-! Местоположение
+! Broker
+! Location
 |- 
 |  [http://tunnelbroker.net/ Hurricane Electric] 
-| Северная Америка, Европа, Азия
+| North America, Europe, Asia
 |- 
 |  [http://gogonet.gogo6.com/ Freenet6] 
-| США
+| US
 |- 
-|  [http://www.sixxs.net/ SixXS] 
-| Европа (начиная с апреля 2016г. SixXS больше не удовлетворяют запросы на предоставления новых туннелей или подсетей)
+|  [http://www.sixxs.net/ Sixxs] 
+| Europe
 |- 
 |  [http://tunnel-broker.singnet.com.sg/ Singnet] 
-| Сингапур
+| Singapore
 |- 
 |  [http://broker.aarnet.net.au/ Aarnet] 
-| Австралия и Океания
+| Australia/South Pacific
 |-
 |}
 
-Ниже приведены два примера настройки туннеля с двумя популярными североамериканскими туннелями: Hurricane Electric (также применимо к non-heartbeat туннелям sixxs.net) и Freenet6.
+Below are two examples for setting up a tunnel with two popular North American tunnels, Hurricane Electric (applies for non-heartbeat tunnels from sixxs.net as well) and Freenet6. 
 
 === Hurricane Electric ===
 
-Hurricane Electric (сокращенно — HE) предлагает свободные IPv6-туннели и выделяет для клиента адреса блоками /64. Также позволяет настроить обратную DNS-зону. Получение туннеля от HE — простая процедура, сводится к переходу по ссылке [https://www.tunnelbroker.net/ https://www.tunnelbroker.net/] и заполнению одностраничной формы. 
+Hurricane Electric (HE for short) offers free IPv6 tunnels and allocates a /64 block of addresses for you. It also allows configuration of reverse DNS. Getting a tunnel from HE is as easy as going to [https://www.tunnelbroker.net/ https://www.tunnelbroker.net/] and filling out a one page form. 
 
-{{Note|Регистрация включает разную информацию, например домашний адрес и номер телефона.}}
+{{Note|Registration includes listing information like your address and phone number.}}
 
-После выделения туннеля и блока /64, пришло время настроить систему. HE предоставляет образцы настроек, основанные на утилитах {{c|ifconfig}} и {{c|iproute}}. В двух примерах предполагается следующая конфигурация: 
+After you have a tunnel approved and have a /64 block allocated, you can configure your Gentoo box. HE provides sample configurations based on ifconfig and the iproute utilities. The following two examples assume you have the following configuration: 
 
-{| class="table table-striped table-condensed" style="text-align: left;" 
+{| class="wikitable" style="text-align: left;" 
 |- 
 | Local IPv4 Address (eth0)
 | 68.36.91.195
@@ -106,78 +101,55 @@ Hurricane Electric (сокращенно — HE) предлагает свобо
 | 64.71.128.82
 |- 
 | Local IPv6 tunnel Address
-| 2001:470:1F00:FFFF::2
-|-
-| Remote IPv6 tunnel Address
-| 2001:470:1F00:FFFF::1
+| 2001:470:1F00:FFFF::189
 |- 
 | IPv6 Block
 | 2001:470:1F00:296::/64
 |-
 |}
 
-Используя команду {{c|ip}} из пакета {{Package|sys-apps/iproute2}}, выполните следующее.
+Using the iproute2 package and the <code>ip</code> command, you would do the following.
 
-Создайте туннель между локальным адресом IPv4 (eth0) и удаленным IPv4-адресом Hurricane Electric:
+Create a tunnel between the local (eth0) IPv4 and HE's remote IPv4 address:
 
-{{RootCmd|ip tunnel add he6 mode sit remote 64.71.128.82 local 68.36.91.195 ttl 64 dev eth0}}
+{{RootCmd|ip tunnel add sixbone mode sit remote 64.71.128.82 local 68.36.91.195 ttl 64 dev eth0}}
 
-Выведите издержки туннелирования (tunneling overhead) из MTU:
+Extract the tunneling overhead from the MTU:
 
-{{RootCmd|ip link set he6 mtu 1280}}
+{{RootCmd|ip link set sixbone mtu 1280}}
 
-Поднимите туннель:
+Bring the tunnel up:
 
-{{RootCmd|ip link set he6 up}}
+{{RootCmd|ip link set sixbone up}}
 
-Назначьте ему IPv6-адрес:
+Assign the IPv6 address to it:
 
-{{RootCmd|ip addr add 2001:470:1F00:FFFF::2 dev he6}}
+{{RootCmd|ip addr add 2001:470:1F00:FFFF::189 dev sixbone}}
 
-Направьте все глобальные unicast-IPv6-адреса через туннельное устройство 'he6':
+Route all global unicast IPv6 addresses through our 'sixbone' tunnel device:
 
-{{RootCmd|ip route add 2000::/3 dev he6}}
-
-В следующем примере показано, как создать это во время загрузки:
-
-{{CodeBox|title=Пример netifrc|lang=bash|1=
-iptunnel_he6="mode sit remote 64.71.128.82 local 68.36.91.195 ttl 64 dev eth0"
-depend_he6="net.eth0"
-config_he6="2001:470:1F00:FFFF::2/64"
-routes_he6="default via 2001:470:1F00:FFFF::1 dev he6"
-mtu_he6="1280"
-}}
-
-Сделайте это, чтобы устройство загружалось во время загрузки:
-
-{{RootCmd|cd /etc/init.d
-|ln -s net.lo net.he6
-|rc-update add net.he6 default
-}}
-
-{{Note|Если нет политики по умолчанию ACCEPT для IPv4 iptables, то необходимо добавить: {{RootCmd|iptables -A INPUT -i eth0 -p ipv6 -j ACCEPT}}}}
-
-Если туннель IPv6 поверх IPv4, то пакеты сперва попадают в цепочку IPv4, а затем переходят в цепочку IPv6.
+{{RootCmd|ip route add 2000::/3 dev sixbone}}
 
 === Freenet6 ===
 
-[http://gogonet.gogo6.com/ Freenet6] — это еще один свободный сервис туннелей. Необязательная регистрация требует только имени пользователя и действующий email-адреса. Управление туннелем сведено к системе клиент-сервер и созданию клиента <code>gogoCLIENT</code>. Данный клиент доступен в системе Portage. Для его установки выполните: 
+[http://gogonet.gogo6.com/ Freenet6] is another free tunnel broker. Optional registration only requires a username and a valid email address. They have chosen to turn the tunnel management into a client/server setup and have created the <code>gateway6</code> client. The client is available in Portage. To install it do: 
 
-{{Emerge|net-misc/gogoc}}
+{{Emerge|gateway6}}
 
-Теперь при выборе соединения с аутентификацией потребуется настроить <code>gogoCLIENT</code>, отредактировав файл {{Path|/etc/gogoc/gogoc.conf}}. Нужно только изменить поля <var>userid</var> и <var>passwd</var> для соответствия полям, назначенным Freenet6, и изменить сетевой шлюз. Ниже приведен пример файла конфигурации. 
+Now if you chose to connect with authentication, you need to configure <code>gateway6</code> by editing {{Path|/etc/gateway6/gw6c.conf}}. You should only have to change the ''userid'' and ''passwd'' fields to match those assigned from Freenet6 and change the gateway server. Below is a sample config file. 
 
-{{CodeBox|title=Пример gogoc.conf|lang=bash|1=
+{{Code|gw6c.conf example|<pre>
 auth_method=any
 userid=anonymous
 passwd=foobar
 template=linux
 server=broker.freenet6.net
+</pre>
 }}
 
-=== Проверка соединения ===
+=== Testing your connection ===
 
-Теперь, когда туннель настроен, необходимо протестировать соединение. Самым легким способом это сделать является использование утилиты <code>ping6</code> для проверки связи с хостом IPv6. 
+Now that your tunnel is configured, you can test your connection. The easiest way to do this is to use the <code>ping6</code> utility and try to ping an IPv6 host. 
 
 {{Emerge|iputils}}
 
@@ -188,83 +160,84 @@ PING www.kame.net(orange.kame.net) 56 data bytes
 64 bytes from orange.kame.net: icmp_seq=3 ttl=52 time=280 ms
 64 bytes from orange.kame.net: icmp_seq=4 ttl=52 time=279 ms
 64 bytes from orange.kame.net: icmp_seq=5 ttl=52 time=277 ms
- 
+
 --- www.kame.net ping statistics ---
 5 packets transmitted, 5 received, 0% packet loss, time 4038ms
 rtt min/avg/max/mdev = 277.040/281.041/290.046/4.699 ms
 </pre>
 }}
 
-Ведется дальнейшая работа по добавлению лучшей поддержки IPv6 в сетевой init-скрипт. Чтобы узнать статус разработки или помочь, пожалуйста, отправьте сообщение на {{Mail|latexer@gentoo.org}}.
+Further work is currently in progress to add better IPv6 support to the network init scripts. If you'd like to know the status of this and/or help out, email {{Mail|latexer@gentoo.org}}.
 
-== Поддержка IPv6 в приложениях ==
+== IPv6 Support in Applications ==
 
-=== Переустановка пакетов ===
+=== Re-emerging packages ===
 
-Если <code>USE="ipv6"</code> в файле {{Path|/etc/portage/make.conf}} уже установлен, возможно, необходимо переустановить группу пакетов для их компиляции с поддержкой IPv6. Для получения списка всех установленных пакетов, затронутых изменениями USE-флага, используйте параметр Portage <code>--newuse</code> (<code>-N</code>): 
+Unless you had ''USE="ipv6"'' in your {{Path|/etc/portage/make.conf}} previously, you probably need to re-emerge a bunch of packages to compile in IPv6 support for them. To get a list of all the installed packages which are affected by USE flag changes, use Portage's <code>--newuse</code> (<code>-N</code>) option: 
 
 {{Emerge|@world|params=-uDNav}}
 
-При изменении большого количества USE-флагов, этот список будет довольно большим. Предполагается, что система обновляется регулярно, поэтому повторная компиляция всех задействованных пакетов не принесет вреда. 
+If you have changed a lot of USE flags, the list could be quite long. It's suggested to keep your system up-to-date, so it won't hurt if you recompile all affected packages. 
 
-{{Note|Некоторые пакеты (ошибочно) обнаруживают поддержку IPv6 автоматически и, следовательно, не имеют USE-флага ipv6. Таким образом, не все пакеты, которые должны поддерживать IPv6, будут поддерживать его, если они скомпилированы на ядре без поддержкой IPv6.}}
+{{Note|Some packages detect IPv6 support automagically and hence have no ipv6 USE flag. Thus not all packages, which should support IPv6, will support it if you have not compiled it with an IPv6 enabled kernel.}}
 
-=== Пакеты для работы с IPv6 ===
+=== IPv6 Specific Packages ===
 
-Существует несколько пакетов для работы с IPv6. Большинство из них находятся в каталоге {{Path|/usr/portage/net-misc}}. 
+There are a few packages which specifically deal with IPv6 items. Most of these are located in {{Path|/usr/portage/net-misc}}. 
 
-{| class="table table-striped table-condensed" style="text-align: left;" 
+{| class="wikitable" style="text-align: left;" 
 |- 
-! Пакет
-! Описание
+! Package
+! Description
 |- 
 | {{Package|net-misc/ipv6calc}}
-| Преобразует IPv6-адрес в сжатый формат
+| Converts an IPv6 address to a compressed format
 |- 
 | {{Package|net-misc/netcat6}}
-| Версия netcat с поддержкой IPv6 и IPv4
+| netcat version that supports IPv6 and IPv4
 |- 
 | {{Package|dev-perl/Socket6}}
-| Связанная с IPv6 часть директив define и манипуляторов из файла socket.h языка C 
+| IPv6 related part of the C socket.h defines and structure manipulators
 |-
 |}
 
-== Настройка DNS ==
+== DNS setup ==
 
-=== IPv6 и DNS ===
+=== IPv6 and DNS ===
 
-Также как DNS использует для IPv4 записи A, аналогично используются AAAA записи для IPv6. (это потому что IPv4 имеет адресное пространство 2^32, в то время как IPv6 имеет адресное пространство 2^128). Для обратных запросов DNS, стандарт INT устарел, но все еще широко поддерживается. ARPA является самым новым стандартом. Поддержка формата ARPA описывается далее в этом руководстве. 
+Just as DNS for IPv4 uses A records, DNS for IPv6 uses AAAA records. (This is because IPv4 is an address space of 2^32 while IPv6 is an address space of 2^128). For reverse DNS, the INT standard is deprecated but still widely supported. ARPA is the latest standard. Support for the ARPA format will be described here. 
 
-=== Настройка BIND ===
+=== BIND configuration ===
 
-Последние версии BIND включают поддержку IPv6. Для прочтения этого раздела требуется минимальное знание о конфигурации и использовании BIND. Предполагается, что BIND не запущен в chroot. Если это предположение ошибочно, просто добавьте префикс chroot к большинству частей следующего раздела. 
+Recent versions of BIND include excellent IPv6 support. This section will assume you have at least minimal knowledge about the configuration and use of BIND. We will assume you are not running bind in a chroot. If you are, simply append the chroot prefix to most of the paths in the following section. 
 
-Сначала добавьте записи для файлов "прямой" (forward) и "обратной" (reverse) зоны DNS в {{Path|/etc/bind/named.conf}}. 
+First you need to add entries for both forward and reverse DNS zone files in {{Path|/etc/bind/named.conf}}. 
 
-{{FileBox|filename=/etc/bind/named.conf|title=Записи named.conf|1=
-## (Мы разрешаем bind слушать IPv6-адреса.
-## Использование 'any' является единственным способом это выполнить для версий bind ранее 9.3)
+{{Code|named.conf entries|<pre>
+## (We allow bind to listen to IPv6 addresses.
+## Using 'any' is the only way to do it prior to bind-9.3)
 options {
     [...]
     listen-on-v6 { any; }
     [...]
 };
-## (Этот раздел предусматривает прямой DNS для домена 'ipv6-rules.com':)
+## (This will provide the forward DNS for the domain 'ipv6-rules.com':)
 zone "ipv6-rules.com" IN {
     type master;
     file "pri/ipv6-rules.com";
 };
-## (Данный формат обратного DNS является "побитовым." Это выполняется взятием префикса IPv6,
-## переставлением чисел в обратном порядке и размещением точки между каждым числом)
+## (This format for reverse DNS is "bitwise." It's done by taking the IPv6 prefix,
+## reversing the order of the numbers and putting a period between each number)
 zone "6.9.2.0.0.0.f.1.0.7.4.0.1.0.0.2.ip6.arpa" {
         type master;
         file "pri/rev-ipv6-rules.com.arpa";
 };
+</pre>
 }}
 
-Теперь требуется создать эти файлы зоны и добавить записи для каждого из хостов. 
+Now we must create those zone files and add entries for all of our hosts: 
 
-{{FileBox|filename=/etc/bind/pri/ipv6-rules.com|1=
+{{Code|pri/ipv6-rules.com|<pre>
 $TTL    2h
 @       IN      SOA     ipv6-rules.com. webmaster.ipv6-rules.com.  (
                                 2003052501 ; Serial
@@ -273,13 +246,14 @@ $TTL    2h
                                 3600000    ; Expire
                                 86400 )    ; Minimum
                 NS      ns1.ipv6-rules.com
- 
-IN      AAAA    2001:470:1f00:296::1 ; address for ipv6-rules.com
+
+        IN      AAAA    2001:470:1f00:296::1 ; address for ipv6-rules.com
 host1   IN      AAAA    2001:470:1f00:296::2 ; address for host1.ipv6-rules.com
 host2   IN      AAAA    2001:470:1f00:296::3:3 ; address for host2.ipv6-rules.com
+</pre>
 }}
 
-{{FileBox|filename=/etc/bind/pri/ipv6-rules.com.arpa|1=
+{{Code|pri/rev-ipv6-rules.com.arpa|<pre>
 $TTL 3d ; Default TTL (bind 8 needs this, bind 9 ignores it)
 @       IN SOA ipv6-rules.com. webmaster.ipv6-rules.com. (
                         2003052501      ; Serial number (YYYYMMdd)
@@ -290,110 +264,111 @@ $TTL 3d ; Default TTL (bind 8 needs this, bind 9 ignores it)
         IN      NS     ns1.ipv6-rules.com.
 ; IPv6 PTR entries
 $ORIGIN 6.9.2.0.0.0.f.1.0.7.4.0.1.0.0.2.ip6.arpa.
- 
+
 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0 IN      PTR     ipv6-rules.com.
 2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0 IN      PTR     host1.ipv6-rules.com.
 3.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0 IN      PTR     host2.ipv6-rules.com.
+</pre>
 }}
 
-=== Настройка DJBDNS ===
+=== DJBDNS configuration ===
 
-Для DJBDNS существует несколько патчей от сторонних разработчиков, доступных по адресу [http://www.gentoo.org/ http://www.fefe.de/dns/] , которые позволяют выполнение запросов DNS для IPv6. DJBDNS может быть установлен с этими патчами, если в список USE-флагов добавлен <code>ipv6</code>. 
+There are currently some third-party patches to DJBDNS available at [http://www.gentoo.org/ http://www.fefe.de/dns/] that allow it to do IPv6 nameserving. DJBDNS can be installed with these patches by emerging it with ''ipv6'' in your USE variables. 
 
-{{Warning|Не все типы записей поддерживаются этими патчами. В частности, записи NS и MX не поддерживаются.}}
+{{Warning|Not all record types are support yet with these patches. In particular, NS and MX records are not supported.}}
 
 {{Emerge|djbdns}}
 
-После установки djbdns, его нужно настроить, запустив команду {{c|tinydns-setup}} и ответив на несколько вопросов о том, к каким адресам нужно осуществлять привязку, куда устанавливать tinydns, и т. д. 
+After djbdns is installed, it can be setup by running <code>tinydns-setup</code> and answering a few questions about which IP addresses to bind to, where to install tinydns, etc. 
 
 {{RootCmd|tinydns-setup}}
 
-Предположим, мы установили {{c|tinydns}} в {{Path|/var/tinydns}}. Теперь мы можем отредактировать {{Path|/var/tinydns/root/data}}. Этот файл содержит все данные, необходимые tinydns для обработки DNS для делегирования IPv6. 
+Assuming we've installed <code>tinydns</code> into {{Path|/var/tinydns}}, we can now edit {{Path|/var/tinydns/root/data}}. This file will contain all the data needed to get tinydns handling DNS for your IPv6 delegation. 
 
-{{CodeBox|title=Образец файла данных|1=
-## (*.ipv6-rules.com авторитативно обрабатываются 192.168.0.1)
+{{Code|sample data file|<pre>
+## (*.ipv6-rules.com is authoritatively handled by 192.168.0.1)
 .ipv6-rules.com:192.168.0.1:a:259200
-## (Авторитативный обратный DNS для 2001:470:1f00:296::/64)
+## (Authoritative reverse DNS for 2001:470:1f00:296::/64)
 .6.9.2.0.0.0.f.1.0.7.4.0.1.0.0.2.ip6.arpa:192.168.0.1:a
-## (Укажите IP-адреса для хостов host1 и host2)
+## (Specify the IPs for host1 and host2)
 6host1.ipv6-rules.com:200104701f0002960000000000000001:86400
 6host2.ipv6-rules.com:200104701f0002960000000000000002:86400
-## (Направьте www на host1)
+## (Point www to host1)
 3www.ipv6-rules.com:200104701f0002960000000000000002:86400
+</pre>
 }}
 
-Для строк с префиксом <code>6</code> будут созданы обе записи: AAAA и PTR. Для строк с префиксом <code>3</code> будет создана только запись AAAA. Помимо редактирования файла {{Path|data}} вручную, можно использовать скрипт {{c|add-host6}} и {{c|add-alias6}} для добавления новых записей. После внесения изменений в файл {{Path|data}}, необходимо запустить <code>make</code> из {{Path|/var/tinydns/root}}. В результате будет создан файл {{Path|/var/tinydns/root/data.cfb}}, который будет использоваться tinydns в качестве источника информации для DNS-запросов.
+Lines prefixed with a <code>6</code> will have both an AAAA and a PTR record created. Those prefixed with a <code>3</code> will only have an AAAA record created. Besides manually editing the {{Path|data}} file, you can use the scripts <code>add-host6</code> and <code>add-alias6</code> to add new entries. After changes are made to the {{Path|data}} file, you simply need to run <code>make</code> from {{Path|/var/tinydns/root}}. This will create {{Path|/var/tinydns/root/data.cfb}}, which tinydns will use as its source of information for DNS requests.
 
-== IPv6-маршрутизатор ==
+== IPv6 Router ==
 
-=== Настройка маршрутизации ===
+=== Configure routing ===
 
-Для использования системы в качестве маршрутизатора для других клиентов, которым требуется соединение через IPv6, необходима дальнейшая настройка. Нам потребуется включить переадресацию пакетов IPv6. Это можно сделать двумя способами. 
+Further configuration is required if we want to use our system as a router for other clients wishing to connect to the outside world with IPv6. We need to enable forwarding of IPv6 packets. We can do this in one of two ways. 
 
-Либо мы установим значение 1 в псевдо-файле переадресации:
+Or we set the value 1 in the forwarding pseudo-file:
+{{RootCmd|echo 1 > /proc/sys/net/ipv6/conf/all/forwarding}}
 
-: {{RootCmd|echo 1 > /proc/sys/net/ipv6/conf/all/forwarding}}
+Or we use the <code>sysctl</code> command:
 
-Или необходимо использовать команду {{c|sysctl}}:
+{{RootCmd|sysctl -w net.ipv6.conf.all.forwarding{{=}}1}}
 
-: {{RootCmd|sysctl -w net.ipv6.conf.all.forwarding{{=}}1}}
+{{Warning|The <code>radvd</code> init script explained in the next chapter enables (and disables) forwarding, making the next step unnecessary.}}
 
-{{Warning|Init-скрипт {{c|radvd}}, объясняемый в следующем разделе, включает (и отключает) переадресацию, делая следующий шаг ненужным.}}
+To enable forwarding at boot, you'll need to edit {{Path|/etc/sysctl.conf}} and add the following line. 
 
-Чтобы включить переадресацию при загрузке, нужно отредактировать файл {{Path|/etc/sysctl.conf}} и добавить в него следующую строчку. 
-
-{{CodeBox|title=Редактирование sysctl.conf|1=
-## (Когда используется radvd, эта настройка не требуется)
+{{Code|sysctl.conf addition|<pre>
+## (If you will be using radvd, this step is unnecessary)
 net.ipv6.conf.default.forwarding=1
+</pre>
 }}
 
-Теперь трафик с этого компьютера должен быть переадресован через туннель, который был установлен ранее с выбранным нами сервисом. 
+Traffic should now be forwarded from this box through the tunnel we've established with our broker. 
 
-Чтобы назначить клиентам адреса IPv6, в спецификации IPv6 разрешается stateless и stateful назначение IP. Stateless назначение использует процесс с названием Router Advertisement и позволяет клиентам получить IP-адрес и маршрут по умолчанию простым поднятием интерфейса. Этот способ называется "stateless" потому что не имеет записи о назначенных IP-адресах и хосте, которому они назначены. Stateful назначение обрабатывается DHCPv6. Оно называется "stateful" потому что сервер хранит состояние клиентов, запросивших и получивших IP-адреса.
+To assign IPv6 addresses to clients, the IPv6 specification allows for both stateless and stateful IP assignment. Stateless assignment uses a process called Router Advertisement and allows clients to obtain an IP and a default route by simply bringing an interface up. It is called "stateless" because there is no record of IPs assigned and the host they are assigned to. Stateful assignment is handled by DHCPv6. It is "stateful" because the server keeps a state of the clients who've requested IPs and received them. 
 
-=== Stateless-конфигурация ===
+=== Stateless Configuration ===
 
-Stateless-конфигурация легко выполняется использованием программы Router Advertisement Daemon, или {{c|radvd}}: 
+Stateless configuration is easily accomplished using the Router Advertisement Daemon, or <code>radvd</code>. 
 
 {{Emerge|radvd}}
 
-После установки {{c|radvd}}, необходимо создать файл {{Path|/etc/radvd/radvd.conf}}, хранящий информацию о том из какой подсети нужно назначать IP. Здесь приведен пример файла {{Path|radvd.conf}}, использующий префикс, назначенный нашим сервисом туннелей. 
+After having emerged <code>radvd</code>, we need to create {{Path|/etc/radvd/radvd.conf}} that contains information about what IP block to assign IPs from. Here is a sample {{Path|radvd.conf}} file using the prefix we've been assigned from our tunnel broker. 
 
-{{CodeBox|title=Пример radvd.conf|1=
+{{Code|Sample radvd.conf|<pre>
 interface eth1
 {
-        ## (Отправка advertisement-сообщений другим хостам)
+        ## (Send advertisement messages to other hosts)
         AdvSendAdvert on;
-        ## (Фрагментация нежелательна (tm))
+        ## (Fragmentation is bad(tm))
         AdvLinkMTU 1280;
         MaxRtrAdvInterval 300;
-        ## (Префикс подсети IPv6 назначенный нашим PoP)
+        ## (IPv6 subnet prefix we've been assigned by our PoP)
         prefix 2001:470:1F00:296::/64
         {
                 AdvOnLink on;
                 AdvAutonomous on;
         };
 };
+</pre>
 }}
 
-{{Warning|Проверьте, что интерфейс в первой строчке указан правильно, чтобы отправлять advertisement маршрутизатора в интранет, а не интернет-провайдеру!}}
+{{Warning|Make sure the interface on the first line is correct so you broadcast router advertisement to your intranet and not to your ISP!}}
 
-Дальнейшая информация доступна в {{c|man radvd.conf}}. Теперь мы можем запустить {{c|radvd}} и настроить его на запуск при загрузке. 
+Further information is available in <code>man radvd.conf</code>. We can now start <code>radvd</code> and set it to start at boot. 
 
-{{RootCmd
-|/etc/init.d/radvd start
-|rc-update add radvd default
-}}
+{{RootCmd|/etc/init.d/radvd start
+|rc-update add radvd default}}
 
-=== Stateful-конфигурация ===
+=== Stateful Configuration ===
 
-Для включения stateful-конфигурации, требуется установить и настроить {{Package|net-misc/dibbler}}. 
+If you'd like to have stateful configuration, you'll need to install and configure {{Package|net-misc/dibbler}}. 
 
 {{Emerge|dibbler}}
 
-Теперь нужно настроить dibbler-клиент, отредактировав {{Path|/etc/dibbler/client.conf}}. 
+Now we must configure the dibbler client by editing {{Path|/etc/dibbler/client.conf}}. 
 
-{{CodeBox|title=Пример конфигурации клиента dibbler|1=
+{{Code|Sample dibbler client configuration|<pre>
 iface ppp0 {
 	rapid-commit yes
 	pd
@@ -402,18 +377,16 @@ iface ppp0 {
 </pre>
 }}
 
-Теперь можно запустить клиент dibbler и настроить его на запуск при загрузке. 
+We can now start the dibbler client, and configure it to start at boot. 
 
-{{RootCmd
-|/etc/init.d/dibbler-client start
-|rc-update add dibbler-client default
-}}
+{{RootCmd|/etc/init.d/dibbler-client start
+|rc-update add dibbler-client default}}
 
-== IPv6-клиенты ==
+== IPv6 Clients ==
 
-=== Использование radvd ===
+=== Using radvd ===
 
-Клиенты этого маршрутизатора должны подключаться к сети через IPv6. При использовании radvd, настройка хостов должна быть такой же легкой, как и включение интерфейса. (Это, возможно, уже сделано init-скриптом net.ethX). 
+Clients behind this router should now be able to connect to the rest of the net via IPv6. If using radvd, configuring hosts should be as easy as bringing the interface up. (This is probably already done by your net.ethX init scripts). 
 
 {{RootCmd|ip link set eth0 up
 |ip addr show eth0|output=<pre>
@@ -428,21 +401,44 @@ iface ppp0 {
 </pre>
 }}
 
-Если это не работает, убедитесь, что брандмауэр IPv6 позволяет прохождение ICMPv6 пакетов:
+== Other Resources ==
+There are many excellent resources online pertaining to IPv6. 
 
-{{RootCmd|ip6tables -A INPUT -p icmpv6 -j ACCEPT}}
 
-== Внешние источники ==
 
-В сети имеется большое количество отличных ресурсов по IPv6. 
+{| class="wikitable" style="text-align: left;" 
+|- 
+! Websites
+! Resources
+|- 
+|  [http://www.ipv6.org/ www.ipv6.org] 
+| General IPv6 Information
+|- 
+|  [http://www.linux-ipv6.org/ www.linux-ipv6.org/] 
+| USAGI Project
+|- 
+|  [http://www.deepspace6.net/ www.deepspace6.net] 
+| Linux/IPv6 site
+|- 
+|  [http://www.kame.net/ www.kame.net] 
+| *BSD implementation
+|-
+|}
 
-* [http://www.ipv6.org/ www.ipv6.org] - Основная информация о IPv6
-* [http://www.linux-ipv6.org/ www.linux-ipv6.org/] - проект USAGI
-* [http://www.deepspace6.net/ www.deepspace6.net] - сайт Linux/IPv6
-* [http://www.kame.net/ www.kame.net] - *BSD реализация
+On IRC, you can try <code>#ipv6</code> on [http://www.freenode.net/ Freenode]. You can connect to the Freenode servers using an IPv6 enabled client by connecting to '''irc.ipv6.freenode.net'''. 
 
-На IRC, можно попробовать канал {{IRC|ipv6}} на сервере [http://www.freenode.net/ Freenode]. К серверам Freenode можно подсоединиться, используя клиент с поддержкой IPv6, установив соединение к irc.ipv6.freenode.net. 
 
-{{Migrated|originalauthors=Peter Johanson, Jorge Paulo, Camille Huot, Pasi Valminen, {{Dev|nightmorph}}, {{Dev|Hwoarang}}}}
+== Acknowledgements ==
+
+We would like to thank the following authors and editors for their contributions to this guide:
+
+
+* Peter Johanson
+* Jorge Paulo
+* Sven Vermeulen
+* Camille Huot
+* Pasi Valminen
+* nightmorph
+* hwoarang
 
 [[Category:Network management]]
