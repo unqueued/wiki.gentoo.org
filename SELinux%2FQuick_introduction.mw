@@ -2,7 +2,7 @@ SELinux is an access control mechanism, supported through the Linux kernel, that
 
 == Regular Linux access control ==
 
-Assume a user wants to execute a script, then the Linux discretionary access control system will check the information of the process that the user is running (which is most likely a shell process) and that of the script itself to decide if the execution can go through.
+Assume a user wants to execute a script, then the Linux discretionary access control system will check the information of the process that the user is running (which is most likely a shell process) and that of the script itself to decide if the execution can go further.
 
 [[File:Linux_DAC_permissions.png|Schematic overview of a script execution|link=]]
 
@@ -12,9 +12,9 @@ The discretionary part comes from the fact that the owner of the file can decide
 
 {{Cmd|chmod o+x /path/to/script}}
 
-On a multi-user system, a user will be able to share whatever resources he has access to with the other users, as well as enable any action (such as writing to or executing the files). All he needs to do is to open up the rights to these resources for other users (or if they all share the same group, to the group owner). And although the example of "sharing" files is a simple one, it can go further than that. In some enterprises, access to particular software on a system is governed through the group membership. Developers might be assigned a ''developer'' group, allowing them access to the system compiler. But once a developer can access the compiler, he can easily also copy all compiler files into his own directory and share that directory with other, non-developer users who can then call the compiler as well.
+On a multi-user system, a user will be able to share whatever resources he has access to with the other users. All he needs to do is to open up the rights to these resources for other users (or if they all share the same group, to the group owner). And although the example of "sharing" files is a simple one, it can go further than that. In some enterprises, access to particular software on a system is governed through the group membership. Developers might be assigned a ''developer'' group, allowing them access to the system compiler. But once a developer can access the compiler, he can easily also copy all compiler files into his own directory and share that directory with other, non-developer users who can then call the compiler as well.
 
-The discretionary part of the Linux permission system goes further than just users. Services too, such as the Apache web server, can decide how they open up their resources. And although it might not be by design, a malfunctioning service might expose sensitive data to users through this aspect.
+The discretionary part of the Linux permission system goes further than just users. Services too, such as the Apache web server, can decide how they open up their resources. And although it might not be by design, a malfunctioning service might expose sensitive data to users through this aspect. 
 
 == Mandatory access control ==
 
@@ -26,7 +26,7 @@ The interaction shown is still the same, but an ''additional'' set of components
 
 === SELinux security subsystem ===
 
-SELinux is a security subsystem that works inside the Linux kernel. It uses Linux Security Modules (LSM) hooks provided by the Linux kernel developers to intercept any call and check if the call is allowed or not. If it is, then the activity can go through. Otherwise, a ''Permission Denied'' error is returned to the system and a denial message is sent to the audit subsystem. This way, administrators can investigate [[SELinux/Logging|denials]] (as they usually reflect unwanted behavior being exerted on the system) and rest assured that security rules cannot be worked around.
+SELinux is a security subsystem that works inside the Linux kernel. It uses Linux Security Modules (LSM) hooks provided by the Linux kernel developers to intercept any call and check if the call is allowed or not. If it is, then the activity can go through. Otherwise, a ''Permission Denied'' error is returned to the system and a denial message is sent to the audit subsystem. This way, administrators can investigate denials (as they usually reflect unwanted behavior being exerted on the system) and rest assured that security rules cannot be worked around.
 
 It is important to understand that the SELinux permission check happens ''after'' the Linux DAC check. In other words, SELinux cannot be used to override access controls on the system. If the regular permission system disallows an activity, then SELinux is not even consulted.
 
@@ -37,7 +37,7 @@ SELinux uses ''contexts'' to identify resources. In the example, two contexts ta
 # the context of the target file, which is <code>system_u:object_r:lib_t</code>
 
 A context in SELinux consists out of 3, sometimes 4 parts:
-# it starts with a [[SELinux/Users_and_logins|SELinux user]] (which is ''not'' the same as a Linux user),
+# it starts with a SELinux user (which is ''not'' the same as a Linux user),
 # followed by the SELinux role,
 # followed by the SELinux type,
 # and then ''optionally'' followed by a sensitivity
@@ -52,381 +52,15 @@ Each field is used by SELinux for deciding access controls. Most of the rules ho
 
 The SELinux security subsystem checks any access attempt through the policy. SELinux uses a deny-by-default setup, so it looks for explicit allow statements on the ''SELinux type''. In our case, it looks for an allow rule that allows <code>user_t</code> <code>execute</code> rights on a <code>file</code> resource with the <code>lib_t</code> type assigned to it:
 
-{{CodeBox|title=Small set of SELinux policy rules|1=
+{{Code|Small set of SELinux policy rules|<pre>
 ...
 allow user_t bin_t:file { execute };
 allow user_t user_bin_t:file { execute };
 ...
-}}
+</pre>}}
 
 In our example, it doesn't find such a rule, so it denies the execution attempt.
 
-The SELinux policy is what defines the behavior of the SELinux subsystem. Widely different policies will result in different behavior on the system. And the term ''behavior'' here is well chosen: the policy is a write-down of what acceptable, normalized behavior is. It is a full description of how processes on the system are allowed to behave.
-
-The policy is separate from the SELinux subsystem; an update to the policy does not require kernel rebuilds or application updates. Instead, policies are built into binary ''policy packages'' that can be dynamically loaded, similar to how kernel modules can be loaded.
-
-== Access controls ==
-
-The SELinux subsystem has various access controls in place. One of them we roughly saw, which is called the ''type enforcement''. Next to this, SELinux also supports ''role-based access control'' and ''user-based access control''. The last access control system we'll briefly cover is the ''multi-level security'' model.
-
-=== Type enforcement ===
-
-The ''[[SELinux/Type_enforcement|type enforcement]]'' access control system focuses on the ''SELinux type'' within a SELinux context. It is also what most of the SELinux rules are written for and covers the vast majority of SELinux rules in a SELinux policy.
-
-The access check that SELinux performs as part of the type enforcement is based on the '''access vector''' built up from the attempt. Such an access vector contains
-- the source context (such as <code>user_t</code>)
-- the target context (such as <code>lib_t</code>)
-- the class of the target (such as <code>file</code>)
-- the activity that is invoked (such as <code>execute</code>)
-
-If an allow statement exists for the entire access vector, then the activity is allowed. If not, it is denied. The allow statement for our example would look like so:
-
-{{CodeBox|title=Allow executing lib_t for user_t|1=
-allow user_t lib_t : file { execute };
-}}
-
-The source context type and target context type are defined by the policy developer (or security administrator). On an average SELinux system several hundreds, if not thousands of types exist. These types are declared every time differentiation is needed on the access. For instance, policy developers noticed that there were cases where a shell script only needed to call the shell interpreter itself (such as <code>bash</code>) but no other binaries. If the shell interpreter was labeled as <code>bin_t</code> then these shell scripts had access to all binaries labeled <code>bin_t</code>. So the policy developers created a second type, <code>shell_exec_t</code>, so that shell scripts only needed access to that type and were prevented from executing other, generic binaries.
-
-{{Note|Labeling is the action of putting a [[SELinux/Labels|context (or label)]] on a resource. The context of a file is often called the label of that file. A relabeling operation means that the label of the files is reset to the right value.}}
-
-Next to the types, SELinux also supports a large set of classes. This allows SELinux to differentiate accesses based on the class of a resource. Privileges on a <code>lib_t</code> file versus those of a <code>lib_t</code> socket file or directory are completely separate for SELinux. This is unlike the discretionary access controls on a Linux system.
-
-The set of classes can be seen on a SELinux enabled system like so:
-
-{{RootCmd|ls /sys/fs/selinux/class|output=<pre>
-appletalk_socket  db_procedure  file            netlink_audit_socket           node           socket              x_cursor     x_screen
-association       db_schema     filesystem      netlink_dnrt_socket            nscd           sock_file           x_device     x_selection
-blk_file          db_sequence   ipc             netlink_firewall_socket        packet         system              x_drawable   x_server
-capability        db_table      kernel_service  netlink_ip6fw_socket           packet_socket  tcp_socket          x_event      x_synthetic_event
-capability2       db_tuple      key             netlink_kobject_uevent_socket  passwd         tun_socket          x_extension
-chr_file          dbus          key_socket      netlink_nflog_socket           peer           udp_socket          x_font
-context           db_view       lnk_file        netlink_route_socket           process        unix_dgram_socket   x_gc
-db_blob           dccp_socket   memprotect      netlink_selinux_socket         rawip_socket   unix_stream_socket  x_keyboard
-db_column         dir           msg             netlink_socket                 security       x_application_data  x_pointer
-db_database       fd            msgq            netlink_tcpdiag_socket         sem            x_client            x_property
-db_language       fifo_file     netif           netlink_xfrm_socket            shm            x_colormap          x_resource
-</pre>}}
-
-Each class has its own set of supported privileges. The supported permissions of a regular file for instance:
-
-{{RootCmd|ls /sys/fs/selinux/class/file/perms/|output=<pre>
-append      execmod           getattr  lock     quotaon      relabelto  swapon
-create      execute           ioctl    mounton  read         rename     unlink
-entrypoint  execute_no_trans  link     open     relabelfrom  setattr    write
-</pre>}}
-
-The supported permissions for a TCP socket:
-
-{{RootCmd|ls /sys/fs/selinux/class/tcp_socket/perms/|output=<pre>
-accept      bind       create   ioctl   name_bind     node_bind  recv_msg     send_msg  setopt
-acceptfrom  connect    getattr  listen  name_connect  read       relabelfrom  sendto    shutdown
-append      connectto  getopt   lock    newconn       recvfrom   relabelto    setattr   write
-</pre>}}
-
-With such a vast set of possible access vectors, policy development is a large undertaking. Luckily, distributions such as Gentoo Linux come with a complete set of default policies to use, with thanks to the [http://oss.tresys.com/projects/refpolicy reference policy] project which manages a base policy for distributions to work with.
-
-For more information on type enforcement, please read our [[SELinux/Type_enforcement|type enforcement]] article.
-
-=== Role-based access control ===
-
-From the ''SELinux type'', we now get into the realm of the ''SELinux role''. Remember the context in our example? It had <code>user_r</code> as the SELinux role in the context of the process that was trying to execute a file.
-
-Roles are like caps that a user can put on. A user is always assigned to a role, but can decide to switch roles (of course if allowed to switch to a role). An unprivileged user might only have access to one role (<code>user_r</code>) whereas an administrator might have access to several roles (<code>staff_r</code> for regular operations, and <code>sysadm_r</code> for system administrative tasks). This is also how roles in organizations are used. There are developer roles, system engineer roles, system administrator roles, it architect roles, database administrator roles, etc.
-
-In SELinux, roles decide which types a process context can be in. The <code>user_r</code> role has the right to have processes run in the <code>user_t</code> type. Types for processes are also called '''domains'''. So the role-based access control decides which ''domains'' a role is allowed to have.
-
-Consider a regular user role (<code>user_r</code>) versus database administrator role (<code>dbadm_r</code>). The regular user will not have access to the backup infrastructure, so the <code>backup_t</code> domain is not allowed for the <code>user_r</code> role. Even if the user would somehow be able to run backup software (say from a USB stick) this software will be running in the user domain (<code>user_t</code>) and not the backup domain (<code>backup_t</code>). And as the user domain is not allowed to access database files directly, the user will not be able to backup or restore data.
-
-Unlike the database administrator, whose <code>dbadm_r</code> role is allowed to access <code>backup_t</code>. The database administrator can therefor execute backup software, which (assuming the policies are all correct) run in the <code>backup_t</code> domain, which is allowed to manage database files. As a result, the database administrator can backup and restore databases.
-
-The set of domains that a role has access to can be requested on a SELinux system through the <code>seinfo</code> command:
-
-{{Cmd|seinfo -ruser_r -x|output=<pre>
-  user_r
-    Types:
-      git_session_t
-      httpd_user_script_t
-      ...
-</pre>}}
-
-Security administrators will usually design ''least privilege access'' through the role-based access controls, and then assign the roles to the users on a need-to-have basis. So privileges are not assigned to users individually (as that doesn't scale well) but to the domains, which are assigned to the roles, and users are assigned one or more roles to perform their duties.
-
-=== User-based access control ===
-
-The first part of a context is the [[SELinux/Users_and_logins|SELinux user]]. The idea behind the SELinux user is that it has to remain immutable, unlike roles which can be switched on user request.
-
-The SELinux user decides which roles someone is allowed to go to. For instance, the <code>user_u</code> SELinux user specifies that only the <code>user_r</code> role is allowed, whereas the <code>staff_u</code> user specifies that the allowed roles are <code>staff_r</code> and <code>sysadm_r</code>. This can be seen by either <code>seinfo</code> or <code>semanage</code>:
-
-{{RootCmd|seinfo -ustaff_u -x|output=<pre>
-  staff_u
-    roles:
-      staff_r
-      sysadm_r
-</pre>}}
-
-{{RootCmd|semanage user -l|output=<pre>
-SELinux User       SELinux Roles
-
-root               staff_r sysadm_r
-staff_u            staff_r sysadm_r
-sysadm_u           sysadm_r
-system_u           system_r
-user_u             user_r
-</pre>}}
-
-On SELinux systems, Linux users are ''mapped'' to a SELinux user. This mapping is what decides what a user is allowed to do on a system.
-
-Mappings can be seen (and managed) using <code>semanage login</code>:
-
-{{RootCmd|semanage login -l|output=<pre>
-Login Name         SELinux User
-
-__default__        user_u
-swift              staff_u
-root               root
-</pre>}}
-
-This is still part of the role-based access control, but important to know as we can now go to the used-based access control.
-
-On Gentoo, if <code>USE="ubac"</code> is set, User Based Access Control (UBAC) is enabled. This ensures that unprivileged users with a different SELinux user cannot access each others' resources even if the types would allow this. 
-
-Remember the example of one user sharing access to his files to other users? Well, if all users run with the <code>user_t</code> type (which is normal for unprivileged users) and have the files labeled as <code>user_home_t</code> (which is normal for the contents in the user {{Path|/home/*}} locations) then type enforcement would still allow one user to access another users' resources if that user opened up his home directory. After all, SELinux has the following rule to allow users to manage their own files:
-
-{{CodeBox|title=SELinux rule allowing regular users to manage their files|1=
-allow user_t user_home_t:dir { read write execute close open ... };
-allow user_t user_home_t:file { read write execute close open ... };
-}}
-
-However, we can create SELinux users for each user individually, and map each Linux user to a specific SELinux user. With that in place, the contexts of userA's and userB's files differ:
-
-{{RootCmd|ls -ldZ /home/userA/somefile /home/userB/somefile|output=<pre>
--rwx------. userA userA  userA_u:object_r:user_home_t /home/userA/somefile
--rwxrw-rw-. userB userB  userB_u:object_r:user_home_t /home/userB/somefile
-</pre>}}
-
-In the example, ''userB'' has opened up access to his {{Path|/home/userB/somefile}} file (making it world writable). But userA will not be able to access it, as userA will run with the <code>userA_u</code> SELinux user, which is not allowed to access <code>userB_u</code> labeled resources of type <code>user_home_t</code> (UBAC works on a per type basis, not all types are what is called ''ubac-constrained'').
-
-=== Multi-level security ===
-
-The last access control to discuss is the ''multi-level'' security.
-
-In the security world, the sensitivity can be seen as the classification of data. For instance, you can have ''strictly confidential'' data, ''confidential'' data, ''internal'' data and ''public'' data. There usually is a strict order in this classification. Someone who has clearance to read confidential data can read internal and public data as well, but not strictly confidential data. Similarly, someone working on confidential data should not at the same time be allowed to write to internal or public data (as that would lead to information leakage).
-
-This gives an information flow model that is often mentioned as "no read up, no write down". 
-
-In SELinux, this model is supported through the sensitivity of a context. In that case, a user context could look like <code>user_u:user_r:user_t:s0</code> or <code>sysadm_u:sysadm_r:sysadm_t:s0-s0:c0.c1024</code>. Note however that the added part is just a single set, so <code>s0-s0:c0.c1024</code> is ''one'' added field to the context.
-
-This added field is the sensitivity, and contains one, sometimes two parts.
-# The first part is the sensitivity level, which is an integer representation
-# The second part is the category set, which are integers as well
-
-The sensitivity level represents the classification. For instance, <code>s0</code> is public data, <code>s1</code> internal, <code>s2</code> confidential and <code>s3</code> strictly confidential. It is up to the security administrator to decide how many layers he wants.
-
-The category represents a set of integers which can be assigned to resources. Each integer is some sort of "tag" on a resource, and can be used to differentiate classes of data. One could use a category for every department in an organization, or a category for every company on a multi-tenant system. A few examples of category sets are:
-- <code>c0</code> meaning category 0
-- <code>c0,c4</code> meaning categories 0 and 4
-- <code>c0.c4</code> meaning categories 0 up to 4 (so 0, 1, 2, 3 and 4)
-
-The clearance shows what a domain is allowed to access. A clearance of <code>s0-s1:c0,c4.c8</code> means that the process runs in the sensitivity level <code>s0</code> and is allowed to access resources with sensitivity up to <code>s1</code> and categories 0 and 4 to 8. A resource with a subset of categories assigned is also accessible, but a resource that has another category that is not part of the clearance will not be accessible by that domain.
-
-SELinux users can be given a default clearance set, and the login mappings can reduce the clearance of users even further.
-
-Multi-level security is supported in Gentoo through the ''mls'' policy store. The ''mcs'' policy store also supports MLS, but only with a single sensitivity.
+== Features ==
 
 == Integration ==
-
-So far for all the features, but how is SELinux integrated in Gentoo then?
-
-=== Enabling SELinux support in packages ===
-
-First of all, the SELinux support in the applications is enabled through the ''selinux'' USE flag. This flag is not configurable by end users - for that a SELinux profile needs to be enabled.
-
-{{RootCmd|eselect profile list {{!}} grep selinux|output=<pre>
- [2]   default/linux/amd64/13.0/selinux
- [12]  hardened/linux/amd64/selinux *
- [14]  hardened/linux/amd64/no-multilib/selinux
-</pre>}}
-
-But just enabling this profile isn't sufficient as a set of actions need to be taken to convert a system to become a SELinux system. These instructions are available in the [http://www.gentoo.org/proj/en/hardened/selinux/selinux-handbook.xml SELinux handbook] for now, and will be in the [[SELinux/Installation|Installation]] page on the wiki later.
-
-=== Policy ===
-
-The SELinux policy is provided through the various <code>sec-policy/selinux-*</code> packages, with a {{Package|sec-policy/selinux-base}} package that contains the base policy (a minimal set of policies that cannot be segregated from each other) and a {{Package|sec-policy/selinux-base-policy}} package that contains the minimal set of SELinux policy modules for a Gentoo system.
-
-The SELinux policy itself is compiled in a binary format, whose resulting files are available at {{Path|/usr/share/selinux/*}} and all have an <code>.pp</code> suffix. These binary ''policy packages'' are loaded by the <code>semodule</code> command, similar to how Linux kernel modules are loaded by the <code>insmod</code> command.
-
-Thanks to the USE flag integration, depending policies are automatically loaded when a user installs software that has a policy module for. Applications that have specific SELinux support (such as the core utilities to display SELinux labels) will also build in this support when <code>USE="selinux"</code> is set.
-
-== Administration ==
-
-Once a system is SELinux-enabled, some additional administration is needed. It is not our intention to cover all administrative commands, but instead give the necessary pointers to the right resources.
-
-=== SELinux state and mode ===
-
-The <code>sestatus</code> command tells us what the current SELinux state is.
-
-{{RootCmd|sestatus|output=<pre>
-SELinux status:                 enabled
-SELinuxfs mount:                /sys/fs/selinux
-SELinux root directory:         /etc/selinux
-Loaded policy name:             strict
-Current mode:                   enforcing
-Mode from config file:          enforcing
-Policy MLS status:              disabled
-Policy deny_unknown status:     denied
-Max kernel policy version:      28
-</pre>}}
-
-Possible [[SELinux/States|states]] are ''disabled'' or ''enabled''. The ''disabled'' state means SELinux is completely turned off and does not effect system behavior. If SELinux is enabled, then its ''mode'' can be ''permissive'' or ''enforcing''.
-
-In ''permissive'' mode, SELinux will be consulted but will not enforce its decision. Instead, it will only [[SELinux/Logging|log denials]] and still allow the action to continue. This is great for troubleshooting issues, as we can temporarily disable SELinux to see if it is really to blame, but also to convert a system to an SELinux system: we can verify that everything would work (no specific denials) after which we can enable SELinux.
-
-In ''enforcing'' mode, SELinux will enforce its policy on the system. Denials are of course still logged, but now the applications will actually be prevented from doing any action that isn't allowed by the policy. 
-
-It is also possible to flag a specific domain as ''permissive'' so that applications running in this domain will be treated as if the system were in ''permissive'' mode: any actions taken outside of the policy will be logged, but they will be allowed to happen. This is another troubleshooting feature, so that a newly-added domain can be analyzed via logged denials while the remainder of the system runs in the full-security ''enforcing'' mode.
-
-As a separate concept from the above modes, the policy can include a highly privileged domain that has almost full permissions. Such a domain with (almost) no restrictions imposed by SELinux is referred to as an ''unconfined'' domain. SELinux will allow (almost) all actions taken by an ''unconfined'' domain because the policy says that it is ok, regardless of whether SELinux is in ''enforcing'' or ''permissive'' mode. There will not be any access violations to be logged in this case, as opposed to a more restrictive domain being handled permissively (either due to domain-specific permissive flag or system-wide permissive mode) and logs denials that would otherwise have occurred.
-
-=== Listing contexts ===
-
-Many Linux utilities support showing the SELinux context. As everything SELinux handles must have a context, viewing the context associated with every resource is very important. Contexts can be easily viewed for many resource types.
-
-Inside a shell, the <code>id</code> command can display the context of the current user/session:
-
-{{Cmd|id -Z|output=<pre>
-staff_u:sysadm_r:sysadm_t
-</pre>}}
-
-File, directory and other file-represented resource contexts can be seen through <code>ls -Z</code> or <code>stat</code>:
-
-{{Cmd|ls -lZ metadata.xml|output=<pre>
--rw-r--r--. 1 swift users staff_u:object_r:user_home_t 1020 Dec 10  2011 metadata.xml
-</pre>}}
-
-Process contexts can be seen through <code>ps -Z</code>:
-
-{{Cmd|ps -eZ {{!}} grep init|output=<pre>
-system_u:system_r:init_t            1 ?        00:00:00 init
-staff_u:staff_r:staff_t          6045 tty1     00:00:00 xinit
-</pre>}}
-
-Port contexts can be queried with <code>seinfo</code>:
-
-{{Cmd|seinfo --portcon{{=}}80|output=<pre>
-        portcon tcp 80 system_u:object_r:http_port_t
-        portcon tcp 1-511 system_u:object_r:reserved_port_t
-        portcon udp 1-511 system_u:object_r:reserved_port_t
-</pre>}}
-
-For more information about contexts and labels, please refer to our [[SELinux/Labels|SELinux labels]] article.
-
-=== Label management ===
-
-The most common administrative set of commands are related to labeling of resources. Remember that for SELinux, everything is managed through the contexts. When problems arise, administrators will need to check and, if necessary, update the context of the resources in order to have everything working again.
-
-Contexts can be set explicitly using <code>chcon</code>:
-
-{{RootCmd|chcon -t net_conf_t /etc/resolv.conf}}
-
-However, SELinux utilities have a specific database in which the "correct" labels for all files are stored. This database uses path expressions to match a file path against and to decide what the right context should be. If this database is correctly defined, then a ''relabeling'' operation can help to ''reset'' the context of a file. This can be done using <code>restorecon</code>:
-
-{{RootCmd|restorecon /etc/resolv.conf}}
-
-If all files of a Gentoo package need to be relabeled, <code>rlpkg</code> can be used. For instance, to relabel all files provided by the {{Package|app-misc/screen}} package:
-
-{{RootCmd|rlpkg screen}}
-
-Administrators can query the current file label list using <code>semanage</code>:
-
-{{RootCmd|semanage fcontext -l {{!}} grep resolv|output=<pre>
-/etc/resolv\.conf.*                       regular file     system_u:object_r:net_conf_t
-/usr/libexec/polkit-resolve-exe-helper.*  regular file     system_u:object_r:policykit_resolve_exec_t
-</pre>}}
-
-The file label list can be updated as well. For instance, to have {{Path|/etc/puppet-resolv.conf}} also marked as <code>net_conf_t</code>:
-
-{{RootCmd|semanage fcontext -a -t net_conf_t /etc/puppet-resolv\.conf}}
-
-After updating the database, the file needs to be relabeled to reset its context to the newly defined value:
-
-{{RootCmd|restorecon /etc/puppet-resolv.conf}}
-
-For more information about label management, please refer to our [[SELinux/Labels|SELinux labels]] article.
-
-=== User management ===
-
-SELinux users are managed through <code>semanage user</code> whereas Linux user account mappings are managed with <code>semanage login</code>.
-
-For instance, to map the Linux account 'john' to the <code>staff_u</code> SELinux user:
-
-{{RootCmd|semanage login -a -s staff_u john}}
-
-Additional SELinux users can be created using <code>semanage user</code>, like so:
-
-{{RootCmd|semanage user -a -R "staff_r sysadm_r" myuser_u}}
-
-For more information, see our [[SELinux/Users_and_logins|SELinux users and logins]] article.
-
-=== Sensitivities and categories ===
-
-Security clearance for users is set during the definition of the user mapping (with <code>semanage login</code>) or on the SELinux user itself (with <code>semanage user</code>). Once a user has a clearance set, he can reduce his own clearance through the <code>runcon</code> command.
-
-{{RootCmd|id -Z|output=<pre>
-root:sysadm_r:sysadm_t:s0-s0:c0.c1023</pre>}}
-
-{{RootCmd|runcon -l s0-s0:c0.c10,c12 sh
-|id -Z|output=<pre>
-root:sysadm_r:sysadm_t:s0-s0:c0.c10,c12</pre>}}
-
-Categories on files and other resources can be set using <code>chcat</code>, like so:
-
-{{Cmd|chcat +c12 metadata.xml}}
-
-To make category and sensitivity management simpler, it is possible to create translations for this. By editing {{Path|/etc/selinux/mcs/mcstrans.conf}} and launching the <code>mcstrans</code> daemon, instead of showing something like <code>s0:c12</code> this sensitivity could be named <code>ITDepartment</code>.
-
-=== Troubleshooting denials ===
-
-When SELinux prevents an access, it will log this in the audit subsystem (or to the system logger if auditing isn't enabled).
-
-To query the audit logs, <code>ausearch</code> can be used:
-
-{{RootCmd|ausearch -m avc -ts recent|output=<pre>
-----
-time->Sat Apr 26 22:06:22 2014
-type=MMAP msg=audit(1398542782.012:19315): fd=24 flags=0x11
-type=SYSCALL msg=audit(1398542782.012:19315): arch=c000003e syscall=9 success=no exit=-13 a0=1000 a1=a0000 a2=7 a3=11 items=0 ppid=15803 pid=15856 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="edidvbe" exe="/usr/nsh/NSH/nativetool/libexec/platform/linux-2.6-x86/edidvbe" subj=system_u:system_r:unconfined_t:s0 key=(null)
-type=AVC msg=audit(1398542782.012:19315): avc:  denied  { mmap_zero } for  pid=15856 comm="edidvbe" scontext=system_u:system_r:nsh_t:s0 tcontext=system_u:system_r:nsh_t:s0 tclass=memprotect
-</pre>}}
-
-In this example, the <code>nsh_t</code> domain wanted to call ''mmap_zero'' for the ''memprotect'' class but was prevented to do so by SELinux.
-
-For more information about SELinux' logging, please refer to our [[SELinux/Logging|logging and denials]] article.
-
-=== Adding SELinux policy rules ===
-
-It is not possible to easily ''remove'' rules from an active policy, but it is possible to add them.
-
-For simple policy enhancements, Gentoo offers a <code>selocal</code> script to do just that. For instance, to allow the above mentioned access:
-
-{{RootCmd|selocal -a "allow nsh_t nsh_t:memprotect mmap_zero;" -Lb}}
-
-When the enhancements are frequent, it is better to create a SELinux policy module ourselves that contains the rule(s) and load it:
-
-{{RootCmd|vim mynsh.te|output=<pre>
-policy_module(mynsh, 1.0)
-
-gen_require(`
-  type nsh_t;
-')
-
-allow nsh_t nsh_t:memprotect mmap_zero;
-</pre>}}
-
-{{RootCmd|make -f /usr/share/selinux/strict/include/Makefile mynsh.pp
-|semodule -i mynsh.pp}}
-
-== Summary ==
-
-SELinux is a very flexible, mandatory access control system. In this article we just scratched the surface of the SELinux subsystem and gave a quick introduction to the various areas. For a complete overview of SELinux and how to manage SELinux on Gentoo, please refer to the [[SELinux]] wiki page.
-
-[[Category:SELinux]]
