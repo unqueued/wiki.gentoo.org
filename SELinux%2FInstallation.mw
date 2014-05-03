@@ -8,6 +8,24 @@ This document assumes the reader starts with an existing Gentoo Linux system whi
 
 Install Gentoo Linux according to the Gentoo Handbook installation instructions. It is recommended to use the hardened stage 3 tarballs and hardened-sources kernel instead of the standard ones, but standard stage installations are also supported for SELinux. Perform a full installation to the point that the system is booted into a (primitive) Gentoo base installation. 
 
+=== Switching to python 2 ===
+
+For now, the SELinux management utilities are not all compatible with Python 3 so it is necessary to switch to Python 2 until the packages are updated and fixed. 
+
+First, deploy {{Package|dev-lang/python:2.7}}:
+
+{{Emerge|dev-lang/python:2.7}}
+
+Next, switch the system interpreter to this version.
+
+{{RootCmd|eselect python list|output=<pre>
+Available Python interpreters:
+  [1]   python2.7
+  [2]   python3.3 *
+</pre>}}
+
+{{RootCmd|eselect python set 1}}
+
 === Choosing a SELinux policy type ===
 
 Gentoo supports four policy types within SELinux: ''strict'', ''targeted'', ''mcs'' and ''mls''.
@@ -22,9 +40,9 @@ In case of ''mcs'' or ''mls'', the unconfined USE flag needs to be used to enabl
 
 Save the choice for the policy store in {{Path|/etc/portage/make.conf}}. That way, Portage will only install the policy modules for that SELinux policy store. By default, the SELinux profiles enable ''strict'' and ''targeted'' (with strict being the default active type).
 
-{{FileBox|filename=/etc/portage/make.conf|title=Setting the supported policy stores|1=
+{{File|/etc/portage/make.conf|Setting the supported policy stores|<pre>
 POLICY_TYPES="strict"
-}}
+</pre>}}
 
 Multiple stores can be defined, although only one store can be active at any point in time. This is handled through the SELinux configuration itself, which is covered later in the installation.
 
@@ -32,29 +50,25 @@ Multiple stores can be defined, although only one store can be active at any poi
 
 If the {{Path|/tmp}} location is a tmpfs-mounted file system, then it is necessary to tell the kernel that the root context of this location is <code>tmp_t</code> instead of <code>tmpfs_t</code>, which is the default context assigned to tmpfs-mounted file systems.
 
-{{Note|A context is a [[SELinux/Labels|label]] assigned to a resource, and is what SELinux bases its access control decisions on. See [[SELinux/Type_enforcement|type enforcement]] for more information, or our [[SELinux/Quick_introduction|quick introduction to SELinux]].}}
-
-{{Note|[[systemd]] automatically relabeles {{Path|/tmp}}, {{Path|/dev}} and {{Path|/run}}. You don't need the entries then.}}
-
 To configure the {{Path|/tmp}} mount, edit the {{Path|/etc/fstab}} file:
 
-{{FileBox|filename=/etc/fstab|title=Setting the rootcontext for the /tmp mount|1=
+{{File|/etc/fstab|Setting the rootcontext for the /tmp mount|<pre>
 # For a "targeted" or "strict" policy type:
 tmpfs  /tmp  tmpfs  defaults,noexec,nosuid,rootcontext=system_u:object_r:tmp_t  0 0
   
 # For an "mls" or "mcs" policy type:
 tmpfs  /tmp  tmpfs  defaults,noexec,nosuid,rootcontext=system_u:object_r:tmp_t:s0  0 0
-}}
+</pre>}}
 
 Next, set the next line in {{Path|/etc/fstab}} to configure the context for the {{Path|/run}} location:
 
-{{FileBox|filename=/etc/fstab|title=Setting the rootcontext for the /run mount|1=
+{{File|/etc/fstab|Setting the rootcontext for the /run mount|<pre>
 # For a "targeted" or "strict" policy type:
 tmpfs  /run   tmpfs  mode=0755,nosuid,nodev,rootcontext=system_u:object_r:var_run_t  0 0
   
 # For an "mls" or "mcs" policy type:
 tmpfs  /run   tmpfs  mode=0755,nosuid,nodev,rootcontext=system_u:object_r:var_run_t:s0  0 0
-}}
+</pre>}}
 
 === Change the Gentoo profile ===
 
@@ -85,237 +99,45 @@ Available profile symlink targets:
 
 {{Warning|Do not rebuild the system right now - wait until this is instructed by this document later. Rebuilding the system will pull in SELinux policies which could make the system unreachable if we reboot after it without taking proper countermeasures.}}
 
-Starting from the profile change, Portage will warn after every installation that it was "Unable to set SELinux security labels". This is to be expected, because the tools and capabilities that Portage requires to set the [[SELinux/Labels|security labels]] aren't available yet. This warning will vanish the moment the SELinux installation is completed.
+Starting from the profile change, Portage will warn after every installation that it was "Unable to set SELinux security labels". This is to be expected, because the tools and capabilities that Portage requires to set the security labels aren't available yet. This warning will vanish the moment the SELinux installation is completed.
 
 Don't update the system yet - a couple of packages need to be installed first in a particular order that Portage isn't aware of.
 
 === Updating make.conf ===
 
-Take a look at the following SELinux related USE flags and decide which ones to enable or disable.
+Take a look at the following USE flags and decide which ones to enable or disable.
 
-{| class="table table-condensed table-striped"
-|-
-! USE flag
-! Description
-|-
-| <code>peer_perms</code>
-| The ''peer_perms'' capability controls the SELinux policy network peer controls. If set, the access control mechanisms that SELinux uses for network based labeling are consolidated. This setting is recommended as the policy is also updated to reflect this. If not set, the old mechanisms (NetLabel and Labeled IPsec) are used side by side.
-|-
-| <code>open_perms</code>
-| The ''open_perms'' capability enables the SELinux permission "open" for files and file-related classes. Support for the "open" call was added a bit later than others so support was first made optional. However, the policies have matured sufficiently to have the open permission set.
-|-
-| <code>ubac</code>
-| When disabled, the SELinux policy is built without user-based access control.
-|-
-| <code>unconfined</code>
-| When set, policy builds (except for the "strict" policy) will include the unconfined module (thus allowing unconfined domains to exist on the system).
-|}
+{{USEflag|
+|peer_perms+Yes+Yes+The peer_perms capability controls the SELinux policy network peer controls. If set, the access control mechanisms that SELinux uses for network based labelling are consolidated. This setting is recommended as the policy is also updated to reflect this. If not set, the old mechanisms (NetLabel and Labeled IPsec) are used side by side.
+|open_perms+Yes+Yes+The open_perms capability enables the SELinux permission "open" for files and file-related classes. Support for the "open" call was added a bit later than others so support was first made optional. However, the policies have matured sufficiently to have the open permission set.
+|ubac+Yes+Yes+When disabled, the SELinux policy is built without user-based access control.
+|unconfined+No++When set, policy builds (except for the "strict" policy) will include the unconfined module (thus allowing unconfined domains to exist on the system).
+}}
 
 Update the USE variable in {{Path|/etc/portage/make.conf}} or in an appropriate {{Path|/etc/portage/package.use}} location for the {{Package|sec-policy/selinux-base}} package.
 
+=== Manual system changes ===
+
 === Installing a SELinux kernel ===
 
-The default Linux kernels offer SELinux support.
-
-{{Emerge|sys-kernel/gentoo-sources}}
-
-Next, reconfigure the kernel with the appropriate security settings. This includes, but is not limited to
-
-* Support for extended attributes in the various file systems
-* Support system-call auditing
-* Support for SELinux
-
-Below a quick overview of the recommended settings can be found.
-
-{{KernelBox|title=Enabling SELinux|1=
-Under "General setup"
-[*] Auditing support
-[*]   Enable system-call auditing support
-  
-Under "File systems"
-  (For each file system you use, make sure extended attribute support is enabled)
-<*> Second extended fs support
-[*]   Ext2 extended attributes
-[ ]     Ext2 POSIX Access Control Lists
-[*]     Ext2 Security Labels
-[ ]   Ext2 execute in place support
-  
-<*> Ext3 journalling file system support
-[ ]   Default to 'data=ordered' in ext3
-[*]   Ext3 extended attributes
-[ ]     Ext3 POSIX Access Control Lists
-[*]     Ext3 Security Labels
-  
-<*> The Extended 4 (ext4) filesystem
-[*]   Ext4 extended attributes
-[ ]     Ext4 POSIX Access Control Lists
-[*]     Ext4 Security Labels
-  
-<*> JFS filesystem support
-[ ]   JFS POSIX Access Control Lists
-[*]   JFS Security Labels
-[ ]   JFS debugging
-[ ]   JFS statistics
-  
-<*> XFS filesystem support
-[ ]   XFS Quota support
-[ ]   XFS POSIX ACL support
-[ ]   XFS Realtime subvolume support (EXPERIMENTAL)
-[ ]   XFS Debugging Support
-  
-<*> Btrfs filesystem (EXPERIMENTAL)
-[ ]   Btrfs POSIX Access Control Lists
-  
-Under "Security options"
-[*] Enable different security models
-[*] Socket and Networking Security Hooks
-[*] NSA SELinux Support
-[ ]   NSA SELinux boot parameter
-[ ]   NSA SELinux runtime disable
-[*]   NSA SELinux Development Support
-[ ]   NSA SELinux AVC Statistics
-(0)   NSA SELinux checkreqprot default value
-[ ]   NSA SELinux maximum supported policy format version
-    Default security module (SELinux) --->
-}}
-
-Do not forget to set the ''Default security module'' to SELinux. Otherwise, the <code>security=selinux</code> boot parameter has to be set in the bootloader configuration.
-
-Build and install the new Linux kernel and its modules.
+=== Update fstab ===
 
 === Reboot ===
 
-With the above changes made, reboot the system.
-
 == Configure SELinux ==
-
-In the second part of the SELinux installation, we cover the installation of the proper utilities, relabel the entire file system and configure the policy.
 
 === Installing policies and utilities, part one ===
 
-First, install the base SELinux policy package {{Package|sec-policy/selinux-base}}. This package provides the SELinux configuration file which needs to be adjusted prior to building all other SELinux packages. As soon as {{Package|sys-apps/policycoreutils}} is installed (it's a dependency of {{Package|sec-policy/selinux-base}}), Portage will attempt to enable its SELinux support. However, as SELinux is currently not properly configured, it is necessary to disable this through <code>FEATURES="-selinux"</code>:
-
-{{RootCmd|FEATURES{{=}}"-selinux" emerge -1 selinux-base}}
-
 === Configuring the SELinux policy ===
-
-The main SELinux configuration file is now at {{Path|/etc/selinux/config}}. It needs to be edited to set two important values: <code>SELINUX</code> and <code>SELINUXTYPE</code>.
-
-{{FileBox|filename=/etc/selinux/config|1=
-# This file controls the state of SELinux on the system on boot.
-  
-# SELINUX can take one of these three values:
-#       enforcing - SELinux security policy is enforced.
-#       permissive - SELinux prints warnings instead of enforcing.
-#       disabled - No SELinux policy is loaded.
-SELINUX=permissive
-  
-# SELINUXTYPE can take one of these four values:
-#       targeted - Only targeted network daemons are protected.
-#       strict   - Full SELinux protection.
-#       mls      - Full SELinux protection with Multi-Level Security
-#       mcs      - Full SELinux protection with Multi-Category Security
-#                  (mls, but only one sensitivity level)
-SELINUXTYPE=strict
-}}
-
-The <code>SELINUX</code> variable defines how [[SELinux/States|SELinux should behave]]:
-* ''enforcing'' will enable and enforce policies. This is the target at the end, but we need to start in permissive mode first to make sure everything would work as expected.
-* ''permissive'' will enable policies, but not enforce them. Any violation is reported but not denied. This is where most users should start from as it will not impact the system, yet allow users to get acquainted with SELinux - and validate the warnings to see if the system can be switched towards enforcing or not later.
-* ''disabled'' will completely disable the policies. As this will not show any violations as well, it is not recommended.
-
-The <code>SELINUXTYPE</code> variable selects the SELinux policy store to load. Most development is done using the ''strict'' policy store (as it provides full confinement), although the others are supported as well.
-
-Make sure that the <code>SELINUX</code> variable is set to permissive right now. We will switch to enforcing later.
 
 === Installing policies and utilities, part two ===
 
-Now continue with the installation of the SELinux policies. Rebuild the {{Package|sec-policy/selinux-base}} package if <code>SELINUXTYPE</code> is changed to something else than ''strict'', and then install the core SELinux policies through the {{Package|sec-policy/selinux-base-policy}} package. This package contains the core SELinux policies needed to get the system up and running using SELinux. As Portage will try to [[SELinux/Labels|label]] and reload policies we need to temporarily disable SELinux support again (as Portage wouldn't be able to label anything as it doesn't understand it yet).
-
-{{Note|After you've emerged {{Package|sec-policy/selinux-base}} package in part one of this installation it is now necessary to use <code>FEATURES{{=}}"-selinux -sesandbox"</code> for {{Package|sec-policy/selinux-base}} and {{Package|sec-policy/selinux-base-policy}} packages.}}
-{{RootCmd|FEATURES{{=}}"-selinux -sesandbox" emerge -1 selinux-base}}
-
-{{RootCmd|FEATURES{{=}}"-selinux -sesandbox" emerge selinux-base-policy}}
-
-Now it is finally time to rebuild all packages affected by the profile change. Don't forget to use <code>etc-update</code> or <code>dispatch-conf</code> afterwards as some changes to configuration files will need to be made. This operation will also pull in all SELinux policy packages needed for the various components already installed on the system.
-
-{{RootCmd|emerge -uDN @world}}
-
 === Reboot and relabel ===
 
-{{Important|Repeat these steps every time the system is rebooted from a non-SELinux enabled mode into a SELinux enabled mode, as running with a non-SELinux enabled kernel will not update the security attributes of the files created or manipulated during day-to-day activities on the system.}}
-
-First reboot the system so that the installed policies are loaded.
-
-{{RootCmd|shutdown -r now}}
-
-Next [[SELinux/Labels|relabel]] all devices and openrc related files. This will apply the correct security contexts (labels) onto the necessary files. We start by bind-mounting {{Path|/}} onto {{Path|/mnt/gentoo}}. This will allow us to relabel the mount points themselves rather than the mounted file systems that are already mounted on the main file system.
-
-{{RootCmd|mkdir /mnt/gentoo
-|mount -o bind / /mnt/gentoo}}
-
-In the following command, substitute ''strict'' in the next command with ''targeted'' (or other policy store name) depending on the <code>SELINUXTYPE</code> value. If your system has more active mountpoints than the usual set of {{Path|/dev,/home,/proc,/run,/sys,/tmp}}, list them too.
-
-{{RootCmd|setfiles -r /mnt/gentoo /etc/selinux/strict/contexts/files/file_contexts /mnt/gentoo/{dev,home,proc,run,sys,tmp}
-|umount /mnt/gentoo}}
-
-If the system uses a swapfile rather than a swap partition, label it accordingly:
-
-{{RootCmd|semanage fcontext -a -t swapfile_t "/swapfile"
-|restorecon /swapfile}}
-
-Now relabel the entire file system. The next command will apply the correct security context onto the files on the entire file system, based on the security context information provided by the SELinux policy modules installed.
-
-{{RootCmd|rlpkg -a -r}}
-
-If a SELinux policy module for a package is installed after that particular package, then <code>rlpkg</code> needs to be run for that package to make sure that the security contexts for its files are set correctly. For instance, if {{Package|sec-policy/selinux-screen}} would be installed manually (due to a missing dependency) after installing {{Package|app-misc/screen}}:
-
-{{RootCmd|rlpkg screen}}
+=== Enable the selinux_gentoo service ===
 
 === Reboot and set SELinux booleans ===
 
-Reboot the system so that the newly applied file contexts are used. Log on and, if Gentoo is installed using the hardened sources (as is recommended), enable the SSP SELinux boolean.
-
-{{RootCmd|setsebool -P global_ssp on}}
-
-SELinux booleans enable (or disable) SELinux policy rules based on the boolean value. In this case, the boolean allows every domain read access to the {{Path|/dev/urandom}} device.
-
 === Define the administrator accounts ===
 
-If the <code>SELINUXTYPE</code> variable is set to ''strict'', then it is necessary to map the account(s) used to manage the system (those that need access to Portage) to the ''staff_u'' [[SELinux/Users_and_logins|SELinux user]]. If not, none of the accounts will be able to succesfully manage the system (except for ''root'', but then the administrator will need to login as root directly and not through <code>sudo</code> or <code>su</code>.) By default, users are mapped to the ''user_u'' SELinux user who doesn't have the appropriate rights (nor access to the appropriate roles) to manage a system. Accounts that are mapped to ''staff_u'' can, but might need to switch roles from ''staff_r'' to ''sysadm_r'' before they are granted the appropriate privileges.
-
-In the following example, we map the ''john'' Linux account to the ''staff_u'' SELinux user:
-
-{{RootCmd|semanage login -a -s staff_u john
-|restorecon -R -F /home/john}}
-
-When system administration tasks need to be executed, the user will need to switch the role to ''sysadm_r''. For this, the <code>newrole</code> command can be used.
-
-{{Cmd|id -Z|output=<pre>
-staff_u:staff_r:staff_t
-</pre>}}
-
-{{Cmd|newrole -r sysadm_r|output=<pre>
-Password: (Enter your password)
-</pre>}}
-
-{{Cmd|id -Z|output=<pre>
-staff_u:sysadm_r:sysadm_t
-</pre>}}
-
-In a ''targeted'' policy, the users will be of type ''unconfined_t'' and will already have the necessary privileges to perform system administrative tasks.
-
 === Supporting service administration ===
-
-By default, the Gentoo Hardened SELinux policies will allow the ''sysadm_t'' domain access to all services. However, some of these services have policies that allow them to be assigned to individual, non-root users. This requires the user to be granted the ''system_r'' role (meaning the user can, under certain circumstances, have his role change towards the system role).
-
-It is therefor recommended to grant the ''system_r'' role to the administrative SELinux users that are going to administer the system. These are most likely the ''root'' and ''staff_u'' SELinux user.
-
-{{RootCmd|semanage user -m -R "staff_r sysadm_r system_r" root
-|semanage user -m -R "staff_r sysadm_r system_r" staff_u}}
-
-== Summary ==
-
-That's it. SELinux is now fully configured on the system. Although it will boot in permissive mode (most likely) right now, everything is now in place to validate if SELinux will further prevent applications from working or not. If, after booting and logging in, the <code>id -Z</code> command shows the proper context, then the system is most likely ready to be switched into enforcing mode (by editing {{Path|/etc/selinux/config}}).
-
-[[Category:SELinux]]
