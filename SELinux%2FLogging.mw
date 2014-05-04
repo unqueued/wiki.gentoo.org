@@ -2,44 +2,23 @@ When SELinux denies a particular activity, it will usually log this through the 
 
 == Introduction ==
 
-SELinux bases its decisions (allow or deny) on policy rules. Whenever a particular activity is performed, its ''access vectors'' is taken by SELinux and checked with the ''access vector cache'' (AVC). This cache contains the access vectors together with the allow/deny state. If the access vector is allowed, then the operation can continue. If not, then the operation is denied. If there is no specific <code>dontaudit</code> statement active, then an AVC denial will be logged in the audit subsystem.
-
-This additional logging is extremely important to debug permission issues as "just" ''Permission Denied'' does not help us much. The denial logging contains a vast majority of information that administrators can use to troubleshoot permission issues further.
+SELinux bases its decisions (allow or deny) on policy rules. Whenever a particular activity is performed, its ''access vectors'' is taken by SELinux and checked with the ''access vector cache'' (AVC). This cache contains the access vectors together with the allow/deny state.
 
 === Format of an AVC denial ===
 
 The following is an example AVC denial:
 
-{{CodeBox|title=Example AVC denial|1=
+{{Code|Example AVC denial|<pre>
 type=AVC msg=audit(1399231717.166:378): avc:  denied  { search } for  pid=7777 comm="convert" name="vm" dev="proc" ino=4000 scontext=staff_u:staff_r:staff_t tcontext=system_u:object_r:sysctl_vm_t tclass=dir
-}}
+</pre>}}
 
 The structure of a denial depends on the denial type itself. The above denial is for file access, the following one is for a capability:
 
-{{CodeBox|title=Another AVC denial example|1=
+{{Code|Another AVC denial example|<pre>
 type=AVC msg=audit(1399135333.470:115): avc:  denied  { block_suspend } for  pid=4353 comm="eshowkw" capability=36  scontext=root:sysadm_r:sysadm_t:s0-s0:c0.c1023 tcontext=root:sysadm_r:sysadm_t:s0-s0:c0.c1023 tclass=capability2
-}}
-
-The most important part of the denial is the permission (between <code>{ ... }</code>), class (as referenced by the <code>tclass=</code> parameter) and contexts (<code>scontext</code> for the source context, and <code>tcontext</code> for the target context).
-
-=== Reasons for denials ===
-
-A denial is due to the SELinux policy. However, it is not always due to a missing access vector rule. For instance, the following denial might occur, even when a proper access vector rule is available for it:
-
-{{CodeBox|title=AVC denial for accessing user content|1=
-type=AVC msg=audit(1399205508.252:603): avc:  denied  { getattr } for  pid=751 comm="pool" path="/home/swift" dev="dm-0" ino=1048584 scontext=oper_u:user_r:user_t tcontext=staff_u:object_r:user_home_dir_t tclass=dir
-}}
-
-{{RootCmd|sesearch -s user_t -t user_home_dir_t -c dir -p getattr -Ad|output=<pre>
-Found 1 semantic av rules:
-   allow user_t user_home_dir_t : dir { ioctl read write create getattr setattr lock relabelfrom relabelto unlink link rename add_name remove_name reparent search rmdir open } ;
 </pre>}}
 
-In the above case, the denial came from a feature called ''User-Based Access Control'', where resources of one [[SELinux/Users_and_logins|SELinux user]] (<code>staff_u</code>) are not accessible for processes of another SELinux user (<code>oper_u</code>).
-
-Such a feature is implemented through SELinux constraints, which not only focuses on the types in a context (<code>user_t</code> and <code>user_home_dir_t</code>) but also the relation of SELinux users and SELinux roles.
-
-In the vast majority of cases though, denials are due to missing access vector rules.
+The most important part of the denial is the permission (between <code>{ ... }</code>), class (as referenced by the <code>tclass=</code> parameter) and contexts (<code>scontext</code> for the source context, and <code>tcontext</code> for the target context).
 
 == Audit logs ==
 
@@ -50,12 +29,6 @@ To view the recent set of AVC denials through the audit subsystem, use <code>aus
 {{RootCmd|ausearch -m avc -ts recent}}
 
 The audit logs are usually also readable at {{Path|/var/log/audit}} but the time stamp displayed in the logs will need to be manually converted in that case (as it is not localized).
-
-=== Clearing the audit logs ===
-
-It is not recommended to clear the audit logs as they might contain information needed in the future for troubleshooting or security investigations. However, if that is not the case, just empty the audit log:
-
-{{RootCmd|> /var/log/audit/audit.log}}
 
 == Managing SELinux denial logging ==
 
@@ -70,20 +43,3 @@ To rebuild and disable:
 To re-enable the <code>dontaudit</code> statements, just rebuild the policy again:
 
 {{RootCmd|semodule -B}}
-
-=== Allowing an access vector ===
-
-It is possible to allow a particular access vector by enhancing the currently loaded SELinux policy.
-
-{{Warning|Updating the SELinux policy should only be done when it is absolutely known that it is the right fix. In the majority of cases, the denial can be resolved by properly labeling resources or launching the application through an approved role or service.}}
-
-A rule can be added using the (Gentoo-only) <code>selocal</code> script:
-
-{{RootCmd|selocal -a "allow mutt_t mutt_etc_t:lnk_file read_file_perms;" -Lb}}
-
-Another possibility is to use <code>audit2allow</code> to build a SELinux policy module based on the audit events:
-
-{{RootCmd|ausearch -m avc -ts recent {{!}} audit2allow -M myupdates
-|semodule -i myupdates.pp}}
-
-[[Category:SELinux]]
