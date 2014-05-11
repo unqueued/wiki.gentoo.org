@@ -1,28 +1,10 @@
-{{WIP|author=SwifT}}
-
 SELinux supports multiple networking related access controls. Alongside the TCP and UDP socket support, it also supports packet labeling (through SECMARK) and even peer labeling where the label of a process on one system is reflected in the data communication towards the other system, providing end-to-end policy decisions to be taken.
 
 == Introduction ==
 
 === TCP and UDP socket support ===
 
-The default access controls for networking by SELinux are based on the labels assigned to TCP and UDP ports and sockets. For instance, the TCP port 80 is labeled with <code>http_port_t</code> (and class <code>tcp_socket</code>). Access towards this port is then governed through SELinux access controls, such as ''name_connect'' and ''name_bind''.
-
-When an application is connecting to a port, the ''name_connect'' permission is checked. However, when an application binds to the port, the ''name_bind'' permission is checked.
-
 === SECMARK ===
-
-With SECMARK, it isn't the port that is labeled, but the network package itself. 
-
-When a network package is handled by the Linux kernel, the <code>netfilter</code> or <code>iptables</code> code can be used to manage how these packages are handled. With SECMARK, one of the rules that can be implemented is to add a label to these packages. Once network packages are labeled, SELinux access controls can be implemented on these packages.
-
-Now, it isn't that the network packages themselves are physically labeled - it is only on the current host that labels are assigned to the packages. That means that SECMARK is a ''local'' aspect for labeling. Labels are ''not'' traversing the network interface boundary at all.
-
-Once SECMARK labeling is in place, the <code>packet</code> class is enabled with the <code>send</code> and <code>recv</code> permissions. For instance:
-
-{{CodeBox|title=Allowing the mozilla_t domain to send and receive http_client_packet_t packets|1=
-allow mozilla_t http_client_packet_t : packet { send recv };
-}}
 
 === Labeled IPSec ===
 
@@ -30,74 +12,8 @@ allow mozilla_t http_client_packet_t : packet { send recv };
 
 == Handling TCP and UDP socket support ==
 
-=== Listing labels on TCP and UDP sockets ===
-
-With <code>semanage port</code> and <code>seinfo</code>, labels assigned to TCP and UDP sockets can be (re)viewed.
-
-For instance, to check the label on the TCP port 80 with <code>seinfo</code>:
-
-{{Cmd|seinfo --portcon{{=}}80|output=<pre>
-        portcon tcp 80 system_u:object_r:http_port_t
-        portcon tcp 1-511 system_u:object_r:reserved_port_t
-        portcon udp 1-511 system_u:object_r:reserved_port_t
-</pre>}}
-
-To check the label for port 9001 with <code>semanage</code>:
-
-{{RootCmd|semanage port -l {{!}} grep 9001|output=<pre>
-tor_port_t                     tcp      6969, 9001, 9030, 9050, 9051
-</pre>}}
-
-=== Changing socket labels ===
-
-When the port is labeled with one of the following labels, then it can be modified to have a different label:
-* <code>unreserved_port_t</code> (for 1024+ ports that are not directly assigned yet)
-* <code>hi_reserved_port</code> (for 512-1023 that are not directly assigned yet)
-* <code>reserved_port_t</code> (for 1-511 that are not directly assigned yet)
-
-So assign a specific label, use <code>semanage</code> like so:
-
-{{RootCmd|semanage port -a -t http_port_t -p tcp 9224}}
-
-=== Removing custom port labeling ===
-
-When a label was assigned through <code>semanage</code>, it can be removed with <code>semanage</code> as well:
-
-{{RootCmd|semanage port -d -t http_port_t -p tcp 9224}}
-
-=== Listing domains with access to a particular port ===
-
-To query which domains have access to a particular port, use the <code>sesearch</code> command, like so:
-
-{{RootCmd|sesearch -t http_port_t -c tcp_socket -p name_bind -AC|output=<pre>
-Found 7 semantic av rules:
-   allow corenet_unconfined_type port_type : tcp_socket { recv_msg send_msg name_bind name_connect } ; 
-   allow svirt_t port_type : tcp_socket { recv_msg send_msg name_bind name_connect } ; 
-   allow svirt_lxc_net_t port_type : tcp_socket { recv_msg send_msg name_bind name_connect } ; 
-   allow httpd_t http_port_t : tcp_socket { recv_msg send_msg name_bind } ; 
-   allow sysadm_t http_port_t : tcp_socket name_bind ; 
-   allow stunnel_t port_type : tcp_socket { recv_msg send_msg name_bind name_connect } ; 
-ET allow qemu_t port_type : tcp_socket { name_bind name_connect } ; [ qemu_full_network ]
-</pre>}}
-
 == Managing SECMARK rules ==
-
-=== Listing SECMARK firewall rules ===
-
-To list the current SECMARK label rules, use <code>iptables</code>. SECMARK labels are usually assigned to a "mangle" table.
-
-{{RootCmd|iptables -t mangle --list}}
-
-=== Adding a SECMARK labeling rule ===
-
-{{Warning|When a single SECMARK rule is loaded, SELinux enables SECMARK filtering. Unlabeled packets might not be processed by SELinux domains if that domain is not allowed to handle unlabeled packets.}}
-
-For instance, to label packets that originate from 192.168.1.2 and arrive on port 443 with the <code>myauth_packet_t</code> label:
-
-{{RootCmd|iptables -t mangle -A INPUT -p tcp --src 192.168.1.2 --dport 443 -j SECMARK --selctx system_u:object_r:myauth_packet_t}}
 
 == Using Labeled IPSec ==
 
 == Supporting NetLabel ==
-
-[[Category:SELinux]]
