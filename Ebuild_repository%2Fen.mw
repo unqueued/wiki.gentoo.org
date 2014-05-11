@@ -1,114 +1,99 @@
 <languages />
-{{lowercase title}}
+'''An overlay is an additional repository that Portage takes into account when dealing with software.'''
 
-{{InfoBox stack
-|{{InfoBox project|Overlays|header=true}}
-}}
+Within Gentoo Linux, users already have one "main" package repository, called the ''Portage tree''. This main repository contains all the software packages (called [[Ebuild|ebuilds]]) maintained by Gentoo developers. But users can add additional repositories to the tree that are "layed over" the main tree - hence the name, ''overlays''.
 
-An '''ebuild repository''', colloquially known as an '''overlay''', is [[Article description::a structure of directories and files used to add and extend packages for a Gentoo-based system's package manager.]] Ebuild repositories can contain ebuilds conforming to one or more [[EAPI|Ebuild APIs]].
+Since package repositories are nothing more (or less) than a set of files (ebuilds, metadata files, ChangeLog entries ...) these repositories can be pulled in from public repositories (git, cvs, svn ...) or downloaded as tarballs and extracted manually on the system. It is however well advised to use managed repositories by ''trusted'' third parties as any installed overlay will cause Portage to look into those files as well when deciding which software to install.
 
-The main repository on a Gentoo system is known as the [https://gitweb.gentoo.org/repo/gentoo.git/tree/ Gentoo ebuild repository]. It contains [[ebuild]]s maintained by official Gentoo developers and members of the community (through the [[Project:Proxy Maintainers|Proxy Maintainers]] project). System administrators can add additional ebuild repositories to the system using various utilities and methods described below.
+== Treatment of overlays ==
 
-== Repositories ==
+Portage uses the <code>PORTDIR_OVERLAY</code> variable to link to the installed overlays on the system. This variable uses a space-delimited list of paths on the system where Portage can find the roots of the additional repositories.
 
-Ebuild repositories are nothing more (or less) than a [[Repository format|set of files]] (ebuilds, metadata files, ...). These can be pulled in from public repositories ([[Project:Portage/Sync#Portage_configuration|git, CVS, SVN ...]]) or downloaded as tarballs and extracted manually onto the system. It is advised to use managed repositories by [https://repos.gentoo.org trusted] third parties; any installed ebuild repository will cause Portage to look through the overlaid files when deciding which software to install. If compromised code is in the ebuild repository, then compromised packages could be installed on the system.
+=== Manually setting overlay locations ===
 
-The now default approach for handling repositories is through {{Path|[[:/etc/portage/repos.conf]]}} which, like many other Portage related locations, can be a directory as well.
+When you want to create an overlay yourself, create a location (say <code>/home/user/overlay</code>) in which you will put the packages you want Portage to look into as well. Then add <code>PORTDIR_OVERLAY="/home/user/overlay"</code> to your /etc/portage/make.conf file:
+{{File|/etc/portage/make.conf|Adding an overlay manually|<pre>PORTDIR_OVERLAY="/home/user/overlay"</pre>}}
 
-Repository definitions inside {{Path|/etc/portage/repos.conf/}} also inform Portage if and how the repository can be updated. With it, calling {{c|emerge --sync}} will automatically update the repositories as well.
+=== Using crossdev ===
 
-A deprecated, yet still supported method is to use the <var>PORTDIR_OVERLAY</var> variable inside {{Path|/etc/portage/make.conf}}. This variable can point to one or more additional locations on the file system where repositories are available. The use of the {{Path|[[:/etc/portage/repos.conf]]/}} directory is highly preferred.
+[[crossdev]] will automatically place the ebuilds/categories it generates into the first overlay found in PORTDIR_OVERLAY. You might want to prevent [[crossdev]] from disturbing [[layman]]'s overlays or your personal per-machine overlay (normally created at <code>/usr/local/portage</code>). You can create an overlay specifically for [[crossdev]]'s use:
+{{RootCmd|mkdir -p /usr/local/portage-crossdev/profiles
+|echo local-crossdev > /usr/local/portage-crossdev/profiles/repo_name}}
 
-For more information, see [[:/etc/portage/repos.conf|/etc/portage/repos.conf]] and the [[Project:Portage/Sync#Operation|Portage/Sync article]].
+Then you can instruct portage and crossdev to use this overlay:
+{{File|/etc/portage/make.conf|Let crossdev to store its ebuild in local-crossdev and indicate that the local overlay should override every other overlay|<pre>source /var/lib/layman/make.conf
+PORTDIR_OVERLAY="/usr/local/portage-crossdev ${PORTDIR_OVERLAY} /usr/local/portage"</pre>}}
 
-=== Priorities ===
+{{File|/etc/portage/make.conf|Prevent crossdev from messing with your local overlay when not using layman|<pre>PORTDIR_OVERLAY="/usr/local/portage-crossdev /usr/local/portage"</pre>}}
 
-Each ebuild repository has a unique priority to the package manager. This ensures that in the case of a specific version being found in several ebuild repositories, the resolution is unambiguous. Ebuilds from repositories with higher priority numbers (for example 60) will take precedence over ebuilds from repositories with lower priorities (such as 50).
+=== Using layman ===
 
-The list of ebuild repositories with their priorities can be obtained through the output of the following commands (look for the "Repositories" string):
+To make management of multiple overlays simple, a tool called [[Layman|layman]] is developed. This tool knows about popular user- and developer managed overlays and is able to install & synchronize them as well as add them to the <code>PORTDIR_OVERLAY</code> location.
 
+=== Local overlay ===
+
+For instructions on setting up a local overlay, see [[Overlay/Local_overlay]].
+
+=== Overlay priorities ===
+
+Each overlay has its unique priority. This makes sure that in the case of a specific version being found in several overlays, the resolution is unambiguous. Ebuilds from overlays with higher priorities take precedence over ebuilds from overlays with lower priorities.
+{{Note|This "natural" way of priority handling was introduced in January 2011, before that the priority resolution order was reversed, so negative numbers used to stand for high priorities}}
+The list of overlays with their priorities can be obtained through the output of the following command
 {{Cmd|emerge --info --verbose}}
+Unless the <code>PORTDIR_OVERLAY</code> variable has been modified as described [[#Setting overlay priorities|below]], the default gentoo portage tree will have a priority of -1000. That means that all other overlays take precedence. That is the default behavior, because overlays are designed to "lie over/on top" of the portage tree.
 
-{{Cmd|portageq repos_config /}}
+==== Setting overlay priorities ====
 
-The Gentoo ebuild repository will have a priority of -1000 which means that all other repositories generally take precedence if they are assigned a higher priority. This is the default behavior, because ebuild repositories are designed to "lay over" or "on top" of the Gentoo repository.
+The overlay priority is calculated from the order of overlay entries in the <code>PORTDIR_OVERLAY</code> variable. Portage "walks" through the variable from left to right and increments the priority on the way. The leftmost entry starts with a priority of 1, the next entry has a priority of 2 and so on.
+{{Note|Some time ago the overlay priority could be set in <code>/etc/portage/repos.conf</code>. This does not work anymore}}
 
-== Available software ==
+Unless the <code>PORTDIR_OVERLAY</code> contains the portage tree entry, the portage tree will always be assigned a priority of -1000.
+This can be easily changed by putting <code>PORTDIR</code> in the <code>PORTDIR_OVERLAY</code> variable:
 
-A number of tools support or integrate with ebuild repositories.
+{{File|/etc/portage/make.conf|Manual portage tree priority setting|<pre>PORTDIR_OVERLAY="/home/user/overlay ${PORTDIR}"</pre>}}
+In the example above the user overlay will be assigned a priority of 1 and the portage tree will be assigned a priority of 2. 
 
-=== Layman ===
+{{Note|If you also use [[Layman|layman]] to manage your overlays, you may be interested in the article about [[Layman#Setting overlay priorities with layman|setting overlay priorities with layman]].}}
 
-The {{c|layman}} application makes it easier to manage and update multiple additional ebuild repositories. It is a command-line application through which publicly available ebuild repositories can be listed, subscribed to and unsubscribed from, as well as update those repositories. 
+=== Using unsafe overlays ===
 
-It supports both the {{Path|[[Layman#make.conf_method_.28force_old_method.29|make.conf]]}} as well as {{Path|[[Layman#repos.conf_method_.28default.29|repos.conf]]}} method.
-* When using the {{Path|[[Layman#make.conf_method_.28force_old_method.29|make.conf]]}} method, {{c|layman}} manages a dedicated configuration file which should be sourced in by {{Path|make.conf}}
-* When using {{Path|[[Layman#repos.conf_method_.28default.29|repos.conf]]}}, {{c|layman}} manages the {{Path|[[Layman#repos.conf_method_.28default.29|/etc/portage/repos.conf/layman.conf]]}} file directly
+When using huge overlays or those with unknown/low quality it is best practice to hardmask the whole overlay.
+{{File|/etc/portage/package.mask|Mask all packages in an overlay|<pre>*/*::overlay-name</pre>}}
+After that you can unmask the packages you specifically want to emerge.
+{{File|/etc/portage/package.unmask|Unmask a specific package in an overlay|<pre>foo/bar::overlay-name</pre>}}
+This way nothing weird will happen on updates and it is safer than using priorities.
 
-For more information, see [[Layman]] and [[Project:Portage/Sync#Layman_configuration]].
-
-=== emaint ===
-
-See the [[Project:Portage/Sync#Operation|Sync (Portage project)]] article and {{c|man 1 emaint}}.
-
-=== eix ===
-
-{{c|eix-sync}} is a wrapper starting {{c|emerge --sync}} (which in turn starts {{c|emaint sync --auto}}) followed by {{c|eix-update}}.  For further details see the [[Eix]] article and {{c|man 1 eix}}.
-
-=== eselect-repository ===
-
-{{c|eselect repository}} maintains {{Path|/etc/portage/repos.conf}} entries for Portage to access and synchronize.  See [[Eselect/Repository]] article for details.
-
-== Usage ==
-
-=== Emerging a duplicate package ===
-
-When working with ebuild repositories it is possible to encounter a situation where multiple versions of the same package are available from different ebuild repositories. Instruct [[Portage]] to install a specific package from a specific ebuild repository with the <code>::</code> notation:
-
-{{Emerge|category/atom::repository-name}}
-
-The same notation can be used for different emerge instructions, including uninstalling a package through <code>--depclean</code>.
-
-== Best practices ==
+== Metadata cache ==
 
 === Cache generation ===
 
-When large ebuild repositories are installed, Portage may take a long time to perform operations like dependency resolution. This is because ebuild repositories do not usually contain a metadata cache.
+When large overlays are installed, portage may take a long time to perform operations like dependency resolution. This is because overlays do not usually contain a metadata cache.
 
-Generate a local metadata cache by running {{c|emerge --regen}} after syncing the ebuild repositories:
+You may generate a local metadata cache by running emerge --regen after syncing your overlays.
 
-{{RootCmd
-|emaint sync --allrepos
-|( ulimit -n 4096 && emerge --regen )}}
+{{RootCmd|layman -S
+|emerge --regen}}
 
-Be careful, because {{c|emerge --regen}} takes a lot of time and it's not recommended for rsync users as rsync updates the cache using server-side caches (most of users of portage are rsync users). Rsync users should simply run {{c|emerge --sync}} (or {{c|eix-sync}}) to regenerate the cache. It's probably only users of very large ebuild repositories should try {{c|emerge --regen}}.
+=== eix integration ===
 
-=== Masking installed but unsafe ebuild repositories ===
+==== eix-sync ====
 
-When using large ebuild repositories or those with unknown/low quality it is best practice to hardmask the whole ebuild repository and only accept specific ebuilds on a case-by-case basis:
+eix-sync can run emerge --regen after syncing your overlays and portage tree.
+{{File|/etc/eix-sync.conf||<pre>
+# Sync all overlays
+*
 
-{{FileBox|filename=/etc/portage/package.mask|title=Mask all packages in an ebuild repository|lang=bash|1=
-*/*::repository-name
-}}
+# Regenerate overlay metadata
+@emerge --regen || true
+</pre>}}
 
-After that unmask the packages that will be installed.
+==== eix-update ====
 
-{{FileBox|filename=/etc/portage/package.unmask|title=Unmask a specific package in an ebuild repository|lang=bash|1=
-foo/bar::repository-name
-}}
+eix-update can utilize the metadata cache generated by emerge --regen for a speedup and better accuracy. To enable this, set the OVERLAY_CACHE_METHOD to "assign" in /etc/eixrc.
 
-== See also ==
-
-* [[Project:Overlays|Overlays project]] - The official Gentoo project for ebuild repositories' support.
-* [[Project:Overlays/Overlays guide|Overlays guide (Overlay project)]] - A user guide written by the Overlay project.
-* [[Project:Overlays/Old Dev Guide|Developer's guide to Gentoo overlays]] - This document is kept only for historical purposes. The current guide is maintained as [[Project:Overlays/Overlays guide]].
-* [[Handbook:Parts/Portage/CustomTree#Defining_a_custom_repository|Defining a custom repository]] - Section in the Gentoo Handbook
-
-== External resources ==
-
-* https://repos.gentoo.org
-* https://github.com/gentoo/
-* https://gpo.zugaina.org/Overlays
+{{File|/etc/eixrc||<pre>
+OVERLAY_CACHE_METHOD="assign"
+</pre>}}
 
 
 [[Category:Portage]]
