@@ -1,150 +1,158 @@
 <languages />
 
-{{Metadata|abstract=이 안내서에서는 Portage 2.0.46 이상의 버전에서 지원하는 prelink를 어떻게 사용할 수 있는지 알려줍니다.}}
+{{Metadata|abstract=This guide tells you how to make use of prelink support in Portage 2.0.46 and later.}}
 
-이 안내서에서는 Portage 2.0.46 이상의 버전에서 지원하는 prelink를 어떻게 사용할 수 있는지 알려줍니다.
+This guide tells you how to make use of prelink support in Portage 2.0.46 and later.
 
-== 도입부 ==
+== Introduction ==
 
-=== Prelink가 무엇이고, 어떻게 도움을 받을 수 있나요? ===
+=== What is Prelink and how can it help me? ===
 
-대부분의 일반 프로그램은 공유 라이브러리를 활용합니다. 이들 공유 라이브러리는 실행 시간에 메모리로 불러와야 하며 다양한 심볼 참조를 해석해야 합니다. 대부분의 작은 프로그램은 동적 연결을 매우 빠르게 처리합니다. 그러나 C++로 작성한 프로그램이고 수많은 라이브러리 의존성을 지녔다면, 동적 연결에 상당한 시간이 필요할 수 있습니다. 
+Most common applications make use of shared libraries. These shared libraries need to be loaded into memory at runtime and the various symbol references need to be resolved. For most small programs this dynamic linking is very quick. But for programs written in C++ and that have many library dependencies, the dynamic linking can take a fair amount of time. 
 
-대부분의 시스템에서는, 라이브러리가 자주 바뀌지 않으며 프로그램을 실행할 때, 프로그램과의 연결 처리가 동시에 일어납니다. Prelink는 실행 파일에 미리 연결하는 것처럼 실행 파일에 연결하고 상태를 저장하는 장점을 취합니다. 
+On most systems, libraries are not changed very often and when a program is run, the operations taken to link the program are the same every time. Prelink takes advantage of this by carrying out the linking and storing it in the executable, in effect prelinking it. 
 
-사전 연동 처리는 프로그램의 시작 시간을 줄일 수 있습니다. 예컨대, 보통의 KDE 프로그램을 불러오는 시간은 최대 50% 가량 줄일 수 있습니다. 이 과정의 관리상 실행 파일에 미리 연결하기 위해 업그레이드한 라이브러리를 매번 사전 연동 처리를 위해 prelink를 다시 실행하기만 하면 됩니다. 
+Prelinking can cut the startup times of applications. For example, a typical KDE program's loading time can be cut by as much as 50%. The only maintenance required is re-running prelink every time a library is upgraded for a pre-linked executable. 
 
-{{Warning/ko|prelink는 보안 강화 젠투에서 동작하지 않습니다. 각각의 프로젝트에서 공유 라이브러리의 주소 공간 대입을 바꾸려 하기 때문입니다. 다만 -R 옵션을 붙여서 prelink를 실행하면 강화 보호 차원에서 제공하는 라이브러리 기반 주소를 임의로 지정합니다.}}
+{{Warning|Prelink will not work with Hardened Gentoo. This is because both projects try to change the address space mapping of shared libraries. But prelink with the -R option randomises library base addresses, providing some degree of hardened protection.}}
 
-=== 요약 ===
+=== Summary ===
 
-* 놀랍게도 바이너리와 동적 라이브러리와의 사전 연동은 <code>prelink</code>를 실행하면 됩니다. 바이너리를 좀 더 빠르게 실행할 수 있게 바꿉니다.
-* 프로그램에 동적 라이브러리를 사전 연동한 후 의존 라이브러리가 바뀌면, 프로그램과 사전 연동을 다시 처리해야하며, 그렇지 않으면 속도상 이득을 잃게 됩니다. 이는 곧, 라이브러리를 업데이트하는 포티지로 꾸러미를 업데이트할 때마다 매번 사전 연동을 다시 처리해야 한다는 얘기입니다.
-* 바이너리가 바뀌면 완전히 되돌릴 수 있습니다. <code>prelink</code>에 실행 취소 기능이 있습니다.
-* 포티지 현재 버전에서는 <code>prelink</code>로 바이너리의 MD5sum과 mtime을 바꿔 처리할 수 있습니다.
-* {{Path|make.conf}} 파일에서 <code>FEATURES="prelink"</code>값을 설정할 필요가 없습니다. 포티지에서는 선연결 바이너리를 찾을 수 있으면 선연결을 자동으로 지원합니다.
+* Prelinking is done via a program called, surprisingly, <code>prelink</code> . It changes the binary to make it start faster.
+* If an application's dependent libraries change after you have prelinked it, you need to re-prelink the application, otherwise you lose the speed advantage. This is to say, everytime you update a package via portage that updates libraries, they need to be re-prelinked.
+* The change to the binary is fully reversible. <code>prelink</code> has an undo function.
+* Current versions of Portage can handle, via <code>prelink</code> , the changing MD5sums and mtimes of the binaries.
+* You do not need to set <code>FEATURES="prelink"</code> in your {{Path|make.conf}} file; Portage will automatically support prelink if it can find the prelink binary.
 
-== prelink 설정 ==
+== Setting up Prelink ==
 
-=== 프로그램 설치 ===
+=== Installing the Programs ===
 
-먼저 <code>prelink</code> 도구를 설치해야 합니다. 이머지 과정에서는 시스템에서 안전하게 사전 연동을 할 수 있게 자동으로 검증합니다. 
+First you need to install the <code>prelink</code> tool. The emerge process automatically verifies that your system can prelink safely. 
 
 {{Emerge|prelink}}
 
-테스트에 실패하는 문제로 prelink 이머지 중에 수많은 사람이 오류를 만납니다. 테스트는 안전을 이유로 실시하지만, 테스트를 비활성화하면 prelink의 동작이 정의되지 않습니다. 이머지 오류는 보통 핵심 꾸러미, binutils, gcc, glibc에만 관련이 있습니다. 이들 꾸러미를 순서대로 다시 이머지해보십시오. 
+A number of people get errors in emerging prelink because of the failed tests. The tests were put in for safety reasons, prelink's behavior is undefined if you disable them. The emerge errors are usually only dependent on the core packages; binutils, gcc, and glibc. Try re-emerging those packages in that order. 
 
-{{Tip|<code>prelink</code>에 오류가 나타난다면 자체적으로 컴파일하고 시험( {{c|./configure; make; make check}} ) 해보십시오. 치명적 오류가 발생하는 경우 시험 디렉터리에서 *.log 파일을 살펴볼 수 있습니다. 해당 로그 파일에 쓸만한 실마리가 나타날 수 있습니다.}}
+{{Note|Tip: If you get an error try compiling and testing <code>prelink</code> yourself ( <code>./configure</code> ; <code>make</code> ; <code>make check</code> ). On a failure you can view the *.log files in the testsuite directory. They may provide you with some useful clues.}}
 
-다른 시스템에서도 나타나는 이머지 오류를 재현하는 단계를 안다면,  [http://bugzilla.gentoo.org 버그질라] 를 방문하여 이미 보고한 문제점이 아니라면 보고해주십시오. 
+If you have a set of steps that reproduces the emerge error on another system please check [http://bugzilla.gentoo.org Bugzilla] and create a bug report if it has not already been reported. 
 
-=== 시스템 준비 ===
+=== Preparing your System ===
 
-또한 CFLAGS/CXXFLAGS에 -fPIC를 설정하지 ''않았는지'' 확인하십시오. 설정했다면 해당 옵션을 빼고 시스템 전체를 빌드해야합니다. 
+Also make sure that you do ''not'' have -fPIC set in your CFLAGS/CXXFLAGS. If you do, you will need to rebuild your entire system without. 
 
-=== 설정 ===
+=== Configuration ===
 
-{{c|env-update}}를 실행하면 어떤 파일을 사전 연동 처리할 지 언급하는 {{Path|/etc/prelink.conf}} 파일을 만듭니다. 
+Running <code>env-update</code> will generate the {{Path|/etc/prelink.conf}} file that tells {{Path|prelink}} which files to prelink. 
 
 {{RootCmd|env-update}}
 
-불행하게도 컴파일한 binutils 이전 버전에서는 사전 연동을 취할 수 없습니다. 대부분 프로그램은 미리 컴파일 한 상태로, {{Path|/opt}} 경로에 바이너리 전용 꾸러미로 들어옵니다. 다음 파일은 해당 경로의 파일에 대해 사전 연동 처리할 수 없게 합니다. 
+Unfortunately you cannot prelink files that were compiled by old versions of binutils. Most of these applications come from pre-compiled, binary only packages which are installed in {{Path|/opt}} . Making the following file will tell prelink not to attempt to prelink them. 
 
-{{FileBox|filename=/etc/env.d/60prelink|lang=bash|1=
+{{Code|/etc/env.d/60prelink|<pre>
 PRELINK_PATH_MASK="/opt"
+</pre>
 }}
 
-{{Note|콜론을 사용하여 디렉터리 목록을 추가하거나 줄일 수 있습니다.}}
+{{Note|You can add more or less directories to the colon separated list.}}
 
-== 사전 연동 ==
+== Prelinking ==
 
-=== prelink 사용법 ===
+=== Prelink Usage ===
 
-{{Path|/etc/prelink.conf}} 에 주어진 디렉터리의 모든 바이너리를 미리 연동하려면 다음 명령을 사용합니다. 
+I use the following command to prelink all the binaries in the directories given by {{Path|/etc/prelink.conf}} . 
 
 {{RootCmd|prelink -amR}}
 
-{{Warning|디스크 여분 용량이 부족할 때 전체 시스템에 대한 사전 연동 처리할 경우 바이너리가 잘릴 수 있는 현상이 보입니다. 결과적으로 시스템이 나가리가 납니다. {{c|file}} 또는 {{c|readelf}} 명령으로 바이너리 파일의 상태를 확인하십시오. 아니면, {{c|df -h}} 으로 미리미리 하드 드라이브의 여분 용량을 확인하십시오.}}
+{{Warning|It has been observed that if you are low on disk space and you prelink your entire system then there is a possibility that your binaries may be truncated. The result being a b0rked system. Use the <code>file</code> or <code>readelf</code> command to check the state of a binary file. Alternatively, check the amount of free space on your harddrive ahead of time with <code>df -h</code> .}}
 
 {| class="wikitable" style="text-align: left;" 
 |- 
-! 설명할 옵션:
+! The options explained:
 |- 
 ! -a
-| "All": 모든 바이너리에 대한 사전 연동 처리
+| "All": prelinks all the binaries
 |- 
 ! -m
-| 가상 메모리 영역을 보존합니다. 사전 연동할 라이브러리가 많을 경우 필요합니다.
+| Conserve the virtual memory space. This is needed if you have a lot of libraries that need to be prelinked.
 |- 
 ! -R
-| Random -- 주소 정렬을 임의대로 처리합니다. 버퍼 오버플로우에 대비하여 보안성을 개선합니다.
+| Random -- randomize the address ordering, this enhances security against buffer overflows.
+|-
 |}
 
-{{Note|자세한 내용은 {{c|man prelink}}를 참고하십시오.}}
+{{Note|For more options and details see <code>man prelink</code> .}}
 
-=== Prelink 크론 작업 ===
+=== Prelink Cron Job ===
 
-<div class="mw-translate-fuzzy">
-<code>sys-devel/prelink-20060213</code> 이후 버전은 {{Path|/etc/cron.daily/prelink}}에 크론 작업을 설치합니다. 활성화하려면 {{Path|/etc/conf.d/prelink}} 설정 파일을 편집하십시오. 직접 명령을 실행하는 대신  매일 백그라운드에서 필요한 대로 prelink를 실행합니다.
-</div> 
+<code>sys-devel/prelink-20060213</code> and later install a cron job in {{Path|/etc/cron.daily/prelink}} . To enable it, edit the configuration file {{Path|/etc/conf.d/prelink}} . This will run prelink daily in the background, as needed, saving you running the command manually. 
 
-=== prelink 실행 후 KDE 속도 개선 ===
+=== Speeding Up KDE After Prelinking ===
 
-사전 연동을 실시하면 KDE 로딩 시간이 기가막히게 줄어들 수 있습니다. KDE에게 사전 연동 처리했음을 알리면 KDE 가동 속도를 올리는 <code>kdeinit</code>(더이상 필요하지 않음) 로딩을 비활성화합니다. 
+KDE's loading time can be greatly reduced after prelinking. If you inform KDE that it has been prelinked it will disable the loading of <code>kdeinit</code> (as it isn't required anymore) which speeds up KDE even more. 
 
-{{Path|/etc/env.d/*kdepaths*}}에서 <code>KDE_IS_PRELINKED=1</code>를 설정하여 사전 연동 처리 여부를 알려주십시오.
+Set <code>KDE_IS_PRELINKED=1</code> in {{Path|/etc/env.d/*kdepaths*}} to inform KDE about the prelinking.
 
-=== 사전 연동 제거 ===
+=== Removing prelink ===
 
-사전 연동 상태를 바꾸려 한다면 prelink를 머지 취소하기 전에 {{Path|/etc/cron.daily}} 와 {{Path|/etc/conf.d/prelink}} 에서 크론 작업에 대한 사전 연동을 제거해야합니다. 다음 모든 바이너리에 대한 사전 연동 관계를 제거해야합니다: 
+If you ever change your mind about prelinking, before you unmerge prelink, you'll first need to remove the prelink cronjob from {{Path|/etc/cron.daily}} and {{Path|/etc/conf.d/prelink}} . Next, you'll have to remove prelinking from all binaries: 
 
 {{RootCmd|prelink -au}}
 
-마지막으로 <code>prelink</code> 꾸러미 자체를 제거하십시오: 
+Finally, unmerge the <code>prelink</code> package itself: 
 
 {{RootCmd|emerge -c prelink}}
 
-== 알려진 문제와 해결 방안 ==
+== Known Problems and Fixes ==
 
 === "Cannot prelink against non-PIC shared library" ===
 
-이 문제는 모든 오브젝트 파일에 -fPIC 옵션을 빼고 공유 라이브러리를 제대로 컴파일하지 않았기 때문에 일어납니다. 
+The cause of this problem is from badly compiled shared libraries that were compiled without the -fPIC gcc option for all their object files. 
 
-해결하지 못했거나 해결할 수 없는 라이브러리는 다음과 같습니다: 
+Here are the libraries that haven't been fixed or cannot be fixed: 
 
-* winex를 포함하는 wine 꾸러미의 라이브러리. MS 윈도우 실행 파일에 대한 사전 링크 처리로는 속도가 늘어나지 않습니다.
-* {{Package|media-video/mjpegtools}}의 라이브러리, {{Path|/usr/lib/liblavfile-1.6.so.0}} .
-* Nvidia OpenGL 라이브러리  {{Path|/usr/lib/opengl/nvidia/lib/libGL.so.*}}. PIC를 지원하지 않고 컴파일 했기 때문에 성능 문제가 있습니다.
+* The libraries in the wine package, including winex. Prelinking wouldn't speed up MS Windows executables anyway.
+* The library in media-video/mjpegtools, {{Path|/usr/lib/liblavfile-1.6.so.0}} .
+* Nvidia OpenGl libraries, {{Path|/usr/lib/opengl/nvidia/lib/libGL.so.*}} . Due to performance reasons they were compiled without PIC support.
 
-문제가 나타난 라이브러리가 안보인다면 CFLAGS에 <code>-fPIC</code> 옵션을 넣어 적당히 패치하십시오. 
+If your problem library was not listed please report it with, preferably, a patch to add <code>-fPIC</code> to the relevant CFLAGS. 
 
-=== 시스템을 사전 연동 할 때 일부 바이너리가 더 이상 동작하지 않습니다 ===
+=== When I prelink my system some static binaries don't work anymore ===
 
-glibc는 100% 정적 바이너리만 있다고 간주하지 않습니다. glibc로 바이너리 정적 컴파일을 한다면, 여전히 다른 시스템 파일에 의존할 수도 있습니다. Dick Howell의 설명을 살펴보겠습니다: 
+Where glibc is concerned, there is no such thing as a 100% static binary. If you statically compile a binary with glibc, it may still depend on other system files. Below is an explanation by Dick Howell, 
 
-"모든 파일을 다운로드하여 대상 시스템의 로컬 라이브러리에 의존하는 요소가 없다고 치자. 리눅스에선 불행하게도 GLIBC를 쓰지 않으면 답이 없을거다. 다양한 인증 데이터베이스, 네트워크 정보, 기타 등등에 접근하는"libnss"(어떤 사람은 네트워크 보안 시스템이라고 하는데 네임 서비스 전환 라이브러리임)가 있다. 애플리케이션 프로그램을 실제 머신의 네트워크 환경과는 별개로 설정한다고 치자. 괜찮게 보이긴 하지만 GLIBC에서 라이브러리를 불러오는데 문제가 일어난다. 개별 머신에서 설정했기에 "libnss"에 정적으로 연동할 수도 없다. 여기서 문제는, 다른 GLIBC 라이브러리에 주로 정적으로 연결하는 ... 분명히 말해서 "libpthread"라든가, "libm", "libc" 이런 라이브러리, 그리고 "libnss"의 비호환 함수를 호출하는 과정에서 오는 것 같다." 
+"I suppose the idea is that everything will be in the downloaded file, so nothing depends on the local libraries on the target system. Unfortunately with Linux, and I think anything else using GLIBC, this still isn't quite true. There's this "libnss" (name service switch, some people seem to call it network security system) which provides functions for accessing various databases for authentication, network information, and other things. It's supposed to make application programs independent of the separately configured actual network environment of the machine. A nice idea, but changes to GLIBC can lead to problems loading it. And you can't statically link "libnss", since it is configured for each machine individually. The problem comes, I think, mainly from statically linking other GLIBC libraries, notably "libpthread", "libm", and "libc", from which come incompatible calls to "libnss" functions." 
 
-=== Prelink가 "prelink: dso.c:306: fdopen_dso: Assertion `j == k' failed." 메시지에서 멈춤 ===
+=== Prelink aborts with "prelink: dso.c:306: fdopen_dso: Assertion `j == k' failed." ===
 
-알려진 문제이며, [http://bugs.gentoo.org/show_bug.cgi?id=13878 이 곳]을 비슷하게 살펴볼 수 있습니다. 사전 연동은 UPX 형식으로 압축한 실행 파일에 대응할 수 없습니다. prelink-20021213에서는 사전 연동을 진행할 때 실행 파일을 숨겨두는 방법 외에는 문제를 해결할 방법이 없습니다. 이 문제를 쉽게 해결하는 방법은 위 부분을 참고하십시오. 
+This a known problem, kindly diagnosed [http://bugs.gentoo.org/show_bug.cgi?id=13878 here] . Prelink cannot cope with UPX-compressed executables. As of prelink-20021213 there is no fix except to hide the executables while you are prelinking. See the section above for an easy way to do this. 
 
-=== grsecurity를 사용하는데 prelink가 동작하지 않는 것 같네요. ===
+=== I use grsecurity and it seems that prelinking doesn't work. ===
 
-임의처리 mmap() 기반 환경을 사용하는 grsecurity 환경의 시스템에서 사전 연동을 처리하려면 {{Path|/lib/ld-2.3.*.so}}에 대한 ''randomized mmap() base''를 꺼야합니다. {{c|chpax}} 유틸리티로 해결할 수 있지만, 파일을 사용하지 않을 때(복구 CD로 부팅했을 경우) 처리해야합니다. 
+In order to prelink on a system with grsecurity using a randomized mmap() base, it is necessary to turn "randomized mmap() base" OFF for {{Path|/lib/ld-2.3.*.so}} . This can be done with the <code>chpax</code> utility, but it must be done when the file is not in use (f.i. boot from a rescue CD). 
 
-=== "prelink: Can't walk directory tree XXXX: Too many levels of symbolic links" 오류가 뜨면서 Prelink가 동작하지 않음 ===
+=== Prelink fails with error "prelink: Can't walk directory tree XXXX: Too many levels of symbolic links" ===
 
-심볼릭 링크를 깊숙하게 중첩했습니다. 심볼릭 링크가 심볼릭 링크 자신을 가리키는 경우에 일어나는 일입니다. {{Path|/usr/lib/lib -> lib}} 는 흔한 일입니다. 이 문제를 수정하려면 심볼릭 링크를 직접 만들거나 {{Package|app-misc/symlinks}} 꾸러미에서 제공하는 유틸리티를 사용하면 됩니다: 
+Your symlinks are nested too deeply. This happens when a symlink points to itself. For example, {{Path|/usr/lib/lib -> lib}} is the most common. To fix this, you can find the symlink manually or use the utility provided by the <code>symlinks</code> package: 
 
 {{RootCmd|emerge symlinks
 |symlinks -drv /}}
 
-자세한 내용은 [http://bugs.gentoo.org/show_bug.cgi?id=82117 버그질라] 및 이 [http://forums.gentoo.org/viewtopic-t-458144-highlight-prelink.html 포럼 게시글] 을 참고하십시오. 
+More details can be found at [http://bugs.gentoo.org/show_bug.cgi?id=82117 Bugzilla] and this [http://forums.gentoo.org/viewtopic-t-458144-highlight-prelink.html forum post] . 
 
-== 마무리 ==
+== Conclusion ==
 
-사전 연동 과정을 수행하면 상당히 많은 프로그램의 시작 속도를 확실하게 끌어올릴 수 있습니다. 지원 항목은 포티지에 내장했습니다. 사전 연동 과정은 어떤 여러가지 문제에 봉착했을 때 바이너리에 대한 사전 연동 상태를 언제든 되돌릴 수 있어 안전합니다. glibc 또는 사전 연동한 다른 라이브러리를 업데이트 할 때 {{Path|prelink}} 를 실행해야 함을 기억해두십시오! 무탈을 빕니다! 
+Prelinking can drastically speed up the start up times for a number of large applications. Support is built into Portage. Prelinking is also safe as you can always undo the prelinking for any binary if you come across any problems. Just remember that when you update glibc or other libraries that you prelinked with, you need to rerun {{Path|prelink}} ! In short good luck! 
 
-{{Migrated|originalauthors=Stefan Jones, John P. Davis, Jorge Paulo, Erwin, nightmorph}}
+== Acknowledgements ==
 
-[[Category:Portage]]
+We would like to thank the following authors and editors for their contributions to this guide:
+
+
+* Stefan Jones
+* John P. Davis
+* Jorge Paulo
+* Sven Vermeulen
+* Erwin
+* nightmorph
