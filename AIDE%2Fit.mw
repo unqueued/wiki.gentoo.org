@@ -1,200 +1,76 @@
 <languages />
 
 
-{{Metadata|abstract=AIDE ('''''A'''dvanced '''I'''ntrusion '''D'''etection '''E'''nvironment'') è un HIDS (Host-based Intrusion Detection System). AIDE scansiona file ed altre risorse, immagazzinando informazioni riguardo a questi in un database. Le informazioni immagazzinate includono alcuni attributi chiave dei file come l'hash, la dimensione, ownership, modification time, creation time, ed altri. Dopo la creazione iniziale del database, AIDE riscansiona il sistema e compara i nuovi risultati con quelli precedentemente immagazzinati. Se i valori differiscono, il file è stato modificato ed il cambiamento viene riportato. L'idea dietro all'utilizzo di AIDE è di creare un'immagine del sistema e poi compararla con una già creata in modo da identificare file compromessi.}}
+{{Metadata|abstract=AIDE stands for Advanced Intrusion Detection Environment and is an application that scans files and other resources and stores information about these files in a database. Rescanning the system can then identify (possibly unwanted) modifications and report those.}}
 
-<div class="mw-translate-fuzzy">
-AIDE ('''''A'''dvanced '''I'''ntrusion '''D'''etection '''E'''nvironment'') è un HIDS (Host-based Intrusion Detection System). AIDE scansiona file ed altre risorse, immagazzinando informazioni riguardo a questi in un database. Le informazioni immagazzinate includono alcuni attributi chiave dei file come l'hash, la dimensione, ownership, modification time, creation time, ed altri. Dopo la creazione iniziale del database, AIDE riscansiona il sistema e compara i nuovi risultati con quelli precedentemente immagazzinati. Se i valori differiscono, il file è stato modificato ed il cambiamento viene riportato. L'idea dietro all'utilizzo di AIDE è di creare un'immagine del sistema e poi compararla con una già creata in modo da identificare file compromessi.
-</div>
+== AIDE ==
 
-__TOC__
+AIDE stands for ''Advanced Intrusion Detection Environment'' and is an application that scans files and other resources and stores information about these files in a database. This information can be hash information, file size, ownership and more. The application can then, once this database is available, rescan the system and compare the results with the previously stored values. If values differ, then the file is changed and this change is reported.
 
-== Installazione ==
+=== Installation and configuration ===
 
-=== Opzioni USE ===
+Within Gentoo, you can easily install '''aide''' after setting the USE flags accordingly. The supported USE flags at the time of writing are:
 
-Installare {{Package|app-forensics/aide}} è semplice una volta settate le opzioni USE.
-{{USEflag|package=app-forensics/aide}}
+{{USEflag|package=app-forensics/aide
+|acl
+|audit++yes
+|curl
+|mhash++yes
+|nls++yes
+|postgres
+|prelink
+|selinux
+|static
+|xattr++yes
+|zlib++yes
+}}
 
-Le opzioni USE specifiche ad un certo pacchetto dovrebbero essere definite in {{Path|/etc/portage/package.use}}, oppure in un file di testo dentro una directory chiamata {{Path|/etc/portage/package.use}}. Per esempio, utilizzando {{Path|/etc/portage/package.use}} come ''file'':
-
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/portage/package.use|title=Abilitazione supporto zlib per AIDE|1=<pre>
-app-forensics/aide zlib
-</pre>}}
-</div>
-
-=== Emerge ===
-
-Dopo aver settato le opzioni USE, si installi il software:
+Then it is a matter of installing the software:
 
 {{Emerge|app-forensics/aide}}
 
-== Configurazione ==
+The configuration file for ''aide'' is not as daunting as it might seem at first sight. The default file is stored at {{Path|/etc/aide/aide.conf}} but you can easily create multiple separate configuration files if you want. Besides a few variables, the configuration file contains a few short-hand notations for what aspects of files to scan for (only hashes, or also inode information, etc.) and then which files to scan.
 
-=== Panoramica ===
+Let's first look at the variables.
 
-Il file di configurazione per {{Package|app-forensics/aide}} non è così spaventoso come può sembrare a prima vista. Il file predefinito si trova in {{Path|/etc/aide/aide.conf}}, ma gli amministratori possono facilmente creare molteplici file se necessario. Oltre ad alcune variabili, il file di configurazione utilizza una notazione breve per i vari aspetti dei file da scansionare (solo hash, o anche informazioni sugli inode, ecc.) e quali file scansionare.
-
-Di seguito sono riportate le variabili relative al database:
-
-{{FileBox|filename=aide.conf|title=Variabili di configurazione del database di AIDE|1=
+{{File|aide.conf|variables|<pre>
 database=file:/var/lib/aide/aide.db
 database_out=file:/var/lib/aide/aide.db.new
-}}
+</pre>}}
 
-La prima riga dell'esempio sopra (<code>database</code>) definisce il percorso del database che contiene i valori conosciuti. La seconda riga (<code>database_out</code>) definisce dove scrivere il nuovo database quando viene generato. Si raccomanda di non far puntare queste variabili allo stesso database (con lo stesso percorso per ogni variabile). Se un database deve sovrascrivere l'altro, il miglior metodo è di ''copiare manualmente'' il nuovo database da un posto all'altro. Per esempio, per sovrascrivere il primo database con il secondo, è possibile usare questo comando:
+These parameters define where the database is stored that contains the known values (''database'') and where to store a new database if you create a new one (''database_out''). It is generally recommended to not have these variables point to the same, instead manually copying over the generated database from one location to the other.
 
-{{RootCmd|cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db}}
+For now, leave those variables as-is, we'll get back to them later.
 
-Per ora, si lascino le impostazioni sul database così come sono; le vedremo in dettaglio in seguito.
-
-Successivamente, si considerino le variabili che sono notazioni brevi che indicano quali informazioni registrare nel database.
-
-{{FileBox|filename=aide.conf|title=Configurazione di AIDE utilizzando la notazione breve|lang=ini|1=
+{{File|aide.conf|shorthand notations|<pre>
 Binlib = p+i+n+u+g+s+b+m+c+md5+sha1
 Logs = p+i+n+u+g+S
 ...
-}}
+</pre>}}
 
-{{Note|I codici <code>md5</code> e <code>sha1</code> significano ovviamente che saranno calcolati hash di tipo MD5 e SHA-1 (rispettivamente).}}
+These are short-hand notations for what to measure. The letters are described in the default {{Path|aide.conf}} file, so instead of documenting them all here, I'll just give information about a few of them: '''p'''ermissions, '''i'''node number, '''n'''umber of (hard)links, '''u'''ser information, '''g'''roup information, '''s''''ize (or '''S''' if the size is allowed to grow but never shrink), '''b'''lock count, '''m'''odification time, etc. Also, you probably have guessed that '''md5''' and '''sha1''' mean that the MD5 and SHA-1 checksums are taken.
 
-Le lettere sono descritte nel file {{Path|aide.conf}} di default, ma per comodità riportiamo nella tabella seguente le opzioni più comuni:
+These short-hand notations are then used to identify what to scan for which files. 
 
-{| class="table"
-! Short
-! Description
-|-
-| <code>p</code>
-| Permessi
-|-
-| <code>i</code>
-| Numero dell'inode
-|-
-| <code>n</code>
-| Numero di (hard)link
-|-
-| <code>u</code>
-| Informazioni sull'Utente (User)
-|-
-| <code>g</code>
-| Informazioni sul Gruppo (Group)
-|-
-| <code>s</code>
-| Dimensione (Size)
-|-
-| <code>S</code>
-| Dimensione (Size, ma viene riportato solo il calo di dimensione - la crescita è consentita)
-|-
-| <code>b</code>
-| Conta dei blocchi (Block count)
-|-
-| <code>m</code>
-| Modification time
-|}
-
-Di seguito un'overview di quali directory scansionare e di cosa cercare. Con le tre righe d'esempio seguenti, AIDE è configurato per esaminare le directory {{Path|/bin}} e {{Path|/sbin}} con gli elementi identificati dalla notazione in <var>Binlib</var>. Il path {{Path|/var/log}} utilizzerà invece quanto definito nella variabile <var>Logs</var> sopra.
-
-{{FileBox|filename=aide.conf|title=Opzioni sugli obbiettivi da scansionare|1=
+{{File|aide.conf|scan targets|<pre>
 /bin Binlib
 /sbin Binlib
 /var/log Logs
 ...
-}}
+</pre>}}
 
-AIDE supporta le espressioni regolari ed agli utenti è permesso "rimuovere" le corrispondenze. Per esempio, per controllare il path {{Path|/var/log}} ma non il {{Path|/var/log/portage}} è possibile impostare un set di esclusioni utilizzando il <code>!</code> prima dei percorsi da escludere:
+This is the overview of which directories to scan, and what to scan for. In the above three lines example, we tell AIDE to scan the {{Path|/bin}} and {{Path|/sbin}} locations and take the measures identified earlier in the ''Binlib'' short-hand notation. The {{Path|/var/log}} location should use the ''Logs'' scan measures.
 
-{{FileBox|filename=aide.conf|title=Altri obbiettivi di scan|1=
+AIDE supports regular expressions and you are allowed to "remove" matches. For instance, if you want to scan {{Path|/var/log}} but not {{Path|/var/log/portage}} then you can include an exclusion set as well:
+
+{{File|aide.conf|other scan targets|<pre>
 /var/log Logs
 !/var/log/portage
-}}
+</pre>}}
 
-=== Opzioni dettagliate ===
+=== Initialization and frequent scanning ===
 
-Il file di configurazione è basato su espressioni regolari, macro e regole per i file e i percorsi. Gli utenti esperti con [https://www.tripwire.org/ tripwire] non hanno difficoltà a gestire il file di configurazione di AIDE. Sono disponibili le seguenti macro:
-
-{| class="table table-striped table-condensed" style="width: auto;"
-|-
-! Macro !! Descrizione !! Sintassi
-|-
-| <code>ifdef</code> || Se definito || <code>@@ifdef "name"</code>
-|-
-| <code>ifndef</code> || Se non definito || <code>@@ifndef "name"</code>
-|-
-| <code>define</code> || Definisce una variabile || <code>@@define "nome" "valore"</code>
-|-
-| <code>undef</code> || Cancella una variabile a variable || <code>@@undef "nome"</code>
-|-
-| <code>ifhost</code> || se "hostname" || <code>@@ifhost "hostname"</code>
-|-
-| <code>ifnhost</code> || se non "hostname" || <code>@@ifnhost "hostname"</code>
-|-
-| <code>endif</code> || Endif deve essere usato dopo qualunque delle macro di cui sopra eccetto define e undef || <code>@@endif</code>
-|}
-
-Queste macro diventano molto comode quando si ha a che fare con più sistemi Gentoo usando la stessa configurazione su ciascuna di esse. Non tutte le macchine eseguono gli stessi servizi o possiedono gli stessi utenti.
-
-Inoltre, abbiamo un insieme di opzioni che identificano i permessi, le proprietà dei file, i checksum, gli hash crittografici, ... per convalidare i file e i percorsi.
-
-{| class="table table-striped table-condensed" 
-|-
-! Opzione !! Descrizione
-|-
-| <code>p</code> || permessi
-|-
-| <code>i</code> || inode
-|-
-| <code>n</code> || numero di collegamenti
-|-
-| <code>u</code> || utente
-|-
-| <code>g</code> || gruppo
-|-
-| <code>s</code> || dimensione
-|-
-| <code>b</code> || conteggio dei blocchi
-|-
-| <code>m</code> || mtime
-|-
-| <code>a</code> || atime
-|-
-| <code>c</code> || ctime
-|-
-| <code>S</code> || controllo della dimensione in crescita
-|-
-| <code>md5</code> || checksum md5
-|-
-| <code>sha1</code> || checksum sha1
-|-
-| <code>rmd160</code> || checksum rmd160
-|-
-| <code>tiger</code> || checksum tiger
-|-
-| <code>R</code> || <code>p+i+n+u+g+s+m+c+md5</code>
-|-
-| <code>L</code> || <code>p+i+n+u+g</code>
-|-
-| <code>E</code> || Gruppo vuoto
-|-
-| <code><nowiki>></nowiki></code> || File di log crescente <code>p+u+g+i+n+S</code>
-|}
-
-Se AIDE viene compilato con il supporto a mhash, allora si dovrebbero usare anche le seguenti opzioni:
-
-{| class="table table-striped table-condensed"
-|-
-! Opzione !! Descrizione
-|-
-| <code>haval</code> || haval checksum
-|-
-| <code>gost</code> || gost checksum
-|-
-| <code>crc32</code> || crc32 checksum
-|}
-
-=== Inizializzazione e scansioni frequenti ===
-
-Per un setup di base di AIDE, è necessario inizializzare un database. Questo avviene utilizzando l'opzione <code>--init</code>. Per sincerarsi che AIDS utilizzi le configurazioni definite nelle sezioni precedenti, assicurarsi di passare l'opzione <code>--config</code> con il puntamento alla configurazione corretta:
+First we need to initialize the database once. 
 
 {{RootCmd|aide --init --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE, version 0.14.2
@@ -202,11 +78,11 @@ AIDE, version 0.14.2
 ### AIDE database at /var/lib/aide/aide.db.new initialized.
 </pre>}}
 
-Una volta inizializzato, ogni database preesistente può essere sovrascritto:
+Once initialized, we can copy over the database file.
 
 {{RootCmd|cd /var/lib/aide; cp aide.db.new aide.db}}
 
-Con il nuovo database disponibile, le risorse possono essere esaminate nuovamente utilizzando l'opzione <code>--check</code>. Questo creerà un altro database contente ogni modifica fatta al filesystem dalla creazione del primo database. Assicuratevi di utilizzare l'opzione <code>--config</code> con il puntamento alla stessa configurazione utilizzata per la creazione del primo database:
+With the database now available, we can scan the entries again for potential modifications:
 
 {{RootCmd|aide --check --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE, version 0.14.2
@@ -214,7 +90,7 @@ AIDE, version 0.14.2
 ### All files match AIDE database. Looks okay!
 </pre>}}
 
-Se ci sono state modifiche, verrà inviata una notifica:
+When a file modification is occurred, you will get a notification:
 
 {{RootCmd|aide --check --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE found differences between database and filesystem!!
@@ -252,38 +128,38 @@ File: /etc/pam.d/run_init
   SHA1     : NrQtsUeOsXS4RHUq+ejYBne5V6E=     , 5A6ef6VJCcMiqEjKQ7e9xkBNZB8=
 </pre>}}
 
-== Consigli e Best practices ==
+== Best Practices ==
 
-=== Specificate cosa esaminare ===
+=== Be clear with what to scan ===
 
-La configurazione di default è utile, ma necessità di alcune rifiniture per andare incontro alle necessità dell'utente. E' dunque importante sapere quali file esaminare e perché.
+The default AIDE configuration is useful, but you'll need to fine-tune it to suit your needs. It is important to know which files to scan and why.
 
-Per esempio, per esaminare solo i file relativi all'autenticazione ma non altri, utilizzate una configurazione come la seguente:
+For instance, if you want to scan for all authentication-related files but not for other files, you can use a configuration like so:
 
-{{FileBox|filename=aide.conf|title=Targets relativi all'autenticazione|1=
-# SELinux policy e configurazioni
+{{File|aide.conf|authentication-related scan targets|<pre>
+# SELinux policy and settings
 /etc/selinux ConfFiles
-# DB di autenticazione 
+# Authentication databases
 /etc/passwd ConfFiles
 /etc/shadow ConfFiles
 /etc/nsswitch.conf ConfFiles
-# Configurazioni Autenticazione
+# Authentication configuration
 /etc/pam.d ConfFiles
 /etc/securetty ConfFiles
 /etc/security ConfFiles
-# librerie PAM 
+# PAM libraries
 /lib(64)?/security Binlib
-}}
+</pre>}}
 
-=== Mantenete il database offline ed in sola lettura ===
+=== Keep the database offline and read-only ===
 
-Un secondo aspetto importante è che il database risultante dovrebbe essere memorizzato "offline" quando "non" necessario e dovrebbe essere utilizzato in sola lettura quando "è" necessario. Questo aggiunge un certo grado di protezione contro un utente malevolo che possa aver compromesso la macchina e modificato il database. Per esempio, memorizzare il database su una share NFS read-only (per i server) o su un media non scrivibile (quando l'accesso fisico alla macchina è possibile), come un CD o una chiavetta USB in sola lettura.
+A second important aspect is that you really want the result database to be stored off-line when you don't need it, and use it in read-only modus when you do. This gives some protection against a malicious user, that might already have compromised the machine, to also modify the results database. For instance, you can provide the result database on a read-only NFS mount (for servers) or read-only medium (when you have physical access to the machine) such as CD/DVD or read-only USB sticks.
 
-Dopo aver memorizzato il database in una posto in sola lettura, aggiornate il file {{Path|aide.conf}} in modo che la variabile <code>database</code> punti a questo nuovo file.
+When you have the database on such location, update the {{Path|aide.conf}} file to have ''database='' point to this new location.
 
-=== Fare scansioni offline ===
+=== Do offline scanning ===
 
-Se possibile, provate ad utilizzare metodi di scansione offline per i vostri sistemi. In caso di piattaforme virtuali, è possibile fare delle snapshot del sistema, montare queste snapshot (in read-only) e fare lo scan su quest'ultimo filesystem.
+If you can, try using offline scanning methods for the system. In case of virtual platforms, you might be able to take a snapshot of the system, mount this snapshot (read-only) and then run the aide scan on the mounted file system.
 
 {{RootCmd|losetup /dev/loop0 /srv/virt/gentoo.img
 |vgscan
@@ -296,18 +172,11 @@ Se possibile, provate ad utilizzare metodi di scansione offline per i vostri sis
 |vgchange -an /dev/volgrpX
 |losetup -d /dev/loop0}}
 
-L'approccio sopra utilizza {{c|chroot}}. Questo è necessario solamente quando il filesystem iniziale è stato scansionato dal sistema "live" e l'amministratore vuole eseguire una verifica offline. Se lo scan iniziale è stato fatto anch'esso offline, allora il file {{Path|aide.conf}} punterà già al mount point corretto ed il database utilizzerà quei percorsi immediatamente, quindi non ci sarà bisogno di alcun chroot.
+The above approach uses a chroot. This is only needed when the initial file system has been scanned from the live system and you want to perform an offline validation. If you did your initial scan offline, then your {{Path|aide.conf}} will point to the mount point already and the database will use these paths immediately, so then you do not have the need for chrooting.
 
-== Ulteriori informazioni ==
+== More information ==
 
-* In [[Integrity/Concepts]] vengono discussi concetti relativi all'integrità dei sistemi (in inglese)
-
-== Risorse esterne ==
-
-<div class="mw-translate-fuzzy">
-* [http://archive09.linux.com/articles/113919 Tutorial sull'utilizzo di AIDE (Linux.com)]
-* [http://www.symantec.com/connect/articles/securing-linux-aide Articolo "Difendere Linux con AIDE" (Symantec.com)]
-</div>
+* [[Integrity/Concepts]] talks about the concepts related to system integrity
 
 
 [[Category:Server and Security]]
