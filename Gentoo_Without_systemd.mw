@@ -1,133 +1,22 @@
-One of Gentoo's distinctive characteristics is the ability to support [[systemd]] as an ''option'', instead of it being the single available [[init system]] implementation. The distribution offers the choice of having a working Linux, non systemd-based operating system, and this article [[Article description::provides some tips on how to avoid unwanted installation of {{Package|sys-apps/systemd}}]].
+Having trouble with systemd being pulled in your emerges for no apparent reason ?<br/>
 
-== Gentoo's init system and service manager setup ==
+==Why is systemd pulled in ?==
+Most packages depending on systemd actually depend on ''systemd or X or Y''.<br/>
+If you have none of those, emerge tries to install the first in the list: systemd<br/>
+This is perfectly normal behavior, emerge ''cannot'' magically guess that you would prefer X or Y
 
-Several [[Profile|Gentoo profiles]] that select the Linux kernel and the GNU C library (<var>KERNEL</var> [[USE_EXPAND|USE_EXPAND variable]] set to <code>linux</code> and <var>ELIBC</var> USE_EXPAND variable set to <code>glibc</code>) have package {{Package|virtual/service-manager}} in [[System_set_(Portage)|the system set]], i.e. it is guaranteed to be present in every Gentoo machine. This is a '''virtual package''', that is, it installs no files but has an any-of dependency, <code>|| ( ... )</code>, on other packages. For these profiles, virtual/service-manager can be satisfied by {{Package|sys-apps/openrc}} or sys-apps/systemd. The former pulls {{Package|sys-apps/sysvinit}} as a runtime dependency (<var>RDEPEND</var>).
+==Permanently blocking systemd==
+===systemd USE flag===
+Add "-systemd" to your USE in /etc/portage/make.conf
 
-A Gentoo system installed from a [[sysvinit]] + [[OpenRC]] stage3 tarball (i.e. a {{Path|stage3-*.tar.xz}} or {{Path|stage3-*.tar.bz2}} file that does not contain 'systemd' in the name) will have sys-apps/openrc already installed, so virtual/service-manager will be satisfied by that package, and systemd shouldn't get installed unless some other package pulls it as a dependency for some reason.
+===Mask systemd and udev===
+{{file|/etc/portage/package.mask/systemd||<pre>
+sys-apps/systemd
+sys-fs/udev
+</pre>
+}}
 
-For a refresher on stage3 tarballs and profiles, please review [[Handbook:Main_Page|the Gentoo Handbook]].
+Don't worry about blocking udev, it will automatically be replaced by eudev, the systemd-free fork of udev
 
-=== So, why is systemd pulled in? ===
-
-Users of a non-systemd Gentoo system might be occasionally surprised by [[Portage]] trying to install systemd in response to an {{C|emerge}} command. Systemd is a large software package that implements an init system, but also provides a number of other executables ({{C|systemd-udevd}}, {{C|systemd-logind}}, {{C|systemd-resolved}}, {{C|systemd-networkd}}, {{C|systemd-tmpfiles}}, {{C|systemd-localed}}, {{C|systemd-machined}}, {{C|systemd-nspawn}}, etc.), libraries ({{Path|libsystemd}}, {{Path|libudev}}), a [[PAM|PAM module]] ({{Path|pam_systemd.so}}) and a [[systemd-boot|UEFI boot manager]] ({{C|systemd-boot}}), among other components. So any other package that needs any of these components, even if it is just one, would pull the whole systemd package as a dependency.
-
-Most these packages, however, only have a 'soft dependency' on systemd, that is, optional functionality that uses a systemd component, and that can be turned on or off at build time. Gentoo, being a source-based distribution, is able to easily take advantage of such package features, and corresponding ebuilds usually expose a <code>systemd</code> [[USE flag]] that can be unset to avoid installing systemd as a dependency. For most (all?) Gentoo profiles except the systemd ones (i.e. those that contain 'systemd' in their names), this USE flag is unset by default.
-
-A small number of packages have [[#harddep|a 'hard dependency']] on systemd, that is, their ebuild unconditionally lists sys-apps/systemd as a dependency, with no regard to the <code>systemd</code> USE flag. The most well known example of this used to be the [[GNOME|GNOME desktop environment]], which, for versions 3.28 and earlier, contained components that required {{C|systemd-logind}} (among them, notably, its display manager, [[GNOME/gdm|GDM]]). As of version 3.30, though, Gentoo's packaging of GNOME allows it to work once again with sysvinit + OpenRC as the init system<ref>Gentoo website, News section, [https://www.gentoo.org/news/2019/03/27/gnome-330-openrc.html "Gentoo GNOME 3.30 for all init systems"], March 27th, 2019 .</ref>. This is achieved through [[elogind]]; non-systemd GNOME profiles (i.e. those with 'gnome', but not 'systemd', in their name) set the <code>elogind</code> USE flag so that packages pull {{Package|sys-auth/elogind}} as a dependency instead of sys-apps/systemd.
-
-It might also be necessary to remove lines that set the <code>systemd</code> USE flag from files in {{Path|/etc/portage/package.use}} that could have been added automatically.
-
-== Taking explicit measures to avoid installation of systemd ==
-
-Current profile settings are usually enough to avoid systemd on a Gentoo system installed from a sysvinit + OpenRC stage3 tarball, provided a non-systemd profile has been selected. However, the following explict measures can be easily taken by concerned administrators.
-
-=== Globally disabling and masking the systemd USE flag ===
-
-The <code>systemd</code> USE flag can be globally unset in {{Path|/etc/portage/make.conf}}:
-
-{{FileBox|lang=bash|filename=/etc/portage/make.conf|
-1=#Assuming USE contains more flag settings, represented by ellipsis:
-USE="... -systemd ..."}}
-
-This is an extra assurance that packages with a soft dependency on systemd will always install without enabling the features that require it.
-
-In addition, the USE flag can be masked in {{Path|/etc/portage/profile/use.mask}} so that Portage's autounmask feature will be unable to suggest enabling it:
-
-{{FileBox|filename=/etc/portage/profile/use.mask|1=systemd}}
-
-{{anchor|pkgmask}}
-
-=== Package masking systemd ===
-
-The best assurance that systemd will not be installed is [[:/etc/portage/package.mask|masking the package]] altogether:
-
-{{FileBox|title=package.mask directory example|filename=/etc/portage/package.mask/systemd|
-1=sys-apps/systemd}}
-
-Or alternatively:
-
-{{FileBox|title=package.mask file example|filename=/etc/portage/package.mask|
-1=sys-apps/systemd}}
-
-If an {{C|emerge}} command for any reason (including odd USE flag combinations) tries to pull sys-apps/systemd as a dependency, the package mask will cause a blocker that Portage cannot resolve (i.e. the output of {{C|emerge}} will show <code>[blocks B      ]</code>), and make the {{C|emerge}} command fail. The administrator can then look at the blocker messages and figure out what to do, which in some cases might mean to just give up and not install [[#harddep|certain packages]].
-
-== The udev situation ==
-
-Several [[Profile|Gentoo profiles]] have package {{Package|virtual/dev-manager}} in [[System_set_(Portage)|the system set]], i.e. it is guaranteed to be present in every Gentoo machine. This is a '''virtual package''', that is, it installs no files but has an any-of dependency, <code>|| ( ... )</code>, on other packages, and can be satisfied by ''another'' virtual package, {{Package|virtual/udev}}, for an [[udev]] daemon provider (although that's not the only alternative!). Currently, there are three packages in Gentoo's repository that satisfy virtual/udev: sys-fs/udev, sys-fs/eudev, and sys-apps/systemd. Their ebuilds build and install code from one of ''two'' possible upstream packages: systemd and [[eudev]], currently a [[Project:Eudev|Gentoo project]]:
-
-* sys-apps/systemd: The historical udev code base was merged with systemd's in 2012, so installing any recent systemd version already provides an udev implementation. The corresponding daemon is named {{C|systemd-udevd}}.
-* {{Package|sys-fs/eudev}}: Eudev is a fork of systemd's udev implementation, intended to be a drop-in replacement.
-* {{Package|sys-fs/udev}}: Based on the fact that {{C|systemd-udevd}} can currently run without {{C|systemd}} being process 1, this is a Gentoo-specific package that only installs the udev parts (e.g the {{C|systemd-udevd}} daemon, the {{C|udevadm}} program, the {{Path|libudev}} library, etc.) of systemd's source tarball, without the rest the package's components.
-
-Historically, Gentoo had a single stage3 tarball 'flavor' that had sysvint, OpenRC, and sys-fs/udev already installed. A system installed from this tarball had sysvinit + OpenRC as the init system, and systemd's code as the udev implementation. It offered the possibility to be converted later, by administrator intervention, to full systemd-based Gentoo, or to switch from sys-fs/udev to sys-fs/eudev, after installation of the distribution as per the Handbook.
-
-Nowadays, Gentoo offers both a sysvinit + OpenRC stage3 tarball with sys-fs/eudev, and a systemd stage3 tarball. A system installed from the former (i.e. a {{Path|stage3-*.tar.xz}} or {{Path|stage3-*.tar.bz2}} file that does not contain 'systemd' in the name) will have virtual/dev-manager satisfied virtual/udev, which in turn will be satisfied by sys-fs/eudev, so systemd shouldn't get installed unless some other package pulls it as a dependency for some reason.
-
-Gentoo's original sys-fs/udev package continues to be available in the official repository, and it is still possible to switch from sys-fs/eudev to it and vice-versa: Portage will automatically uninstall the current package and install the requested one (i.e. the output of {{C|emerge}} will show <code>[uninstall     ]</code>). However, users that absolutely do not want code from the systemd project on their machines, even if it is just the udev parts, can mask sys-fs/udev [[#pkgmask|along with sys-apps/systemd]]:
-{{FileBox|title=package.mask directory example|filename=/etc/portage/package.mask/systemd|
-1=sys-apps/systemd
-sys-fs/udev}}
-
-Or alternatively:
-
-{{FileBox|title=package.mask file example|filename=/etc/portage/package.mask|
-1=sys-apps/systemd
-sys-fs/udev}}
-
-For a refresher on stage3 tarballs and profiles, please review [[Handbook:Main_Page|the Gentoo Handbook]].
-
-== systemd unit files ==
-
-Some upstream packages provide systemd unit files, to make them easier to install on systemd-based distributions and try make them work mostly out of the box, but don't otherwise have any heavier integration with systemd, or require any systemd-specific functionality. This sort of packages are not considered to have an actual dependency on systemd (neither 'soft' or 'hard'), and, according to the [[Project:Systemd/Ebuild_policy|official ebuild policy for systemd]], unit files follow the usual guidelines against small text files (bash completion, logrotate etc.) and ebuilds must not prevent their installation based on the <code>systemd</code> USE flag.
-
-Unit files are harmless and do nothing if systemd is not installed, just like OpenRC service scripts do nothing if sys-apps/openrc is not installed. However, users that absolutely do not want systemd unit files on their machines, can add systemd's unit file paths to the <var>INSTALL_MASK</var> variable in {{Path|/etc/portage/make.conf}}:
-
-{{FileBox|lang=bash|filename=/etc/portage/make.conf|
-1=#Assuming INSTALL_MASK contains more items represented by ellipsis:
-INSTALL_MASK="... /lib/systemd /usr/lib/systemd ..."}}
-
-Or alternatively, write a Portage postsync hook in {{Path|/etc/portage/postsync.d}}:
-
-{{FileBox|lang=bash|filename=/etc/portage/postsync.d/10systemd|
-1=rm -rf /lib/systemd /usr/lib/systemd}}
-
-{{Note|systemd has more search paths than those in {{Path|/lib/systemd}} (if the <code>split-usr</code> USE flag is set) or {{Path|/usr/lib/systemd}} (if the <code>split-usr</code> USE flag is unset), however the package manager ''should'' restrict itself to installing unit files in those directories, as per systemd's convention. The other locations are for unit files that are e.g. dynamically generated ({{Path|/run/systemd/system}}, etc.), installed by the administrator ({{Path|/etc/systemd/system}}, etc.), or from a package that has been installed without using the package manager ({{Path|/usr/local/lib/systemd/system}}, etc.). Users that prefer to also add those paths to <var>INSTALL_MASK</var> or the postsync hook can find the complete list [https://www.freedesktop.org/software/systemd/man/systemd.unit.html#Unit%20File%20Load%20Path here]}}
-
-For information about <var>INSTALL_MASK</var> or postsync hooks, please consult {{C|man make.conf}} and {{C|man portage}}, respectively.
-
-== Troubleshooting ==
-
-{{anchor|harddep}}
-
-=== Packages that unconditionally require systemd ===
-
-As long as systemd is [[#pkgmask|package masked]], it's impossible to install packages with a 'hard dependency' on it. Cases like this almost always happen by upstream's choice, so there is little Gentoo can do in a packager and distributor role to avoid that, short of developing a Gentoo-specific patch set and committing to its long-term maintenance across upstream's releases. So the most advisable course of action for a solution is to try contacting the upstream developer team directly: filing a bug report, contributing a patch, etc. Interested people must be aware that upstream's openness to accept such kinds of patches or bug reports may vary widely from project to project.
-
-Sometimes alternative packages with similar functionality and no hard dependency on systemd can be found.
-
-=== Checking if systemd is installed or not ===
-
-The {{C|equery}} program from [[Gentoolkit]] can be used to check if systemd is installed:
-{{Cmd|equery list sys-apps/systemd|
-output=<pre> * Searching for systemd in sys-apps ...
-!!! No installed packages matching 'sys-apps/systemd'</pre>}}
-
-Nowadays, getting systemd accidentally installed if the selected profile is a non-systemd one is hard, because of blockers that Portage cannot resolve with sys-fs/udev or sys-fs/eudev (i.e. the output of {{C|emerge}} will show <code>[blocks B      ]</code>), and with sys-apps/sysvinit because of the on-by-default state of the <code>sysv-utils</code> USE flag in recent versions of sys-apps/systemd<ref>News item [https://www.gentoo.org/support/news-items/2018-01-23-systemd-blocker.html "systemd sysv-utils blocker resolution"], January 1st, 2018. Retrieved on September 22nd, 2018.</ref>. Turning a Gentoo system installed from a sysvinit + OpenRC stage3 tarball into a systemd-based one requires an <kbd>emerge --newuse --deep @world</kbd> step with a particular USE flag setup as per [[Systemd#Profile|the installation instructions]], which is facilitated by systemd profiles. And if the package is somehow installed, actually running systemd as the init system requires a machine reboot with a suitable setup to either execute the {{C|systemd}} program as process 1 (e.g. an <code>init=</code> kernel parameter or a suitable [[initramfs]] setup), or have {{Path|/sbin/init}} be a symlink to {{C|systemd}}.
-
-Nevertheless, if systemd is accidentally installed, it is advised to get in touch with [https://www.gentoo.org/support Gentoo's support community] for help with its removal, because it might be a nontrivial task depending on why package got installed in the first place, and whether it is actually running as the init system, or just installed but inactive.
-
-== See also ==
-
-* {{See also|Hard dependencies on systemd}}
-
-== External resources ==
-
-* [https://forums.gentoo.org/viewtopic-t-1074786.html A thread in the Gentoo Forums] about using the <var>INSTALL_MASK</var> variable to prevent installation of systemd unit files.
-* [https://www.funtoo.org/FLOP:No-systemd_system Funtoo Linux Optimization Proposal: No-systemd system]
-* [https://without-systemd.org without-systemd.org]
-
-== References ==
-
-{{reflist}}
-[[Category:Init systems]]
+==Troubleshooting==
+Some packages do need systemd or udev specifically, masking systemd and udev will then prevent you from installing or upgrading these packages
