@@ -1,28 +1,24 @@
-<noinclude><languages />
-</noinclude>
+<languages />
 
-{{Metadata|abstract=LVM은 관리자가 파일 시스템과 사용중인 물리 저장소간의 추상 레이어를 제공하여 메타 장치를 만들 수 있도록 합니다.}}
-
-<noinclude>{{Confused|LLVM}}</noinclude>
+{{Metadata|abstract=LVM allows administrators to create meta devices that provide an abstraction layer between a file system and the physical storage that is used underneath.}}
 
 {{InfoBox stack
 |{{InfoBox wikipedia|Logical Volume Manager (Linux)|header=true}}
 }}
 
-'''LVM'''('''L'''ogical '''V'''olume '''M'''anager)은 관리자가 파일 시스템과 사용 중인 물리 저장소 사이의 추상 레이어를 제공하여 메타 장치를 만들 수 있게 합니다. (파일 시스템이 있는)메타 장치는 ''논리 볼륨''이며, 저장소 풀에서 사용하는 저장소를 ''볼륨 그룹'' 이라고 합니다. 볼륨 그룹은 데이터를 저장하는 하나 이상의 ''실제 장치''로 구성되어있습니다.
+'''LVM''' ('''L'''ogical '''V'''olume '''M'''anager) allows administrators to create meta devices that provide an abstraction layer between a file system and the physical storage that is used underneath. The meta devices (on which file systems are placed) are ''logical volumes'', which use storage from storage pools called ''volume groups''. A volume group is provisioned with one or more ''physical volumes'' which are the true devices on which the data is stored.
 
-물리 볼륨은 파티션으로 구성되어 있고, 전체 SATA 하드 디스크 드라이브는 JBOD('''J'''ust a '''B'''unch '''O'''f '''D'''isks), RAID 체계, iSCSI, 광 채널, eSATA 등으로 묶습니다.
+Physical volumes can be partitions, whole SATA hard drives grouped as JBOD ('''J'''ust a '''B'''unch '''O'''f '''D'''isks), RAID systems, iSCSI, Fibre Channel, eSATA etc.
 
-== 설치 ==
+== Installation ==
 
-LVM은 설정을 관리하기 위해 커널 수준의 드라이버와 사용자 영역 프로그램으로 다룹니다.
+LVM is handled by both kernel-level drivers and user space applications to manage the LVM configuration.
 
-=== 커널 ===
+=== Kernel ===
 
-다음 커널 옵션을 활성화하십시오:
+Activate the following kernel options:
 
-<div class="mw-translate-fuzzy">
-{{KernelBox|<pre>
+{{Kernel||<pre>
 Device Drivers  --->
    Multiple devices driver support (RAID and LVM)  --->
        <*> Device mapper support
@@ -33,421 +29,138 @@ Device Drivers  --->
            <*> I/O Path Selector based on the number of in-flight I/Os
            <*> I/O Path Selector based on the service time
 </pre>}}
-</div>
 
-{{Note/ko|모두 활성화 할 필요는 없습니다. 어떤 옵션은 [[#LVM2_Snapshots_and_LVM2_Thin_Snapshots|LVM2 스냅샷, LVM2 씬 스냅샷]], [[#.EB.AF.B8.EB.9F.AC.EB.A7.81_.EB.B3.BC.EB.A5.A8|LVM2 미러]], [[#.EC.8A.A4.ED.8A.B8.EB.9D.BC.EC.9D.B4.ED.95.91.28RAID0.29|LVM2 RAID 0/스트라이프 집합]], 암호화에 필요합니다.}}
+{{Note|Not everything needs to be enabled; some of the options are only needed for [[#LVM2_Snapshots_and_LVM2_Thin_Snapshots|LVM2 Snapshots and LVM2 Thin Snapshots]], [[#LVM2_Mirrors|LVM2 Mirrors]], [[#LVM2_RAID_0.2FStripeset|LVM2 RAID 0/Stripeset]] and encryption.}}
 
-<div class="mw-translate-fuzzy">
-=== 프로그램 ===
-</div>
+=== Software ===
 
-{{USEflag|package=sys-fs/lvm2}}
+Install {{Package|sys-fs/lvm2}}:
 
-=== Emerge ===
+{{USEflag|package=sys-fs/lvm2
+|clvm
+|cman
+|lvm1+yes
+|readline+yes
+|selinux++no
+|static
+|static-libs
+|thin+yes
+|udev+yes
+}}
 
-After reviewing the USE flags, ask Portage to install the {{Package|sys-fs/lvm2}} package:
-
-<div class="mw-translate-fuzzy">
 {{Emerge|lvm2}}
-</div>
 
+== Configuration ==
 
-=== Handbook ===
+Configuring LVM is done on several levels:
+# LV, PV and VG management through the management utilities
+# LVM subsystem fine-tuning through the configuration file
+# service management at the distribution level
+# setup through an initial ram file system
 
-The handbook does not contain specific steps for installing Gentoo using LVMs. The following steps complement the handbook.
+Management of the logical and physical volumes as well as the volume groups is handled through the [[#Usage|Usage]] chapter.
 
+=== LVM configuration file ===
 
-==== Preparing the disks ====
+LVM has an extensive configuration file at {{Path|/etc/lvm/lvm.conf}}. Most users will not need to modify settings in this file in order to start using LVM.
 
-To stick with the handbook partitioning theme the following scheme will be used:
+=== Service management ===
 
-{| width="100%"
-! align="left"|Partition
-! Filesystem
-! Size
-! Description
-|-
-|/dev/sda1
-|(bootloader)
-|2M
-|BIOS boot partition
-|-
-|/dev/sda2
-|ext2 (or fat32 if UEFI is being used)
-|128M
-|Boot/EFI system partition
-|-
-|/dev/sda3
-|LVM
-|Rest of the disk 
-|LVM Volume Group
-|}
+Gentoo provides the LVM service to automatically detect and activate the volume groups and logical volumes.
 
-
-The Logical Volume ''vg01'' will then be used for the ''Swap'' and ''Root'' partitions:
-
-{| width="100%"
-! align="left"|Logical Volume Name
-! Filesystem
-! Size
-! Description
-|-
-|swap
-|(swap)
-|512M or higher
-|Swap partition
-|-
-|rootfs
-|ext4
-|Rest of the volume group
-|Root partition
-|}
-
-
-===== Using parted to partition the disk =====
-
-{{RootCmd|parted -a optimal /dev/sda
-GNU Parted 2.3
-Using /dev/sda
-Welcome to GNU Parted! Type 'help' to view a list of commands.}}
-
-
-===== Setting the GPT label =====
-
-{{RootCmd|prompt=(parted)|color=white|mklabel gpt}}
-
-===== Creating the partitions =====
-
-Now create a 2 MB partition that will be used by the GRUB2 boot loader later.
-
-{{RootCmd|prompt=(parted)|color=white|mkpart primary 1 3
-|name 1 grub
-|set 1 bios_grub on}}
-
-Do the same for the boot partition (128 MB).
-
-{{RootCmd|prompt=(parted)|color=white|mkpart primary 3 131
-|name 2 boot
-|set 2 boot on}}
-
-Now create the partition 3 with the ''lvm'' flag using the remaining space:
-
-{{RootCmd|prompt=(parted)|color=white|mkpart primary 131 -1
-|name 3 lvm01
-|set 3 lvm on}}
-
-The end result looks like so: 
-
-{{RootCmd|prompt=(parted)|color=white|print
-Model: VMware Virtual disk (scsi)
-Disk /dev/sda: 17.2GB
-Sector size (logical/physical): 512B/512B
-Partition Table: gpt
-Disk Flags: 
-
-Number  Start   End     Size    File system  Name   Flags
- 1      1049kB  3146kB  2097kB               grub   bios_grub
- 2      3146kB  131MB   128MB                boot   boot, esp
- 3      131MB   17.2GB  17.0GB               lvm01  lvm
-}}
-
-===== Creating the physical volume =====
-
-This creates a physical volume that will be used to store the volume group on:
-
-{{RootCmd|pvcreate /dev/sda3
-  Physical volume "/dev/sda3" successfully created.
-}}
-
-
-===== Creating the volume group =====
-
-This creates a volume that will be used to store the logical volumes on:
-
-{{RootCmd|vgcreate vg01 /dev/sda3
-  Volume group "vg01" successfully created
-}}
-
-
-===== Creating the logical volumes =====
-
-This creates the logical volume for the swap of 512M:
-
-{{RootCmd|lvcreate -L 512M -n swap vg01
-  Logical volume "swap" created.
-}}
-
-This creates the logical volume for the root filesystem using the remaining space:
-
-{{RootCmd|lvcreate -l 100%VG -n rootfs vg01
-  Logical volume "rootfs" created.
-}}
-
-===== Creating the filesystems =====
-
-Create the boot partition (/dev/sda2) in ext2:
-
-{{RootCmd|mkfs.ext2 /dev/sda2}}
-
-Create the root partition (/dev/vg01/rootfs) in ext4:
-
-{{RootCmd|mkfs.ext4 /dev/vg01/rootfs}}
-
-
-===== Activating the swap partition =====
-
-Make the swap partition (/dev/vg01/swap):
-
-{{RootCmd|mkswap /dev/vg01/swap}}
-
-Activate the swap partition:
-
-{{RootCmd|swapon /dev/vg01/swap}}
-
-
-===== Mounting the root partition =====
-
-Mount the root partition:
-
-{{RootCmd|mount /dev/vg01/rootfs /mnt/gentoo}}
-
-
-==== Configuring the Linux kernel ====
-
-You will need to build an initramfs so the LVM can be mounted. After installing '''make install''' command execute the following:
-
-{{RootCmd|emerge --ask sys-kernel/genkernel}}
-
-{{RootCmd|genkernel --lvm --install initramfs}}
-
-
-==== Configuring the system ====
-
-Edit the {{Path|/etc/fstab}} file:
-
-{{RootCmd|nano -w /etc/fstab}}
-
-Here is a the {{Path|/etc/fstab}} file contents for this guide:
-
-{{FileBox|filename=/etc/fstab|title=A full /etc/fstab example|lang=bash|1=
-/dev/sda2          /boot        ext2    defaults,noatime     0 2
-/dev/vg01/swap     none         swap    sw                   0 0
-/dev/vg01/rootfs   /            ext4    noatime              0 1
- 
-/dev/cdrom  /mnt/cdrom   auto    noauto,user          0 0
-}}
-
-
-==== Configuring the bootloader ====
-
-===== Emerge =====
-
-GRUB needs to be compiled with ''device-mapper'', execute the following command first:
-
-{{RootCmd|echo 'sys-boot/grub:2 device-mapper' >> /etc/portage/package.use/package.use}}
-
-
-===== Install =====
-
-Now install GRUB:
-
-{{RootCmd|emerge --ask --verbose sys-boot/grub:2}}
-* When using BIOS:
-{{RootCmd|grub-install /dev/sda
-Installing for i386-pc platform.
-Installation finished. No error reported.}}
-* When using UEFI:
-{{RootCmd|grub-install -target{{=}}x86_64-efi --efi-directory{{=}}/boot}}
-
-===== Configure =====
-
-The <code>dolvm</code> option needs to be enabled for <code>GRUB_CMDLINE_LINUX_DEFAULT</code> in the {{Path|/etc/default/grub}} file, edit it:
-
-{{RootCmd|nano -w /etc/default/grub}}
-
-
-Configure the option:
-
-{{FileBox|filename=/etc/default/grub|title=GRUB_CMDLINE_LINUX_DEFAULT option|lang=bash|1=
-GRUB_CMDLINE_LINUX_DEFAULT="dolvm"}}
-
-
-Now generate the GRUB2 configuration:
-
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg
-Generating grub configuration file ...
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-Found linux image: /boot/vmlinuz-4.12.12-gentoo
-Found initrd image: /boot/initramfs-genkernel-x86_64-4.12.12-gentoo
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-  /run/lvm/lvmetad.socket: connect failed: No such file or directory
-  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
-done
-}}
-
-{{Note|You can ignore these WARNINGS:
-<code>/run/lvm/lvmetad.socket: connect failed: No such file or directory
-WARNING: Failed to connect to lvmetad. Falling back to internal scanning.</code>
-}}
-
-
-===== Reboot =====
-
-You can now reboot the system, it should boot up OK.
-
-
-==== Fixing a non-booting system ====
-
-If your system doesn't boot you will need to boot back to the installation medium to resolve the issues. Executing the following commands will allow you to make any changes using the guide:
-
-{{RootCmd|vgchange -ay vg01
-|swapon /dev/vg01/swap
-|mount /dev/vg01/rootfs /mnt/gentoo
-|mount -t proc /proc /mnt/gentoo/proc
-|mount --rbind /sys /mnt/gentoo/sys
-|mount --make-rslave /mnt/gentoo/sys 
-|mount --rbind /dev /mnt/gentoo/dev 
-|mount --make-rslave /mnt/gentoo/dev}}
-{{RootCmd|chroot /mnt/gentoo /bin/bash
-|source /etc/profile
-|export PS1="(chroot) $PS1"
-|mount /dev/sda2 /boot}}
-
-== 설정 ==
-
-LVM 설정은 다음 몇가지 단계에서 처리할 수 있습니다:
-# 관리 유틸리티를 통한 LV, PV, VG 관리
-# 설정 파일을 통한 LVM 하위시스템 세부 설정
-# 분산 수준 서비스 관리
-# 초기화 램 파일 시스템(initramfs) 설정
-
-논리, 물리 볼륨 및 볼륨 그룹의 관리는 [[#Usage|사용법]] 장에서 다룹니다.
-
-=== LVM 설정 파일 ===
-
-LVM은 {{Path|/etc/lvm/lvm.conf}}에 더 많이 설정할 수 있는 파일이 있습니다. 대부분의 사용자는 LVM 사용을 시작하는데 이 파일의 설정을 수정할 필요가 없습니다.�
-
-=== 서비스 관리 ===
-
-젠투에서는 볼륨 그룹과 논리 볼륨을 자동으로 감지하고 활성화 하는 LVM 서비스를 제공합니다.
-
-서비스는 init 시스템에서 관리할 수 있습니다.
+The service can be managed through the init system.
 
 ==== openrc ====
 
-LVM을 별도로 시작하려면:
+To start LVM manually:
 
 {{RootCmd|/etc/init.d/lvm start}}
 
-부팅시 LVM을 시작하려면:
+To start LVM at boot time:
 
 {{RootCmd|rc-update add lvm boot}}
 
 ==== systemd ====
 
-lvm을 별도로 시작하려면:
+To start lvm manually:
 
 {{RootCmd|systemctl start lvm2-monitor.service}}
 
-부팅할 때 LVM을 시작하려면:
+To start LVM at boot time:
 
 {{RootCmd|systemctl enable lvm2-monitor.service}}
 
-=== initramfs에서 LVM 사용하기 ===
+=== Using LVM in an initramfs ===
 
-대부분의 부트 로더는 LVM에서 직접 부팅할 수 있습니다. 기존의 GRUB은 물론이고 LILO에서도 안됩니다. Grub2는 LVM 선형 논리 볼륨, 미러링한 논리 볼륨, 몇가지 RAID 논리 볼륨으로 부팅할 수 있습니다. 씬 논리 볼륨을 지원하는 부트로더는 없습니다. 
+Most bootloaders cannot boot from LVM directly - neither GRUB legacy nor LILO can. Grub 2 CAN boot from an LVM linear logical volume, mirrored logical volume and possibly some kinds of RAID logical volumes. No bootloader currently support thin logical volumes. 
 
-이런 이유로, /boot 파티션은 비 LVM 파티션으로 사용하고 initramfs에서 LVM 루트를 마운트하는 방식을 권장합니다. initramfs 같은 요소는 [[Genkernel|genkernel]], {{Package|sys-kernel/genkernel-next}}, [[dracut]]에서 자동으로 만들 수 있습니다:
+For that reason, it is recommended to use a non-LVM /boot partition and mount the LVM root from an initramfs. Such an initramfs can be generated automatically through [[Genkernel|genkernel]], genkernel-next and [[dracut]]:
 
-* {{c|genkernel}}은 씬 볼륨(빌드 호스트에서 나온 thin-provisioning-tools 바이너리 사본이나 빌드도 마찬가지로)과 RAID10(RAID10은 LVM10 2.02.98을 필요로 하겠지만, genkernel은 2.02.89를 빌드하는데, 정적 바이너리가 있다면 복사할 수 있습니다)을 제외한 모든 형식의 파티션에서 부팅할 수 있습니다.
-* {{c|genkernel-next}}에서는 모든 형식의 볼륨에서 부팅할 수 있습니다만, 충분히 최신의 {{Package|app-misc/pax-utils}}가 필요하며, 그렇지 않으면 씬 바이너리가 깨집니다({{Bug|482504}} 참고)
-* {{c|dracut}}은 모든 형식의 볼륨에서 부팅하지만, 씬 루트가 있는 상태에서 호스트가 동작하는 경우 initramfs에서 씬을 지원하는 호스트에서만 부팅합니다.
+* '''genkernel''' can boot from all types except thin volumes (as it neither builds nor copies the thin-provisioning-tools binaries from the build host) and maybe RAID10 (RAID10 support requires LVM2 2.02.98, but genkernel builds 2.02.89, however if static binaries are available it can copy those) 
+* '''genkernel-next''' can boot from all types volumes. but needs a new enough app-misc/pax-utils or the resulting thin binaries will be broken (See {{Bug|482504}}) 
+* '''dracut''' should boot all types, but only includes thin support in the initramfs if the host being run on has a thin root.
 
 ==== Genkernel/Genkernel-next ====
 
-{{Package|sys-kernel/genkernel}} 또는 {{Package|sys-kernel/genkernel-next}} 둘 중 하나를 이머지하십시오. {{Package|sys-fs/lvm2}} 패키지를 이머지할 때는 static USE 플래그를 활성화하여 genkernel이 시스템 바이너리를 사용할 수 있게 하십시오(그렇지 않으면 자체 사본을 만듭니다). 다음 예제에서는 initramfs(전체 커널 아님)만 빌드하며 LVM 지원을 활성화합니다.
+Emerge either {{Package|sys-kernel/genkernel}} or {{Package|sys-kernel/genkernel-next}}. The static USE flag may also be enabled on the package {{Package|sys-fs/lvm2}} so that genkernel will use the system binaries (otherwise it will build its own private copy). The following example will build only an initramfs (not an entire kernel) and enable support for lvm.
 
 {{RootCmd|genkernel --lvm initramfs}}
 
-genkernel 맨페이지에서는 시스템 요구사항에 따라 다른 옵션을 설명합니다.
+The genkernel manpage outlines other options depending on system requirements.
 
-initrd는 LVM 시작 방법을 알리는 매개 변수가 필요하며, 다른 커널 매개 변수를 넣는 동일한 방식으로 처리합니다. 예를 들면:
+The initrd will require parameters to tell it how to start lvm, and they are supplied the same way as other kernel parameters.  For example:
 
-{{FileBox|filename=/etc/default/grub|title=dolvm을 커널 부팅 매개변수로 넣기|lang=bash|1=
+{{File|/etc/default/grub|Adding dolvm as a kernel boot parameter|<pre>
 GRUB_CMDLINE_LINUX="dolvm"
-}}
+</pre>}}
 
 ==== Dracut ====
 
-{{Package|sys-kernel/dracut}} 꾸러미는 레드햇 프로젝트에서 이식했으며, initramfs를 만드는 유사한 도구를 제공합니다. 시험 목적으로 ~arch 상태에 있기 때문에 이머지를 하려면 사용자 여러분은( {{Path|/etc/portage/package.accept_keywords}} 에서)[[Knowledge_Base:Accepting_a_keyword_for_a_single_package|이 글대로 하셔야합니다]]. 이 과정을 수행하기 전에 {{Path|/etc/portage/make.conf}}에 <code>DRACUT_MODULES="lvm"</code>를 추가해야 합니다. 다른 모듈을 사용한다면, [[Dracut]]을 참고하십시오. 보통 다음 명령을 통해, 활용 가능한 기본 initramfs를 만듭니다.
+The {{Package|sys-kernel/dracut}} package was ported from the RedHat project and serves a similar tool for generating an initramfs. Since it is currently in ~arch for testing, users will need to [[Knowledge_Base:Accepting_a_keyword_for_a_single_package|accept it]] (through {{Path|/etc/portage/package.accept_keywords}}) to emerge it.  Before doing so, the variable <code>DRACUT_MODULES="lvm"</code> should be added to {{Path|/etc/portage/make.conf}}.  Other modules may be desired, please refer to [[Dracut]]. Generally, the following command will generate a usable default initramfs.
 
 {{RootCmd|dracut -a lvm}}
 
-initrd는 LVM 시작 방법을 알리는 매개 변수가 필요하며, 다른 커널 매개 변수를 넣는 동일한 방식으로 처리합니다. 예를 들면:
+The initrd will require parameters to tell it how to start lvm, and they are supplied the same way as other kernel parameters.  For example:
 
-{{FileBox|filename=/etc/default/grub|title=LVM 지원을 커널 부팅 매개변수로 넣기|lang=bash|1=
+{{File|/etc/default/grub|Adding LVM support to the kernel boot parameters|<pre>
 GRUB_CMDLINE_LINUX="rd.lvm.vg=vol00"
-}}
+</pre>}}
 
-{{c|dracut}}에서 활용하는 LVM 옵션 실제 목록을 보려면 [https://www.kernel.org/pub/linux/utils/boot/dracut/dracut.html#_lvm Dracut 설명서]의 LVM 장을 참고하십시오.
+For a comprehensive list of lvm options within dracut please see the section in the [https://www.kernel.org/pub/linux/utils/boot/dracut/dracut.html#_lvm Dracut Manual].
 
-== 사용법 ==
+== Usage ==
 
-LVM은 다음 세가지 레벨의 저장소로 구성되어 있습니다:
-* 하드 디스크 드라이브, 파티션, RAID 시스템 또는 저장소의 다른 개념을 물리 볼륨(PV)으로 초기화합니다
-* 물리 볼륨(PV)은 볼륨 그룹(VG)으로 묶습니다
-* 논리 볼륨(LV)은 볼륨 그룹(VG)에서 관리합니다
+LVM organizes storage in three different levels as follows:
+* hard drives, partitions, RAID systems or other means of storage are initialized as physical volumes (PVs)
+* Physical Volumes (PV) are grouped together in Volume Groups (VG)
+* Logical Volumes (LV) are managed in Volume Groups (VG)
 
-=== PV(물리 볼륨) ===
-물리 볼륨은 LVM을 구축할 실제 하드웨어 또는 저장장치 입니다.
+=== PV (Physical Volume) ===
+Physical Volumes are the actual hardware or storage system LVM builds up upon.
 
-==== 공간 분할 ====
+==== Partitioning ====
 
-{{Note/ko|단일 LVM 볼륨 그룹에 대해 전체 디스크를 활용하고 싶지 않을 경우에만 볼륨 그룹으로 저장소를 관리하려는 목적의 각 분할 공간 활용이 필요합니다. 전체 디스크를 활용할 가능성이 있다면 이 단계를 건너뛰고 전체 하드디스크 드라이브를 물리 볼륨으로 초기화 하십시오.}}
+{{Note|Using separate partitions for provisioning storage to volume groups is only needed if it is not desired to use the entire disk for a single LVM volume group. If the entire disk can be used, then skip this and initialize the entire hard drive as a physical volume.}}
 
-''LVM''의 분할 공간 형식은 ''8e''(Linux LVM)입니다.
+The partition type for ''LVM'' is ''8e'' (Linux LVM).
 
-가령,  {{c|fdisk}}로 {{Path|/dev/sda}}의 파티션을 설정한다면:
+For instance, to set the type through <code>fdisk</code> for a partition on {{Path|/dev/sda}}:
 
 {{RootCmd|fdisk /dev/sda}}
 
-{{c|fdisk}}에서, 분할 공간을 만들려면 {{Key|n}}키를 사용하고, {{Key|t}}키를 사용하여 분할 공간 형식을 ''8e''로 바꾸십시오.
+In <code>fdisk</code>, create partitions using the '''n''' key and then change the partition type with the '''t''' key to ''8e''.
 
-=== PV 만들기 ===
+==== Create PV ====
 
-물리 볼륨은 {{c|pvcreate}}명령으로 만들고 초기화 할 수 있습니다.
+Physical volumes can be created / initialized with the <code>pvcreate</code> command.
 
-가령, 다음 명령을 사용하면 {{Path|/dev/sda}}와 {{Path|/dev/sdb}}의 첫번째 처음 파티션의 물리 볼륨을 만듭니다:
+For instance, the following command creates a physical volume on the first primary partition of {{Path|/dev/sda}} and {{Path|/dev/sdb}}:
 
 {{RootCmd|pvcreate /dev/sd[ab]1}}
 
-==== PV 목록 표시 ====
+==== List PV ====
 
-{{c|pvdisplay}} 명령으로 시스템에 활성화 된 모든 물리 볼륨의 개요를 볼 수 있습니다.
+With the <code>pvdisplay</code> command, an overview of all active physical volumes on the system can be obtained.
 
 {{RootCmd|pvdisplay|output=<pre>
  --- Physical volume ---
@@ -473,7 +186,7 @@ LVM은 다음 세가지 레벨의 저장소로 구성되어 있습니다:
   PV UUID               b031x0-6rej-BcBu-bE2C-eCXG-jObu-0Boo0x
 </pre>}}
 
-더 많은 물리 볼륨을 표시해야 한다면, {{c|pvscan}} 명령으로 비활성화된 물리 볼륨을 감지하고, 활성화 할 수 있습니다.
+If more physical volumes should be displayed, then <code>pvscan</code> can detect inactive physical volumes and activate those.
 
 {{RootCmd|pvscan|output=<pre>
   PV /dev/sda1  VG volgrp        lvm2 [160.01 GiB / 16.01 GiB free]
@@ -481,33 +194,33 @@ LVM은 다음 세가지 레벨의 저장소로 구성되어 있습니다:
   Total: 2 [320.02 GB] / in use: 2 [320.02 GiB] / in no VG: 0 [0]
 </pre>}}
 
-==== PV 제거 ====
+==== Remove PV ====
 
-LVM은 (다른 방식을 언급하지 않는 한)존재하는 모든 물리 볼륨에 데이터를 넣는데, 연속적인 접근 방식으로 넣습니다. (볼륨 그룹 내)논리 볼륨 논리 볼륨이 단일 물리 볼륨의 남은 공간보다 적다면, 논리 볼륨의 모든 공간을 (단일) 물리 볼륨에 연속적인 형태로 위치하도록 합니다. 이러한 조치는 성능상 이유로 처리됩니다.
+LVM automatically distributes the data onto all available physical volumes (unless told otherwise) but in a linear approach. If a requested logical volume (within a volume group) is smaller than the amount of free space on a single physical volume, then all space for the logical volume is claimed on that (single) physical volume in a contiguous manner. This is done for performance reasons.
 
-볼륨 그룹에서 물리 볼륨을 제거해야 한다면, 물리 볼륨에서 데이터를 먼저 이동해야 합니다. {{c|pvmove}} 명령을 사용하면, 동일한 볼륨 그룹 내에서 물리 볼륨의 모든 데이터를 다른 물리 볼륨으로 이동합니다.
+If a physical volume needs to be removed from a volume group, the data first needs to be moved away from the physical volume. With the <code>pvmove</code> command, all data on a physical volume is moved to other physical volumes within the same volume group.
 
 {{RootCmd|pvmove -v /dev/sda1}}
 
-이런 과정은 옮겨야 하는 데이터의 양에 따라 시간이 걸릴 수 있습니다. 이 과정이 끝나면, 장치에 남은 데이터가 없어야 합니다. {{c|pvdisplay}} 명령으로 물리 볼륨을 어떤 논리 볼륨에서도 더 이상 사용하지 않는지 확인하십시오.
+Such an operation can take a while depending on the amount of data that needs to be moved. Once finished, there should be no data left on the device. Verify with <code>pvdisplay</code> that the physical volume is no longer used by any logical volume.
 
-다음 단계는 {{c|vgreduce}} 명령으로 볼륨 그룹에서 물리 볼륨을 제거할 차례이며, {{c|pvremove}} 명령으로 물리 볼륨의 ''선택을 해제'' 할 수 있습니다.
+The next step is to remove the physical volume from the volume group using <code>vgreduce</code> after which the device can be "deselected" as a physical volume using <code>pvremove</code>:
 
 {{RootCmd|vgreduce vg0 /dev/sda1 && pvremove /dev/sda1}}
 
-=== VG(볼륨 그룹) ===
+=== VG (Volume Group) ===
 
-볼륨 그룹(VG)은 수많은 물리 볼륨을 묶고 장치 파일 시스템에 {{Path|/dev/VG_NAME}}와 같은 식으로 보여줍니다. 볼륨 그룹의 이름은 관리자가 선택합니다.
+A volume group (VG) groups a number of physical volumes and show up as {{Path|/dev/VG_NAME}} in the device file system. The name of a volume group is chosen by the administrator.
 
-==== VG 만들기 ====
+==== Create VG ====
 
-다음 명령은 {{Path|/dev/sda1}}과 {{Path|/dev/sdb1}} 물리 볼륨을 묶어 ''vg0''이라 하는 볼륨 그룹을 만듭니다.
+The following command creates a volume group called ''vg0'' with two physical volumes assigned to it: {{Path|/dev/sda1}} and {{Path|/dev/sdb1}}.
 
 {{RootCmd|vgcreate vg0 /dev/sd[ab]1}}
 
-==== VG 목록 표시 ====
+==== List VG ====
 
-모든 활성화 볼륨 그룹의 목록을 표시하려면, {{c|vgdisplay}} 명령을 사용하십시오:
+To list all active volume groups, use the <code>vgdisplay</code> command:
 
 {{RootCmd|vgdisplay|output=<pre>
   --- Volume group ---
@@ -532,471 +245,463 @@ LVM은 (다른 방식을 언급하지 않는 한)존재하는 모든 물리 볼�
   VG UUID               mFPXj3-DdPi-7YJ5-9WKy-KA5Y-Vd4S-Lycxq3
 </pre>}}
 
-볼륨 그룹이 빠져있으면 볼륨 그룹을 찾아 가리키는 {{c|vgscan}} 명령을 사용하십시오:
+If volume groups are missing, use the <code>vgscan</code> command to locate volume groups:
 
 {{RootCmd|vgscan|output=<pre>
   Reading all physical volumes.  This may take a while...
   Found volume group "vg0" using metadata type lvm2
 </pre>}}
 
-==== VG 확장 ====
+==== Extend VG ====
 
-볼륨 그룹은 관리자가 파일 시스템에 할당하는 저장소 자원 풀을 사용하도록 하며, 물리 볼륨을 묶습니다. 볼륨 그룹이 충분한 저장소 자원을 가지지 않았다면, 추가 물리 볼륨에 대해 볼륨 그룹을 확장할 필요가 있습니다.
+Volume groups group physical volumes, allowing administrators to use a pool of storage resources to allocate to file systems. When a volume group does not hold enough storage resources, it is necessary to extend the volume group with additional physical volumes.
 
-다음 예제 에서는 ''vg0'' 그룹을  {{Path|/dev/sdc1}} 물리 볼륨으로 확장합니다:
+The next example extends the volume group ''vg0'' with a physical volume at {{Path|/dev/sdc1}}:
 
 {{RootCmd|vgextend vg0 /dev/sdc1}}
 
-물리 볼륨을 각각 준비해야 함을 기억하십시오!
+Remember that the physical volume first needs to be initialized as such!
 
-==== VG 줄이기 ====
+==== Reduce VG ====
 
-논리 볼륨을 볼륨 그룹에서 제거해야 한다면, 물리 볼륨에서 사용중인 모든 데이터를 볼륨 그룹의 다른 물리 볼륨으로 이동해야 합니다. 앞에서 보신 바와 같이, {{c|pvmove}} 명령으로 처리할 수 있으며, 그 다음에 {{c|vgreduce}} 명령으로 볼륨 그룹에서 물리 볼륨을 제거할 수 있습니다:
+If physical volumes need to be removed from the volume group, all data still in use on the physical volume needs to be moved to other physical volumes in the volume group. As seen before, this is handled through the <code>pvmove</code> command, after which the physical volume can be removed from the volume group using <code>vgreduce</code>:
 
 {{RootCmd|pvmove -v /dev/sdc1
 |vgreduce vg0 /dev/sdc1}}
 
-==== VG 제거 ====
+==== Remove VG ====
 
-볼륨 그룹이 더 이상 필요하지 않다면(또는, 다른 말로, 저장소 풀을 더이상 사용하지 않으며, 다른 목적으로 물리 볼륨을 해제해야 할 경우), {{c|vgremove}} 명령으로 볼륨 그룹을 제거할 수 있습니다. 볼륨 그룹에 정의한 논리 볼륨이 없고 하나의 완전한 물리 볼륨을 풀에서 제거 했을 경우에만 동작합니다.
+If a volume group is no longer necessary (or, in other words, the storage pool that it represents is no longer used and the physical volumes in it need to be freed for other purposes) then the volume group can be removed with <code>vgremove</code>. This only works if no logical volume is defined for the volume group, and all but one physical volume have already been removed from the pool.
 
 {{RootCmd|vgremove vg0}}
 
-=== LV(논리 볼륨) ===
+=== LV (Logical Volume) ===
 
-논리 볼륨은 시스템에 존재하는 최종 메타 장치이며, 보통 파일 시스템에 만듭니다. 볼륨 그룹에 만들고 관리하며 {{Path|/dev/VG_NAME/LV_NAME}} 형식으로 나타납니다. 볼륨 그룹처럼, 논리 볼륨에 사용하는 이름은 관리자가 결정합니다.
+Logical volumes are the final meta devices which are made available to the system, usually to create file systems on. They are created and managed in volume groups and show up as {{Path|/dev/VG_NAME/LV_NAME}}. Like with volume groups, the name used for a logical volume is decided by the administrator.
 
-==== LV 만들기 ===
+==== Create LV ====
 
-논리 볼륨을 만들려면 {{c|lvcreate}} 명령을 사용합니다. 명령의 매개 변수는 논리 볼륨에 요청하는 크기(볼륨 그룹의 남은 공간 용량보다 클 수 없음), 요청한 볼륨 그룹, 만들 논리 볼륨 공간의 이름으로 구성됩니다.
+To create a logical volume, the <code>lvcreate</code> command is used. The parameters to the command consist out of the requested size for the logical volume (which cannot be larger than the amount of free space in the volume group), the volume group from which the space is to be claimed and the name of the logical volume to be created.
 
-다음 예제에서는 ''vg0'' 볼륨 그룹에 150MB 용량의 ''lvol1'' 논리 볼륨을 만듭니다:
+In the next example, a logical volume named ''lvol1'' is created from the volume group named ''vg0'' and with a size of 150MB:
 
 {{RootCmd|lvcreate -L 150M -n lvol1 vg0}}
 
-{{c|lvcreate}} 명령으로 볼륨 그룹 내의 모든 남은 용량을 사용하도록 할 수 있습니다. (판독할 수 있는) 크기를 적기보다는 ''확장 용량'' 모두를 선택하는 ''-l'' 매개 변수로 처리할 수 있습니다. 논리 볼륨은 볼륨 그룹 내의 데이터 덩어리인 ''논리 확장''으로 나뉩니다. 모든 논리 그룹의 확장은 동일한 크기를 갖습니다. ''-l'' 매개 변수를 활용하면 {{c|lvcreate}} 명령으로 전체 남은 확장 공간을 할당하도록 요청할 수 있습니다.
+It is possible to tell <code>lvcreate</code> to use all free space inside a volume group. This is done through the ''-l'' parameter which selects the amount of ''extents'' rather than a (human readable) size. Logical volumes are split into ''logical extents'' which are data chunks inside a volume group. All extents in a volume group have the same size. With the ''-l'' parameter <code>lvcreate</code> can be asked to allocate all free extents:
 
 {{RootCmd|lvcreate -l 100%FREE -n lvol1 vg0}}
 
-''FREE'' 다음에 ''VG'' 키를 사용하여 볼륨 그룹의 전체 크기를 표시할 수 있습니다.
+Next to ''FREE'' the ''VG'' key can be used to denote the entire size of a volume group.
 
-==== LV 목록 표시 ====
+==== List LV ====
 
-모든 논리 볼륨 내용을 표시하려면 {{c|lvdisplay}} 명령을 사용하십시오:
+To list all logical volumes, use the <code>lvdisplay</code> command:
 
 {{RootCmd|lvdisplay}}
 
-논리 볼륨이 빠져있다면, {{c|lvscan}} 명령으로 존재하는 모든 볼륨 그룹의 논리 볼륨을 검색할 수 있습니다.
+If logical volumes are missing, then the <code>lvscan</code> command can be used to scan for logical volumes on all available volume groups.
 
 {{RootCmd|lvscan}}
 
-==== LV 확장 ====
+==== Extend LV ====
 
-논리 볼륨을 확장하려면, {{c|lvextend}} 명령으로 논리 볼륨에 할당한 공간을 늘릴 수 있습니다.
+When a logical volume needs to be expanded, then the <code>lvextend</code> command can be used to grow the allocated space for the logical volume.
 
-가령, 논리 볼륨 ''lvol1''의 전체 용량을 500MB로 확장하려면:
+For instance, to extend the logical volume ''lvol1'' to a total of 500 MB:
 
 {{RootCmd|lvextend -L500M /dev/vg0/lvol1}}
 
-전체 용량보다 더 큰 용량을 추가할 수도 있습니다:
+It is also possible to use the size to be added rather than the total size:
 
 {{RootCmd|lvextend -L+350MB /dev/vg0/lvol1}}
 
-확장 볼륨 그룹은 최종 사용자에게 추가 저장소로서 바로 제공할 수 없습니다. 그렇기에, 볼륨 그룹의 최상단에 있는 파일 시스템을 마찬가지로 늘려야 합니다. 마운트한 상태에서 모든 파일 시스템의 크기를 조정할 수 있는 것은 아니기에, 파일 시스템의 궁금증에 대해 더 많은 내용을 살펴보려면 문서를 확인하십시오.
+An extended volume group does not immediately provide the additional storage to the end users. For that, the file system on top of the volume group needs to be increased in size as well. Not all file systems allow online resizing, so check the documentation for the file system in question for more information.
 
-가령, ext4 파일 시스템ㅁ의 크기를 500MB 크기로 조절하려면:
+For instance, to resize an ext4 file system to become 500MB in size:
 
-{{RootCmd|resize2fs /dev/vg0/lvol1 500M}}
+{{RootCmd|resize2fs /mnt/data 500M}}
 
-For certain file systems, ''lvreseize'' extends the logical volume and the file system in one step. For instance, to extend the logical volume ''lvol1'' and resize the ext4 file system: 
+==== Reduce LV ====
 
-{{RootCmd|lvresize --resizefs --size +350GB /dev/vg0/lvol1}}
+If a logical volume needs to be reduced in size, first shrink the file system itself. Not all file systems support online shrinking.
 
-==== LV 줄이기 ====
-
-논리 볼륨의 크기를 줄여야 한다면, 먼저 파일 시스템 자체의 크기를 줄이십시오. 모든 파일 시스템이 마운트한 상태에서 용량 줄이기 기능을 지원하는 것은 아닙니다.
-
-가령, ext4는 마운트한 상태에서 용량 줄이는 기능을 지우너하지 않으므로, 먼저 파일 시스템의 마운트를 해제해야합니다. 그리고 파일 시스템을 검사하여 파일 시스템의 무결성 확인을 추천합니다:
+For instance, ext4 does not support online shrinking so the file system needs to be unmounted first. It is also recommended to do a file system check to make sure there are no inconsistencies:
 
 {{RootCmd|umount /mnt/data
 |e2fsck -f /dev/vg0/lvol1
 |resize2fs /dev/vg0/lvol1 150M}}
 
-용량이 줄어든 파일 시스템을 통해, 마찬가지로, 이제 논리 볼륨의 용량을 줄일 수 있습니다:
+With a reduced file system, it is now possible to reduce the logical volume as well:
 
 {{RootCmd|lvreduce -L150M /dev/vg0/lvol1}}
 
-==== LV 사용 권한 ====
+==== LV Permissions ====
 
-LVM에서는 논리 볼륨에 대해 권한 상태 조정 기능을 지원합니다.
+LVM supports permission states on the logical volumes.
 
-가령, {{c|lvchange}} 명령으로 논리 볼륨을 ''읽기 전용'' 상태로 설정할 수 있습니다:
+For instance, a logical volume can be set to ''read only'' using the <code>lvchange</code> command:
 
 {{RootCmd|lvchange -p r /dev/vg0/lvol1
 |mount -o remount /dev/vg0/lvol1}}
 
-바뀐 내용을 즉시 강제로 적용하지 않았기 때문에 다시 마운트해야 합니다.
+The remount is needed as the change is not enforced immediately.
 
-논리 볼륨을 쓰기 가능상태로 다시 처리하려면 ''rw'' 퍼미션 비트를 사용하십시오:
+To mark the logical volume as writable again, use the ''rw'' permission bit:
 
 {{RootCmd|lvchange -p rw /dev/vg0/lvol1 && mount -o remount /dev/vg0/lvol1}}
 
-==== LV 제거 ====
+==== Remove LV ====
 
-논리 볼륨을 제거하기 전에 더이상 마운트한 볼륨이 없는지 확인하십시오:
+Before removing a logical volume, make sure it is no longer mounted:
 
 {{RootCmd|umount /dev/vg0/lvol1}}
 
-논리 볼륨을 비활성화하여 더이상 쓰기 동작을 할 수 없게 하십시오:
+Deactivate the logical volume so that no further write activity can take place:
 
 {{RootCmd|lvchange -a n /dev/vg0/lvol1}}
 
-볼륨 마운트를 해제하여 비활성화 하면, 이제 제거하고, 볼륨 그룹에서 다른 논리 볼륨이 사용하도록 확장 할당을 해제할 수 있습니다.
+With the volume unmounted and deactivated, it can now be removed, freeing the extents allocated to it for use by other logical volumes in the volume group:
 
 {{RootCmd|lvremove /dev/vg0/lvol1}}
 
-== 기능 ==
+== Features ==
 
-LVM에서는 저장소 관리자에게 다음과 같은 몇가지(라지만 약간 제한이 있는) 괜찮은 기능을 제공합니다
-* 씬 관리(오버 커밋 저장소)
-* 스냅샷 지원
-* 다른 저장소 할당 방식에 따른 볼륨 형식
+LVM provides quite a few interesting features for storage administrators, including (but not limited to)
+* thin provisioning (over-committing storage)
+* snapshot support
+* volume types with different storage allocation methods
 
-=== 씬 관리 ===
+=== Thin provisioning ===
 
-LVM2 최근 버전(2.02.89)에서는 ''씬'' 볼륨을 지원합니다. 씬 볼륨은 파일 시스템에 [[Wikipedia:Sparse_file|분산 파일]]<sup style="color:#ff0077">en</sup>이 들어가는 블록 장치입니다. 따라서, 풀에 있는 씬 논리 볼륨은 ''오버 커밋'' 이 가능합니다. 즉, 할당한 크기보다 나타난 크기가 클 수는 있습니다. 풀 자체 크기보다 클 수도 있습니다. 드문드문 분산된 파일 처럼, 확장체는 블록 장치로 할당됩니다. 파일을 제거했을 때 다시 빈 공간이 늘어나 남은 영역을 파일 시스템에서 ''버리는'' 기능을 지원한다면 풀의 공간 가용성이 줄어듭니다.
+Recent versions of LVM2 (2.02.89) support "thin" volumes. Thin volumes are to block devices what sparse files are to file systems. Thus, a thin logical volume within a pool can be "over-committed": its presented size can be larger than the allocated size - it can even be larger than the pool itself. Just like a sparse file, the extents are allocated as the block device gets populated. If the file system has ''discard'' support extents are freed again as files are removed, reducing space utilization of the pool.
 
-LVM에서 각각의 씬 풀은 특별한 형식의 논리 볼륨이며, 논리 볼륨을 자체적으로 제공할 수 있습니다.
+Within LVM, such a thin pool is a special type of logical volume, which itself can host logical volumes.
 
-=== 씬 풀 만들기 ===
+==== Creating a thin pool ====
 
-{{Warning/ko|씬 풀 메타데이터에서 오버플로우가 발생하면 풀이 깨집니다. '''LVM에서는 이러한 현상을 복구할 수 없습니다'''.}} 
+{{Warning|If an overflow occurs within the thin pool metadata, then the pool will be corrupted. '''LVM cannot recover from this'''.}} 
 
-{{Note/ko|씬 풀의 용량이 고갈되면 씬 풀을 확장하거나 프로세스에서 SIGKILL 시그널을 받기 전까지는, 어떤 프로세스든 (존재하지 않는)더 많은 공간을 할당하려는 씬 풀의 상태가 ''죽일 수 있는 대기'' 상태에 봉착합니다.}}
+{{Note|If the thin pool gets exhausted, any process that would cause the thin pool to allocate more (unavailable) extents will be stuck in "killable sleep" state until either the thin pool is extended or the process recieves SIGKILL.}}
 
-각각의 씬 풀에는 관련 메타데이터가 있으며, 씬 풀 용량에 추가됩니다. LVM에서는 크기가 어떻게 되든지간에 최소한 ''pool_chunks * 64 bytes'' 또는 2MiB 만큼 씬 풀 크기를 기반으로 메타데이터 크기를 계산합니다. 관리자는 마찬가지로 메타데이터 크기를 달리 선택할 수 있습니다.
+Each thin pool has metadata associated with it, which is added to the thin pool size. LVM will compute the size of the metadata based on the size of the thin pool as the minimum of <tt>pool_chunks * 64 bytes</tt> or 2MiB, whichever is larger. The administrator can select a different metadata size as well.
 
-씬 풀을 만들려면 {{c|lvcreate}} 명령에 <code>--type thin-pool --thinpool thin_pool</code> 매개변수를 추가하십시오:
+To create a thin pool, add the ''--type thin-pool --thinpool thin_pool'' parameters to <code>lvcreate</code>:
 
 {{RootCmd|lvcreate -L 150M --type thin-pool --thinpool thin_pool vg0}}
 
-위의 예제에서는 ''thin_pool''을 총 150MB의 용량으로 만듭니다. 150MB는 씬 풀에 실제 할당한 크기입니다(그렇기 때문에 실제 저장소에서 활용할 수 있는 전체 공간이 됩니다).
+The above example creates a thin pool called ''thin_pool'' with a total size of 150 MB. This is the real allocated size for the thin pool (and thus the total amount of actual storage that can be used).
 
-각각의 메타데이터 크기를 분명하게 요청하려면 <code>--metadatasize</code> 매개변수를 사용하십시오:
+To explicitly ask for a certain metadata size, use the ''--metadatasize'' parameter:
 
-{{RootCmd|lvcreate -L 150M --poolmetadatasize 2M --type thin-pool --thinpool thin_pool vg0}}
+{{RootCmd|lvcreate -L 150M --metadatasize 2M --type thin-pool --thinpool thin_pool vg0}}
 
-씬 풀에 추가한 메타데이터 때문에, 볼륨 그룹에서 논리 볼륨에 대해 사용 가능한 전체 공간을 활용하는 직관적인 방법이 먹혀들지 않습니다(LVM 버그 [https://bugzilla.redhat.com/show_bug.cgi?id=812726|812726] 참고).
+Due to the metadata that is added to the thin pool, the intuitive way of using all available size in a volume group for a logical volume does not work (see LVM bug [https://bugzilla.redhat.com/show_bug.cgi?id=812726|812726]):
 
 {{RootCmd|lvcreate -l 100%FREE --type thin-pool --thinpool thin_pool vg0|output=<pre>
 Insufficient suitable allocatable extents for logical volume thin_pool: 549 more required
 </pre>}}
 
-씬 풀에는 다른 LV의 노드처럼 관련 장치 노드가 있는것이 아닙니다.
+Note the thin pool does not have an associated device node like other LV's.
 
-==== 씬 논리 볼륨 만들기 ====
+==== Creating a thin logical volume ====
 
-''씬 논리 볼륨''은 씬 풀에 있는 논리 볼륨입니다(씬 풀 자체는 논리 볼륨입니다). 씬 논리 볼륨이 ''듬성듬성'' 하기에, <code>-V</code> 매개 변수로 물리 크기 대신 가상 크기를 설정합니다:
+A ''thin logical volume'' is a logical volume inside the thin pool (which itself is a logical volume). As thin logical volumes are ''sparse'', a virtual size instead of a physical size is specified using the ''-V'' parameter:
 
 {{RootCmd|lvcreate -T vg0/thin_pool -V 300M -n lvol1}}
 
-이 예제에서, 실제 할당한 저장소의 크기가 150MB라 하더라도, (씬) 논리 볼륨 ''lvol1''은 300MB 크기의 장치로 나타납니다.
+In this example, the (thin) logical volume ''lvol1'' is exposed as a 300MB-sized device, even though the underlying pool only holds 150MB of real allocated storage.
 
-씬 풀의 논리 볼륨처럼 각각의 씬 풀을 하나의 명령으로 만들 수 있습니다:
+It is also possible to create both the thin pool as well as the logical volume inside the thin pool in one command:
 
 {{RootCmd|lvcreate -T vg0/thin_pool -V 300M -L150M -n lvol1}}
 
-==== 씬 풀과 씬 논리 볼륨 목록 표시 ====
+==== Listing thin pools and thin logical volumes ====
 
-씬 풀과 씬 논리 볼륨은 논리 볼륨의 특별한 형식이며, {{c|lvdisplay}} 명령으로 표시합니다. {{c|lvscan}} 명령은 이들 논리 볼륨도 감지합니다.
+Thin pools and thin logical volumes are special types of logical volumes, and as such as displayed through the <code>lvdisplay</code> command. The <code>lvscan</code> command will also detect these logical volumes.
 
-==== 씬 풀 확장 ====
+==== Extending a thin pool ====
 
-{{Warning/ko|LVM2 2.02.89에서는 씬 풀의 메타데이터 크기가 만들 때부터 정해져 있어 늘릴 수 없습니다}}
+{{Warning|As of LVM2 2.02.89, the metadata size of the thin pool cannot be expanded, it is fixed at creation}}
 
-{{c|lvextend}} 명령을 사용하면 씬 논리 볼륨이 아닌 다른 볼륨처럼 확장할 수 있습니다. 예를 들면 다음과 같습니다:
+The thin pool is expanded like a non-thin logical volume using <code>lvextend</code>. For instance:
 
 {{RootCmd|lvextend -L500M vg0/thin_pool}}
 
-==== 씬 논리 볼륨 확장 ====
+==== Extending a thin logical volume ====
 
-씬 논리 볼륨은 보통 논리 볼륨처럼 확장됩니다:
+A thin logical volume is expanded just like a regular one:
 
 {{RootCmd|lvextend -L1G vg0/lvol1}}
 
-{{c|lvextend}} 명령에서 <code>-L</code> 옵션(또는 확장 카운트를 활용한다면 <code>-l</code>)을 활용하며 씬 논리 볼륨을 만들 때 활용했던 ''가상 크기'' 옵션이 아닙니다. 
+Note that the <code>lvextend</code> command uses the ''-L'' option (or ''-l'' if extent counts are used) and not a "virtual size" option as was used during the creation. 
 
-==== 씬 풀 줄이기 ====
+==== Reducing a thin pool ====
 
-현재 LVM에서는 씬 풀의 크기를 줄일 수 없습니다. LVM 버그 [https://bugzilla.redhat.com/show_bug.cgi?id=812731|812731]을 참고하십시오.
+Currently, LVM cannot reduce the size of the thin pool. See LVM bug [https://bugzilla.redhat.com/show_bug.cgi?id=812731|812731].
 
-==== 씬 논리 볼륨 줄이기 ====
+==== Reducing a thin logical volume ====
 
-씬 논리 볼륨은 보통 논리 볼륨처럼 줄입니다.
+Thin logical volumes are reduced just like regular logical volumes.
 
-가령:
+For instance:
 {{RootCmd|lvreduce -L300M vg0/lvol1l}}
 
-{{c|lvreduce}} 명령은 <code>-L</code> 옵션(또는 확장 카운트를 사용할 경우 <code>-l</code>)을 사용하며, 만들기 과정에 사용한 ''가상 크기'' 옵션은 아님에 유의하십시오.
+Note that the <code>lvreduce</code> command uses the ''-L'' option (or ''-l'' if extent counts are used) and not a "virtual size" option as was used during the creation.
 
-==== 씬 풀 제거 ====
+==== Removing thin pools ====
 
-씬 풀은 내부에 있는 모든 씬 논리 볼륨을 제거하기 전까지는 제거할 수 없습니다.
+Thin pools cannot be removed until all the thin logical volumes inside it are removed.
 
-씬 풀에서 더 이상 어떤 씬 논리 볼륨을 제공하지 않는다면, {{c|lvremove}}명령으로 제거할 수 있습니다:
+When a thin pool no longer services any thin logical volume, it can be removed through the <code>lvremove</code> command:
 
 {{RootCmd|lvremove vg0/thin_pool}}
 
-=== LVM2 스냅샷과 씬 스냅샷 ===
+=== LVM2 snapshots and thin snapshots ===
 
-스냅샷은 다른 논리 볼륨의 사본처럼 동작하는 논리 볼륨입니다. 스냅샷을 만든 횟수만큼 원래 논리 볼륨의 상태를 나타냅니다.
+A snapshot is a logical volume that acts as copy of another logical volume. It displays the state of the original logical volume at the time of snapshot creation.
 
-{{Warning/ko|논리 스냅샷 볼륨도 동일한 파일 시스템 '''레이블'''과 ''UUID''를 취득하므로, {{Path|/etc/fstab}} 파일 또는 initramfs가 <code>LABEL{{=}}</code> 또는 <code>UUID{{=}}</code> 문법을 사용하여 이 파일 시스템 항목을 '''포함하지 않았는지''' 확인하십시오. 파일 시스템을 포함하면 (의도하던) 원래 논리 볼륨 대신 마운트한 볼륨의 스냅샷을 취할 수도 있습니다.}}
+==== Creating a snapshot logical volume ====
 
-=== 스냅샷 논리 볼륨 만들기 ===
+A snapshot logical volume is created using the ''-s'' option to <code>lvcreate</code>. Snapshot logical volumes are still given allocated storage as LVM "registers" all changes made to the original logical volume and stores these changes in the allocated storage for the snapshot. When querying the snapshot state, LVM will start from the original logical volume and then check all changes registered, "undoing" the changes before showing the result to the user.
 
-스냅샷 논리 볼륨은 {{c|lvcreate}} 명령에 <code>-s</code> 옵션을 사용하여 만듭니다. 스냅샷 논리 볼륨은 본래 논리 볼륨에서 바뀐 상태를 저장하는 LVM ''레지스터'' 처럼 할당한 상태 저장소이며, 스냅샷에 할당한 저장소에 이들 바뀐 내용을 저장합니다. 스냅샷 상태를 요청하면, LVM에서는 초기 논리 볼륨에서 시작해서 등록한 모든 바뀐 상태를 검사하며, 사용자에게 결과를 보여주기 전에 바뀐 내용을 ''실행 취소'' 처리합니다.
-
-이후로 스냅샷 논리 볼륨은 초기 논리 볼륨에서 바뀐 내용의 비율이 ''늘어납니다''. 스냅샷에 할당한 저장소를 다 사용하면 시스템에서 스냅샷을 자동으로 제거합니다.
+A snapshot logical volume henceforth "growths" at the rate that changes are made on the original logical volume. When the allocated storage for the snapshot is completely used, then the snapshot will be removed automatically from the system.
 
 {{RootCmd|lvcreate -l 10%VG -s -n 20140412_lvol1 /dev/vg0/lvol1}}
 
-위 예제에서 ''vg0'' 볼륨 그룹의 ''lvol1'' 논리 볼륨을 기반으로 ''20140412_lvol1''라고 하는 스냅샷 논리 볼륨을 만듭니다. 볼륨 그룹에 할당한 공간의 10%(실제로 더 많이)를 사용합니다.
+The above example creates a snapshot logical volume called ''20140412_lvol1'', based on the logical volume ''lvol1'' in volume group ''vg0''. It uses 10% of the space (extents actually) allocated to the volume group.
 
-==== 스냅샷 논리 볼륨 접근 ====
+==== Accessing a snapshot logical volume ====
 
-스냅샷 논리 볼륨은 보통 논리 볼륨처럼 마운트 할 수 있습니다. 심지어 읽기 전용 처리에 구애받지 않습니다. 스냅샷을 수정할 수도 있기 때문에 ''프로덕션'' 파일 시스템에서 뭔가를 수행하기 전에 바뀐 내용을 시험하는 등의 용도로 활용합니다.
+Snapshot logical volumes can be mounted like regular logical volumes. They are even not restricted to read-only operations - it is possible to modify snapshots and thus use it for things such as testing changes before doing these on a "production" file system.
 
-스냅샷 논리 볼륨이 존재하는 동안, 보통의 원래 논리 볼륨의 크기를 줄이거나 제거할 수 없습니다.
+As long as snapshot logical volumes exist, the regular/original logical volume cannot be reduced in size or removed.
 
-==== LVM 씬 스냅샷 ====
+==== LVM thin snapshots ====
 
-{{Note/ko|씬 스냅샷은 씬 논리 볼륨의 씬 풀에서만 취할 수 있습니다. 씬 장치 매퍼 타겟은 읽기 전용 비 씬 논리 볼륨의 씬 스냅샷을 지원하지만 LVM2 도구에선 지원하지 않습니다. 다만, 씬 논리 볼륨의 일반(비 씬) 스냅샷 논리 볼륨을 만들 수는 있습니다.}}
+{{Note|A thin snapshot can only be taken on a thin pool for a thin logical volume. The thin device mapper target supports thin snapshots of read-only non-thin logical volumes, but the LVM2 tooling does not support this. However, it is possible to create a regular (non-thin) snapshot logical volume of a thin logical volume.}}
 
-씬 스냅샷을 만들려면, {{c|lvcreate}} 명령에 <code>-s</code> 옵션을 붙여 사용하십시오. 크기를 지정하여 전달할 필요가 없습니다:
+To create a thin snapshot, the <code>lvcreate</code> command is used with the <code>-s</code> option. No size declaration needs to be passed on:
 
 {{RootCmd|lvcreate -s -n 20140413_lvol1 /dev/vg0/lvol1}}
 
-씬 논리 볼륨 스냅샷은 초기 씬 논리 볼륨과 동일한 크기를 지니며, 물리 할당 0번은 다른 모든 씬 논리 볼륨과 동일하게 활용합니다. 
+Thin logical volume snapshots have the same size as their original thin logical volume, and use a physical allocation of 0 just like all other thin logical volumes. 
 
-{{Important/ko|''-l''또는 ''-L''을 지정해도 스냅샷을 만듯지만, 결과 스냅샷은 씬 스냅샷이 아닌 일반 스냅샷이 됩니다.}}
+{{Important|If ''-l'' or ''-L'' is specified, a snapshot will still be created, but the resulting snapshot will be a regular snapshot, not a thin snapshot.}}
 
-스냅샷의 스냅샷을 취할 수도 있습니다:
+It is also possible to take snapshots of snapshots:
 
 {{RootCmd|lvcreate -s -n 1_20140413_lvol1 /dev/vg0/20140413_lvol1}}
 
-씬 스냅샷을 기존 스냅샷에 비해 여러가지 장점이 있습니다. 먼저, 씬 스냅샷은 원래 만들어놓은 논리 볼륨에 독립적입니다. 초기 논리 볼륨은 스냅샷에 영향을 주지 않고 크기를 줄이거나 삭제할 수 있습니다. 두번째로, 씬 스냅샷은 일반 재귀적 LVM 스냅샷의 ''체이닝'' 오버헤드 없이 효율적으로 재귀적으로(스냅샷의 스냅샷) 만들 수 있습니다.
+Thin snapshots have several advantages over regular snapshots. First, thin snapshots are independent of their original logical volume once created. The original logical volume can be shrunk or deleted without affecting the snapshot. Second, thin snapshots can be efficiently created recursively (snapshots of snapshots) without the "chaining" overhead of regular recursive LVM snapshots.
 
-==== 스냅샷 상태로 되돌리기 ====
+==== Rolling back to snapshot state ====
 
-스냅샷의 버전으로 논리 볼륨을 되돌리려면 다음 명령을 사용하십시오:
+To rollback the logical volume to the version of the snapshot, use the following command:
 
 {{RootCmd|lvconvert --merge /dev/vg0/20140413_lvol1}}
 
-볼륨의 크기에 따라 몇 분 걸릴 수도 있습니다. 참고로 복구가 한번 일어날 때 상위 논리 볼륨은 오프라인이 될 수 있음을 참고하십시오. 따라서 재부팅이 필요합니다.
+This might take a couple of minutes, depending on the size of the volume.
 
-{{Important/ko|스냅샷이 사라지며, 바뀐 내용은 되돌릴 수 없습니다}}
+{{Important|The snapshot will disappear and this change is not revertible}}
 
-==== 씬 스냅샷으로 되돌리기 ====
+==== Rolling back thin snapshots ====
 
-씬 볼륨에 대해, {{c|lvconvert --merge}} 명령은 동작하지 않습니다. 대신 원래 논리 볼륨을 삭제하고 스냅샷의 이름을 바꿉니다.
+For thin volumes, <code>lvconvert --merge</code> does not work. Instead, delete the original logical volume and rename the snapshot:
 
 {{RootCmd|umount /dev/vg0/lvol1
 |lvremove /dev/vg0/lvol1
 |lvrename vg0/20140413_lvol1 lvol1}}
 
-=== 다른 저장소 할당 방법 ===
+=== Different storage allocation methods ===
 
-LVM에서는 저장소에 대해 여러가지 할당 방식을 지원합니다:
-* 선형 볼륨(기본)
-* 미러링(복제) 볼륨(활성화/대기 설정이 더 혹은 덜할 수 있음)
-* 스트라이핑(RAID0)
-* 미러링(복제) 볼륨(RAID1 - 활성화/활성화 설정이 더 많음)
-* 패리티 스트라이핑(RAID 4/5)
-* 이중 패리티 스트라이핑(RAID 6)
-* 스트라이핑+미러링(복제) (RAID10)
+LVM supports different allocation methods for storage:
+* linear volumes (which is the default)
+* mirrored volumes (in a more-or-less active/standby setup)
+* striping (RAID0)
+* mirrored volumes (RAID1 - which is more an active/active setup)
+* striping with parity (RAID4 and RAID5)
+* striping with double parity (RAID6)
+* striping and mirroring (RAID10)
 
-==== 선형 볼륨 ====
+==== Linear volumes ====
 
-리니어 볼륨은 대부분의 LVM 볼륨 중 한 종류입니다. LVM은 가능한한 물리적으로 연속된 공간으로 논리 볼륨을 할당합니다. 충분히 큰 용량을 지닌 전체 논리 볼륨이 되도록 하는 물리 볼륨이 있다면, LVM이 해당 물리 볼륨을 할당할 것이며, 그렇지 않으면 가능한한 최소한으로 볼륨을 쪼갭니다.
+Linear volumes are the most common kind of LVM volumes. LVM will attempt to allocate the logical volume to be as physically contiguous as possible. If there is a physical volume large enough to hold the entire logical volume, then LVM will allocate it there, otherwise it will split it up into as few pieces as possible.
 
-볼륨 그룹과 논리 볼륨을 만드는데 앞에서 언급한 명령으로 선형 볼륨을 만드십시오.
+The commands introduced earlier on to create volume groups and logical volumes create linear volumes.
 
-선형 볼륨에는 특별한 요구사항이 없기 때문에 조작하기 쉬우며, 크기를 조절하고 위치를 다시 잡을 수 있습니다. 논리 볼륨을 다중 물리 볼륨에 걸쳐 할당했는데, 어떤 물리 볼륨이 존재하지 않게 되면, 논리 볼륨을 더이상 시작할 수 없고 사용할 수 없게 됩니다.
+Because linear volumes have no special requirements, they are the easiest to manipulate and can be resized and relocated at will. If a logical volume is allocated across multiple physical volumes, and any of the physical volumes become unavailable, then that logical volume cannot be started anymore and will be unusable.
 
-==== 미러링 볼륨 ====
+==== Mirrored volumes ====
 
-LVM 에서는 ''미러링''(복제) 볼륨을 지원하며, 드라이브가 망가진 상황에서 내고장성을 보장합니다. RAID1과는 달리 성능 이득은 없습니다. 모든 읽기 쓰기 동작은 단일 미러로 처리합니다.
+LVM supports ''mirrored'' volumes, which provide fault tolerance in the event of drive failure. Unlike RAID1, there is no performance benefit - all reads and writes are delivered to a single side of the mirror.
 
-미러 상태를 유지하려, LVM 에서는 유지 ''로그''가 필요합니다. 그 어떤 미러 논리 볼륨이 들어있지 않은 물리 볼륨의 로그에 이 로그를 넣으시는 것이 좋(으며 심지어는 필수로 권장)습니다. 미러에 활용할 로그에는 세가지 종류가 있습니다:
+To keep track of the mirror state, LVM requires a ''log'' to be kept. It is recommended (and often even mandatory) to position this log on a physical volume that does not contain any of the mirrored logical volumes. There are three kind of logs that can be used for mirrors:
 
-# '''Disk'''는 기본 로그 형식입니다. 모든 바뀐 내용은 LVM이 관리하는 추가 메타데이터 확장에 기록합니다. 장치가 고장나면, 미러를 복원할 수 있기 전까지는 로그에 바뀐 내용을 유지합니다.
-# '''Mirror'''는 자체적으로 미러링한 '''disk''' 로그입니다.
-# '''Core''' 미러 로그는 메모리의 미러링 상태를 기록합니다. LVM에서는 미러를 활성화 할 때마다 미러를 다시 구성합니다. 이 형식은 임시 미러에 적합합니다.
+# '''Disk''' is the default log type. All changes made are logged into extra metadata extents, which LVM manages. If a device fails, then the changes are kept in the log until the mirror can be restored again.
+# '''Mirror''' logs are '''disk''' logs that are themselves mirrored. 
+# '''Core''' mirror logs record the state of the mirror in memory only. LVM will have to rebuild the mirror every time it is activated. This type is useful for temporary mirrors.
 
-단일 미러에 논리 볼륨을 만들려면 <code>-m 1</code> 인자를 전달하고 각각의 로그 형식을 선택하려면 <code>--mirrorlog</code>를 추가로 선택하십시오:
+To create a logical volume with a single mirror, pass the ''-m 1'' argument (to select standard mirroring) with optionally ''--mirrorlog'' to select a particular log type:
 
 {{RootCmd|lvcreate -m 1 --mirrorlog mirror -l 40%VG --nosync -n lvol1 vg0}}
 
-<code>-m 1</code>옵션이 LVM에게 하나의 (추가) 미러를 만들으라고 지시하므로, 2개의 물리 볼륨을 필요로 합니다. <code>--nosync</code> 옵션은 최적화 목적입니다. 이 옵션이 없으면 LVM에서는 하나의 논리 볼륨으로부터 다른 논리 볼륨으로 빈 섹터를 복사하는 미러 동기화를 시도합니다.
+The <tt>-m 1</tt> tells LVM to create one (additional) mirror, so requiring 2 physical volumes. The <tt>--nosync</tt> option is an optimization - without it LVM will try synchronize the mirror by copying empty sectors from one logical volume to another.
 
-현재 논리 볼륨의 미러를 만들 수 있습니다:
+It is possible to create a mirror of an existing logical volume:
 
 {{RootCmd|lvconvert -m 1 -b vg0/lvol1}}
 
-<code>-b</code> 옵션은 백그라운드에서 변환을 수행하며 조금 걸릴 수 있습니다.
+The ''-b'' option does the conversion in the background as this can take quite a while.
 
-미러를 제거하려면, 미러 번호를 0으로 (되돌려) 설정하십시오:
+To remove a mirror, set the number of mirrors (back) to 0:
 
 {{RootCmd|lvconvert -m0 vg0/lvol1}}
 
-미러 부분을 사용할 수 없다면(보통 물리 볼륨이 들어간 디스크가 망가졌기 때문), 볼륨 그룹을 디그레이드 모드로 전환해야 합니다:
+If part of the mirror is unavailable (usually because the disk containing the physical volume has failed), the volume group will need to be brought up in degraded mode:
 
 {{RootCmd|vgchange -ay --partial vg0}}
 
-초기 기록시, LVM에서는 미러가 깨졌음을 알립니다. 기본 정책(''remove'')은 존재하는 부분의 수에 따라 미러를 자동으로 줄이거나 해제합니다. 물리 볼륨이 빠진 3-웨이 미러는 2-웨이 미러로 줄어듭니다. 이런식으로 2-웨이 미러는 일반 선형 볼륨으로 줄어듭니다. 고장이 일시적이고, LVM이 미러를 깨먹고 난 후 물리 볼륨이 돌아온다면, 미러링한 논리 볼륨을 다시 만들어야합니다. 
+On the first write, LVM will notice the mirror is broken. The default policy ("remove") is to automatically reduce/break the mirror according to the number of pieces available. A 3-way mirror with a missing physical volume will be reduced to 2-way mirror; a 2-way mirror will be reduced to a regular linear volume. If the failure is only transient, and the missing physical volume returns after LVM has broken the mirror, the mirrored logical volume will need to be recreated on it. 
 
-미러를 복원하려면 고장난 물리 볼륨을 볼륨 그룹에서 제거해야 하며 교체한 물리 볼륨을 추가해야 합니다(또는 볼륨 그룹에 물리 뵬륨이 없다면, 물리 볼륨을 하나 만들 수 있습니다). 이렇게 하고 나면 볼륨 그룹에서 제거할 수 있는 이전 물리 볼륨을 가리키는 지점에 {{c|lvconvert}} 명령으로 미러를 다시 만들 수 있습니다:
+To recover the mirror, the failed physical volume needs to be removed from the volume group, and a replacement physical volume needs to be added (or if the volume group has a free physical volume, it can be created on that one). Then the mirror can be recreated with <tt>lvconvert</tt> at which point the old physical volume can be removed from the volume group:
 
 {{RootCmd|vgextend vg0 /dev/sdc1
 |lvconvert -b -m 1 --mirrorlog disk vg0/lvol1
 |vgreduce --removemissing vg0}}
 
-이 명령을 수행하면 한쪽에서 고장이 나면 LVM이 다른 물리 볼륨에 자유 확장 공간으로 미러를 다시 만들게 할 수 있습니다. 동작을 수행하려면 {{Path|lvm.conf}}에 <code>mirror_image_fault_policy</code>값을 ''allocate''로 설정하십시오.
+It is possible to have LVM recreate the mirror with free extents on a different physical volume if one side fails. To accomplish that, set <code>mirror_image_fault_policy</code> to ''allocate'' in {{Path|lvm.conf}}.
 
-==== 씬 미러 ====
+==== Thin mirrors ====
 
-(아직은) 미러링한 씬 풀이나 씬 볼륨을 만들 수 없습니다. 미러링한 씬 풀을 보통의 미러링 논리 볼륨을 만들어서 만들 수는 있으며, 이 과정을 거치고 나면 {{c|lvconvert}} 명령으로 논리 볼륨을 씬 풀로 변환할 수 있습니다. 2개의 논리 볼륨이 필요합니다: 하나는 씬 풀에 사용하며 하나는 씬 메타 데이터를 위해 사용합니다. 변환 과정을 통해 이들을 단일 논리 볼륨으로 합칩니다.
+It is not (yet) possible to create a mirrored thin pool or thin volume. It is possible to create a mirrored thin pool my creating a normal mirrored logical volume and then converting the logical volume to a thin pool with <tt>lvconvert</tt>. 2 logical volumes are required: one for the thin pool and one for the thin metadata; the conversion process will merge them into a single logical volume.
 
-{{Warning/ko|제대로 동작하게 하려면 LVM 2.02.98 이상이 필요합니다. 이전 버전은 이 기능을 활용할 수 없을 뿐더러 세그 폴트를 일으키고, 볼륨 그룹을 깨먹을 수 있습니다. 또한 미러를 씬 풀로 변환하는 동작으로 미러상의 모든 데이터를 '''파괴'''합니다!}}
+{{Warning|LVM 2.02.98 or above is required for this to work properly. Prior versions are either not capable or will segfault and corrupt the volume group. Also, conversion of a mirror into a thin pool '''destroys''' all existing data in the mirror!}}
 
 {{RootCmd|lvcreate -m 1 --mirrorlog mirrored -l40%VG -n thin_pool vg0
 |lvcreate -m 1 --mirrorlog mirrored -L4MB -n thin_meta vg0
 |lvconvert --thinpool vg0/thin_pool --poolmetadata vg0/thin_meta}}
 
-==== 스트라이핑(RAID0) ====
+==== Striping (RAID0) ====
 
-선형 볼륨과는 달리, 다중 연속 물리 볼륨이 붙는 경우, 보다 나은 성능을 위해 ''스트라이핑'' 또는 ''RAID 0'' 볼륨을 만들 수 있습니다. 여러 물리 볼륨에 대한 저장 장치 할당 방식을 대체합니다.
+Instead of a linear volume, where multiple contiguous physical volumes are appended, it possible to create a ''striped'' or ''RAID 0'' volume for better performance. This will alternate storage allocations across the available physical volumes.
 
-세 개의 물리 볼륨에 스트라이프 볼륨을 만들려면:
+To create a striped volume over three physical volumes:
 
 {{RootCmd|lvcreate -i 3 -l 20%VG -n lvol1_stripe vg0|output=<pre>
 Using default stripesize 64.00 KiB
 </pre>}}
 
-<code>-i</code> 옵션은 몇 개의 물리 볼륨을 스트라이핑 할 것인지를 나타냅니다.
+The -i option indicates over how many physical volumes the striping should be done.
 
-스트라이프 집합을 미러링 할 수 있습니다. 스트라이프 미러링을 하기 위해 <code>-i</code>와 <code>-m</code> 옵션을 조합할 수 있습니다:
+It is possible to mirror a stripe set. The -i and -m options can be combined to create a striped mirror:
 
 {{RootCmd|lvcreate -i 2 -m 1 -l 10%VG vg0}}
 
-이 명령은 4개의 물리 볼륨에 대해 2개의 물리 볼륨 스트라이프 모음을 만들고 2개의 각기 다른 물리 볼륨에 미러링을 수행합니다. 기존 스트라이프 모음은 {{c|lvconvert}} 명령으로 미러링 할 수 있습니다.
+This creates a 2 physical volume stripe set and mirrors it on 2 different physical volumes, for a total of 4 physical volumes. An existing stripe set can be mirrored with <tt>lvconvert</tt>.
 
-다른 논리 볼륨처럼 씬 풀을 스트라이핑 할 수 있습니다. 모든 씬 볼륨은 설정에 따라 풀에서 만들 수 있습니다. 씬 볼륨을 만들때 직접 지정하지마십시오.
+A thin pool can be striped like any other logical volume. All the thin volumes created from the pool inherit that settings - do not specify it manually when creating a thin volume.
 
-기존 볼륨을 스트라이핑 할 수 없을 뿐더러 여러 물리 볼륨에 대해 스트라이핑을 다시 재구성 할 수도 없거니와 다른 RAID 레벨, 선형 볼륨으로 변환할 수도 없습니다. 스트라이프 집합은 미러링 할 수 있습니다. 추가 물리 볼륨으로 스트라이프 집합을 확장할 수 있지만, 초기의 다중 스트라이프 셋에 추가해야 합니다(새 스트라이프 집합이 선형으로 붙는 결과를 가져옵니다).
+It is not possible to stripe an existing volume, nor reshape the stripes across more/less physical volumes, nor to convert to a different RAID level/linear volume. A stripe set can be mirrored. It is possible to extend a stripe set across additional physical volumes, but they must be added in multiples of the original stripe set (which will effectively linearly append a new stripe set).
 
-==== 미러링(RAID1) ====
+==== Mirroring (RAID1) ====
 
-스트라이핑을 하는 RAID0과는 달리, RAID1은 미러링 방식이지만, 원래 LVM 미러링과는 다른 방식으로 구현했습니다. RAID1에서는, 성능 향상을 위해 물리 볼륨 전체를 읽어들입니다. RAID1 미러가 고장나면 장치를 차단하기 위해 I/O 가 일어나지 않는데, LVM 에서는 기록 과정을 멈출 필요가 없기 때문입니다.
+Unlike RAID 0, which is striping, RAID 1 is mirroring, but implemented differently than the original LVM mirror. Under RAID1, reads are spread out across physical volumes, improving performance. RAID1 mirror failures do not cause I/O to block because LVM does not need to break it on write.
 
-LVM 미러를 활용할 수 있는 곳에서는, RAID1 미러를 각 위치에서 사용할 수 있습니다.  {{Path|lvm.conf}}에서 ''mirror_segtype_default'' 값을 ''raid1''으로 설정하면 LVM에서 일반 미러대신 RAID1 미러를 확실히 만들 수 있습니다.
+Any place where an LVM mirror could be used, a RAID 1 mirror can be used in its place. It is possible to have LVM create RAID1 mirrors instead of regular mirrors implicitly by setting <tt>mirror_segtype_default</tt> to ''raid1'' in {{Path|lvm.conf}}.
 
-{{Warning|LVM RAID1 미러링은 아직 GRUB에서 지원하지 않스빈다. 커널/initramfs에서 유지하는 LVM 볼륨('boot' 볼륨)에 RAID1 미러링을 적용하면, 시스템을 부팅하지 못하게 할 수도 있습니다(다음 버전의 GRUB에서 해결될 모양입니다. 자세한 내용은 GRUB 버그 [http://savannah.gnu.org/bugs/?44534 #44534] 를 참고하십시오.)}}
-
-논리 볼륨을 단일 미러로 만들려면:
+To create a logical volume with a single mirror:
 
 {{RootCmd|lvcreate -m 1 --type raid1 -l 40%VG --nosync -n lvm_raid1 vg0}}
 
-미러를 만드는 방식과는 차이점이 있습니다: ''mirrorlog''를 지정하지 않는데, RAID1 논리 볼륨에선 확실한 미러 로그를 지니고 있지 않습니다. 논리 볼륨 안에 만들기 때문입니다.
+Note the difference for creating a mirror: There is no ''mirrorlog'' specified, because RAID1 logical volumes do not have an explicit mirror log - it built-in to the logical volume.
 
-기존 논리 볼륨은 RAID 1으로 변환할 수 있습니다:
+It is possible to convert an existing logical volume to RAID 1:
 
 {{RootCmd|lvconvert -m 1 --type raid1 -b vg0/lvol1}}
 
-RAID1 미러를 제거하려면, 미러 갯수를 0으로 설정하십시오:
+To remove a RAID 1 mirror, set the number of mirrors to 0:
 
 {{RootCmd|lvconvert -m0 vg0/lvm_raid1}}
 
-RAID1 부분을 사용할 수 없다면(보통 물리 볼륨이 들어간 디스크가 망가졌기 때문), 볼륨 그룹을 디그레이드 모드로 전환해야합니다:
+If part of the RAID1 is unavailable (usually because the disk containing the physical volume has failed), the volume group will need to be brought up in degraded mode:
 
 {{RootCmd|vgchange -ay --partial vg0}}
 
-LVM 미러와는 달리, 기록 동작은 미러링을 깨먹지 않습니다. 고장 현상이 일시적이고, 빠진 물리 볼륨 상태가 되돌아온다면, LVM에서는 전체 논리 볼륨 대신에 오래된 부분을 복제하여 미러를 다시 동기화합니다. 계속 고장 현상이 지속된다면, 고장난 물리 볼륨을 볼륨 그룹에서 제거하고, 교체한 물리 볼륨을 추가해야 합니다(또는 볼륨 그룹에 물리 볼륨이 없다면 다른 물리 볼륨을 추가할 수 있습니다). 그런 다음에야 {{c|lvconvert}}로 미러를 복원할 수 있으며, 이전 물리 볼륨을 볼륨 그룹에서 제거할 수 있습니다:
+Unlike an LVM mirror, writing does NOT breaking the mirroring. If the failure is only transient, and the missing physical volume returns, LVM will resync the mirror by copying cover the out-of-date segments instead of the entire logical volume. If the failure is permanent, then the failed physical volume needs to be removed from the volume group, and a replacement physical volume needs to be added (or if the volume group has a free physical volume, it can be created on a different PV). The mirror can then be repaired with ''lvconvert'', and the old physical volume can be removed from the volume group:
 
 {{RootCmd|vgextend vg0 /dev/sdc1
 |lvconvert --repair -b vg0/lvm_raid1
 |vgreduce --removemissing vg0}}
 
-==== 씬 RAID1 ====
+==== Thin RAID1 ====
 
-(아직은) RAID1 씬 풀이나 씬 볼륨을 만들 수 없습니다. RAID1 씬 풀을 보통의 미러링 논리 볼륨을 만들어서 만들 수는 있으며, 이 과정을 거치고 나면 {{c|lvconvert}} 명령으로 논리 볼륨을  씬 풀로 변환할 수 있습니다. 2개의 논리 볼륨이 필요합니다: 하나는 씬 풀에 사용하며 하나는 씬 메타 데이터를 위해 사용합니다. 변환 과정을 통해 이들을 단일 논리 볼륨으로 합칩니다.
+It is not (yet) possible to create a RAID 1 thin pool or thin volume. It is possible to create a RAID 1 thin pool by creating a normal mirrored logical volume and then converting the logical volume to a thin pool with <tt>lvconvert</tt>. 2 logical volumes are required: one for the thin pool and one for the thin metadata; the conversion process will then merge them into a single logical volume.
 
-{{Warning/ko|제대로 동작하려면 LVM 2.02.98 이상이 필요합니다. 이전 버전에서는 기능을 사용할 수 없거나, 세그폴트를 일으키기도 하며 볼륨 그룹을 깨먹습니다. RAID1을 씬 풀로 변환하면 미러상의 모든 데이터를 '''파괴합니다'''!}}
+{{Warning|LVM 2.02.98 or above is required for this to work properly. Prior versions are either not capable or will segfault and corrupt the VG. Also, conversion of a RAID 1 into a thin pool '''destroys''' all existing data in the mirror!}}
 
 {{RootCmd|lvcreate -m 1 --type raid1 -l40%VG -n thin_pool vg0
 |lvcreate -m 1 --type raid1 -L4MB -n thin_meta vg0
 |lvconvert --thinpool vg0/thin_pool --poolmetadata vg00/thin_meta}}
 
-==== 패리티 스트라이핑(RAID4와 RAID5) ====
+==== Striping with parity (RAID4 and RAID5) ====
 
-{{Note/ko|패리티 스트라이핑 방식은 최소한 3개의 물리 볼륨이 필요합니다.}}
+{{Note|Striping with parity requires at least 3 physical volumes.}}
 
-RAID0에는 내고장성 보증이 없습니다. 물리 볼륨 중 하나가 고장나면 논리 볼륨을 사용할 수 없습니다 RAID0에 패리티 스트라이프를 추가하면 물리 볼륨이 빠져도 논리 볼륨은 제 기능을 할 수 있습니다. 그런 다음에야 새 물리 볼륨을 내고장성 복원을 위해 추가할 수 있습니다.
+RAID 0 is not fault-tolerant - if any of the physical volumes fail then the logical volume is unusable. By adding a parity stripe to RAID 0 the logical volume can still function if a physical volume is missing. A new physical volume can then be added to restore fault tolerance.
 
-패리티가 붙은 스트라이프 집합에는 RAID4와 RAID5 2가지 방식이 있습니다. RAID4에서는 모든 패리티 스트라이프를 동일한 물리 볼륨에 저장합니다. 이런 구조는 병목 현상을 야기할 수 있는데, 모든 물리 볼륨에 대해 쓰기 동작이 발생하며, 어레이에서 더 많은 물리 볼륨이 잘못될 수 있습니다. RAID5에서는 패리티 데이터를 각 물리 볼륨에 분산하여 그 어디에서도 병목 현상이 일어나지 않습니다. 이런 이유로 RAID4는 거의 사용하지 않으며 사장된 기술로 간주합니다. 실제로 패리티가 붙은 모든 스트라이프 셋은 RAID5 입니다.
+Stripsets with parity come in 2 flavors: RAID 4 and RAID 5. Under RAID 4, all the parity stripes are stored on the same physical volume. This can become a bottleneck because all writes hit that physical volume, and it gets worse the more physical volumes are in the array. With RAID 5, the parity data is distributed evenly across the physical volumes so none of them become a bottleneck. For that reason, RAID 4 is rare and is considered obsolete/historical. In practice, all stripesets with parity are RAID 5.
 
 {{RootCmd|lvcreate --type raid5 -l 20%VG -i 2 -n lvm_raid5 vg0}}
 
-데이터 물리 볼륨은 -i로만 정의할 수 있으며, LVM은 패리티 목적으로 자동으로 추가합니다. 따라서 3개의 물리 볼륨이 있는 RAID5에서, ''-i 2''을 전달해야지 ''-i 3''을 전달하면 안됩니다.
+Only the data physical volumes are specified with -i, LVM adds one to it automatically for the parity. So for a 3 physical volume RAID5, ''-i 2'' is passed on and not ''-i 3''.
 
-물리 볼륨이 고장나면, 볼륨 그룹을 디그레이드 모드로 전환해야합니다:
+When a physical volume fails, then the volume group will need to be brought up in degraded mode:
 
 {{RootCmd|vgchange -ay --partial vg0}}
 
-이 시점에서 볼륨은 정상적으로 동작합니다만, 교체 물리 볼륨을 추가하기 전에는 이 명령으로 어레이를 RAID0로 강등합니다. 어레이는 강등되지만 성능에는 전혀 영향이 없습니다. 비록 패리티로 빠진 데이터를 재계산 처리할 필요가 있긴 하지만,  남은 데이터에 대한 패리티 블록은 단순한 XOR 연산만을 필요로 합니다. 부하는 디스크 입출력에 비하면 무시해도 될 정도의 수준입니다.
+The volume will work normally at this point, however this degrades the array to RAID 0 until a replacement physical volume is added. Performance is unlikely to be affected while the array is degraded - although it does need to recompute its missing data via parity, it only requires simple XOR for the parity block with the remaining data. The overhead is negligible compared to the disk I/O.
 
-RAID5를 복원하려면:
+To repair the RAID5:
 
 {{RootCmd|lvconvert --repair vg0/lvm_raid5
 |vgreduce --removemissing vg0}}
 
-마찬가지로 RAID5에서 동작하는 물리 볼륨을 바꿀 수 있습니다:
+It is possible to replace a still working physical volume in RAID5 as well:
 
 {{RootCmd|lvconvert --replace /dev/sdb1 vg0/lvm_raid5
 |vgreduce vg0 /dev/sdb1}}
 
-마찬가지로 스트라이프 집합에 대한 동일한 제한을 패리티가 붙은 스트라이프 집합에 적용합니다: 기존의 볼륨에서 패리티가 있는 스트라이핑을 활성화 할 수 없으며, 여러 물리 볼륨에 대해 더 혹은 덜 스트라이프를 재배치 할 수도 없거니와, 다른 RAID 레벨, 선형 볼륨으로 변환할 수도 없습니다. 패리티가 있는 스트라이프 집합에 대해 미러링을 수행할 수는 있습니다. 패리티가 붙은 스트라이프 셋을 추가 물리 볼륨으로 확장할 수 있지만, 패리티가 붙은 기존 다중 스트라이프 집합에 먼저 추가해야 합니다(새 스트라이프 집합을 패리티와 함께 기존의 스트라이프 집합에 연속적으로 붙인 효과가 있습니다).
+The same restrictions of stripe sets apply to stripe sets with parity as well: it is not possible to enable striping with parity on an existing volume, nor reshape the stripes with parity across more/less physical volumes, nor to convert to a different RAID level/linear volume. A stripe set with parity can be mirrored. It is possible to extend a stripe set with parity across additional physical volumes, but they must be added in multiples of the original stripe set with parity (which will effectively linearly append a new stripe set with parity).
 
-==== 씬 RAID5 논리 볼륨 ====
+==== Thin RAID5 logical volumes ====
 
-(아직은) 패리티(RAID5) 씬 풀을 붙인 스트라이프 셋이나 씬 볼륨을 만들 수 없습니다. RAID5 씬 풀을 RAID5 논리 볼륨을 만들어서 만들 수는 있으며, 이 과정을 거치고 나면 {{c|lvconvert}} 명령으로 논리 볼륨을 씬 풀로 변환할 수 있습니다. 2개의 논리 볼륨이 필요합니다: 하나는 씬 풀에 사용하며 하나는 씬 메타 데이터를 위해 사용합니다. 변환 과정을 통해 이들을 단일 논리 볼륨으로 합칩니다.
+It is not (yet) possible to create stripe set with parity (RAID5) thin pools or thin logical volumes. It is possible to create a RAID5 thin pool by creating a normal RAID5 logical volume and then converting the logical volume into a thin pool with <tt>lvconvert</tt>. 2 logical volumes are required: one for the thin pool and one for the thin metadata; the conversion process will merge them into a single logical volume.
 
-{{Warning/ko|제대로 동작하려면 LVM 2.02.98 이상이 필요합니다. 이전 버전에서는 기능을 사용할 수 없거나, 세그폴트를 일으키기도 하며 볼륨 그룹을 깨먹습니다. RAID5 논리 볼륨을 씬 풀로 변환하면 논리 볼륨의 모든 데이터를 '''파괴합니다'''!}}
+{{Warning|LVM 2.02.98 or above is required for this to work properly. Prior versions are either not capable or will segfault and corrupt the VG. Also, coversion of a RAID5 LV into a thin pool '''destroys''' all existing data in the LV!}}
 
 {{RootCmd|lvcreate --type raid5 -i 2  -l20%VG -n thin_pool vg0
 |lvcreate --type raid5 -i 2 -L4MB -n thin_meta vg0
 |lvconvert --thinpool vg0/thin_pool --poolmetadata vg00/thin_meta}}
 
-==== 이중 패리티 스트라이핑(RAID6) ====
+==== Striping with double parity (RAID6) ====
 
-{{Note/ko|RAID6에서는 최소한 5개의 물리 볼륨이 필요합니다.}}
+{{Note|RAID6 requires at least 5 physical volumes.}}
 
-RAID6는 RAID5와 유사하지만, RAID6에서는 '''두 개'''의 물리 볼륨 고장을 구할 수 있어, 추가 물리 볼륨에 비용이 들어가는 만큼 RAID5보다 더 우수한 내고장성을 보장합니다. 
+RAID 6 is similar to RAID 5, however RAID 6 can survive up to '''two''' physical volume failures, thus offering more fault tolerance than RAID5 at the expense of extra physical volumes. 
 
 {{RootCmd|lvcreate --type raid6 -l 20%VG -i 3 -n lvm_raid6 vg00}}
 
-RAID5 처럼, <code>-i</code> 옵션은 스트라이핑 할 물리 볼륨의 갯수를 지정하는데 사용하지만, 2개의 물리 볼륨을 패리티 처리 목적으로 제외합니다. 따라서 5개의 물리 볼륨 RAID6에서는 <code>-i 5</code>를 전달하는게 아니라 <code>-i 3</code>을 전달합니다.
+Like raid5, the -i option is used to specify the number of physical volumes to stripe, excluding the 2 physical volumes for parity. So for a 5 physical volume RAID6, pass on ''-i 3'' and not ''-i 5''.
 
-RAID6 복구는 RAID5와 같습니다.
+Recovery for RAID6 is the same as RAID5.
 
-{{Note/ko|디스크 입출력에 비해 패리티 블록을 처리하는 노력이 적게드는 RAID5와는 달리 RAID6에서는 반만 맞습니다. RAID6에서는 2개의 패리티 스트라이프를 사용합니다. 스트라이프 하나는 RAID5와 동일한 방식으로 처리합니다(단순 XOR). 두번째 패리티 스트라이프는 처리하는데 좀 더 오래걸립니다. 더 많은 내용은 [https://www.kernel.org/pub/linux/kernel/people/hpa/raid6.pdf raid6 (pdf)]를 참고하십시오.}}
+{{Note|Unlike RAID5 where parity block is cheap to recompute vs disk I/O, this is only half true in RAID6. RAID6 uses 2 parity stripes: One stripe is computed the same way as RAID5 (simple XOR). The second parity stripe is much harder to compute - see [https://www.kernel.org/pub/linux/kernel/people/hpa/raid6.pdf|raid6 (pdf)] for more information.}}
 
-==== 씬 RAID6 논리 볼륨 ====
+==== Thin RAID6 logical volumes ====
 
-(아직은) RAID6 씬 풀이나 씬 볼륨을 만들 수 없습니다. RAID6 씬 풀을 RAID6 논리 볼륨을 만들어서 만들 수는 있으며, 이 과정을 거치고 나면 {{c|lvconvert}} 명령으로 논리 볼륨을 씬 풀로 변환할 수 있습니다. 2개의 논리 볼륨이 필요합니다: 하나는 씬 풀에 사용하며 하나는 씬 메타 데이터를 위해 사용합니다. 변환 과정을 통해 이들을 단일 논리 볼륨으로 합칩니다.
+It is not (yet) possible to create a RAID6 thin pool or thin volumes. It is possible to create a RAID6 thin pool by creating a normal RAID6 logical volume and then converting the logical volume into a thin pool with <tt>lvconvert</tt>. 2 logical volumes are required: one for the thin pool and one for the thin metadata; the conversion process will merge them into a single logical volume.
 
-{{Warning/ko|제대로 동작하려면 LVM 2.02.98 이상이 필요합니다. 이전 버전에서는 기능을 사용할 수 없거나, 세그폴트를 일으키기도 하며 볼륨 그룹을 깨먹습니다. RAID6 논리 볼륨을 씬 풀로 변환하면 논리 볼륨의 모든 데이터를 '''파괴합니다'''!}}
+{{Warning|LVM 2.02.98 or above is required for this to work properly. Prior versions are either not capable or will segfault and corrupt the VG. Also, conversion of a RAID6 LV into a thin pool '''destroys''' all existing data in the LV!}}
 
 {{RootCmd|lvcreate --type raid6 -i 2  -l20%VG -n thin_pool vg0
 |lvcreate --type raid6 -i 2 -L4MB -n thin_meta vg0
@@ -1004,45 +709,45 @@ RAID6 복구는 RAID5와 같습니다.
 
 ==== LVM RAID10 ====
 
-{{Note/ko|RAID10은 최소한 4개의 물리 볼륨이 필요합니다. 게다가 LVM 문법에서는 RAID10 형식이 이렇지 않지만, 여러 물리 볼륨이 여러개의 스트라이프와 미러가 되어야 합니다.}}
+{{Note|RAID10 requires at least 4 physical volumes. Also LVM syntax requires the number of physical volumes be multiple of the numbers stripes and mirror, even though RAID10 format does not}}
 
-RAID10은 RAID0과 RAID1의 조합입니다. 논리 볼륨 레벨 대신 스트라이프 레벨에서 미러링을 처리하기 때문에 RAID0+RAID1보다 더 강력하기 때문에 물리 배치를 대칭형으로 둘 필요가 없습니다. RAID10 볼륨은 단일 물리 볼륨의 누락이 일어나도 상관 없으며, 가능한 경우 그 이상의 문제가 발생해도 문제 없습니다.
+RAID10 is a combination of RAID0 and RAID1. It is more powerful than RAID0+RAID1 as the mirroring is done at the stripe level instead of the logical volume level, and therefore the layout doesn't need to be symmetric. A RAID10 volume can tolerate at least a single missing physical volume, and possibly more.
 
-{{Note/ko|LVM에서는 현재 RAID10을 단일 미러로 제한합니다.}}
+{{Note|LVM currently limits RAID10 to a single mirror.}}
 
 {{RootCmd|lvcreate --type raid10 -l 1020 -i 2 -m 1 --nosync -n lvm_raid10 vg0}}
 
-<code>-i</code> 옵션과 <code>-m</code> 옵션을 지정했습니다: <code>-i</code>는 스트라이프 갯수이며 <code>-m</code>은 미러 갯수입니다. 2개의 스트라이프와 1개의 미러는 4개의 물리 볼륨이 필요합니다.
+Both the ''-i and -m'' options are specified: ''-i'' is the number of stripes and ''-m'' is the number of mirrors. Two stripes and 1 mirror requires 4 physical volumes.
 
-==== 씬 RAID 10 ====
+==== Thin RAID10 ====
 
-(아직은) RAID10 씬 풀이나 씬 볼륨을 만들 수 없습니다. RAID10 씬 풀을 RAID10 논리 볼륨을 만들어서 만들 수는 있으며, 이 과정을 거치고 나면 {{c|lvconvert}} 명령으로 논리 볼륨을 씬 풀로 변환할 수 있습니다. 2개의 논리 볼륨이 필요합니다: 하나는 씬 풀에 사용하며 하나는 씬 메타 데이터를 위해 사용합니다. 변환 과정을 통해 이들을 단일 논리 볼륨으로 합칩니다.
-
-{{Warning|RAID10 논리 볼륨을 씬 풀로 변환하면 논리 볼륨의 모든 데이터를 '''파괴합니다'''!}}
+It is not (yet) possible to create a RAID10 thin pool or thin volumes. It is possible to create a RAID10 thin pool by creating a normal RAID10 logical volume and then converting the logical volume into a thin pool with <code>lvconvert</code>. 2 logical volumes are required: one for the thin pool and one for the thin metadata; the conversion process will merge them into a single logical volume.
+ 
+{{Warning|Conversion of a RAID10 logical volume into a thin pool '''destroys''' all existing data in the logical volume!}}
 
 {{RootCmd|lvcreate -i 2 -m 1 --type raid10 -l 1012 -n thin_pool vg0
 |lvcreate -i 2 -m 1 --type raid10 -l 6 -n thin_meta vg0
 |lvconvert --thinpool vg0/thin_pool --poolmetadata vg0/thin_meta}}
 
-== LVM으로 실험하기 ==
+== Experimenting with LVM ==
 
-실제 저장 장치를 활용하지 않고도 LVM으로 실험 활동을 할 수 있습니다. 이를 수행해보려면, 루프백 장치를 만듭니다.
+It is possible to experiment with LVM without using real storage devices. To accomplish this, loopback devices are created.
 
-먼저 루프백 모듈을 불러왔는지 확인하십시오. 
+First make sure to have the loopback module loaded. 
 
 {{RootCmd|modprobe -r loop && modprobe loop max_part{{=}}63}}
 
-{{Note/ko|루프백 지원을 커널에 빌드했다면, <code>loop.max_part{{=}}63</code> 부팅 옵션을 활용하십시오.}}
+{{Note|If loopback support is built into the kernel, then use <code>loop.max_part{{=}}63</code> as boot option.}}
 
-다음 장치를 검색하는데 LVM에서 [[udev]]를 활용하지 않도록 설정하십시오:
+Next configure LVM to not use [[udev]] to scan for devices:
 
-{{FileBox|filename=/etc/lvm/lvm.conf|title=LVM 설정에서 udev 비활성화|lang=ini|1=
+{{File|/etc/lvm/lvm.conf|Disabling udev in LVM config|<pre>
 obtain_device_list_from_udev = 0
-}}
+</pre>}}
 
-{{Important/ko|시험 목적일 뿐이며, 실제 장치를 다루는데 있어 udev를 사용하는 방식이 빠른지 설정을 되돌려서 확인하십시오!}}
+{{Important|This is for testing only, make sure to change the setting back when dealing with real devices since it is much faster to use udev!}}
 
-저장 장치가 될 이미지 파일을 만드십시오. 다음 예제에서는 실제 하드 디스크 드라이브 공간에서 전부 ~10GB 가량의 용량에 대해 다섯개의 파일을 사용합니다:
+Create some image files which will become the storage devices. The next example uses five files for a total of about ~10GB of real hard drive space:
 
 {{RootCmd|mkdir /var/lib/lvm_img
 |dd if{{=}}/dev/null of{{=}}/var/lib/lvm_img/lvm0.img bs{{=}}1024 seek{{=}}2097152
@@ -1051,11 +756,11 @@ obtain_device_list_from_udev = 0
 |dd if{{=}}/dev/null of{{=}}/var/lib/lvm_img/lvm3.img bs{{=}}1024 seek{{=}}2097152
 |dd if{{=}}/dev/null of{{=}}/var/lib/lvm_img/lvm4.img bs{{=}}1024 seek{{=}}2097152}}
 
-어떤 루프백 장치를 활용할 수 있는지 확인하십시오:
+Check which loopback devices are available:
 
 {{RootCmd|losetup -a}}
 
-모든 루프백 장치가 있다면, 장치를 만드십시오:
+Assuming all loopback devices are available, next create the devices:
 
 {{RootCmd|losetup /dev/loop0 /var/lib/lvm_img/lvm0.img
 |losetup /dev/loop1 /var/lib/lvm_img/lvm1.img
@@ -1063,19 +768,19 @@ obtain_device_list_from_udev = 0
 |losetup /dev/loop3 /var/lib/lvm_img/lvm3.img
 |losetup /dev/loop4 /var/lib/lvm_img/lvm4.img}}
 
-이제 시스템의 다른 하드 디스크 드라이브처럼 {{Path|/dev/loop[0-4]}} 장치를 사용할 수 있습니다(그래서 완벽한 물리 볼륨이 됩니다).
+The {{Path|/dev/loop[0-4]}} devices are now available to use as any other hard drive in the system (and thus be perfect for physical volumes).
 
-{{Note/ko|다음에 재부팅을 수행할 때 모든 루프백 장치를 활성화해제 할 것이며 {{Path|/var/lib/lvm_img}} 폴더를 삭제할 수 있습니다.}}
+{{Note|On the next reboot, all the loopback devices will be released and the folder {{Path|/var/lib/lvm_img}} can be deleted.}}
 
-== 문제해결 ==
+== Troubleshooting ==
 
-LVM에는 몇가지 레벨의 중복을 지원하는 일부 기능을 지니고 있습니다. 다만, 잃어버린 물리 볼륨 또는 논리 볼륨을 복원할 수 있는 곳에 몇가지 상황이 있긴 합니다.
+LVM has a few features that already provide some level of redundancy. However, there are situations where it is possible to restore lost physical volumes or logical volumes.
 
-=== vgcfgrestore 유틸리티 ===
+=== vgcfgrestore utility ===
 
-기본적으로 LVM 물리 볼륨, 볼륨 그룹, 논리 볼륨 그 어느 곳에서든 내용이 바뀔 경우, LVM2에서 {{Path|/etc/lvm/archive}}에 메타데이터 백업 파일을 만듭니다. 이 파일은 갑작스럽게 바뀐 상태(잘못된 논리 볼륨 삭제 같은 경우)로부터 복원하는데 활용할 수 있습니다. LVM은 또한 {{Path|/etc/lvm/backup}}에 가장 최근의 메타데이터 백업 사본을 유지합니다. 이런 요소는 교체 디스크에 메타데이터를 복원하는데 활용할 수 있을 뿐만 아니라, 깨진 메타데이터를 복구하는데도 활용할 수 있습니다.
+By default, on any change to a LVM physical volume, volume group, or logical volume, LVM2 create a backup file of the metadata in {{Path|/etc/lvm/archive}}. These files can be used to recover from an accidental change (like deleting the wrong logical volume). LVM also keeps a backup copy of the most recent metadata in {{Path|/etc/lvm/backup}}. These can be used to restore metadata to a replacement disk, or repair corrupted metadata.
 
-복원하려는 존재 볼륨 그룹의 상태를 보려면(가독성을 개선하기 위해 일부만 출력):
+To see what states of the volume group are available to be restored (partial output to improve readability):
 
 {{RootCmd|vgcfgrestore --list vg00|output=<pre>
   File:		/etc/lvm/archive/vg0_00042-302371184.vg
@@ -1084,17 +789,17 @@ LVM에는 몇가지 레벨의 중복을 지원하는 일부 기능을 지니고 
   Backup Time:	Sat Jul 13 01:41:32 201
 </pre>}}
 
-==== 갑작스럽게 삭제된 논리 볼륨 복원 ====
+==== Recovering an accidentally deleted logical volume ====
 
-볼륨 그룹 ''vg0''에서 논리 볼륨 ''lvm_raid1''이 갑자기 제거된 상황을 가정하겠습니다. 다음과 같이 복구할 수 있습니다:
+Assuming the logical volume ''lvm_raid1'' was accidentally removed from volume group ''vg0'', it is possible to recover it as follows:
 
 {{RootCmd|vgcfgrestore -f /etc/lvm/archive/vg0_00042-302371184.vg vg0}}
 
-{{Important/ko|{{c|vgcfgrestore}} 명령은 LVM 메타데이터만 복원하며, 논리 볼륨에 있는 모든 데이터를 복원하는 것이 ''아닙니다''. 또한 {{c|pvremove}}, {{c|vgremove}}, {{c|lvremove}}도 데이터는 온전히 남겨두고 메타데이터만 제거합니다. {{Path|/etc/lvm/lvm.conf}}에 <code>issue_discards</code>를 설정했다면, 해당 명령은 데이터에 ''해가 됩니다''.}}
+{{Important|<tt>vgcfgrestore</tt> only restores LVM metadata, ''not'' the data inside the logical volume. However <code>pvremove</code>, <code>vgremove</code>, and <code>lvremove</code> only wipe metadata, leaving any data intact. If <code>issue_discards</code> is set in {{Path|/etc/lvm/lvm.conf}} though, then these command ''are'' destructive to data.}}
 
-==== 고장난 물리 볼륨 바꾸기 ====
+==== Replacing a failed physical volume ====
 
-이 방법을 통해 제대로 ''교체''하고, 이전 물리 볼륨에서와 완전히 똑같은 메타데이터를 새 물리 볼륨에 다시 만들 수 있습니다.
+It possible to do a true "replace" and recreate the metadata on the new physical volume to be the same as the old physical volume:
 
 {{RootCmd|vgdisplay --partial --verbose|output=<pre>
   --- Physical volumes ---
@@ -1109,19 +814,19 @@ LVM에는 몇가지 레벨의 중복을 지원하는 일부 기능을 지니고 
   Total PE / Free PE    511 / 102
 </pre>}}
 
-여기서 중요한 줄은 UUID ''unknown device'' 입니다. 
+The important line here is the UUID "unknown device". 
 
 {{RootCmd|pvcreate --uuid T7bUjc-PYoO-bMqI-53vh-uxOV-xHYv-0VejBY --restorefile /etc/lvm/backup/vg0 /dev/loop1|output=<pre>
   Couldn't find device with uuid T7bUjc-PYoO-bMqI-53vh-uxOV-xHYv-0VejBY.
   Physical volume "/dev/loop1" successfully created</pre>}}
 
-이 명령으로 물리 볼륨 메타데이터를 다시 만들지만, 물리 볼륨의 빠진 논리 볼륨이나 볼륨 그룹 데이터를 다시 만들진 않습니다.
+This recreates the physical volume metadata, but not the missing logical volume or volume group data on the physical volume.
 
 {{RootCmd|vgcfgrestore -f /etc/lvm/backup/vg0 vg0|output=<pre>
   Restored volume group vg0
 </pre>}}
 
-이 명령으로 이제 물리 볼륨, 논리 볼륨, 볼륨 그룹 데이터의 빠진 메타데이터를 다시 만듭니다. 그러나 데이터를 복원하지는 않기 때문에 미러의 동기화는 오래된 상태가 됩니다.
+This now reconstructs all the missing metadata on the physical volume, including the logical volume and volume group data. However it doesn't restore the data, so the mirror is out of sync.
 
 {{RootCmd|vgchange -ay vg0|output=<pre>
   device-mapper: reload ioctl on  failed: Invalid argument
@@ -1132,31 +837,24 @@ LVM에는 몇가지 레벨의 중복을 지원하는 일부 기능을 지니고 
 Do you really want to deactivate logical volume lvm_raid1 to resync it? [y/n]: y
 </pre>}}
 
-이 명령은 미러를 다시 동기화합니다. RAID 4, 5, 6에서도 동작합니다.
+This will resync the mirror. This works with RAID 4,5 and 6 as well. 
 
-=== 논리 볼륨 비활성화 ===
+=== Deactivating a logical volume ===
 
-다음 명령으로 논리 볼륨을 비활성화 할 수 있습니다:
+It is possible to deactivate a logical volume with the following command:
 
 {{RootCmd|umount /dev/vg0/lvol1
 |lvchange -a n /dev/vg0/lvol1}}
 
-다시 활성화하기 전에는 논리 볼륨을 어디에서든 다시 마운트 할 수 없습니다:
+It is not possible to mount the logical volume anywhere before it gets reactivated:
 
 {{RootCmd|lvchange -a y /dev/vg0/lvol1}}
 
-== See also ==
-
-* {{See also|Device-mapper}}
-* [[Custom_Initramfs#LVM]] — Describes the creation of a custom initramfs for usage with LVM
-* [[Custom_Initramfs/Examples#LUKS.2C_LVM.2C_Resume_from_Hibernate.2C_Script_to_Build_the_Initramfs]] — An example script
-
-== 외부 자료 ==
+== External resources ==
 
 * [http://sourceware.org/lvm2/ LVM2 sourceware.org]
 * [http://tldp.org/HOWTO/LVM-HOWTO/ LVM tldp.org]
 * [http://sources.redhat.com/lvm2/wiki/ LVM2 Wiki redhat.com]
 
-<noinclude></noinclude>
 
 [[Category:Core system]]
