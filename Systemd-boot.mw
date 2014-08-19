@@ -1,39 +1,26 @@
-{{lowercase_title}}{{InfoBox stack
-|{{InfoBox homepage|https://www.freedesktop.org/wiki/Software/systemd/systemd-boot/|header=true}}
-|{{InfoBox package|sys-boot/systemd-boot}}
-|{{InfoBox github|systemd/systemd}}
-}}
-
-'''systemd-boot''', formerly called gummiboot, is [[Article description::a simple UEFI boot manager capable of booting Linux and Windows in EFI mode.]]
-
-{{Note|As of systemd 220, systemd-boot has been included with [[systemd]] (accessible via the {{c|bootctl}} command). If {{Package|sys-apps/systemd}} has been installed on the system, then {{Package|sys-boot/systemd-boot}} does ''not'' need to be installed.}}
+The {{Package|sys-boot/gummiboot}} package is a simple UEFI boot manager, capable of booting Linux and Windows in EFI mode.
 
 == Installation ==
 
-The installation of systemd-boot consists of the following steps:
+For the moment, {{Package|sys-boot/gummiboot}} is still in ~arch so needs to be added to the {{Path|/etc/portage/package.accepted_keywords}} first:
 
-# Emerging the package (not necessary if {{Package|sys-apps/systemd}} has been emerged).
-# Preparing the [[EFI System Partition]].
-# Installing the systemd-boot UEFI boot manager.
+{{RootCmd|mkdir -p /etc/portage/package.accepted_keywords
+|echo "sys-boot/gummiboot" >> /etc/portage/package.accepted_keywords/efi}}
 
-=== Emerge ===
+Next, install the {{Package|sys-boot/gummiboot}} package:
 
-For the moment, systemd-boot is marked as unstable (~) so it must to be added to {{Path|/etc/portage/package.accept_keywords}}:
+{{Emerge|sys-boot/gummiboot}}
 
-{{RootCmd
-|mkdir -p /etc/portage/package.accept_keywords
-|echo "sys-boot/systemd-boot" >> /etc/portage/package.accept_keywords/systemd-boot
-}}
+The installation of gummiboot isn't sufficient to have a working gummiboot bootloader. There are two steps to perform:
 
-Next, install the {{Package|sys-boot/systemd-boot}} package:
+1. Prepare the EFI system partition
+2. Install gummiboot UEFI boot manager.
 
-{{Emerge|sys-boot/systemd-boot}}
+=== Preparing the EFI system partition ===
 
-=== EFI system partition ===
+Make sure that an EFI system partition is available on the system. This is a GPT partition on the disk that is marked as EF00 (EFI System partition).
 
-Make sure that an [[EFI System Partition]] (ESP) is available on the system. This is a GPT partition on the disk that is marked as EF00 (EFI System partition).
-
-For instance, to create an ESP using {{Package|sys-apps/gptfdisk}}:
+For instance, with {{Package|sys-apps/gptfdisk}}:
 
 {{RootCmd|gdisk /dev/sda|output=<pre>
 Command (? for help): n
@@ -45,85 +32,52 @@ Hex code or GUID (L to show codes, Enter = 8300): EF00
 Command (? for help): w
 </pre>}}
 
-The filesystem on this partition must be formatted as a FAT variant. FAT32 is recommended:
+The file system on this partition must be FAT32:
 
 {{RootCmd|mkfs.vfat -F 32 /dev/sda1}}
 
-Mount this location on the system ({{Path|/boot/efi}} works just fine) and create the {{Path|/boot/efi/EFI/boot}} location.
+Mount this location on the system ({{Path|/boot}} works just fine) and create the {{Path|/boot/EFI/boot}} location.
 
-{{RootCmd
-|mkdir -p /boot/efi
-|mount /dev/sda1 /boot/efi
-}}
+{{RootCmd|mount /dev/sda1 /boot
+|mkdir -p /boot/EFI/boot}}
 
-=== UEFI boot manager ===
+=== Installing the gummiboot UEFI boot manager ===
 
-The systemd-boot application makes the installation, which only needs to be performed once (unless a new version of systemd-boot needs to be installed), fairly simple. Verify the following:
+The '''gummiboot''' application makes the installation, which only needs to be performed once (unless a new version of gummiboot needs to be installed), fairly simple:
 
-* The system is booted with EFI to start with (either from a EFI compatible media, or through any other UEFI boot manager) as it will otherwise fail to install.
-* The EFI variable file system (efivars) is mounted read/write:
-: {{RootCmd|mount -t efivarfs efivarfs /sys/firmware/efi/efivars}}
+{{RootCmd|gummiboot --path /boot install}}
 
-Then perform the install itself:
+The installation will install the proper EFI files so that the EFI-capable system will boot the gummiboot bootloader.
 
-{{RootCmd|bootctl --path /boot/efi install}}
+== Configuring ==
 
-The installation will install the proper EFI files so that the EFI-capable system will boot the systemd-boot bootloader.
-
-== Configuration ==
-
-A boot loader entry needs to be created for each operating system.
+For each operating system, a boot loader entry file needs to be created.
 
 Next to the boot loader entries, a small default configuration file can be created as well.
 
 === Default configuration entries ===
 
-In {{Path|/boot/efi/loader}} a file called {{Path|loader.conf}} can be created which contains at most the following two entries:
-
-; A <code>default</code> entry: specifying which operating system entry to boot by default.
-; A <code>timeout</code> entry: specifying the number of seconds to wait before the default boot entry is loaded.
+In {{Path|./loader}} a file called {{Path|loader.conf}} can be created which contains at most the following two entries:
+* A ''default'' entry, specifying which operating system entry to boot as default
+* A ''timeout'' entry, specifying the number of seconds to wait before the default boot entry is loaded
 
 For instance, this would look like so:
 
-{{FileBox|filename=/boot/efi/loader/loader.conf|title=Default settings|1=
+{{File|/boot/loader/loader.conf|Default gummiboot settings|<pre>
 default gentoo
 timeout 3
-}}
+</pre>}}
 
 The name of the ''default'' entry is the name of the configuration entry file, as created in the next section, without the {{Path|.conf}} suffix.
 
 === Operating system configuration entries ===
 
-These entry files need to be located in the [[ESP]], in the {{Path|/boot/efi/loader/entries}} location. So if the EFI system partition is mounted at {{Path|/boot/efi}} then this is at {{Path|/boot/efi/loader/entries}}. The following is an example configuration entry named "gentoo":
+These entry files need to be located on the EFI system partition, in the {{Path|./loader/entries}} location. So if the EFI system partition is mounted at {{Path|/boot}} then this is at {{Path|/boot/loader/entries}}. The following is an example configuration entry named "gentoo":
 
-{{FileBox|filename=/boot/efi/loader/entries/gentoo.conf|title=Gentoo configuration entry|1=
+{{File|./loader/entries/gentoo.conf|Gentoo gummiboot configuration entry|<pre>
 title Gentoo Linux
 linux /vmlinuz
 options root=/dev/sda3
-}}
+</pre>}}
 
-The ''linux'' entry points to an [[EFI_stub_kernel|EFI stub Linux kernel]] file, installed in the ESP.
-
-Although the [[EFI_stub_kernel|EFI stub kernel]] configuration works fine, it has the downside that
-
-* New Linux kernels are somewhat risky to test out because only a single kernel is booted.
-* Adding boot options requires rebuilding the Linux kernel.
-
-With systemd-boot, additional entries can be configured for new Linux kernel tests, and additional boot options are easy to add to the configuration entry file, or even at boot time.
-
-=== One-time boot loader options ===
-
-In order to boot the system with a particular boot option, in the systemd-boot screen, press {{Key|e}} to edit the options.
-
-The changes made in the systemd-boot screen are ''not'' preserved!
-
-== See also ==
-
-* {{See also|Systemd}}
-
-== External resources ==
-
-* https://www.phoronix.com/scan.php?page=news_item&px=systemd-Gummiboot-Boot-Loader - Gummiboot UEFI Boot Loader To Be Added To Systemd.
-* https://phoronix.com/scan.php?page=news_item&px=Gummiboot-Is-Dead - Gummiboot Is Dead.
-
-[[Category:Bootloaders]] [[Category:UEFI]]
+The ''linux'' entry points to an [[EFI_stub_kernel|EFI stub Linux kernel]] file, installed on the EFI system partition.
