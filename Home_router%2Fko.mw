@@ -1,43 +1,32 @@
 <languages />
 
-{{Metadata|abstract=이 문서는 어떻게 젠투 머신이 홈 네트워크와 인터넷을 연결하는 라우터로 변모하는지 자세한 내용을 다룹니다.}}
 
-이 문서는 어떻게 젠투 머신이 홈 네트워크와 인터넷을 연결하는 라우터로 변모하는지 자세한 내용을 다룹니다.
+{{Metadata|abstract=This document details how to turn an old Gentoo machine into a router for connecting your home network to the internet.}}
 
-== 도입부 ==
+This document details how to turn an old Gentoo machine into a router for connecting your home network to the internet.
 
-오래된 부품으로 개인 라우터를 구축하는 작업은 대기업(Linksys, D-Link, Netgear 등)에서 만들어둔 걸 사는 것보다 여러 면에서 장점을 지니고 있습니다. 특장점이라면 연결을 전반적으로 취급할 수 있다는 점입니다. 다른 장점은 여러분의 상상에 맏길 수 있습니다. 어떤 구성이든 필요한 요소로 이루어진 시나리오를 통해 가능합니다. 
+== Introduction ==
 
-이 안내서에선 네트워크 주소 변환(NAT) 기능을 자작 라우터(커널 및 iptables)에서 설정하는 방법, 일반적인 서비스({{Package|net-dns/dnsmasq}}를 통한 도메인 이름 체계(DNS)설정, {{Package|net-misc/dhcpcd}}를 통한 dhcp 사용, {{Package|net-dialup/ppp}}를 통한 ADSL연결)를 추가하고 설정하는 방법 절차를 제공하며, 자작 라우터에서 갖출 수 있는 모든 기능을 가진 정교한 재미거리(포트 포워딩, 트래픽 셰이핑, 프록시/캐싱, 등...)로 마무리 하겠습니다. 
+Building your own router out of old spare parts has many advantages over buying a pre-made canned router by say Linksys. The biggest one by far is control over the connection. The other advantages are left up to your imagination; just about anything can be done in this scenario, it's just a matter of needing it. 
 
-시작하기 전에, 몇가지 검토해 볼 기본 요구사항이 있습니다. 
-# 컴퓨터에 적어도 두 개 이상의 네트워크 인터페이스 카드(NICs)를 이미 설치했어야 합니다. 
-# 인터넷 연결을 설정해야 합니다(아마 IP/DNS/게이트웨이/사용자 이름/암호가 포함될지도 모릅니다).
-# (추가적으로) 마스터 모드를 지원하는 무선 네트워크 카드도 필요합니다. 상업용 드라이버가 필요하여 기능을 못쓰고 버리는 일을 피하려면 마스터 모드 설정을 추천합니다. 드라이버를 다루지 못한다면 카드를 영원히 방치하고 쓰지 못할 지도 모릅니다. 
-# 이 안내서를 성공적으로 따르고 가정용 라우터가 제대로 동작하도록 하는 약간의 여유 시간과 젠투에 대한 애정이 필요합니다.
+This guide will show you how to setup Network Address Translation (NAT) on the router (kernel and iptables), add and configure common services (Domain Name System (DNS) via dnsmasq, dhcp via dhcpcd, ADSL via ppp), and conclude with more elaborate and fun things that can be done (port forwarding, traffic shaping, proxies/caching, etc...). 
 
-# A computer that has at least 2 Network Interface Cards (NICs) installed.
-# The configuration settings for an Internet connection (may include things like IP/DNS/Gateway/username/password).
-# (Optionally) a Wi-Fi card that supports master mode. Master mode is recommended to avoid NICs with a bypass feature since some NICs require proprietary drivers. Without access to the proprietary driver the card will remain in bypass mode permanently and will not be usable.
-# A bit of spare time and Gentoo loving in order to successfully follow this guide and implement a well functioning home router.
+Before getting started, there's a few basic requirements you must meet. First, you'll need a computer that has at least 2 Network Interface Cards (NICs) in it. Next, you'll need the configuration settings for your internet connection (may include things like IP/DNS/Gateway/username/password). Finally, you'll need a bit of spare time and some Gentoo loving. 
 
-이 안내서에서 따를 관례는 다음과 같습니다: 
+The conventions used in this guide are: 
 
-* eth0 - 지역 네트워크(LAN)또는 여러대의 NIC로 구성한 네트워크 브릿지에 연결한 NIC
-* eth1 - 광역 네트워크(WAN)에 연결한 NIC
-* LAN은 192.168.0.xxx 네트워크로 동작함
-* 라우터는 표준 192.168.0.1 IP 주소로 고정함
-* 라우터는 Linux 2.4또는 2.6커널에서 동작합니다. 이 안내서에서 다른 버전은 지원하지 않습니다.
+* eth0 - NIC connected to the Local Area Network (LAN)
+* eth1 - NIC connected to the Wide Area Network (WAN)
+* LAN utilizes the private 192.168.0.xxx network
+* router is hardcoded to the standard 192.168.0.1 IP
+* router is running Linux 2.4 or 2.6; you're on your own with 2.0/2.2
 
-{{Important/ko|보안상 미리 경고하건대, 방화벽을 제대로 굴리기 전까진 라우터에서 필요없는 서비스를 내리는 것이 좋습니다. 현재 실행 중인 서비스를 보려면 {{c | rc-status}}를 실행하십시오.}}
+{{Important|Due to security precautions, I would highly suggest you shut down any unneeded services on the router until we have a chance to get the firewall up and rolling. To view the currently running services, just run <code>rc-status</code>.}}
 
-== 커널 설정(너 자신을 알라) ==
+== Kernel setup (know thyself first) ==
 
-<div class="mw-translate-fuzzy">
-시스템에 나타난 NIC를 동작케 하려면 커널 드라이버를 설치해야 합니다. 카드를 이미 설정했는지 확인하려면 {{c|ifconfig}}를 실행하십시오. 다음의 예제 과정과는 나온 내용이 약간 다를 수 있습니다. 여기서 다룰 문제는 모든 인터페이스를 화면에 띄우는 것입니다.
-</div>
+Your kernel needs to have the drivers running for both your NICs. To see if your cards are already setup, just run <code>ifconfig</code>. Your output may differ slightly from the following, that's fine. What matters is that the interface shows up at all. 
 
-<div class="mw-translate-fuzzy">
 {{RootCmd|ifconfig -a|output=<pre>
 eth0      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B8
           BROADCAST MULTICAST  MTU:1500  Metric:1
@@ -56,27 +45,17 @@ eth1      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B9
           Interrupt:10 Base address:0x9400
 </pre>
 }}
-</div>
 
-두 네트워크 카드가 나타나지 않고, 어떤 카드를 붙였는지 알 수 없다면, {{c|lspci | grep Ethernet}}을 실행해보십시오. {{c|lspci}} 유틸리티는 {{Package|sys-apps/pciutils}} 꾸러미의 일부이며 {{c|emerge sys-apps/pciutils}}로 프로그램을 가져올 수 있습니다.
+If you do not see your two cards showing up and you're not sure what kind of cards you have, try running <code>lspci | grep Ethernet</code>. You can get that from <code>emerge pciutils</code>. Once you have this information, go into your kernel and add support for the correct drivers. 
 
-이 정보를 확인했다면, 커널 설정으로 가서 올바른 드라이버 지원을 추가하십시오. 커널 설정에 대한 더 많은 내용은 [[Kernel/Gentoo_Kernel_Configuration_Guide|커널 설정 안내서]]<sup style="color: #ff0077">en</sup>를 살펴보십시오.
+The next thing you'll need is support for iptables and NAT (and packet shaping if you want). The following list is split up into always required (*), required only for adsl via PPPoE (a), suggested for everyone (x), and only for shaper (s) features. It does not matter whether you build the features into the kernel or as a module so long as when the feature is needed, the correct module(s) are loaded (module loading is left to the reader as a fun exercise however). 
 
-그 다음 필요한 것은 iptables와 NAT(그리고 원할 경우 패킷 셰이핑) 지원입니다. 다음 목록은 항상 필요한 것(*), PPPoE를 통한 ADSL연결시(a), 모든 경우에 대해 추천(x), 셰이퍼(s) 기능용으로 나뉩니다. 기능을 커널에 포함을 하든 모듈로 빌드하든 상관 없기에 기능이 필요할 때면 올바른 모듈을 불러옵니다(모듈 불러오기는 어쨌거나 독자의 흥미 거리로 남겨둡니다). 모듈 불러오기에 더 많은 내용을 찾아보신다면 다음을 참고하십시오
-
-{{KernelBox|title=Network Options|<pre>
+{{Kernel|Network Options|<pre>
 Networking options  --->
    [*] TCP/IP networking
       [*] IP: advanced router
    [*] Network packet filtering (replaces ipchains)
-</pre>}}
-
-Those who would rather search for these features directly in menuconfig can find them under the following names:
-<var>CONFIG_INET</var>, <var>CONFIG_IP_ADVANCED_ROUTER</var>, and <var>CONFIG_NETFILTER</var>, <var>CONFIG_NETFILTER_ADVANCED</var>, <var>CONFIG_NF_CONNTRACK_IPV6</var>, and <var>CONFIG_IP6_NF_IPTABLES</var>.
-
-2.4.x 커널을 사용한다면, DHCP를 활용할 때 다음 설정을 활성화해야합니다:
-
-{{KernelBox|title=Network Options|<pre>
+If you use 2.4.x, you have to enable the following for DHCP:
    [*] Socket Filtering
   
    IP: Netfilter Configuration  --->
@@ -108,25 +87,24 @@ Those who would rather search for these features directly in menuconfig can find
       [a] PPP Deflate compression
       [a] PPP BSD-Compress compression
       [a] PPP over Ethernet
-</pre>}}
+</pre>
+}}
 
-{{Note/ko|2.4.x 커널과 2.6.x 커널의 어떤 부분에 있어서는 약간 다를지도 모릅니다. 그러나 차이점을 확인하는데는 그렇게 어렵지 않습니다. 심지어 2.6 커널에서는 이 옵션이 이리저리 옮겨가는 경향이 있습니다. 잘 해보세요!}}
+{{Note|Some things may be slightly different in a 2.4 vs 2.6 kernel, but you should be able to figure it out :). Even among 2.6 kernels, these options have a tendency to move around. Good luck!}}
 
-== WAN (인터넷-Internet 이라 알려짐) 내 것으로 만들기 ==
+== Hug the WAN (a.k.a. The Internet) ==
 
-=== 도입부 ===
+=== Intro ===
 
-인터넷에 연결하는 방법은 ''여러가지''가 있습니다. 하지만 일반적으로 연결하는 방법은 그 중 몇가지일 뿐입니다. ADSL(PPPoE) 와 케이블 모뎀 연결 방식(정적/동적)은 ISP(인터넷 서비스 제공자)에서 제공하는 가장 일반적인 방식입니다. 다른 방식이 존재한다면 이 위키 게시글에 자유롭게 추가하십시오. 용례에 적합하지 않다면 이 장의 나머지 부분을 건너뛰십시오. 이 장은 eth1을 통해 라우터 머신이 인터넷에 연결할 수 있게 잡아주는 부분입니다. 
+There are many ways to connect to the internet so I'll just cover the ones I'm familiar with. That leaves us with ADSL (PPPoE) and cable modems (static/dynamic). If there are other methods out there, feel free to write up a little blurb and e-mail me. Feel free to skip any of the following sections in this chapter that don't apply to you. This chapter is just about getting the router connected to the internet via eth1. 
 
-=== ADSL과 PPPoE ===
+=== ADSL and PPPoE ===
 
-<div class="mw-translate-fuzzy">
-rp-pppoe([http://www.roaringpenguin.com/ Roaring Penguin])에서 보통 제공하는 매력적인 모든 PPPoE 프로그램은 [http://samba.org/ppp/ 표준 PPP 꾸러미]에 통합했습니다. 간단하게 {{c|emerge net-dialup/ppp}}를 실행하면 여러분의 뜻대로 됩니다. 여러분이 사용자 이름/암호 정보가 필요하다는 사실을 어떻게 말했는지 기억하시죠? 글쎄요, 전 뻥을 안쳤으니까 여러분이 그걸 지금 자각하고 있길 바랍니다. 여러분이 주로 쓰는 편집기에서 {{Path|/etc/conf.d/net}}을 불러오고 설정해보세요.
-</div> 
+All the fancy PPPoE software that used to be provided by rp-pppoe ([http://www.roaringpenguin.com/ Roaring Penguin]) has been integrated into the [http://samba.org/ppp/ standard PPP package]. Simply <code>emerge ppp</code> and you'll be on your way. Remember how I said you'll need username/password information? Well I wasn't lying so I hope you have it now! Load up {{Path|/etc/conf.d/net}} in your favorite editor and set it up. 
 
-다음 예제에서 <code><username></code>과 <code><user_password></code> 부분을 필요한 사용자 이름 및 암호로 바꾸십시오:
+Replace 'vla9h924' in the following example with your username and 'boogie' with your password.
 
-{{FileBox|filename=/etc/conf.d/net|title=eth1을 통해 ppp0에서 ADSL 연결 사용하기|lang=bash|1=
+{{File|/etc/conf.d/net|Use adsl over eth1 for ppp0|<pre>
 config_ppp0="ppp"
 link_ppp0="eth1"
 plugins_ppp0="pppoe"
@@ -134,212 +112,201 @@ pppd_ppp0="
   defaultroute
   usepeerdns
 "
-username_ppp0="<username>"
-password_ppp0="<user_password>"
-}}
+username_ppp0="vla9h924"
+password_ppp0="boogie"
+</pre>}}
 
 {{RootCmd|ln -s net.lo /etc/init.d/net.ppp0
 |rc-update add net.ppp0 default
 |/etc/init.d/net.ppp0 start}}
 
-{{Warning/ko|DSL 인터페이스가 딸려온다면, {{c|ifconfig}} 명령에서 "ppp0" 으로 나타나는 항목을 만듭니다. NIC 카드가 eth1이라 해도 IP 주소는 실제로 ppp0에 물립니다. 지금부터는 예제에서 <code>ppp0</code>가 <code>eth1</code> 을 대신합니다.}}
+{{Warning|When the DSL interface comes up, it will create ppp0. Although your NIC is called eth1, the IP is actually bound to ppp0. From now on, when you see examples that utilize 'eth1', substitute with 'ppp0'.}}
 
-{{Warning|{{Path|/etc/conf.d/net}} 파일의 권한을 바꾸어 루트 사용자만 읽기/쓰기가 가능하도록 했는지 확인하십시오. 사용자 이름과 암호를 플레인 텍스트 형식으로 입력했기 때문에 매우 중요합니다.}}
+{{Warning|Make sure you change the permissions of the {{Path|/etc/conf.d/net}} file so that only root can read/write it since you're sticking your username/password in it.}}
 
-{{Warning|{{Package|net-dialup/rp-pppoe}} 패키지에서 옮겨가는 분들이나, 연결 재설정에 자주 부딪히는 분들은 문제 해결 장에서 MTU 절을 참고하세요.}}
+{{Warning|For people transitioning from the <code>rp-pppoe</code> package, or for people who hit weird connection resets, see the MTU section in the Troubleshooting chapter.}}
 
-=== 케이블 또는 동적/정적 IP ===
+=== Cable and/or dynamic/static IP ===
 
-고정 IP를 받았다면 자세한 세부 설정이 필요합니다. 정적 IP 사용자는 IP 주소, 게이트웨이, DNS 서버 주소가 필요합니다. 
+If you have a static IP then you will need a few more details than if you have a dynamic IP. For static users, you will need your IP, gateway, and DNS servers. 
 
-동적 IP 사용자:
+Dynamic IP Users:
 
-{{Emerge|net-misc/dhcpcd}}
+{{Emerge|dhcpcd}}
 
-{{FileBox|filename=/etc/conf.d/net|title=동적 IP 주소|lang=bash|1=
+{{File|/etc/conf.d/net|Dynamic IP addresses|<pre>
 config_eth1="dhcp"
-}}
+</pre>}}
 
-정적 IP 사용자:
+Static IP Users:
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/conf.d/net|title=정적 IP 주소 설정|lang=bash|1=
+{{File|/etc/conf.d/net|Static IP address configuration|<pre>
 config_eth1="66.92.78.102/24 brd 66.92.78.255"
 routes_eth1="default via 66.92.78.1"
-}}
-</div>
+</pre>}}
 
-{{FileBox|filename=/etc/resolv.conf|title=DNS 정보 추가|1=
+{{File|/etc/resolv.conf|Adding DNS information|<pre>
 nameserver 123.123.123.123
-}}
+</pre>}}
 
-동적 및 정적 설정:
+Dynamic and Static Setup:
 
 {{RootCmd|ln -s net.lo /etc/init.d/net.eth1
 |rc-update add net.eth1 default
 |/etc/init.d/net.eth1 start}}
 
-모든 설정이 여기까지 해서 제대로 동작해야 합니다. 
+You should be all set to go now. 
 
-== (일부 친구를 데려오는)LAN을 내 것으로 만들기 ==
+== Hug the LAN (bring along some friends) ==
 
-이 과정은 앞의 과정보다는 좀 더 수월합니다. 그러나 두 개 ''이상''의 장치(LAN용, WAN용)를 사용한다면, LAN을 사용하는 모든 NIC에 [[Network bridge]]를 설정해야 합니다. 이렇게 하면 여러대의 NIC에 동일한 IP 주소를 할당할 수 있습니다. 
+This step is a breeze compared to the previous one. 
 
-네트워크 브릿지가 필요하다면 [[Network bridge|네트워크 브릿지 설정 과정]]<sup style="color:#ff0077">en</sup>을 따르십시오. 브릿지 이름(기본은 br0)은 이 위키의 과정을 통해 LAN 장비에 할당할 목적으로 eth0으로 대체합니다. 홈 라우터에 여러대의 네트워크 장치를 보유하고 있다면, 관리를 쉽게 하기 위해 udev에서 이름을 바꿔보는 것이 좋습니다. 브릿지를 설정하고 장치의 이름을 바꾸는것은 완전히 별개의 선택 문제지만 좀 더 큰 가정용 네트워크를 구축한다면 추천합니다. 
-
-무선 네트워크 액세스 포인트를 만들려고 한다면, 무선 네트워크 카드에서 마스터 모드를 지원하는지 확인하고 [[Hostapd]]를 설치해야 합니다.
-
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/conf.d/net|lang=bash|1=
+{{File|/etc/conf.d/net||<pre>
 config_eth0="192.168.0.1/24 brd 192.168.0.255"
-}}
-</div>
+</pre>}}
 
 {{RootCmd|rc-update add net.eth0 default
 |/etc/init.d/net.eth0 start}}
 
-== LAN 서비스(우린 친절하니까) ==
+== LAN Services (because we're nice people) ==
 
-=== DHCP 서버 ===
+=== DHCP Server ===
 
-다른 사람들이 여러분의 집에 찾아와서 네트워크에 컴퓨터를 연결하고 바로 동작한다면 상당히 근사할거라 봅니다. 구체적인걸 생각하느라 멍때릴 필요도 없고 혼란스러운 설정 화면을 쳐다보게 할 필요도 없습니다! 인생은 뽀대나게 살아야 하니까요 (읭?) 동적 호스트 설정 프로토콜(DHCP)과 왜 모두가 이 부분을 다루어야 하는지 설명하도록 하겠습니다.
+I bet it'd be nice if everyone else in your house could just plug their computers into the network and things would just work. No need to remember mind-numbing details or make them stare at confusing configuration screens! Life would be grand eh? Introducing the Dynamic Host Configuration Protocol (DHCP) and why you should care. 
 
-DHCP는 정확하게 말하자면 이 이름이 함축하는 그대로입니다. 호스트를 동적으로 자동으로 설정하게끔 하는 프로토콜입니다. DHCP 서버를 라우터에서 실행하면 네트워크의 모든 정보(유효 IP, DNS 서버, 게이트웨이, 등...)를 제공하고, 다른 호스트가 시작하면 DHCP ''클라이언트''를 자체적으로 자동으로 설정하게끔합니다. 난리날 일도 없고, 혼란스러워질 일도 없습니다! DHCP에 대한 더 많은 내용을 알아보시려 한다면 언제든 [[Wikipedia:DHCP|Wikipedia DHCP 게시글]]<sup style="color:#ff0077">en</sup>을 찾아보실 수 있습니다. 
+DHCP is exactly what its name implies. It's a protocol that allows you to dynamically configure other hosts automatically. You run a DHCP server on the router, give it all the information about your network (valid IPs, DNS servers, gateways, etc...), and then when the other hosts start up, they run a DHCP client to automatically configure themselves. No fuss, no muss! For more information about DHCP, you can always visit [[Wikipedia:DHCP|Wikipedia]]. 
 
-DHCP와 DNS 서비스를 제공하는 {{Package|net-dns/dnsmasq}} 꾸러미를 활용하겠습니다. 이제 DHCP의 관점에 집중하겠습니다. 다른 DHCP 서버를 실행하시려 한다면 재미거리를 다루는 아래에서 다른 예제를 찾아보시면 됩니다. 또한 DHCP 서버 설정에 손을 대보려 한다면 {{Path|/etc/dnsmasq.conf}}파일의 주석만을 읽어보십시오. 
+We'll use a package called dnsmasq which provides both DHCP and DNS services. For now lets just focus on the DHCP aspect. Note that if you want to run a different DHCP server, you can find another example in the Fun Things chapter. Also, if you wish to tinker with the DHCP server settings, just read the comments in {{Path|/etc/dnsmasq.conf}}. All the defaults should work fine though. 
 
-{{Emerge|net-dns/dnsmasq}}
+{{Emerge|dnsmasq}}
 
-{{FileBox|filename=/etc/dnsmasq.conf|1=
+{{File|/etc/dnsmasq.conf||<pre>
 dhcp-range=192.168.0.100,192.168.0.250,72h
 interface=eth0
-}}
+</pre>}}
 
 {{RootCmd|rc-update add dnsmasq default
 |/etc/init.d/dnsmasq start}}
 
-인터페이스 설정은 매우 중요합니다. 기본 dnsmasq 설정을 사용하면 DNS 증폭 공격에 대해 라우터가 무방비 상태로 노출되며, ISP가 제공하는 연결망을 통해 소름 돋는 이메일을 받을수도 있습니다. [http://openresolver.com]에서 DNS 증폭 공격을 허용하지 않는지 확인하십시오.
+Now your little router is a bona-fide DHCP server! Plugin those computers and watch them work! With Windows systems you should go into the TCP/IP Properties and select the 'Obtain an IP address automatically' and 'Obtain DNS server address automatically' options. Sometimes the changes aren't instantaneous, so you may have to open a command prompt and run <code>ipconfig /release</code> and <code>ipconfig /renew</code>. But enough about Windows, let's get back to our favorite penguin. 
 
-이제 조그만 라우터는 제대로 동작하는 DHCP 서버가 되었습니다. 저기 있는 컴퓨터를 붙여서 동작하는걸 확인해보세요! 윈도우 시스템에서는 {{Path|TCP/IP 속성}}에서 {{Path|IP 주소 자동으로 가져오기}}와 {{Path|DNS 서버 주소 자동으로 가져오기}}를 선택하시면 됩니다. 때로는 바뀐 내용이 바로 적용 안될 수 있기에, 명령 프롬프트를 열어서 {{c|ipconfig /release}}와 {{c|ipconfig /renew}}명령을 실행해야 합니다. 암튼, 윈도우에 대해서는 이쯤이면 충분하니, 모두가 관심있는 펭귄에게로 돌아가도록 하겠습니다.
+=== DNS Server ===
 
-=== DNS 서버 ===
+When people want to visit a place on the internet, they remember names, not a string of funky numbers. After all, what's easier to remember, ebay.com or 66.135.192.87? This is where the DNS steps in. DNS servers run all over the internet, and whenever someone wants to visit 'ebay.com', these servers turn 'ebay.com' (what we understand) into '66.135.192.87' (what our computers understand). For more information about DNS, you can always visit [[Wikipedia:DNS|Wikipedia]]. 
 
-사람들이 인터넷에서 방문할 때, 이름을 기억하지, 괴상한 숫자들로 이루어진 문자열을 기억하진 않습니다. 어쨌거나, ebay.com과 66.135.192.87중에 무엇이 기억하기 쉬운가요? DNS가 개입할 시점이 여깁니다. DNS 서버는 인터넷 어디든 실행하며, 누군가가 eBay.com을 방문하려 한다면, 이 서버는 (우리가 이해하는)"ebay.com"을 (컴퓨터가 이해하는) "66.135.192.87" IP 주소로 바꿉니다. DNS에 대한 더 많은 내용을 알아보시려 한다면 언제든 [[Wikipedia:DNS|Wikipedia]]를 방문하여 살펴보실 수 있습니다. 
+Since we're using dnsmasq for our DHCP server, and it includes a DNS server, you've got nothing left to do here! Your little router is already providing DNS to its DHCP clients. Bet you wish everything was this easy ;). 
 
-DHCP 서버에 DNS 서버 기능이 들어간 dnsmasq를 사용한다고 했으니, 더 해야 할 일은 없습니다! 조그마한 라우터에서는 이미 DHCP 클라이언트에 DNS를 제공하고 있습니다. 이 모든 과정이 쉽길 바라진 않겠지요? ;D. 
+You're welcome to choose other DNS servers if you're more comfortable with them, but the reason dnsmasq is great is because it was designed to do exactly what we want and nothing more. It's a little DNS caching/forwarding server for local networks. We're not looking to provide DNS for our own domain here, just offer simple DNS services to everyone else on our LAN. 
 
-다른 DNS 서버 설정이 더 편하다면 해당 서버를 쓸 수 있습니다. dnsmasq를 이 글에서 활용하는 이유는 이 안내서에서 요구하는 바를 정확하게 충족하도록 설계했기 때문입니다. 로컬 네트워크용 DNS 캐싱/포워딩 서버입니다. 이 설명서의 범위는 단지 도메인 서비스만이 목적이 아닙니다. 하지만 가정 기반 LAN 에서 모든 사용자에게 간단한 DNS 서비스를 제공합니다. 
+=== NAT (a.k.a. IP-masquerading) ===
 
-=== (IP 매스커레이딩으로 알려진) NAT ===
+At this point, people on your network can talk to each other and they can look up hostnames via DNS, but they still can't actually connect to the internet. While you may think that's great (more bandwidth for you!), I bet they're not too happy just yet. 
 
-여기서, 여러분의 네트워크에 연결된 사람들은 서로 소통할 수 있으며 DNS통해 호스트 이름을 찾습니다만, 아직 실제로는 인터넷에 연결할 수 없습니다. (이 글을 읽고 있을) 네트워크 관리자라면 이정도면 대단하다고 생각(관리하려면 더 많은 대역폭이 있어야 하는데 말이죠!)하고, 사용자는 이 인터넷 연결이 없는 상황에서 상당히 기분이 안좋을것입니다. 
+This is where Network Address Translation (NAT) steps in. NAT is a way of connecting multiple computers in a private LAN to the internet when you have a smaller number of public IP addresses available to you. Typically you are given 1 IP by your ISP, but you want to let your whole house connect to the internet. NAT is the magic that makes this possible. For more information about NAT, you can always visit [[Wikipedia:NAT|Wikipedia]]. 
 
-이 단계에서 네트워크 주소 변환(NAT) 체계를 도입할 차례입니다. NAT는 사용할 수 있는 공용 IP 주소가 얼마 없을 때, 자체 지역 네트워크의 여러 컴퓨터를 인터넷에 연결하는 방법입니다. 보통 ISP에서는 인터넷을 연결하려는 가정 전체로 가정 인터넷 사용자에게 공인 IP를 한 개만 줍니다. NAT는 이러한 동작을 가능케 하는 마술입니다. NAT에 대한 더 많은 이야기를 알아보시려 한다면, 언제든 [[Wikipedia:NAT|Wikipedia]]를 방문하십시오. 
+{{Note|Before we get started, make sure you have iptables on your system. Although it is automatically installed on most systems, you may not have it. If you don't, just run <code>emerge iptables</code>.}}
 
-{{Note/ko|시작하기 전에, 시스템에 IPtables가 있는지 확인하십시오. 시스템에 없다면  {{c|emerge iptables}} 명령으로 설치하십시오.}}
-
-IPtables를 설치한 후, 현재 규칙을 모두 삭제하십시오:
+First we flush our current rules
 
 {{RootCmd|iptables -F
 |iptables -t nat -F}}
 
-조건에 일치하지 않는 트래픽을 처리파도록 기본정책을 설정하겠습니다:
+Setup default policies to handle unmatched traffic
 
 {{RootCmd|iptables -P INPUT ACCEPT
 |iptables -P OUTPUT ACCEPT
 |iptables -P FORWARD DROP}}
 
-다음 예제를 복사해서 붙여넣으세요:
+Copy and paste these examples ...
 
 {{RootCmd|export LAN{{=}}eth0
 |export WAN{{=}}eth1}}
 
-그 다음 서비스를 잠궈서 LAN에서만 동작하도록 하겠습니다:
+Then we lock our services so they only work from the LAN:
 
 {{RootCmd|iptables -I INPUT 1 -i ${LAN} -j ACCEPT
 |iptables -I INPUT 1 -i lo -j ACCEPT
 |iptables -A INPUT -p UDP --dport bootps ! -i ${LAN} -j REJECT
 |iptables -A INPUT -p UDP --dport domain ! -i ${LAN} -j REJECT}}
 
-(추가 요소)WAN에서 ssh 서버로 접근할 수 있도록 하겠습니다:
+(Optional) Allow access to our ssh server from the WAN:
 
 {{RootCmd|iptables -A INPUT -p TCP --dport ssh -i ${WAN} -j ACCEPT}}
 
-허가받은 포트에 TCP/ UDP 패킷을 떨굽니다:
+Drop TCP / UDP packets to privileged ports:
 
 {{RootCmd|iptables -A INPUT -p TCP ! -i ${LAN} -d 0/0 --dport 0:1023 -j DROP
 |iptables -A INPUT -p UDP ! -i ${LAN} -d 0/0 --dport 0:1023 -j DROP}}
 
-마지막으로 NAT 규칙을 추가하겠습니다:
+Finally we add the rules for NAT:
 
-<div class="mw-translate-fuzzy">
 {{RootCmd|iptables -I FORWARD -i ${LAN} -d 192.168.0.0/255.255.0.0 -j DROP
 |iptables -A FORWARD -i ${LAN} -s 192.168.0.0/255.255.0.0 -j ACCEPT
 |iptables -A FORWARD -i ${WAN} -d 192.168.0.0/255.255.0.0 -j ACCEPT
 |iptables -t nat -A POSTROUTING -o ${WAN} -j MASQUERADE}}
-</div>
 
-커널에 IP 포워딩을 허용한다고 알립니다:
+Tell the kernel that ip forwarding is OK:
 
 {{RootCmd|echo 1 > /proc/sys/net/ipv4/ip_forward}}
 
 {{RootCmd|for f in /proc/sys/net/ipv4/conf/*/rp_filter ; do echo 1 > $f ; done}}
 
-IPTables 데몬에 바뀐 규칙을 저장하라고 지시하고 IPTables를 기본 런레벨에 추가하십시오:
+This is so when we boot we don't have to run the rules by hand.
 
 {{RootCmd|/etc/init.d/iptables save
 |rc-update add iptables default}}
 
-{{FileBox|filename=/etc/sysctl.conf|lang=ini|1=
+{{File|/etc/sysctl.conf||<pre>
 net.ipv4.ip_forward = 1
 net.ipv4.conf.default.rp_filter = 1
-}}
+</pre>}}
 
-동적 인터넷 망에 대해서는 다음 설정을 활성화하십시오:
+If you have a dynamic internet address you probably want to enable this:
 
-{{FileBox|filename=/etc/sysctl.conf|lang=ini|1=
+{{File|/etc/sysctl.conf||<pre>
 net.ipv4.ip_dynaddr = 1
+</pre>
 }}
 
-이 모든 내용을 다 입력하고 나면, 네트워크의 나머지 머신들이 인터넷에 직접 연결된 것과 같이 이제부터 인터넷을 사용할 수 있어야합니다. 
+Once you've typed out all of that, the rest of your network should now be able to use the internet as if they were directly connected themselves. 
 
-<code>ip_dynaddr</code> 옵션은 다이얼 요청 시스템 또는 ISP에서 동적 주소를 제공할 때 유용합니다. 이 옵션은 인터넷 인터페이스를 완전히 설정하기 전에 연결을 시도할 경우 문제를 일으키며 동작합니다. 라우터 뒤에 있는 사용자들에겐 보다 유연한 네트워크 경험을 제공할 뿐입니다. 
+The ip_dynaddr option is useful for dial on demand systems or when your ISP gives out dynamic addresses. This works around the problem where a connection is attempted before the internet interface is fully setup. Really this just provides for a smoother network experience for users behind your router. 
 
-== (비오는 날의) 재미 거리 ==
+== Fun Things (for a rainy day) ==
 
-=== 도입부 ===
+=== Intro ===
 
-믿거나 말거나, 끝내셨습니다 :D. 이제 여기서부터는 흥미를 가질만한 주제를 다룹니다. 다음부터 나오는 모든 내용은 완벽하게 여러분의 선택에 달려있습니다.
+Believe it or not, you're done :). From here on out, I'll cover a bunch of common topics that may interest you. Everything in this chapter is completely optional. 
 
-=== 포트 포워딩 ===
+=== Port Forwarding ===
 
-때로는 라우터 뒷단에서 호스팅 서비스를 가능하게 하거나, 컴퓨터를 원격으로 조종하게 하고 싶을지도 모릅니다. 아마도 FTP, HTTP, SSH, VNC 서버가 라우터 뒷단에 있어야 할거고 외부에서 연결할 수 있어야겠죠. 포트포워딩에 알려줄 것은 포트별로 연결이 가능한 서버 및 머신을 알려주는 일 뿐입니다. 예를 들면 실제로 라우터 뒷단에서 21번 포트를 통해 FTP 서버를 세대 구축하고 해당 서버에 각각 연결할 수 있는 방법은 없습니다. 오직 한대의 시스템만 21번 포트를 점유할 수 있으며, 나머지 시스템은 다른 포트(123, 567 같은 괜찮은 옵션이 있습니다)를 사용해야합니다. 
+Sometimes you would like to be able to host services on a computer behind the router, or just to make your life easier when connecting remotely. Perhaps you want to run a FTP, HTTP, SSH, or VNC server on one or more machines behind your router and be able to connect to them all. The only caveat is that you can only have one service/machine combo per port. For example, there is no practical way to setup three FTP servers behind your router and then try to connect to them all through port 21; only one can be on port 21 while the others would have to be on say port 123 and port 567. 
 
-모든 포트 포워딩 규칙의 양식은 {{c|iptables -t nat -A PREROUTING [-p protocol] --dport [external port on router] -i ${WAN} -j DNAT --to [ip/port to forward to]}}입니다. 불행하게도, iptables는 포트포워딩을 수행할 때 호스트 이름을 받아들이지 못합니다. 외부 포트로부터 내부 머신의 동일한 포트로 포워딩한다면, 대상 포트는 생략할 수 있습니다. 더 많은 내용은 iptables(8) 맨 페이지를 살펴보세요. 
+All the port forwarding rules are of the form <code>iptables -t nat -A PREROUTING [-p protocol] --dport [external port on router] -i ${WAN} -j DNAT --to [ip/port to forward to]</code>. Unfortunately, iptables does not accept hostnames when port forwarding. If you are forwarding an external port to the same port on the internal machine, you can omit the destination port. See the iptables(8) man page for more information. 
 
 {{RootCmd|export LAN{{=}}eth0
 |export WAN{{=}}eth1}}
 
-내부 호스트의 ssh로 포트 2개 포워딩
+Forward port 2 to ssh on an internal host:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p tcp --dport 2 -i ${WAN} -j DNAT --to 192.168.0.2:22}}
 
-내부 호스트용 FTP 포워딩:
+FTP forwarding to an internal host:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p tcp --dport 21 -i ${WAN} -j DNAT --to 192.168.0.56}}
 
-내부 호스트용 HTTP 포워딩:
+HTTP forwarding to an internal host:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p tcp --dport 80 -i ${WAN} -j DNAT --to 192.168.0.56}}
 
-내부 호스트용 VNC 포워딩:
+VNC forwarding for internal hosts:
 
 {{RootCmd|iptables -t nat -I PREROUTING -p tcp --dport 5900 -i ${WAN} -j DNAT --to 192.168.0.2
 |iptables -t nat -I PREROUTING -p tcp --dport 5901 -i ${WAN} -j DNAT --to 192.168.0.3:5900}}
 
-VNC를 192.168.0.3에서 사용하려면 라우터 호스트 이름에 <code>:1</code>을 추가하기만 하세요.
+If you want to VNC in to 192.168.0.3, then just add ':1' to the router's hostname.
 
-내부 포스트용 SAMBA 포워딩(윈도우를 감당하기에는 포트 수를 초과함):
+SAMBA forwarding to an internal host (excess ports to cover Windows):
 
 {{RootCmd|iptables -t nat -I PREROUTING -p tcp --dport 135 -i ${WAN} -j DNAT --to 192.168.0.2
 |iptables -t nat -I PREROUTING -p tcp --dport 139 -i ${WAN} -j DNAT --to 192.168.0.2
@@ -347,81 +314,78 @@ VNC를 192.168.0.3에서 사용하려면 라우터 호스트 이름에 <code>:1<
 |iptables -t nat -I PREROUTING -p udp --dport 137:138 -i ${WAN} -j DNAT --to 192.168.0.2
 |iptables -t nat -I PREROUTING -p udp --dport 445 -i ${WAN} -j DNAT --to 192.168.0.2}}
 
-비트토렌트 포워딩:
+Bittorrent forwarding:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p tcp --dport 6881:6889 -i ${WAN} -j DNAT --to 192.168.0.2}}
 
-eDonkey/eMule 포워딩:
+eDonkey/eMule forwarding:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p tcp --dport 4662 -i ${WAN} -j DNAT --to 192.168.0.55}}
 
-게임 큐브 워프 파이프 지원:
+Game Cube Warp Pipe support:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p udp --dport 4000 -i ${WAN} -j DNAT --to 192.168.0.56}}
 
-플레이스테이션 2 온라인 지원:
+Playstation 2 Online support:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p tcp --dport 10070:10080 -i ${WAN} -j DNAT --to 192.168.0.11
 |iptables -t nat -A PREROUTING -p udp --dport 10070:10080 -i ${WAN} -j DNAT --to 192.168.0.11}}
 
-Xbox 라이브:
+Xbox Live:
 
 {{RootCmd|iptables -t nat -A PREROUTING -p tcp --dport 3074 -i ${WAN} -j DNAT --to 192.168.0.69
 |iptables -t nat -A PREROUTING -p udp --dport 3074 -i ${WAN} -j DNAT --to 192.168.0.69
 |iptables -t nat -A PREROUTING -p udp --dport 88 -i ${WAN} -j DNAT --to 192.168.0.69
 }}
 
-=== Identd(IRC용) ===
+=== Identd (for IRC) ===
 
-인터넷 전달 대화는 ident 서비스를 약간 무겁게 돌아가도록 합니다. IRC 클라이언트는 라우터 뒤에 있다고 가정하고, 라우터와 클라이언트에 대해 ident 서비스를 제공하는 방법이 필요합니다. 서버는 바로 이 과정을 중재하기 위한 목적으로 만들었습니다. 이 꾸러미가 바로 {{Package | net-misc/midentd}} 입니다. 
+Internet Relay Chat utilizes the ident service pretty heavily. Now that the IRC clients are behind the router, we need a way to host ident for both the router and the clients. One such server has been created called <code>midentd</code>. 
 
-{{Emerge|net-misc/midentd}}
-
-{{RootCmd
+{{RootCmd|emerge midentd
 |rc-update add midentd default
 |/etc/init.d/midentd start
 }}
 
-포티지에 다른 몇가지 ident 서버가 있습니다. 필요에 따라 {{Package|net-misc/oidentd}}와 {{Package|net-misc/fakeidentd}}도 확인해볼 것을 추천합니다.
+There are a few other ident servers in portage. Depending on your needs, I would recommend checking out <code>oidentd</code> and <code>fakeidentd</code>. 
 
-=== 시간 서버 ===
+=== Time Server ===
 
-제대로 된 시스템으로 관리하려면 시스템 시간을 올바른 상태로 유지하는 것이 중요합니다. 시간을 올바르게 유지하는 대부분의 일반적인 방법 내지는 수단 중 하나는 네트워크 시간 프로토콜(NTP)로 처리하는 것이며 {{Package|net-misc/ntp}} 꾸러미가 답이 되겠습니다(서버 클라이언트 구현체가 같이 들어있습니다). 
+Keeping your system time correct is essential in maintaining a healthy system. One of the most common ways of accomplishing this is with the Network Time Protocol (NTP) and the ntp package (which provides implementations for both server and client). 
 
-대부분 사용자는 컴퓨터에서 ntp 클라이언트를 실행합니다. 분명히 더 많은 클라이언트가 전세계에 있을텐데, 그 많은 부하를 감당하는 ntp 서버에는 든든한 빽이 필요합니다. 이런 환경과 마찬가지로 홈 네트워크에 NTP 서버를 두어 로컬 시스템에 정확한 시간을 제공하여 공용 서버의 부하를 줄이도록 돕습니다. 설정은 간단합니다: 라우터에 NTP 서버를 실행하여 공용 인터넷 서버로부터 시간을 동기화하며, 이와 동시에 네트워크에 있는 남은 컴퓨터에 시간 정보를 전달하면 됩니다. 시작하려면 라우터에서 {{c|emerge ntp}}를 실행하시고 {{Path|/etc/conf.d/ntp-client}} 파일을 편집하여 원하는대로 설정하십시오.
+Many people run ntp clients on their computers. Obviously, the more clients in the world, the larger the load the ntp servers need to shoulder. In environments like home networks though, we can help keep the load down on public servers while still providing the proper time to all our computers. As an added bonus, our private updates will be a lot faster for the clients too! All we have to do is run a ntp server on our router that synchronizes itself with the public internet servers while providing the time to the rest of the computers in the network. To get started, simply <code>emerge ntp</code> on the router and edit {{Path|/etc/conf.d/ntp-client}} to your liking.
 
 {{RootCmd|rc-update add ntp-client default}}
 
-{{FileBox|filename=/etc/ntp.conf|1=
+{{File|/etc/ntp.conf||<pre>
 restrict default ignore
 restrict 192.168.0.0 mask 255.255.255.0 notrust nomodify notrap
-}}
+</pre>}}
 
-이러한 설정을 통해 192.168.0.xxx IP 주소 범위에 있는 NTP 클라이언트에게만 NTP 서버를 사용할 수 있게 합니다.
+These will allow only ntp clients with an IP address in the 192.168.0.xxx range to use your ntp server.
 
 {{RootCmd|rc-update add ntpd default
 |/etc/init.d/ntp-client start
 |/etc/init.d/ntpd start}}
 
-{{Note/ko|서버를 설정할 때 NTP 포트(123/udp) 의 들어오고 나가는 연결을 허용했는지 확인하십시오. 클라이언트는 UDP를 통한 123 포트 접근의 나가는 연결만 필요합니다.}}
+{{Note|You should make sure that you allow inbound and outbound communication on the ntp port (123/udp) when setting up the server. The client just needs outbound access on port 123 over udp.}}
 
-이제 클라이언트에서도 {{c|emerge ntp}}를 입력하십시오. NTP 클라이언트를 실행하기만 하면 되니 설정은 훨씬 간단해졌습니다. 
+Now, on your clients, have them <code>emerge ntp</code> also. However, we will just run the ntp client so setup is a lot simpler. 
 
-{{Path|/etc/conf.d/ntp-client}}에서 <var>NTPCLIENT_OPTS</var> 변수의 <code>pool.ntp.org</code> 서버를 <code>192.168.0.1</code>로 바꾸십시오.
+In {{Path|/etc/conf.d/ntp-client}}, change the 'pool.ntp.org' server in the NTPCLIENT_OPTS variable to '192.168.0.1'.
 
 {{RootCmd|rc-update add ntp-client default
 |/etc/init.d/ntp-client start}}
 
-=== rsync 서버 ===
+=== Rsync Server ===
 
-다중 젠투 머신을 동일한 지역 네트워크에서 사용하는 분들이라면, 원격 서버로 {{c|emerge --sync}}를 수행하여 모든 머신의 동기화를 유지합니다. ''자체'' rsync를 설정하면, 자체 대역폭 자원과 젠투 rsync 서버의 대역폭 자원을 절약할 수 있습니다. 과정을 처리하기에는 상당히 간단합니다.
+For those who run multiple Gentoo boxes on the same lan, you often want to keep from having every machine running <code>emerge sync</code> with remote servers. By setting up a local rsync, you save on both your bandwidth and the Gentoo rsync servers' bandwidth. It's pretty simple to do. 
 
-{{Note/ko|rsync 안내서의 더 자세한 내용을 원하신다면 공식 [[Project:Infrastructure/Rsync|rsync 안내서]]를 살펴보세요.}}
+{{Note|For a much more in-depth rsync guide, please see the official [[Project:Infrastructure/Rsync|rsync guide]].}}
 
-모든 젠투 머신에서는 rsync가 필요하기 때문에, 이머지 할 필요는 없습니다. {{Path|/etc/rsyncd.conf}} 기본 설정 파일을 편집하고 <code>[gentoo-portage]</code> 섹션을 주석 해제한 다음에, <code>address</code> 옵션을 추가했는지 확인하세요. 다른 모든 내용은 올바르게 설정한 기본 상태로 두는 것이 좋습니다.
+Since every Gentoo machine requires rsync, theres no need to emerge it. Edit the default {{Path|/etc/rsyncd.conf}} config file, uncomment the <code>[gentoo-portage]</code> section, and make sure you add an <code>address</code> option. All the other defaults should be fine. 
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/rsyncd.conf|1=
+{{File|/etc/rsyncd.conf||<pre>
 pid file = /var/run/rsyncd.pid
 use chroot = yes
 read only = yes
@@ -431,29 +395,28 @@ address = 192.168.0.1
   path = /mnt/space/portage
   comment = Gentoo Linux Portage tree
   exclude = /distfiles /packages
+</pre>
 }}
-</div>
 
-그 다음 서비스를 시작해야 합니다(다시 말하지만, 기본 상태로 두어도 됩니다). 
+Then you need to start the service (again, the defaults are OK). 
 
 {{RootCmd|/etc/init.d/rsyncd start
 |rc-update add rsyncd default}}
 
-여기서 남은 일은 클라이언트를 라우터랑 동기화 하도록 설정하는 일입니다.
+Only thing left is to set tell your clients to sync against the router. 
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/portage/make.conf|title=SYNC 변수에 새 rsync 서버 설정|lang=bash|1=
+{{File|/etc/portage/make.conf|Setup SYNC variable to new rsync server|<pre>
 SYNC="rsync://192.168.0.1/gentoo-portage"
+</pre>
 }}
-</div>
 
-=== 메일 서버 ===
+=== Mail Server ===
 
-때로는 자체적으로 단순 메일 전송 프로토콜(SMTP)을 라우터 상에서 실행하는 것이 좋을 수도 있습니다. 이렇게 하려는데는 나름대로의 이유가 있겠지만, 라우터에서 SMTP를 가동하는 한가지 장점이 있다면, 메일 서버에 남겨둔 전자메일의 전송 및 재시도/전달 작업을 바로 처리할 수 있다는 점입니다. 일부 ISP는 네트워크의 일부(버라이즌)의 일부로써 각 계정의 메일을 전달하는 작업을 허용하지 않습니다. 또한 메일 전달 분량을 조절하여 첨부 파일로 인한 인터넷 연결에 중대한 장애를 초래하지 않게 해야합니다. 
+Sometimes it's nice to run your own Simple Mail Transfer Protocol (SMTP) server on the router. You may have your own reason for wanting to do so, but I run it so that the users see mail as being sent instantly and the work of retrying/routing is left up to the mail server. Some ISPs also don't allow for mail relaying for accounts that aren't part of their network (like Verizon). Also, you can easily throttle the delivery of mail so that large attachments won't seriously lag your connection for half an hour. 
 
-{{Emerge|mail-mta/netqmail}}
+{{Emerge|netqmail}}
 
-{{c|hostname}} 명령 출력이 올바르게 나타나는지 확인하세요:
+Make sure the output of `hostname` is correct
 
 {{RootCmd|emerge --config netqmail}}
 
@@ -462,27 +425,25 @@ SYNC="rsync://192.168.0.1/gentoo-portage"
 |ln -s /var/qmail/supervise/qmail-smtpd /service/qmail-smtpd
 |cd /etc/tcprules.d}}
 
-{{Path|tcp.qmail-smtp}}를 편집하고 allow 섹션에 다음처럼 항목을 추가하세요:
+Edit {{Path|tcp.qmail-smtp}} and add an entry like so to the allow section:
 
-{{FileBox|filename=niltcp.qmail-smtp|1=
+{{File|tcp.qmail-smtp||<pre>
 192.168.0.:allow,RELAYCLIENT=""
-}}
+</pre>}}
 
 {{RootCmd|make
 |rc-update add svscan default
 |/etc/init.d/svscan start}}
 
-네트워크의 호스트에 전자메일을 설정한다면 SMTP 서버를 192.168.0.1라고 알려주십시오. netqmail 사용법을 살펴보려면 [http://netqmail.org/ netqmail 홈페이지]를 방문하십시오.
+I'm a huge fan of qmail, but you're free to use a different mta :). When you setup e-mail on the hosts in your network, tell them that their SMTP server is 192.168.0.1 and everything should be peachy. You might want to visit the [http://netqmail.org/ netqmail homepage] for more documentation. 
 
-=== 완전한 DHCP 서버 ===
+=== Full DHCP Server ===
 
-<div class="mw-translate-fuzzy">
-앞서 사용한 dnsmasq로 모든 DHCP 클라이언트에 DHCP 서비스를 제공했습니다. 대부분의 사람들은 간단한 소규모 지역망을 사용하기에 이 자체로서 완벽하지만, 더 많은 기능을 필요로 할 수도 있습니다. 때문에, 최대한의 기능을 이용하려는 사용자들을 위해 [http://www.isc.org/products/DHCP ISC] 양반들이 제공한 완전한 기능을 갖춘 DHCP 서버를 제공합니다.
-</div>
+Earlier we used dnsmasq to provide DHCP service to all our clients. For most people with a simple small LAN, this is perfect. But you may need something with more features. Thus we turn to a full-featured DHCP server as provided by the [http://www.isc.org/products/DHCP ISC] folks. 
 
-{{Emerge|net-misc/dhcp}}
+{{Emerge|dhcp}}
 
-{{FileBox|filename=/etc/dhcp/dhcpd.conf|title=간단한 설정 파일|1=
+{{File|/etc/dhcp/dhcpd.conf|Here is a simple configuration file|<pre>
 authoritative;
 ddns-update-style interim;
 subnet 192.168.0.0 netmask 255.255.255.0 {
@@ -494,55 +455,53 @@ subnet 192.168.0.0 netmask 255.255.255.0 {
     option routers 192.168.0.1;
     option domain-name-servers 192.168.0.1;
 }
-}}
+</pre>}}
 
-{{Path|/etc/conf.d/dhcpd}}에 <code>IFACE</code>값을 "eth0"으로 설정하십시오.
+In {{Path|/etc/conf.d/dhcpd}} set <code>IFACE</code> to "eth0".
 
 {{RootCmd|rc-update add dhcpd default
 |/etc/init.d/dhcpd start}}
 
-이 설정은 앞서 사용한 dnsmasq의 DHCP 기능을 대체하는 최소한의 요건입니다. dnsmasq에서 DHCP 기능을 비활성화해야겠죠? 그렇게 하지 않았다면 {{Path|/etc/dnsmasq.conf}}에서 <code>dhcp-range</code> 설정을 주석처리하고 서비스를 재시작하면 됩니다.
+This is the minimal setup required to replace the dnsmasq DHCP functionality that we used earlier. Speaking of which, you did remember to disable the DHCP features in dnsmasq didn't you? If not, you should do so now (just comment out the <code>dhcp-range</code> setting in {{Path|/etc/dnsmasq.conf}} and restart the service).
 
-=== 다른 지역 네트워크 연결하기(둘 또는 셋 또는 ...) ===
+=== Connect Another LAN (or two or three or ...) ===
 
-때로는 다른 지역 네트워크에 라우터를 연결해야 할 때도 있습니다. 임시로 친구 여럿을 연결해주거나, 그냥 확 깔끔하게 컴퓨터의 그룹을 달리 구분해주면 됩니다. 어떤 이유에서든 다른 지역 네트워크로 라우터를 확장하는 건 꽤 간단해야 합니다. 다음 예제에서, ''새'' 네트워크를 <code>eth2</code>라고 하는 세번째 이더넷 카드에 연결했다고 가정하겠습니다. 
+Sometimes you have need of connecting the router to another LAN. Maybe you want to hook up a group of friends temporarily, or you're a neat freak and want to section off different groups of computers, or you're just really really bored. Whatever the reasons, extending the router to other LAN networks should be pretty straightforward. In the following examples, I will assume that this new network is connected via a third ethernet card, namely <code>eth2</code>. 
 
-<div class="mw-translate-fuzzy">
-먼저 인터페이스를 설정하십시오. [[#.28.EC.9D.BC.EB.B6.80_.EC.B9.9C.EA.B5.AC.EB.A5.BC_.EB.8D.B0.EB.A0.A4.EC.98.A4.EB.8A.94.29LAN.EC.9D.84_.EB.82.B4_.EA.B2.83.EC.9C.BC.EB.A1.9C_.EB.A7.8C.EB.93.A4.EA.B8.B0|이 장]]의 지시사항을 따르고 <code>eth0</code>은 <code>eth2</code>로, <code>192.168.0</code>은 <code>192.168.1</code>로 바꾸십시오.
-</div>
+First you need to configure the interface. Just take the instructions in [[Hug_the_LAN_.28bring_along_some_friends.29|this section]] and replace <code>eth0</code> with <code>eth2</code> and <code>192.168.0</code> with <code>192.168.1</code>.
 
-새 인터페이스에 대해 dnsmasq를 서비스하도록 고치십시오. {{Path|/etc/conf.d/dnsmasq}} 파일을 다시 편집하고 <var>DNSMASQ_OPTS</var>에 <code>-i eth2</code>를 붙이기만 합니다. <code>-i</code>를 여러번 써도 됩니다. 그 다음 {{Path|/etc/dnsmasq.conf}}를 편집해서 dhcp-range줄 같은 부분의 다른 줄을 [[#LAN_.EC.84.9C.EB.B9.84.EC.8A.A4.28.EC.9A.B0.EB.A6.B0_.EC.B9.9C.EC.A0.88.ED.95.98.EB.8B.88.EA.B9.8C.29|이 절]]에서처럼 추가하시고 <code>192.168.0</code>를 <code>192.168.1</code>로 고치세요. dhcp-range 줄도 역시 여러번 나와도 됩니다.
+Then you need to tweak dnsmasq to service the new interface. Just edit the {{Path|/etc/conf.d/dnsmasq}} file again and append <code>-i eth2</code> to DNSMASQ_OPTS; using -i multiple times is OK. Then edit {{Path|/etc/dnsmasq.conf}} and add another line like the dhcp-range line in [[#LAN_Services_.28because_we.27re_nice_people.29|this section]], replacing <code>192.168.0</code> with <code>192.168.1</code>. Having multiple dhcp-range lines is OK too. 
 
-마지막으로 [[#LAN_.EC.84.9C.EB.B9.84.EC.8A.A4.28.EC.9A.B0.EB.A6.B0_.EC.B9.9C.EC.A0.88.ED.95.98.EB.8B.88.EA.B9.8C.29|이 절]]의 규칙을 살펴보시고 각 규칙에 <code>-i ${LAN}</code>가 들어가도록 규칙을 복사하십시오. 설정을 쉽게 하기 위해 <code>LAN2</code>라는 다른 변수가 필요할 때도 있습니다.
+Finally, see the rules in [[#LAN_Services_.28because_we.27re_nice_people.29|this section]] and duplicate the rules that have <code>-i ${LAN}</code> in them. You may want to create another variable, say <code>LAN2</code>, to make things easier.
 
-== 문제 해결 ==
+== Troubleshooting ==
 
-=== 유용한 도구 ===
+=== Useful Tools ===
 
-컴퓨터의 통신 문제가 있다면, 다음 도구를 사용해보세요(net-analyzer 포티지 분류에서 찾아볼 수 있습니다): 
+If you're having trouble getting your computers to communicate, you may way to try out the following tools (they can all be found in the <code>net-analyzer</code> portage category): 
 
 {| class="wikitable" style="text-align: left;" 
 |- 
-! 유틸리티
-! 설명
+! Utility
+! Description
 |- 
 | wireshark
-| 걸러내기 규칙에 따라 원시 네트워크 데이터를 모두 살펴보는 GUI 도구
+| GUI tool to view all raw network data according to filters
 |- 
 | tcpdump
-| 걸러내기 규칙에 따라 원시 네트워크 데이터를 떠보는 콘솔 도구
+| Console tool to dump all raw network data according to filters
 |- 
 | iptraf
-| ncurses 기반 IP LAN 감시 프로그램
+| ncurses based IP LAN monitor
 |- 
 | ettercap
-| ncurses 기반 네트워크 감시/제어
+| ncurses based network monitor/control
 |-
 |}
 
-=== DHCP 시동 실패 ===
+=== DHCP Fails To Start ===
 
-dhcp  init.d 스크립트를 처음 실행할 때, 불러오기엔 실패하겠지만, 제공중인 쓸모있는 정보를 외면하고 있는 상태일 것입니다. 
+When starting the dhcp init.d script for the first time, it may fail to load but neglect to give you any useful info. 
 
 {{RootCmd|/etc/init.d/dhcp start|output=<pre>
  * Setting ownership on dhcp.leases ...          [ ok ]
@@ -550,24 +509,31 @@ dhcp  init.d 스크립트를 처음 실행할 때, 불러오기엔 실패하겠�
 </pre>
 }}
 
-dhcpd가 출력을 내보낼 때를 알아보는 것이 요령입니다. {{Path|/var/log}}를 탐색하여 로그 파일을 뒤져보십시오. 정확한 로그파일은 syslog를 사용하는 꾸러미에 따라 달려있으므로 {{c|grep -Rl dhcpd /var/log}} 명령을 실행하여 가능성을 줄여나가세요. 해결의 실마리는 설정 파일에 있습니다. {{c|dhcpd -d -f}}(디버그/포그라운드 실행 함축)의 실행 출력 내용은 오류를 수정하는데 도움을 줄 수 있습니다. 
+The trick is to know where dhcpd is sending its output. Simply browse to {{Path|/var/log}} and read the log files. Since the exact log file depends on the package you are using as a syslog, try running <code>grep -Rl dhcpd /var/log</code> to narrow down the possibilities. Chances are you made a typo in your config file. You could also try running <code>dhcpd -d -f</code> (short for debug / foreground) and debug the error based upon the output. 
 
-=== 잘못된 MTU 값 ===
+=== Incorrect MTU Value ===
 
-드문 오류(다른 페이지는 잘 불러오는데 어떤 페이지에는 접근할 수 없는 경우)를 경험하는 경우, 경로 MTU 발견 문제에 직면했을 수도 있습니다. 신속하게 확인하려면 다음 iptables 명령을 실행하십시오: 
+If you experience odd errors (such as not being able to access some webpages while others load fine), you may be having Path MTU Discovery trouble. The quick way to test is to run this iptables command: 
 
 {{RootCmd|iptables -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu}}
 
-이 명령은 새 연결에 영향을 줍니다. 테스트 하려는 문제 있는 웹 사이트를 새로 고치면 됩니다. 이게 도움이 된다면, 100Mbit 이더넷 연결에서의 표준 MTU 값은 <code>1500</code>입니다. 이 값은 PPPoA에도 적용됩니다. PPPoE 연결에는 <code>1492</code>입니다. 더 많은 내용을 알아보려면 [http://lartc.org/howto/ 리눅스 고급 라우팅 및 트래픽 컨트롤 설명서]의 15장을 읽어보십시오. 
+This will affect all new connections, so just refresh the website you're having problems with in order to test. In case it helps, the standard MTU value for 100mbit ethernet connections is <code>1500</code>; this value also applies to PPPoA. For PPPoE connections it is <code>1492</code>. For more info, you should read Chapter 15 of the [http://lartc.org/howto/ Linux Advanced Routing & Traffic Control HOWTO]. 
 
-이 명령으로 동작하지 않으면, mangle 테이블에 규칙을 추가하는 것이 좋습니다. 명령에 그냥 <tt>-t mangle</tt>옵션을 추가하면 됩니다. 
+If that command does not work for you, you may want to try putting the rule into the mangle table. Simply add <code>-t mangle</code> to the command. 
 
-=== 두 머신을 직접 연결할 수 없음 ===
+=== Unable to connect two machines directly ===
 
-(어떤 이유에서든) 허브 또는 스위치 없이 두 머신을 직접 연결하겠다는건데, 자동 MDI/MDI-X(자동 감지)기능 네트워크 어뎁터를 보유하지 않은 이상, 일반적인 이더넷 케이블은 동작하지 않습니다. 크로스오버 케이블이라고 NIC 끼리 연결하는 좀 다른 케이블이 필요합니다. [[Wikipedia:Ethernet_crossover_cable|Wikipedia]] 페이지에서 저수준(하드웨어) 측면의 자세한 설명을 살펴보십시오.
+If (for whatever reason) you want to connect two machines directly together without a hub or switch, a regular ethernet cable will likely not work, unless you have an Auto MDI/MDI-X (also known as "autosensing") capable network adapter. You will need a different cable called a crossover cable. This [[Wikipedia:Ethernet_crossover_cable|Wikipedia]] page explains the low level details.
 
-== 마지막 참고 ==
+== Final Notes ==
 
-최종적인 참고는 없습니다. 이 안내서를 통한 경험 과정에서 내용을 새로 고쳐야 하거나 어떤 문제가 있을 경우 글의 토론 페이지에 남겨주십시오. 심지어 일부 문제를 수정해야 할 수도 있습니다. [https://bugs.gentoo.org/ 젠투 문제 추적 웹사이트]에 버그를 남겨둘 수 있습니다. 이 안내서 내용을 개선할 의향이 있다면 해당 내용도 포함하십시오. 문제가 발생할 수 있는 최악의 내용이라면 제거할 수도 있습니다!
+I have no final notes other than if you experience any troubles with the guide, please contact {{Mail|vapier}} or file a bug with [https://bugs.gentoo.org/ Gentoo's Bugtracking Website]. If you have some interesting bits you think would enhance this guide, by all means send it my way for inclusion.
 
-[[Category:Server and Security]] {{Migrated|originalauthors={{Dev|vapier}}}}
+== Acknowledgements ==
+
+We would like to thank the following authors and editors for their contributions to this guide:
+
+
+* {{Mail|vapier}}
+
+[[Category:Server and Security]]
