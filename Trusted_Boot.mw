@@ -18,8 +18,8 @@ Dynamic Root of Trust instead uses Intel's Trusted Execution Technology to reset
 
 The TPM Chip is an integral part of Trusted Boot. The important part are the ''Platform Configuration Registers'' (PCRs), special registers that can not be set, only ''extended'' with another measurement. A TPM usually has 23 PCRs, which are reset to zero during boot and after that point, are extended. An extend operation works like:
 
-{{CodeBox|title=An extend operation|1=
-New PCR value = SHA1( Old PCR value . SHA1( New Measurement to be Extended ) ) 
+{{Code|An extend operation:|
+New PCR value = SHA1( Old PCR value {{!}} SHA1( New Measurement to be Extended ) ) 
 }}
 
 TPM chips support ''bind'' and ''seal'' operations. Binding means that the data is encrypted using a key only found within the TPM and cannot be extracted. Sealing is like binding but data will only be unencrypted if the PCRs are the same values as when the data was sealed. Sealing will be very useful for our purposes.
@@ -28,56 +28,45 @@ TPM chips support ''bind'' and ''seal'' operations. Binding means that the data 
 
 Using Trusted Boot on your system is currently only recommended for development purposes. Gentoo Hardened is working on integrating Trusted Boot properly, so please be aware that a value sealed with TPM PCRs can only be unsealed if the PCR values are exactly the same as when sealing. Make sure you have a backups of all the data and other ways to unlock your machine if the TPM will not unseal the data.
 
-== Setting up Trusted Boot ==
+== Setting up IMA ==
 
 === Kernel configuration ===
 
 First of all, enable Intel TXT in the Linux kernel configuration. Intel TXT is supported in the main tree since 2.6.38.
 
-{{KernelBox|title=Linux kernel configuration for Trusted Boot|1=
+{{Kernel|Linux kernel configuration for IMA|<pre>
 CONFIG_ACPI=y
 CONFIG_INTEL_IOMMU=y
 CONFIG_INTEL_IOMMU_DEFAULT_ON=y
 CONFIG_INTEL_TXT=y
+</pre>
 }}
 
 === BIOS configuration ===
 
-Reboot and enter your [[BIOS]] setup, look for an enable any options about VT-x, VT-d, Intel TXT. The TPM must also be set to ''Active'', ''Enabled'' in some bios setups means that the chip is visible to the OS but cannot be used.
-
-If using UEFI boot instead of Legacy, ''CSM'' or Compatibility Support Module needs to be enabled. The tboot program is not an EFI binary and appears not to work without CSM enabled.
+Reboot and enter your BIOS setup, look for an enable any options about VT-x, VT-d, Intel TXT. The TPM must also be set to ''Active'', ''Enabled'' in some bios setups means that the chip is visible to the OS but cannot be used.
 
 After this reboot like normal and check dmesg to make sure the IOMMU is enabled:
 
-{{RootCmd|dmesg {{!}} grep -i iommu|output=<pre>
-[    0.000000] Intel-IOMMU: enabled
-[    0.041149] dmar: IOMMU 0: reg_base_addr fed90000 ver 1:0 cap c0000020660462 ecap f0101a
-[    0.041167] dmar: IOMMU 1: reg_base_addr fed91000 ver 1:0 cap d2008020660462 ecap f010da
-[    0.041314] IOAPIC id 2 under DRHD base  0xfed91000 IOMMU 1
-[    0.658096] tboot: Forcing Intel-IOMMU to enabled
-[    0.658176] IOMMU 0 0xfed90000: using Queued invalidation
-[    0.658179] IOMMU 1 0xfed91000: using Queued invalidation
-[    0.658184] IOMMU: Setting RMRR:
-[    0.658200] IOMMU: Setting identity map for device 0000:00:02.0 [0xdd800000 - 0xdf9fffff]
-[    0.658482] IOMMU: Setting identity map for device 0000:00:14.0 [0xdaac1000 - 0xdaad7fff]
-[    0.658518] IOMMU: Setting identity map for device 0000:00:1d.0 [0xdaac1000 - 0xdaad7fff]
-[    0.658542] IOMMU: Prepare 0-16MiB unity mapping for LPC
-[    0.658555] IOMMU: Setting identity map for device 0000:00:1f.0 [0x0 - 0xffffff]
+{{Code|dmesg | grep -i iommu|<pre>
+
 </pre>
 }}
 
 === Install the software ===
 
+{{RootCmd|layman -a hardened-development}}
 {{RootCmd|emerge -av tboot}}
 
-This will install tboot and its dependencies TrouSerS and tpm-tools. TrouSerS will install some udev rules for the tpm /dev node, you must either make udev re-read its rules or just reboot now.
+This will pull in tboot and its dependencies TrouSerS and tpm-tools. TrouSerS will install some udev rules for the tpm /dev node, you must either make udev re-read its rules or just reboot now.
 
 === Taking Ownership of the TPM ===
 
 Next, we have to setup the TPM:
 
-{{RootCmd|/etc/init.d/tcsd start
-|tpm_takeownership -y -z}}
+{{RootCmd|/etc/init.d/tcsd start}}
+
+{{RootCmd|tpm_takeownership -y -z}}
 
 This will take ownership of the TPM chip using the ''well known password'' for both the Owner and SRK passwords. We will change the owner password later on, this is just for testing the initial parts.
 
@@ -89,160 +78,38 @@ Download, extract and copy the SINIT module into /boot/.
 
 === Grub config ===
 
-{{RootCmd|mount /boot/
-|grub2-mkconfig -o /boot/grub/grub.cfg}}
+{{RootCmd|mount /boot/}}
+
+{{RootCmd|grub2-mkconfig -o /boot/grub/grub.cfg|<pre>
+</pre>
+}}
 
 At this point, rebooting and choosing the tboot option should start like normal using the default ''launch control policy''.
 
 === Checking the PCR values ===
 
-{{RootCmd|find /sys -name pcrs -exec cat {} \;|output=<pre>
-PCR-00: 32 92 01 6D CF D3 5E 57 2B 20 B9 84 BD 2F E9 65 16 0B 73 7F 
-PCR-01: FD 5C 64 0B 90 A8 8C 9D A8 0A D3 DD DC 31 90 4E 78 E6 7C AB 
-PCR-02: 45 6B 2C 1E 90 94 2D 55 EA 24 58 ED 04 2A FA 0E A0 9B 0A 4E 
-PCR-03: B2 A8 3B 0E BF 2F 83 74 29 9A 5B 2B DF C3 1E A9 55 AD 72 36 
-PCR-04: 50 B0 99 06 08 7C F6 CB CC DC 3C 1C F3 5E 63 51 65 0E BA 48 
-PCR-05: 45 A3 23 38 2B D9 33 F0 8E 7F 0E 25 6B C8 24 9E 40 95 B1 EC 
-PCR-06: EE 1B 0F 99 7D 75 17 B2 86 BC 9D 73 A4 CF 74 2C 65 A7 69 BE 
-PCR-07: B2 A8 3B 0E BF 2F 83 74 29 9A 5B 2B DF C3 1E A9 55 AD 72 36 
-PCR-08: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-09: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-10: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-11: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-12: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-13: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-14: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-15: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-16: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-17: C4 97 E4 AA FF ED 57 69 2A E3 31 A8 E7 DC BB DE 6F FB 5A 52 
-PCR-18: D9 95 C2 48 4E 2A 27 D3 47 B1 19 87 4F C4 58 EB 8C E0 44 A0 
-PCR-19: 23 A1 15 D8 79 CB 7F 34 B4 5B 25 99 FE 21 2C 5D 33 F4 5A E6 
-PCR-20: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-21: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-22: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
-PCR-23: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+{{RootCmd|cat /sys/class/misc/tpm0/device/pcrs|output=<pre>
 </pre>
 }}
-
-PCRs 0-7 are used by the static root of trust measurements and PCR 17-19 are used by Intel TXT. If Intel TXT is not launched, PCR 17-23 would be filled with FF instead of reset to 0 and extended with measurements.
 
 {{RootCmd|txt-stat|output=<pre>
-Intel(r) TXT Configuration Registers:
-	STS: 0x00018091
-	    senter_done: TRUE
-	    sexit_done: FALSE
-	    mem_config_lock: FALSE
-	    private_open: TRUE
-	    locality_1_open: TRUE
-	    locality_2_open: TRUE
-	ESTS: 0x00
-	    txt_reset: FALSE
-	E2STS: 0x000000000000000e
-	    secrets: TRUE
-	ERRORCODE: 0x00000000
-	DIDVID: 0x00000001b0028086
-	    vendor_id: 0x8086
-	    device_id: 0xb002
-	    revision_id: 0x1
-	FSBIF: 0xffffffffffffffff
-	QPIIF: 0x000000009d003000
-	SINIT.BASE: 0xdcf00000
-	SINIT.SIZE: 131072B (0x20000)
-	HEAP.BASE: 0xdcf20000
-	HEAP.SIZE: 917504B (0xe0000)
-	DPR: 0x00000000dd000041
-	    lock: TRUE
-	    top: 0xdd000000
-	    size: 4MB (4194304B)
-	PUBLIC.KEY:
-	    2d 67 dd d7 5e f9 33 92 66 a5 6f 27 18 95 55 ae 
-	    77 a2 b0 de 77 42 22 e5 de 24 8d be b8 e3 3d d7 
-
-***********************************************************
-	 TXT measured launch: TRUE
-	 secrets flag set: TRUE
-***********************************************************
 </pre>
 }}
-
-The ''senter_done: TRUE'' and ''ERRORCODE: 0x00000000'' are the important parts that shows Intel TXT was launched correctly and we are in a secure envrionment.
 
 == Setting the Launch Control Policy ==
 
-The Launch Control Policy is used by the SINIT so control launching into the TXT environment. It controls which Measured Launch Environment (MLE, tboot in this case), PCRs are allowed. It also can contain the Verified Launch Policy which tboot will use later to verify the kernel and initrd.
-
-
-The LCP can contain one or more policy lists which contain one or more policy elements. The policy lists can be signed or unsigned. We will use signed lists because the value extended into PCR18 will be the hash of the public key instead of the hash of the whole policy. This means policy upgrades will leave PCR18 unchanged so any sealed values are still accessible.
-
-
-{{RootCmd|# Policy element for MLE
-|# $CMDLINE_TBOOT should be the arguments that are passed to tboot on the grub commandline
-|lcp_mlehash -c "$CMDLINE_TBOOT" /boot/tboot.gz > mle_hash
-|lcp_crtpolelt --create --ctrl 0x01 --type mle --minver 17 --out mle.elt mle_hash
-|# Policy element for PCRs
-|egrep "^PCR-00" /sys/class/tpm/tpm0/device/pcrs > pcrs.txt
-|lcp_crtpolelt --create --ctrl 0x01 --type pconf --out pconf.elt pcrs.txt}}
-
-
-Next create the Verified Launch Policy that tboot will use to verify the kernel and initrd. --ctrl 0x00 disables the EXTEND_PCR_17 flag, which means that tboot will not extend the hash of the first module into PCR18. With that flag set, tboot will always extend the hash of the first module into PCR18. If another PCR is specified as well, that pcr will be extended in addition to pcr18. Instead we extend the kernel and initrd into pcr19/20 and leave pcr18 untouched. This means kernel upgrades will not break anything sealed to PCR18.
-
-
-{{RootCmd|# Create the Verified Launch Policy
-|tb_polgen --create --ctrl 0x00 --type continue vl.pol
-|# $CMDLINE_KERNEL should be the arguments that are passed to the kernel
-|tb_polgen --add --num 0 --pcr 19 --hash image --cmdline "$CMDLINE_KERNEL" --image /boot/vmlinuz-"$KVERS" vl.pol
-|tb_polgen --add --num 1 --pcr 20 --hash image --cmdline "" --image /boot/initramfs-genkernel-x86_64-"$KVERS" vl.pol
-|lcp_crtpolelt --create --ctrl 0x01 --type custom --out vl.elt --uuid tboot vl.pol}}
-
-
-Put all the elements into a policy list, sign the list then make the policy and data. Policies with type list (as opposed to ANY) need to have a separate list.data because the TPM can not store all the data.
-
-
-{{RootCmd|lcp_crtpollist --create --out list_unsig.lst mle.elt pconf.elt vl.elt
-|cp list_unsig.lst list_sig.lst
-|lcp_crtpollist --sign --pub pubkey.pem --priv privkey.pem --out list_sig.lst
-|lcp_crtpol2 --create --ctrl 0x00 --type list --pol list.pol --data list.data list_sig.lst}}
-
-
-Make sure the required indexes are defined in the TPM:
-
-
-{{RootCmd|# define the error index
-|tpmnv_defindex -i 0x20000002 -s 8 -pv 0 -rl 0x07 -wl 0x07 -p $OWNER_PASSWORD
-|# define the TXT launch control policy locality
-|tpmnv_defindex -i owner -s 0x36 -p $OWNER_PASSWORD}}
-
-
-The list.pol has to be written to the TPM index for the LCP. If using a signed list policy, the list.pol will be unchanged between versions so later upgrades will only require copying list.data to /boot. Make sure /etc/default/grub-tboot contains: GRUB_TBOOT_POLICY_DATA='list.data'
-
-
-{{RootCmd|# write list.pol into the TPM
-|lcp_writepol -i owner -f list.pol -p $OWNER_PASSWORD
-|cp list.data /boot/list.data
-|grub2-mkconfig -o /boot/grub/grub.cfg}}
+TODO
 
 == Sealing data in the TPM ==
 
-The following will seal something with the TPM to pcr18. You must have backups of the cleartext because if PCR18 changes or the TPM is reset, there is no way of decrypting the data again.
+TODO
 
-{{RootCmd|tpm_sealdata -z -p18 -i unencrypted.txt -o sealed.bin}}
+== Asked Questions with Answers ==
 
+{{Warning|If you use an initramfs, then you might notice that {{Path|/usr}} is not properly mounted. This is because busybox mount does not support the iversion mount option which is required. Update the initramfs to mount without iversion, and remount it as soon as possible later.}}
 
-Unsealing the data again can only be done when the PCR is the same as when originally sealed with the following command:
+== Acknowledgements ==
 
-{{RootCmd|tpm_unsealdata -z -i sealed.bin -o output_unencrypted.txt}}
+We would like to thank the following authors and editors for their contributions to this guide:
 
-== Changing the well-known-password ==
-
-As the tcsd is the only portal to access the TPM, you have always to start the Trusted Core Service Daemon before altering any information.
-
-{{RootCmd|/etc/init.d/tcsd start
-|tpm_changeownerauth -z -s -o|output=<pre>
-Enter new SRK password: 
-Confirm password: 
-Enter new owner password: 
-Confirm password: 
-</pre>
-}}
-
-This will change the passwords for both the Owner and SRK (Storage Root Key).
+* Jason Zaman
