@@ -1,139 +1,42 @@
-<languages />
-<translate>
-<!--T:1-->
-This article is based on a [https://forums.gentoo.org/viewtopic-t-965190.html posting in the Gentoo Forums] and [[Article description::explains how to use dhcpcd for complete network stack management.]]
+== Abstract ==
+It is possible to have a working network stack without resorting to Gentoo net.* scripts at all on simple configuration.
 
-== Setup == <!--T:2-->
+    only hardware interfaces are needed, i.e. no virtual interfaces;
+    IP addresses delivered through DHCP (eventually APIPA)
 
-<!--T:3-->
-Make sure [[Dhcpcd|dhcpcd]] is installed. Next, add it to the default runlevel and start the service:
+In such conditions all hardware interfaces can be configured, even the loopback interface, lo. 
+<br />
+== Basic configuration ==
+Install dhcpcd
+{{RootCmd|emerge  --ask net-misc/dhcpcd}}
+<br />
+When you need wireless support also install wpa_supplicant
+{{RootCmd|emerge  --ask net-wireless/wpa_supplicant}}
+<br />
+In case you're migrating from the old network setup make sure you have wext compatibility enabled in your kernel
+{{File|/usr/src/linux/.config||<pre>CONFIG_CFG80211_WEXT=y</pre>}}
+<br />
+Remove all network scripts from all runlevels
+{{RootCmd|rc-update del net.lo}}
+{{RootCmd|rc-update del net.eth0}}
+{{RootCmd|rc-update del net.wlan0}}
+<br />
+Add dhcpcd to the default runlevel: 
+{{RootCmd|rc-update add dhcpcd default}}
 
-<!--T:4-->
-{{RootCmd
-|rc-update add dhcpcd default
-|/etc/init.d/dhcpcd start
-}}
-
-<!--T:5-->
-This setup deviates from the default networking instructions in the Gentoo Handbook. It has the advantage that it provides automatic switching between wired and wireless network interfaces.
-
-== wpa_supplicant ==
-
-wpa_supplicant can be used for authentication of wireless and wired network interfaces. Create the configuration file if it does not exist.
-
-<!--T:39-->
-{{FileBox|filename=/etc/wpa_supplicant/wpa_supplicant.conf|lang=ini|1=# Allow users in the 'wheel' group to control wpa_supplicant
-ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=wheel
-
-<!--T:40-->
-# Make this file writable for wpa_gui / wpa_cli
-update_config=1}}
-
-For authentication for the wired interface add the configuration file mentioned in [[Wpa_supplicant#Setup_wired_802.1X]].
-
-<!--T:41-->
-{{:Wpa_supplicant/Setup_for_dhcpcd_as_network_manager}}
-
-== Wireless using net-wireless/iwd ==
-
-See the [[iwd]] article.
-
-== Testing == <!--T:11-->
-
-<!--T:12-->
-Stop the {{c|dhcpcd}} service, then start {{c|dhcpcd}} with the -d (<var>--debug</var>) and -B (<var>--nobackground</var>) options enabled to see it starting the connection.
-
-<!--T:13-->
-{{RootCmd|/etc/init.d/dhcpcd stop
-|dhcpcd -dB
-|collapse-output=true
-|output=<pre>
-dhcpcd-6.11.3 starting
-dev: loaded udev
-eth0: executing `/lib/dhcpcd/dhcpcd-run-hooks' PREINIT
-eth0: executing `/lib/dhcpcd/dhcpcd-run-hooks' NOCARRIER
-wlan0: executing `/lib/dhcpcd/dhcpcd-run-hooks' PREINIT
-wlan0: executing `/lib/dhcpcd/dhcpcd-run-hooks' CARRIER
-DUID xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx
-wlan0: IAID XX:XX:XX:XX
-wlan0: delaying IPv6 router solicitation for 0.9 seconds
-wlan0: delaying IPv4 for 0.3 seconds
-eth0: waiting for carrier
-wlan0: reading lease `/var/lib/dhcpcd/dhcpcd-wlan0-.lease'
-wlan0: rebinding lease of 192.168.178.23
-wlan0: sending REQUEST (xid 0x66820be2), next in 3.3 seconds
-wlan0: acknowledged 192.168.178.23 from 192.168.178.1
-wlan0: leased 192.168.178.23 for 864000 seconds
-wlan0: renew in 432000 seconds, rebind in 756000 seconds
-wlan0: writing lease `/var/lib/dhcpcd/dhcpcd-wlan0-.lease'
-wlan0: IP address 192.168.178.23/24 already exists
-wlan0: changing route to 192.168.178.0/24
-wlan0: changing default route via 192.168.178.1
-wlan0: ARP announcing 192.168.178.23 (1 of 2), next in 2.0 seconds
-wlan0: executing `/lib/dhcpcd/dhcpcd-run-hooks' BOUND
-wlan0: soliciting an IPv6 router
-wlan0: sending Router Solicitation
-wlan0: ARP announcing 192.168.178.23 (2 of 2)
-</pre>}}
-
-== Static IP address == <!--T:14-->
-
-<!--T:15-->
-In case the network interface card should be configured with a [[Static_Routing|static IP address]], type it into the [[dhcpcd-ui#Usage|graphical user interface]]. Without the [[dhcpcd-ui#Usage|graphical user interface]], entries can also be [http://roy.marples.name/man/html5/dhcpcd.conf.html manually added] (currently offline) to {{Path|/etc/dhcpcd.conf}} as described in [[Dhcpcd#Static_IP_addresses]].
-
-== Migration from Gentoo net.* scripts == <!--T:16-->
-
-<!--T:17-->
-When migrating from [[netifrc|Gentoo's net.* scripts]] it is essential to remove the {{Path|net.*}} scripts from the runlevels.
-
-<!--T:18-->
-{{Cmd|rc-config list {{!}} grep 'wpa_supplicant\{{!}}dhcpcd\{{!}}net.'|output=<pre>
-  net.wlp8s0                default
-  dhcpcd                    default</pre>}}
-
-<!--T:19-->
-Any match starting with <code>net.</code> must not have a runlevel assigned. In the above example, {{Path|net.wlp8s0}} needs to be removed.
-
-<!--T:20-->
-{{RootCmd|rc-update del net.wlp8s0
-|/etc/init.d/net.wlp8s0 stop}}
-
-<!--T:21-->
-Once the network setup works well, it is possible to completely remove the old Gentoo {{Path|net.*}} scripts. To do so, disable the <code>netifrc</code> USE flag, re-emerge {{Package|sys-apps/openrc}} and finally unmerge {{Package|net-misc/netifrc}}:
-
-<!--T:22-->
-{{RootCmd|echo 'sys-apps/openrc -netifrc' >> /etc/portage/package.use
-|emerge --ask --newuse --oneshot sys-apps/openrc
-|emerge --ask --verbose --depclean net-misc/netifrc}}
-
-<!--T:23-->
-Also the old configuration files and symlinks can be removed:
-
-<!--T:24-->
-{{RootCmd|rm /etc/conf.d/net
-|rm /etc/init.d/net.*}}
-
-== Network dependent services == <!--T:25-->
-
-<!--T:26-->
-Manipulating [[Network_dependent_services|network dependent services]] by {{c|dhcpcd}} is no longer supported since openrc-0.16.4.
-
-== Graphical User interface == <!--T:27-->
-
-<!--T:28-->
-A [[dhcpcd-ui|dhcpcd graphical user interface]] is provided by {{Package|net-misc/dhcpcd-ui}}.
-
-== See also == <!--T:29-->
-
-<!--T:30-->
-* {{See also|Dhcpcd}}
-* {{See also|Dhcpcd-ui}}
-
-== External resources == <!--T:31-->
-
-<!--T:32-->
-* [https://forums.gentoo.org/viewtopic-t-965190-start-93.html Post 93 of Gentoo Forums :: View topic - TIP: Complete network stack without net.* scripts]
-
-</translate>
-
-[[Category:Network_management]]
+There is no need for having wpa_supplicant in the runlevel as dhcpcd will detect the interface, whatever it is called and set its IP address automatically. Also note a nice thing Linux does when having wired and wireless interfaces together on the same network is that the one with the lowest metric takes precedence over existing connections. 
+<br />
+Suppose for instance you have an ongoing transfer of a very large file over your wireless interface to an existing network mountpoint. Plug the cable and wait for dhcpcd to set the IP address of the ethernet interface and you'll see the network activity switch to the fastest interface. You don't even need to interrupt and restart the transfer. That feature comes handy when you cannot bond interfaces, especially with wireless. 
+<br />
+== Cleanup ==
+When the net setup is working well you might want to remove the old net.* setup.  So disable the netifrc useflag and reemerge openrc.
+{{File|/etc/portage/package.use||<pre>sys-apps/openrc -netifrc</pre>}}
+{{RootCmd|emerge --ask --newuse --oneshot sys-apps/openrc}}
+Now you can remove netifrc.
+{{RootCmd|emerge -C net-misc/netifrc}}
+<br />
+Also the old config files and symlinks can be removed
+{{RootCmd|rm /etc/conf.d/net}}
+{{RootCmd|rm /etc/init.d/net.eth0}}
+{{RootCmd|rm /etc/init.d/net.wlan0}}
+{{RootCmd|rm /etc/init.d/net.lo}}
