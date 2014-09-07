@@ -5,62 +5,119 @@ The first step to setup a OpenVPN server is to create a [http://en.wikipedia.org
 *A public master Certificate Authority (CA) certificate and a private key
 *A separate public certificate and private key pair (hereafter referred to as a certificate) for each server and each client.
 
-We can use 'easy-rsa' scripts to do this. Install them by running
+We could use easy-rsa scripts to do this. Install it by running
 
-{{emerge|app-crypt/easy-rsa}}
+{{RootCmd|emerge -v app-crypt/easy-rsa}}
 
-{{Important|To create '''''only''''' a new client key, jump to [[#Generate client certificate and key|this step]].}}
 
 == Creating certificates ==
 
-To keep creating process separate, we should copy scripts to a different place every time to do their job.
+To keep creating process separated, we could copy scripts to different place every time to do the job.
 
 {{RootCmd|cp -a /usr/share/easy-rsa /root/easy-rsa-example}}
 
-change directory:
+change direcoty
 
-{{RootCmd|cd /root/easy-rsa-example}}
-{{RootCmd|mv vars.example vars}}
+{{RootCmd| cd /root/easy-rsa-example}}
 
-To ensure the consistent use of values when generating the PKI, set default values to be used by the PKI generating scripts. Edit /root/easy-rsa-example/vars and at a minimum set the 
-* EASYRSA_DN "org"
-* EASYRSA_REQ_COUNTRY
-* EASYRSA_REQ_PROVINCE
-* EASYRSA_REQ_CITY
-* EASYRSA_REQ_ORG
-* EASYRSA_REQ_EMAIL
+To ensure the consistent use of values when generating the PKI, set default values to be used by the PKI generating scripts. Edit /root/easy-rsa/vars and at a minimum set the 
+* KEY_COUNTRY
+* KEY_PROVINCE
+* KEY_CITY
+* KEY_ORG
+* KEY_EMAIL 
 parameters (do not leave any of these parameters blank). Change the KEY_SIZE parameter to 2048 for the SSL/TLS to use 2048bit RSA keys for authentication.
 
-{{FileBox|filename=/root/easy-rsa-example/vars|1=
-# Choices are:
-#   cn_only  - use just a CN value
-#   org      - use the "traditional" Country/Province/City/Org/OU/email/CN format
+{{File|/root/easy-rsa-example/vars||<pre>
+# easy-rsa parameter settings
 
-set_var EASYRSA_DN      "org"
+# NOTE: If you installed from an RPM,
+# don't edit this file in place in
+# /usr/share/openvpn/easy-rsa --
+# instead, you should copy the whole
+# easy-rsa directory to another location
+# (such as /etc/openvpn) so that your
+# edits will not be wiped out by a future
+# OpenVPN package upgrade.
 
-# Organizational fields (used with 'org' mode and ignored in 'cn_only' mode.)
-# These are the default values for fields which will be placed in the
-# certificate.  Don't leave any of these fields blank, although interactively
-# you may omit any specific field by typing the "." symbol (not valid for
-# email.)
+# This variable should point to
+# the top level of the easy-rsa
+# tree.
+export EASY_RSA="`pwd`"
 
-set_var EASYRSA_REQ_COUNTRY     "US"
-set_var EASYRSA_REQ_PROVINCE    "CA"
-set_var EASYRSA_REQ_CITY        "SanFrancisco"
-set_var EASYRSA_REQ_ORG         "Fort-Funston"
-set_var EASYRSA_REQ_EMAIL       "mail@host.domain"
-}}
+#
+# This variable should point to
+# the requested executables
+#
+export OPENSSL="openssl"
+export PKCS11TOOL="pkcs11-tool"
+export GREP="grep"
+
+
+# This variable should point to
+# the openssl.cnf file included
+# with easy-rsa.
+export KEY_CONFIG=`$EASY_RSA/whichopensslcnf $EASY_RSA`
+
+# Edit this variable to point to
+# your soon-to-be-created key
+# directory.
+#
+# WARNING: clean-all will do
+# a rm -rf on this directory
+# so make sure you define
+# it correctly!
+export KEY_DIR="$EASY_RSA/keys"
+
+# Issue rm -rf warning
+echo NOTE: If you run ./clean-all, I will be doing a rm -rf on $KEY_DIR
+
+# PKCS11 fixes
+export PKCS11_MODULE_PATH="dummy"
+export PKCS11_PIN="dummy"
+
+# Increase this to 2048 if you
+# are paranoid.  This will slow
+# down TLS negotiation performance
+# as well as the one-time DH parms
+# generation process.
+export KEY_SIZE=2048
+
+# In how many days should the root CA key expire?
+export CA_EXPIRE=3650
+
+# In how many days should certificates expire?
+export KEY_EXPIRE=3650
+
+# These are the default values for fields
+# which will be placed in the certificate.
+# Don't leave any of these fields blank.
+export KEY_COUNTRY="US"
+export KEY_PROVINCE="CA"
+export KEY_CITY="SanFrancisco"
+export KEY_ORG="Fort-Funston"
+export KEY_EMAIL="me@myhost.mydomain"
+export KEY_EMAIL=mail@host.domain
+export KEY_CN=changeme
+export KEY_NAME=changeme
+export KEY_OU=changeme
+export PKCS11_MODULE_PATH=changeme
+export PKCS11_PIN=1234
+</pre>}}
+
+Export the environment variables.
+
+{{RootCmd|source ./vars}}
 
 Delete any previously created certificates.
 
-{{Warning|This will delete any previously generated certificates stored in /root/easy-rsa-example/pki, including the Certificate Authority (CA) certificate.}}
+{{Warning|This will delete any previously generated certificates stored in /root/easy-rsa/keys, including the Certificate Authority (CA) certificate.}}
 
-{{RootCmd| ./easyrsa init-pki}}
+{{RootCmd|./clean-all}}
 
-=== Create CA certificate ===
-The option <code>build-ca</code> generates the Certificate Authority (CA) certificate.
+The build-ca script generates the Certificate Authority (CA) certificate.
 
-{{RootCmd|# ./easyrsa build-ca|output=<pre>
+{{RootCmd|./build-ca|output=<pre>
 Generating a 2048 bit RSA private key
 .............................+++
 ................+++
@@ -82,12 +139,11 @@ Common Name (eg, your name or your server's hostname) [changeme]:
 Name [changeme]:
 Email Address [mail@host.domain]:</pre>}}
 
-=== Generate Server Certificate Request and Key ===
-The option <code>gen-req <server name> nopass</code> generates a server certificate request and key.
-Make sure that the server name (Common Name when running the script) is unique.
-Option nopass means no need to import password.
+The build-key-server script <code># ./build-key-server <server name></code> generates a server certificate. Make sure that the server name (Common Name when running the script) is unique.
 
-{{RootCmd|./easyrsa gen-req example nopass|output=<pre>
+{{Note|Do not enter a challenge password or company name when the script prompts you for one.}}
+
+{{RootCmd|# ./build-key-server example|output=<pre>
 Generating a 2048 bit RSA private key
 .........+++
 ............................................+++
@@ -109,60 +165,35 @@ Common Name (eg, your name or your server's hostname) [example]:
 Name [changeme]:
 Email Address [mail@host.domain]:
 
-Keypair and certificate request completed. Your files are:
-req: /root/easy-rsa-example/pki/reqs/example.req
-key: /root/easy-rsa-example/pki/private/example.key
-</pre>}}
-
-=== Sign Server Certificate Request ===
-The option <code>sign-req server <server name></code> signs the certificate .crt file needed by the server.
-{{RootCmd| ./easyrsa sign-req server example|output=<pre>
-Note: using Easy-RSA configuration from: ./vars
-
-You are about to sign the following certificate.
-Please check over the details shown below for accuracy. Note that this request
-has not been cryptographically verified. Please be sure it came from a trusted
-source or that you have verified the request checksum with the sender.
-
-Request subject, to be signed as a server certificate for 3650 days:
-
-subject=
-    countryName               = US
-    stateOrProvinceName       = CA
-    localityName              = SanFrancisco
-    organizationName          = Fort-Funston
-    organizationalUnitName    = changeme
-    commonName                = example
-    emailAddress              = mail@host.domain
-
-Type the word 'yes' to continue, or any other input to abort.
-  Confirm request details: yes
-Using configuration from /root/easy-rsa-example/openssl-1.0.cnf
-Enter pass phrase for /root/easy-rsa-example/pki/private/ca.key:
+Please enter the following 'extra' attributes
+to be sent with your certificate request
+A challenge password []:
+An optional company name []:
+Using configuration from /root/easy-rsa-example/openssl-1.0.0.cnf
 Check that the request matches the signature
 Signature ok
 The Subject's Distinguished Name is as follows
 countryName           :PRINTABLE:'US'
-stateOrProvinceName   :ASN.1 12:'CA'
-localityName          :ASN.1 12:'SanFrancisco'
-organizationName      :ASN.1 12:'Fort-Funston'
-organizationalUnitName:ASN.1 12:'changeme'
-commonName            :ASN.1 12:'example'
+stateOrProvinceName   :PRINTABLE:'CA'
+localityName          :PRINTABLE:'SanFrancisco'
+organizationName      :PRINTABLE:'Fort-Funston'
+organizationalUnitName:PRINTABLE:'changeme'
+commonName            :PRINTABLE:'example'
+name                  :PRINTABLE:'changeme'
 emailAddress          :IA5STRING:'mail@host.domain'
-Certificate is to be certified until Feb  5 02:32:49 2027 GMT (3650 days)
+Certificate is to be certified until Sep  4 07:29:00 2024 GMT (3650 days)
+Sign the certificate? [y/n]:y
 
+
+1 out of 1 certificate requests certified, commit? [y/n]y
 Write out database with 1 new entries
-Data Base Updated
+Data Base Updated</pre>}}
 
-Certificate created at: /root/easy-rsa-example/pki/issued/example.crt
-</pre>}}
-
-=== Generate Diffie-Hellman (DH) parameters ===
-The option <code>gen-dh</code> generates the Diffie-Hellman parameters .pem file needed by the server.
+The build-dh script generates the Diffie-Hellman parameters .pem file needed by the server.
 
 {{Note|It would be better to generate a new one for each server, but you can use the same one if you want to.}}
 
-{{RootCmd| ./easyrsa gen-dh|output=<pre>
+{{RootCmd|# ./build-dh|output=<pre>
 Generating DH parameters, 2048 bit long safe prime, generator 2
 This is going to take a long time
 ...........................+...........+......................
@@ -170,24 +201,39 @@ This is going to take a long time
 ...........
 ...........+.......................++*++*</pre>}}
 
-=== Generate client certificate and key ===
-The option <code>build-client-full <client name> nopass</code> generates a client certificate and key.
-Make sure that the client name (Common Name when running the script) is unique. Option nopass means there is no need to input a password.
+The build-key script <code># ./build-key <client name></code> generates a client certificate. Make sure that the client name (Common Name when running the script) is unique.
 
 {{Note|Do not enter a challenge password or company name when the script prompts you for one.}}
 
-{{Important|Every time you create a new client's key, you would only do this step!}}
+{{Important|Every time to create a new client's key, you would just to do this step.}}
 
-{{RootCmd|./easyrsa build-client-full client1 nopass|output=<pre>
-
-Note: using Easy-RSA configuration from: ./vars
+{{RootCmd|./build-key client1|output=<pre>
 Generating a 2048 bit RSA private key
-.................................................................+++
-..+++
-writing new private key to '/root/easy-rsa-example/pki/private/client1.key.GIukBzmSVv'
+...............................................................................................................................+++
+...................+++
+writing new private key to 'client1.key'
 -----
-Using configuration from /root/easy-rsa-example/openssl-1.0.cnf
-Enter pass phrase for /root/easy-rsa-example/pki/private/ca.key:
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [US]:
+State or Province Name (full name) [CA]:
+Locality Name (eg, city) [SanFrancisco]:
+Organization Name (eg, company) [Fort-Funston]:
+Organizational Unit Name (eg, section) [changeme]:
+Common Name (eg, your name or your server's hostname) [client1]:
+Name [changeme]:
+Email Address [mail@host.domain]:
+
+Please enter the following 'extra' attributes
+to be sent with your certificate request
+A challenge password []:
+An optional company name []:
+Using configuration from /root/easy-rsa-example/openssl-1.0.0.cnf
 Check that the request matches the signature
 Signature ok
 The Subject's Distinguished Name is as follows
@@ -199,18 +245,17 @@ organizationalUnitName:PRINTABLE:'changeme'
 commonName            :PRINTABLE:'client1'
 name                  :PRINTABLE:'changeme'
 emailAddress          :IA5STRING:'mail@host.domain'
-Certificate is to be certified until Jan 16 12:56:33 2027 GMT (3650 days)
+Certificate is to be certified until Sep  4 07:35:43 2024 GMT (3650 days)
+Sign the certificate? [y/n]:y
 
+
+1 out of 1 certificate requests certified, commit? [y/n]y
 Write out database with 1 new entries
 Data Base Updated</pre>}}
-
-=== Generate secret Hash-based Message Authentication Code (HMAC) ===
 Generate a secret Hash-based Message Authentication Code (HMAC) by running
 
-{{RootCmd|openvpn --genkey --secret /root/easy-rsa-example/pki/ta.key}}
+{{RootCmd|openvpn --genkey --secret /root/easy-rsa-example/keys/ta.key}}
 
 {{Important|You would like to keep the <code>/root/easy-rsa-example</code> folder for further usage.}}
 
-And now, you can go back to [[OpenVPN#Server_side|setup the server configuration]].
-
-{{Note|The option build-server-full <code>#  ./easyrsa build-server-full <server name> nopass </code> generates a server certificate and key(do the same thing as genreq and sign-req). Make sure that the Server name (Common Name when running the script) is unique. Option nopass means no need to input password. The command usage just like build-client-full.}}
+And now, you can go on to setup the server configuration.
