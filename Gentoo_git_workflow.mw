@@ -1,308 +1,62 @@
-{{Warning|This article is not maintained by Gentoo developers. Some of the policies and suggestions listed here may be plain wrong. If in doubt, please refer to the official standard of [https://www.gentoo.org/glep/glep-0066.html GLEP 66].}}
+This is a '''draft'''! Nothing of this is really decided upon.
 
-This article [[Article description::outlines some rules and best-practices regarding the typical workflow for ebuild developers using {{c|git}}.]]
+== commit policy ==
 
-== Commit policy ==
+* atomic commits (one logical change)
+* commits may span across multiple ebuilds/directories if it's one logical change
+* every commit on the first parent of the history must be gpg signed by a gentoo dev
+* repoman must be run from all related directories (or the top-level directory) on the latest commit that is being pushed
 
-* Atomic commits (one logical change).
-* All commits must be repoman-valid (exceptions only on right-hand branches).
-* Commits may span across multiple ebuilds/directories if it's one logical change.
-* Every commit on the left-most line of the history (that is, all the commits following the first parent of each commit) must be GPG signed by a Gentoo developer.
-* {{c|repoman}} must be run from all related ebuild directories (or related category directories or top-level directory) on the tip of the local master branch (as in: right before you push and also after resolving push-conflicts).
+=== commit message format ===
+* all lines max 70-75 chars
+* first line brief explanation
+* second line always empty
+* optional detailed multiline explanation must start at the third line
+* for commits that affect only a single package, prepend "CATEGORY/PN: " to the first line
+* for commits that affect only the profile directory, prepend "profiles: " to the first line
+* for commits that affect only the eclass directory, prepend "ECLASSNAME.eclass: " to the first line
+* for commits that affect only licenses directory, prepend "licenses: " to the first line
+* for commits that affect only metadata directory, prepend "metadata: " to the first line
 
-=== Atomicity ===
+== branching model ==
 
-* Commits in git are cheap and local, so use them often.
-* Split version bumps and ebuild cleanup in separate commits (makes reverting ebuild removals much easier).
-* One may break atomicity in order to make a commit repoman-valid (or you should reconsider the order you commit in, e.g. license first, then the new ebuild).
+* the primary production-ready branch is master (users will pull from here), there are no non-fast-forward pushes allowed
+* there may be developer-specific, task-specific, project-specific branches etc
 
-=== Commit message format ===
+=== naming convention ===
 
-* All lines max 75 characters.
-* If CATEGORY/PN is very long and 75 character limit is impossible to obey it is OK to exceed the limit in this case.
-* First line brief explanation.
-* Second line ''always'' empty.
-* Optional detailed multiline explanation must start at the third line.
-* Commits that affect primarily a particular subsystem should prepend the following code to the first line of the commit message:
-** Single package -> <code>CATEGORY/PN:</code>
-** Profile directory -> <code>profiles:</code>
-** Eclass directory -> <code>ECLASSNAME.eclass:</code>
-** Licenses directory -> <code>licenses:</code>
-** Metadata directory -> <code>metadata:</code>
-** A whole category -> <code>CATEGORY:</code>
-* If the change affects multiple directories, but is mostly related to a particular subsystem, then prepend the subsystem which best reflects the intention (e.g. you add a new license, but also modify profiles/license_groups).
-* It is also encouraged to use tag formats such as <code>Acked-by:</code>, <code>Suggested-by:</code>, and so on. Please review the [https://www.kernel.org/doc/Documentation/process/submitting-patches.rst kernel patch guideline] for additional tag variants.
+* developer branches: dev/<name>
+* project branches: project/<name>
+* if in doubt or if the branch could be useful to others, discuss the naming on-list beforehand
 
-'''Example'''
+=== when/how to rebase ===
 
-<pre>app-misc/foo: version bump to 0.5
+* primary use case: in case of a non-fast-forward push conflict to remote master, try 'git pull --rebase=preserve' first; if that yields complicated conflicts, abort the rebase and continue with a regular merge
+* to preserve merges during a rebase use 'git merge --preserve-merges ...' (if appropriate, e.g. for user branches)
+* don't use --preserve-merges if you do an interactive rebase (see BUGS in git-rebase manpage)
+* commits that are not on the remote master branch yet may be rewritten/squashed/splitted etc via interactive rebase, however the rebase must never span beyond those commits
+* never rebase on already pushed commits
+* there are no particular rules for rebasing on non-master remote branches, but be aware that others might base their work on them
+* there are no particular rules for rebasing non-remote branches, as long as they don't clutter the history when merged back into master
+* don't do complicated rebases to avoid a merge commit at all cost (it may even cause losing information, e.g. user signatures)
 
-Bump to 0.5. This also fixes security
-bug 93829 and introduces the new USE flag 'bar'.
+=== when/how to merge ===
 
-Acked-by: Hans Wurst <hans@gentoo.org>
-Reported-by: Alice Wonderland <alice@foo.com>
-</pre>
+* if a rebase fails or is too complicated, do a regular merge instead
+* do a merge if the information is useful (e.g. pulled from a foreign remote user branch or merged a non-trivial eclass conversion back into master) and force a merge commit (non-fast-forward merge via '--no-ff')
+* to avoid a merge commit (e.g. information is not useful), you may try to force a fast-forward merge by first rebasing the feature branch against master and then merging it into master
+* extend merge commit messages with useful information, e.g. how conflicts were solved
+* keep in mind that all commits of the first parent of the history must be gpg signed by a gentoo dev, so you may want to force merge commits especially for user branches
 
-== Branching model ==
+== remote model ==
 
-* The primary production-ready branch is [https://gitweb.gentoo.org/repo/gentoo.git/log/ master] (users will pull from here), there are '''only fast-forward''' pushes allowed.
-* There may be developer-specific, task-specific, project-specific branches, etc.
+We have main developer repo where developers work & commit (every developer has direct push access). For every push into developer repo, automated magic thingie merges stuff into user sync repo and updates the metadata cache there.
 
-=== Branch naming convention ===
+User sync repo is for power users than want to fetch via git. It's quite fast and efficient for frequent updates, and also saves space by being free of ChangeLogs.
 
-* Developer branches: <code>dev/<name></code>
-* Project branches: <code>project/<name></code>
-* If in doubt, or if the branch could be useful to others, discuss the naming on-list beforehand.
+On top of user sync repo rsync is propagated. The rsync tree is populated with all old ChangeLogs copied from CVS (stored in 30M git repo), new ChangeLogs are generated from git logs and Manifests are expanded.
 
-=== About rebasing ===
+== best practices ==
 
-* Primary use case: in case of a non-fast-forward push conflict to remote master, try <code>git pull --rebase=preserve</code> first; if that yields complicated conflicts, abort the rebase and continue with a regular merge (if the conflicts are trivial or even expected, e.g. arch teams keywording/stabilizing stuff, then stick to the rebase).
-* To preserve merges during a rebase use <code>git rebase --preserve-merges ...</code> (if appropriate, e.g. for user branches).
-* Don't use ''--preserve-merges'' if you do an interactive rebase (see BUGS in git-rebase manpage).
-* Commits that are not on the remote master branch yet may be rewritten/squashed/splitted etc via interactive rebase, however the rebase must never span beyond those commits.
-* Never rebase on already pushed commits.
-* There are no particular rules for rebasing on non-master remote branches, but be aware that others might base their work on them.
-* There are no particular rules for rebasing non-remote branches, as long as they don't clutter the history when merged back into master.
-* Don't do complicated rebases to avoid a merge commit at all cost.
-
-=== About merging ===
-
-* '''Do not ''ever'' commit implicit merges done by git pull'''. You may want to set <code>git config --local pull.ff only</code> to avoid git implicitly creating those.
-* If a rebase fails or is too complicated, do a regular merge instead.
-* Do a merge if the information is useful (e.g. pulled from a foreign remote user branch or merged a non-trivial eclass conversion back into master) and force a merge commit (non-fast-forward merge via <code>--no-ff</code>).
-* To avoid a merge commit when merging local branches back to master (e.g. information is not useful), you may try to force a fast-forward merge by first rebasing the local branch against master and then merging it into master, see [http://www.kerrybuckley.org/2008/06/18/avoiding-merge-commits-in-git/ here].
-* Extend merge commit messages with useful information, e.g. how conflicts were solved.
-* Keep in mind that all commits of the first parent of the history must be GPG signed by a Gentoo developer, so you may want to force merge commits especially for user branches.
-
-== Remote model ==
-
-We have a main developer repository where developers work and commit (every Gentoo ebuild developer has direct push access). For every push into the repository, automated magic things merge stuff into user sync repository and update the metadata cache there.
-
-User sync repository is for power users that want to fetch via {{c|git}}. It's quite fast and efficient for frequent updates, and also saves space by being free of the ChangeLog files.
-
-On top of the user sync repository, rsync is propagated. The rsync tree is populated with all old ChangeLogs copied from CVS (stored in 30 MB git repo); new ChangeLogs are generated from git logs and Manifests are expanded.
-
-== Best practices ==
-
-* Before starting work on your local master, it's good to pull the latest changeset from the remote master.
-* It might be a good idea for projects/developers to accumulate changes either in their own branch or a separate repository and only push to remote master in intervals (that decreases the push rate and potential conflicts).
-
-== Repository settings ==
-
-=== Cloning ===
-
-Clone the repository. This will make a shallow clone and speed up clone time:
-
-{{Cmd|git clone --depth{{=}}50 git+ssh://git@git.gentoo.org/repo/gentoo.git}}
-
-If you want the full history, just omit <code>--depth=50</code> from the above command.
-
-=== Configuration ===
-
-All developers should at least have the following configuration settings in their local developer repository. These setting will be written to {{Path|.git/config}} and can also be edited manually. Run these from within the repository you've just cloned in the step above:
-
-{{Cmd
-|cd gentoo
-|git config --local user.name "Your Full Name"
-|git config --local user.email "example@gentoo.org"
-|git config --local pull.ff only
-|git config --local pull.rebase preserve
-|git config --local push.default simple}}
-
-==== GPG Configuration ====
-To get your GPG key run this command.  It should be the top line (starting with pub).  If you have more than one key with the UID you will need to select the correct key yourself (from the list of returned keys).
-
-{{Cmd|gpg --list-public-keys --keyid-format 0xlong example@gentoo.org}}
-
-
-{{Cmd|git config --local user.signingkey 0xLONG-GPG-KEY
-|git config --local commit.gpgsign 1
-|git config --local push.gpgsign 1}}
-
-In addition, you need to tell {{c|repoman}} which key to use for committing:
-
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-PORTAGE_GPG_KEY{{=}}"0xLONG-GPG-KEY"
-}}
-
-== Workflow walkthrough ==
-[[File:Cycle of usercontributions.png|300px|frameless|right]]
-These are just examples and people may choose different local workflows (especially in terms of when to stage/commit) as long as the end result works and is repoman-checked. These examples try to be very safe, but basic.
-
-Before doing anything, make sure your git tree is in a correct state and you are in the branch you actually want to work on.
-{{Cmd|git status}}
-
-=== Common ebuild work ===
-
-# Pull in the latest changeset, before starting your work: {{Cmd|git pull --rebase{{=}}preserve origin master}}
-# Do the work (including removing files)
-# Make sure you are in the ebuild directory
-# Create the manifest: {{Cmd|repoman manifest}}
-# Stage files (including removed ones), if any: {{Cmd|git add <new-files> <changed-files> <removed-files>}} {{Note|A shortcut for staging all files in the current dir (and subdirs) would be: {{Cmd|git add -- .}}}}
-# Check for errors: {{Cmd|repoman full -d -x}} {{Warning|Repoman checks the files on filesystem level and doesn't really know what changes are staged or committed! So make sure the ebuild directory is clean and there are no unstaged changes or untracked files when running repoman. To check for such changes/files, run: {{Cmd|git status}} To clean up unstaged changes and untracked files run: {{Cmd|git checkout -- .|git clean -i}}}}
-## If errors occur, fix them and continue from point 4
-# Commit the files: {{Cmd|repoman commit}} and enter your meaningful commit message
-# Push to the dev repository: {{Cmd|git push --signed origin master}}
-## If updates were rejected because of non-fast-forward push, try: {{Cmd|git pull --rebase{{=}}preserve -S"$(git config --get user.signingkey)" origin master}} first, then run: {{Cmd|repoman full -d -x}} and continue from point 8. {{Note|You may skip running repoman another time if you have manually verified that the commits you are missing are totally unrelated to your work (e.g. only affect a package that is not in the dependency chain of yours). You can do so via: {{Cmd|git diff $(git merge-base master remotes/origin/master) remotes/origin/master}}}}
-### If the rebase fails, but the conflicts are trivial and don't contain useful information (such as keyword stabilization), fix the conflicts and finish the rebase via: {{Cmd|git mergetool|git rebase --continue}} and continue from point 4
-### If the rebase fails and the conflicts are complicated or you think the information is useful, continue with a regular merge: {{Cmd|git rebase --abort|git merge remotes/origin/master}}
-#### If merge conflicts occur, fix them via: {{Cmd|git mergetool}} and continue from point 4 {{Warning|A merge conflict is not to be taken lightly. It could indicate miscommunication in one way or another (e.g. several people working on the same ebuild), so fix that first and try to clarify the situation.}}
-#### If no merge conflicts occur, run: {{Cmd|repoman full -d -x}} and continue from point 8 above.
-
-=== Pull requests from developers and users ===
-
-==== git am method ====
-# Find a pull request you wish to merge, https://github.com/gentoo/gentoo/pull/1 as an example.
-# Ensure your checkout is up to date: {{Cmd|git pull}}
-# Fetch and apply chosen commit: {{Cmd|curl -s -L "https://github.com/gentoo/gentoo/pull/1.patch" &#124; git am -sS}}
-# You can review the changes with: {{Cmd|git log remotes/origin/master..HEAD|git diff remotes/origin/master..HEAD}}
-# Make sure chosen commit didn't break things {{Cmd|repoman -d full}} {{Important|repoman will not pickup outdated copyright year in the header}}
-# Push your changes {{Cmd|git push --signed}}
-
-==== git cherry-pick method ====
-# Identify the remote URL and the branch to be merged.
-# Add a new remote: {{Cmd|git remote add <remote-name> <url>}}
-# Fetch the changes: {{Cmd|git fetch <remote-name> <branch>}}
-# You may review the changes manually first: {{Cmd|git log master..remotes/<remote-name>/<branch>|git diff master..remotes/<remote-name>/<branch>}}
-# Checkout the remote branch: {{Cmd|git checkout remotes/<remote-name>/<branch>}} (you are now in detached HEAD mode)
-# Test the ebuilds and run repoman: {{Cmd|repoman full}}
-# If everything is fine, switch back to master: {{Cmd|git checkout master}}
-# Ensure your master branch is curent: {{Cmd|git pull}}
-# If it's just one commit, do: {{Cmd|git cherry-pick <commit-hash>}}
-# If there are multiple commits in one consistent range, do: {{Cmd|git cherry-pick <first-new-commit-hash>^..<latest-new-commit-hash>}}
-# Push your changes {{Cmd|git push --signed}}
-
-{{Note|Alternatively, you can create a new local branch where you pull in the remote changes instead of working directly in detached HEAD mode on remotes/<remote-name>/<branch>.}}
-
-== Tips and tricks ==
-
-=== Working with git ===
-
-Especially staging files can be tedious on the CLI. So you may want to use the graphical clients {{c|gitk}} (for browsing history) and {{c|git gui}} (for staging/unstaging changes etc.). You have to enable the <code>tk</code> USE flag for {{Package|dev-vcs/git}}.
-
-=== Diffs for revision bumps ===
-
-Suppose you are making a new revision of the <code>app-foo/bar</code> package&mdash;you are removing <code>app-foo/bar-1.0.0</code> and replacing it with the new revision <code>app-foo/bar-1.0.0-r1</code>. In that case, git (by default) sees two changes: removal of the file <code>bar-1.0.0.ebuild</code> and addition of the file <code>bar-1.0.0-r1.ebuild</code>. If you attempt to view your changes with <code>git diff</code> or <code>git show</code>, you'll get a useless diff containing the entirety of both files.
-
-Git can be coerced into showing you the diff between the old and new revisions even though they live in separate files. The following command-line options specify how hard git should try to find files that have been copied or renamed:
-
-{{Cmd|$ git diff --find-renames --find-copies --find-copies-harder}}
-
-In the common case, searching for renames is enough. You can make that behavior the default easily:
-
-{{Cmd|$ git config --local diff.renames true}}
-
-=== Using the gentoo git checkout as your local tree ===
-
-If you want to use your git development checkout as your local tree, you have to do two things:
-# make sure the directory has the correct access rights
-# generate/get metadata-cache, dtd, glsa, herds.xml and news yourself
-
-For the latter, there are example hooks for [https://github.com/hasufell/portage-gentoo-git-config portage] and [https://github.com/hasufell/paludis-gentoo-git-config paludis]. You should probably skip the files ''{{path|[[:/etc/portage/repos.conf]]/gentoo.conf}}'' and ''{{path|/etc/paludis/repositories/gentoo.conf}}'' respectively, so that portage/paludis doesn't mess up your checkout (as in: disable auto-sync).
-{{Warning|The linked hooks are WIP and may be subject to change!}}
-
-=== Github pull request made easy ===
-
-Cd into your gentoo Git repository and add these lines to the repo's .git/config file:
-
- [remote "github"]
-   url = git@github.com:gentoo/gentoo.git
-   fetch = +refs/heads/*:refs/remotes/github/*
-   fetch = +refs/pull/*/head:refs/remotes/github/pr/*
-
-Now type:
-{{Cmd|$ git fetch github}}
-
-git should go and fetch all pull requests, and list them as branches.
-{{Cmd|$ git branch -a}}
-
-Each pull request will now be displayed as a branch name, each with a different name such as "remotes/github/pr/123". For instance if you wish to fetch changes brought by [https://github.com/gentoo/gentoo/pull/105 https://github.com/gentoo/gentoo/pull/105], simply type:
-{{Cmd|$ git checkout remotes/github/pr/105}}
-
-to checkout the pull request.
-
-=== Grafting Gentoo history onto the active repository ===
-
-To graft the historical Gentoo repository onto your current one simply run:
-
-{{Cmd|$ git remote add history https://github.com/gentoo/gentoo-gitmig-20150809-draft.git}}
-{{Cmd|$ git fetch history}}
-{{Cmd|$ git replace --graft 56bd759df1d0c750a065b8c845e93d5dfa6b549d history/master}}
-
-The general syntax of the last command is:
-{{Cmd|$ git replace --graft <first new commit> <last old commit>}}
-(This may be useful if you're not using the official versions of the repositories.)
-
-Once you've merged the history, git will behave as if it is one big repo, and you should still be able to push from that to Gentoo as the head is untouched.  Merging the history will remove the gpg signature on the initial gentoo commit (since it is being modified to do the graft).
-
-=== Preventing 'git repack -a' from touching huge packs ===
-
-Normally ''git repack -a'' (invoked by ''git gc'') tries to repack everything into a single pack. If your repository contains a few huge packs already (commits from initial clone, grafted history pack), the repack can take really long and be truly memory-consuming.
-
-To avoid that, you can mark the huge pack files for keeping. In this case, ''git repack -a'' won't touch those packs and instead focus on repacking everything else. As a result, you can get most of the benefits of repacking with major time saving.
-
-{{Cmd|1=cd .git/refs/packs|2=ls -lh|output=<pre>total 2.2G
--r--r--r-- 1 mgorny mgorny  17M Oct  3 16:14 pack-05c10cc8ef170fd182619ef32ec4007e5f32f46d.idx
--r--r--r-- 1 mgorny mgorny 219M Oct  5 16:12 pack-05c10cc8ef170fd182619ef32ec4007e5f32f46d.pack
--r--r--r-- 1 mgorny mgorny  27K Oct  5 14:09 pack-107a6ca6e4b781d12cc452a651a478daac3b3d95.idx
--r--r--r-- 1 mgorny mgorny 978K Oct  5 16:12 pack-107a6ca6e4b781d12cc452a651a478daac3b3d95.pack
--r--r--r-- 1 mgorny mgorny  25K Oct  6 08:14 pack-10f2b4a18cd1a99dcbc502987eb130680221b558.idx
--r--r--r-- 1 mgorny mgorny 770K Oct  6 08:14 pack-10f2b4a18cd1a99dcbc502987eb130680221b558.pack
--r--r--r-- 1 mgorny mgorny 197M Oct  3 18:06 pack-412c2dda845a79854872afaf5f9cd4ea896aef38.idx
--r--r--r-- 1 mgorny mgorny 1.7G Oct  3 18:05 pack-412c2dda845a79854872afaf5f9cd4ea896aef38.pack
--r--r--r-- 1 mgorny mgorny 5.1K Oct  5 15:38 pack-460c1a0fc0e6fc76d367e2b4010c879ce9b062e2.idx
--r--r--r-- 1 mgorny mgorny 187K Oct  5 16:12 pack-460c1a0fc0e6fc76d367e2b4010c879ce9b062e2.pack
--r--r--r-- 1 mgorny mgorny 1.4M Oct  6 08:49 pack-5a593371028f920159f628208955707a9153962a.idx
--r--r--r-- 1 mgorny mgorny  24M Oct  6 08:49 pack-5a593371028f920159f628208955707a9153962a.pack
--r--r--r-- 1 mgorny mgorny  14K Oct  4 08:41 pack-c90e9378fa114d9a603c3ea40c4ff76e2d4cbac6.idx
--r--r--r-- 1 mgorny mgorny 401K Oct  5 16:12 pack-c90e9378fa114d9a603c3ea40c4ff76e2d4cbac6.pack</pre>}}
-
-Once you identify the huge packs you'd like to keep (''05c10cc8ef170fd182619ef32ec4007e5f32f46d'' and ''412c2dda845a79854872afaf5f9cd4ea896aef38'' in this case), create .keep files for them:
-
-{{Cmd|1=touch pack-05c10cc8ef170fd182619ef32ec4007e5f32f46d.keep pack-412c2dda845a79854872afaf5f9cd4ea896aef38.keep}}
-
-=== Retaining commit author information ===
-It is important that appropriate credit is given when committing on behalf of others. Git can natively differentiate between who authored a commit and who pushed it ([https://gitweb.gentoo.org/repo/gentoo.git/commit/?id=f6485aff0129ae4c8df5a211af1a51d03ecb6de4 example]), and most methods of merging handle this automatically.
-
-If you have applied someone else's changes manually or made local edits to a PR, check that the author field is accurate:
-
-{{Cmd|1=git log --format=fuller}}
-
-If necessary, amend the commit to give credit where it is due:
-
-{{Cmd|1=git commit --amend --author="Joe Smith <jsmith@example.org>"}}
-
-If you need to credit several authors, add trailer lines like <code>Co-authored-by: Name Surname <nsurname@example.org></code> (as currently supported by major Git hostings like GitHub and GitLab) to the long commit description part:
-
-<pre>app-misc/foo: version bump to 0.5
-
-Bump to 0.5. This also fixes security
-bug 93829 and introduces the new USE flag 'bar'.
-
-Co-authored-by: Jane Doe <jdoe@example.org>
-
-Acked-by: Hans Wurst <hans@gentoo.org>
-Reported-by: Alice Wonderland <alice@foo.com>
-</pre>
-
-== See also ==
-
-* {{See also|Git}}
-* [https://gitweb.gentoo.org/repo/gentoo.git gentoo gitweb]
-* [https://github.com/gentoo/gentoo gentoo github mirror]
-* https://github.com/gentoo-mirror/gentoo  - Gentoo repository on [https://github.com/gentoo-mirror Gentoo repository mirrors]
-* [[Project:Infrastructure/Git_migration]]
-* [[Project:Repository_mirror_and_CI]]
-
-== External resources ==
-
-* [http://www.vogella.com/tutorials/Git/article.html Git Tutorial by Lars Vogel]
-* [http://gitready.com/ Tips and Tricks on gitready]
-* [https://www.kernel.org/doc/Documentation/process/submitting-patches.rst kernel patch guideline]
-
-== And summarizing it all, ... ==
-
-http://xkcd.com/1597/
-
-[[Category:Project and Community]]
+* before starting work on your local master, it's good to first pull the latest changeset (if any) from remote master
+* it might be a good idea for projects/developers to accumulate changes either in their own branch or a separate repository and only push to remote master in intervals (that decreases the push rate and potential conflicts)
