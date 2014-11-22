@@ -1,351 +1,84 @@
-Do you have a UPS? Do you want to have you system gracefully shutdown in case of a power outage? This guide will show how you can make the most out of your UPS by using NUT from the [https://www.networkupstools.org/ Network UPS Tools] project
+== Introduction ==
+Do you have a UPS? Do you want to have you system gracefully shutdown in case of a power outage? This guide will show how you can make the most out of your UPS by using NUT from the [http://www.networkupstools.org/ Network UPS Tools] project
 
-== Installation ==
+== Install NUT ==
 
-=== USE flag ===
+If you are connecting your UPS via USB, make sure to set the usb USE flag
 
-To connect a UPS via USB, make sure to set the <code>usb</code> USE flag:
-
-{{USEflag|package=sys-power/nut}}
-
-=== Emerge ===
+{{USEflag
+|avahi++no
+|cgi++no
+|snmp++no
+|ssl++no
+|tcpd++yes
+|usb++yes
+|xml++no
+}}
 
 {{Emerge|sys-power/nut}}
 
-== Configuration standalone ==
+== Configure nut.conf ==
 
-Search a UPS with nut-scanner:
-
-{{RootCmd|/usr/bin/nut-scanner|output=<pre>
-Scanning USB bus.
-Scanning XML/HTTP bus.
-No start IP, skipping NUT bus (old connect method)
-[nutdev1]
-        driver = "usbhid-ups"
-        port = "auto"
-        vendorid = "051D"
-        productid = "0002"
-        product = "Back-UPS SMC 1500 FW:879.L4 .I USB FW:L4"
-        serial = "***"
-        vendor = "American Power Conversion"
-        bus = "003"
-</pre>}}
-
-Take note of driver name and port type for configuration file.
-
-If UPS is connected via USB port, add user nut to group usb.
-
-{{RootCmd|usermod -a -G usb nut}}
-
-=== Files ===
-
-==== /etc/nut/nut.conf ====
-
-Set mode to standalone if the machine is connected to the UPS directly and to run NUT on this machine.
+Set mode to standalone if your machine is connected to the UPS directly and you want to run NUT on this machine.
 
 {{RootCmd|nano -w /etc/nut/nut.conf}}
 
-{{FileBox|filename=/etc/nut/nut.conf|title=Desired settings|1=
+{{File|/etc/nut/nut.conf|Desired settings|<pre>
 MODE=standalone
+</pre>
 }}
 
-==== /etc/nut/ups.conf ====
-
-The main UPS configuration file. Make sure that the UPS name (the text in the brackets) doesn't have any spaces. For configuration specific to the UPS you need to look it up here: [https://www.networkupstools.org/stable-hcl.html NUT Hardware Compatibility Lookup]
+== Configure /etc/nut/ups.conf ==
+This is where you set up your UPS configuration. Make sure that your UPS name (the text in the brackets) doesn't have any spaces. For configuration specific to your UPS you need to look it up here: [http://www.networkupstools.org/stable-hcl.html NUT Hardware Compatibility Lookup]
 
 {{RootCmd|nano -w /etc/nut/ups.conf}}
 
-{{FileBox|filename=/etc/nut/ups.conf|title=Example ups.conf configuration|lang=ini|1=
+{{File|/etc/nut/ups.conf|Example configuration|<pre>
 [APCSMC1500]
     driver = usbhid-ups
     port = auto
     desc = "APC SMC1500 UPS"
-# Change some variables in UPS hardware. Not all devices or drivers
-# implement this, so this may not have effect on your system.
-    override.battery.charge.low = 30
-    override.battery.runtime.low = 180
+</pre>
 }}
 
-==== /etc/nut/upsd.users ====
-
-Configure at least one user so that upsmon can be launched later. {{c|upsd}} will create a TCP connection that upsmon will use to check on the status of the UPS. 
+== Configure /etc/nut/upsd.users ==
+You need to configure at least one user so that upsmon can be launched later. upsd will create a tcp connection that upsmon will use to check on the status of your UPS. 
 
 {{RootCmd|nano -w /etc/nut/upsd.users}}
 
-{{FileBox|filename=/etc/nut/upsd.users|title=Example upsd.users configuration|lang=ini|1=
-[monmaster]
-    password = masterpassword
-    upsmon master
+{{File|/etc/nut/upsd.users|Example configuration|<pre>
+[ups]
+    password = mypassword
+    upsmod master</pre>
 }}
 
-==== /etc/nut/upsmon.conf ====
+== Test your upsd configuration ==
 
-Create a MONITOR configuration in {{Path|/etc/nut/upsmon.conf}}:
+Start upsd: 
+{{RootCmd|/etc/init.d/upsdrv start}}
+{{RootCmd|/etc/init.d/upsd start}}
 
-{{RootCmd|nano -w /etc/nut/upsmon.conf}}
-
-{{FileBox|filename=/etc/nut/upsmon.conf|title=Example upsmon configuration|1=
-MONITOR APCSMC1500@127.0.0.1 1 monmaster masterpassword master
-
-# If you want that NUT can shutdown the computer, you need root privileges:
-RUN_AS_USER root
-
-MINSUPPLIES 1
-SHUTDOWNCMD "/sbin/shutdown -h +0"
-NOTIFYCMD /usr/sbin/upssched
-POLLFREQ 5
-POLLFREQALERT 1
-HOSTSYNC 15
-DEADTIME 15
-POWERDOWNFLAG /etc/killpower
-
-NOTIFYMSG ONLINE	"UPS %s on line power"
-NOTIFYMSG ONBATT	"UPS %s on battery"
-NOTIFYMSG LOWBATT	"UPS %s battery is low"
-NOTIFYMSG FSD		"UPS %s: forced shutdown in progress"
-NOTIFYMSG COMMOK	"Communications with UPS %s established"
-NOTIFYMSG COMMBAD	"Communications with UPS %s lost"
-NOTIFYMSG SHUTDOWN	"Auto logout and shutdown proceeding"
-NOTIFYMSG REPLBATT	"UPS %s battery needs to be replaced"
-NOTIFYMSG NOCOMM	"UPS %s is unavailable"
-NOTIFYMSG NOPARENT	"upsmon parent process died - shutdown impossible"
-
-NOTIFYFLAG ONLINE	SYSLOG+WALL+EXEC
-NOTIFYFLAG ONBATT	SYSLOG+WALL+EXEC
-NOTIFYFLAG LOWBATT	SYSLOG+WALL
-NOTIFYFLAG FSD		SYSLOG+WALL+EXEC
-NOTIFYFLAG COMMOK	SYSLOG+WALL+EXEC
-NOTIFYFLAG COMMBAD	SYSLOG+WALL+EXEC
-NOTIFYFLAG SHUTDOWN	SYSLOG+WALL+EXEC
-NOTIFYFLAG REPLBATT	SYSLOG+WALL+EXEC
-NOTIFYFLAG NOCOMM	SYSLOG+WALL+EXEC
-NOTIFYFLAG NOPARENT	SYSLOG+WALL
-
-RBWARNTIME 43200
-
-NOCOMMWARNTIME 600
-
-FINALDELAY 5
-}}
-
-==== /etc/nut/upssched.conf ====
-
-Configure operations on that upsmon will check on the status of the UPS:
-
-{{RootCmd|nano -w /etc/nut/upssched.conf}}
-
-{{FileBox|filename=/etc/nut/upssched.conf|title=Example upssched.conf configuration|lang=ini|1=
-CMDSCRIPT /usr/bin/upssched-cmd
-PIPEFN /var/lib/nut/upssched/upssched.pipe
-LOCKFN /var/lib/nut/upssched/upssched.lock
-
-AT ONBATT * START-TIMER onbatt 300
-AT ONLINE * CANCEL-TIMER onbatt online
-AT LOWBATT * EXECUTE onbatt
-AT COMMBAD * START-TIMER commbad 30
-AT COMMOK * CANCEL-TIMER commbad commok
-AT NOCOMM * EXECUTE commbad
-AT SHUTDOWN * EXECUTE powerdown
-AT REPLBATT * EXECUTE replacebatt
-
-}}
-
-{{RootCmd|mkdir -p /var/lib/nut/upssched}}
-{{RootCmd|chown nut:nut /var/lib/nut/upssched}}
-
-==== /usr/bin/upssched-cmd ====
-
-{{RootCmd|nano -w /usr/bin/upssched-cmd}}
-
-{{FileBox|filename=/usr/bin/upssched-cmd|title=Example upssched.conf configuration|1=
-#! /bin/sh
-#
-# This script should be called by upssched via the CMDSCRIPT directive.
-#
-# Here is a quick example to show how to handle a bunch of possible
-# timer names with the help of the case structure.
-#
-# This script may be replaced with another program without harm.
-#
-# The first argument passed to your CMDSCRIPT is the name of the timer
-# from your AT lines.
-
-case $1 in
-        onbatt)
-                logger -t upssched-cmd "The UPS is on battery"
-                mail -s "The UPS is on battery" admin@example.com
-                # For example, uncommenting, you can stop some power-hog services
-                #rc-service boinc stop
-                #rc-service xmr-stak stop
-                ;;
-        online)
-                logger -t upssched-cmd "The UPS is back on power"
-                mail -s "The UPS is back on power" admin@example.com
-                # For example, uncommenting, you can restart useful power-hog services
-                #rc-service boinc start
-                #rc-service xmr-stak start
-                ;;
-        commbad)
-                logger -t upssched-cmd "The server lost communication with UPS"
-                mail -s "The server lost communication with UPS" admin@example.com
-                ;;
-        commok)
-                logger -t upssched-cmd "The server re-establish communication with UPS"
-                mail -s "The server re-establish communication with UPS" admin@example.com
-                ;;
-        powerdown)
-                logger -t upssched-cmd "The UPS is shutting down the system"
-                mail -s "The UPS is shutting down the system" admin@example.com
-                ;;
-        replacebatt)
-                logger -t upssched-cmd "The UPS needs new battery"
-                mail -s "The UPS needs new battery" admin@example.com
-                ;;
-        *)
-                logger -t upssched-cmd "Unrecognized command: $1"
-                ;;
-esac
-}}
-
-=== Services ===
-
-==== OpenRC ====
-
-To add the services to start on system boot:
-
-{{RootCmd
-|rc-update add upsdrv default
-|rc-update add upsd default
-|rc-update add upsmon default
-}}
-
-To start {{c|upsd}} now run:
-
-{{RootCmd
-|rc-service upsdrv start
-|rc-service upsd start
-|rc-service upsmon start
-}}
-
-To check the status of the UPS manually (adjust the UPS name as needed):
- 
+Check the status of your ups manually. Note that you might have to adjust your UPS name for this work. 
 {{RootCmd|upsc APCSMC1500@127.0.0.1 ups.status|output=<pre>
 OL
 </pre>}}
 
-OL means that the UPS is "online" and not drawing from the battery and is configured correctly.
+OL means that your UPS is "online" and not drawing from the battery. It also means that you configured the above files correctly. 
 
-In the event of a shutdown due to a power failure, nut can additionally turn off the UPS by adding nut.powerfail to the shutdown runlevel:
-{{RootCmd|rc-update add nut.powerfail shutdown}}
+== Setup upsmon ==
 
-== LAN client/server configuration ==
-
-=== Server configuration ===
-
-Starting from standalone configuration, change:
-
-==== Server files ====
-
-===== /etc/nut/nut.conf =====
-
-{{RootCmd|nano -w /etc/nut/nut.conf}}
-
-{{FileBox|filename=/etc/nut/nut.conf|title=Desired settings|1=
-MODE=netserver
-}}
-
-===== /etc/nut/upsd.conf =====
-
-{{RootCmd|nano -w /etc/nut/upsd.conf}}
-
-{{FileBox|filename=/etc/nut/upsd.conf|title=Desired settings|1=
-LISTEN 127.0.0.1 3493
-LISTEN 192.168.1.1 3493
-}}
-
-===== /etc/nut/upsd.users =====
-
-{{RootCmd|nano -w /etc/nut/upsd.users}}
-
-{{FileBox|filename=/etc/nut/upsd.users|title=Example upsd.users configuration|lang=ini|1=
-[monmaster]
-    password = masterpassword
-    upsmon master
-
-[monslave]
-    password = slavepassword
-    upsmon slave
-}}
-
-=== Client configuration ===
-
-==== Client files ====
-
-===== /etc/nut/nut.conf =====
-
-{{RootCmd|nano -w /etc/nut/nut.conf}}
-
-{{FileBox|filename=/etc/nut/nut.conf|title=Desired settings|1=
-MODE=netclient
-}}
-
-===== /etc/nut/ups.conf =====
-
-This file is not needed for slave monitor.
-
-===== /etc/nut/upsd.conf =====
-
-This file is not needed for slave monitor.
-
-===== /etc/nut/upsd.users =====
-
-{{RootCmd|nano -w /etc/nut/upsd.users}}
-
-{{FileBox|filename=/etc/nut/upsd.users|title=Example upsd.users configuration|lang=ini|1=
-[monslave]
-    password = slavepassword
-    upsmon slave
-}}
-
-===== /etc/nut/upsmon.conf =====
-
-Copy the standalone configuration, but create a different MONITOR configuration in {{Path|/etc/nut/upsmon.conf}}:
+Create a MONITOR configuration in /etc/nut/upsmon.conf:
 
 {{RootCmd|nano -w /etc/nut/upsmon.conf}}
 
-{{FileBox|filename=/etc/nut/upsmon.conf|title=Example upsmon configuration|1=
-MONITOR APCSMC1500@192.168.1.1 1 monslave slavepassword slave
-}}
-
-===== /etc/nut/upssched.conf =====
-
-This file can be the same of standalone configuration.
-
-===== /usr/bin/upssched-cmd =====
-
-This file can be the same of standalone configuration.
-
-==== Client services ====
-
-On client machine, only the upsmon service is needed. To add the services to start on system boot:
-
-{{RootCmd
-|rc-update add upsmon default
-}}
-
-To start {{c|upsd}} now run:
-
-{{RootCmd
-|rc-service upsmon start
-}}
-
-To check the status of the UPS manually (adjust the UPS name as needed):
- 
-{{RootCmd|upsc APCSMC1500@192.168.1.1 ups.status|output=<pre>
-OL
+{{File|/etc/nut/upsmon.conf|Example configuration|<pre>
+MONITOR APCSMC1500@127.0.0.1 1 ups mypassword master
 </pre>}}
 
-== External resources ==
+{{RootCmd|/etc/init.d/upsmon start}}
 
-* [https://networkupstools.org/docs/user-manual.chunked/index.html Official user manual]
-* [https://wiki.ipfire.org/addons/nut/detailed Detailed NUT Configuration]
+== Start on system boot ==
+
+{{RootCmd|rc-update add upsdrv default}}
+{{RootCmd|rc-update add upsd default}}
+{{RootCmd|rc-update add upsmon default}}
