@@ -1,203 +1,52 @@
-<languages />
-<translate>
-
-This article [[Article description::describes how to suspend or hibernate a Gentoo system.]]
-
-== Installation ==
-
-=== Kernel ===
-Make sure support for suspend and hibernation has been activated (<var>CONFIG_SUSPEND</var>) and (<var>CONFIG_HIBERNATION</var>):
-
-{{KernelBox|
-Power management and ACPI options --->
-    [*] Suspend to RAM and standby
-    [*] Hibernation (aka 'suspend to disk')
-}}
+== Requirements ==
 
 === Software ===
 
-The following software can be used for in-kernel default suspend/hibernate implementation, namely, ''[[wikipedia:swsusp|swsusp]]''.
-
-{{Emerge
-|sys-power/suspend
-}}
-
-Another alternative is {{Package|sys-power/hibernate-script}} which can be used with swsusp.
-
-==== Optional: Install upower and consolekit ====
-
-Some [[desktop environment]]s might require {{package|sys-power/upower}} and [[ConsoleKit]] with USE="pm-utils" <ref>https://bugs.gentoo.org/show_bug.cgi?id=596988</ref> for showing "Suspend" and "Hibernate" buttons in their menu. In case {{package|sys-power/upower-pm-utils}} was installed it must be unmerged.
-
-{{Emerge
-|sys-power/upower-pm-utils
-|params=--unmerge
-}}
-
-{{Emerge
-|sys-power/upower
-}}
-
 {{RootCmd
-|echo "sys-auth/consolekit pm-utils" >> /etc/portage/package.use
-|emerge --ask --oneshot sys-auth/consolekit
+|emerge --ask sys-power/suspend
+|prompt=root <span style{{=}}"color:blue;">linux #</span>
 }}
+
+
+=== Kernel ===
+Make sure the following variables are set to 'yes':
+SUSPEND
+HIBERNATION
 
 == Available suspend modes ==
 To see available suspend modes use
-{{RootCmd|cat /sys/power/state}}
-for swsusp, default implementation.
+{{RootCmd
+|cat /sys/power/state
+|prompt=root <span style{{=}}"color:blue;">linux #</span>
+}}
 
-Those two file will list at least [[ACPI]] S2/4 power down methods on modern hardware.
-New hardware would also support S5 method which is a rough S4 method.
-ACPI S2 correspond to suspend to ram (''ram'' method in swsusp terms and ''3'' in ToI terms);
-S4 hibernation to disk (''disk'' in swsusp temrs and ''4'' in ToI terms; S5 hibernation to disk (''5'' in ToI terms).
-
-Swsusp users can choose between ''platfom'', meaning ACPI, or *shutdown* methods which can be echo-ed to `/sys/power/disk' sysfs file.
 
 == Suspend to RAM ==
 
-Preferred commands to suspend are:
-
-{{RootCmd|pm-suspend}}
+Preferred commands to suspend are
+{{RootCmd
+|pm-suspend
+|prompt=root <span style{{=}}"color:blue;">linux #</span>
+}}
 or
-{{RootCmd|s2ram}}
-or
-{{RootCmd|hibernate-ram}}
-
-For suspend (to ram) for hibernate-script users;
-or
-{{RootCmd|hibernate}}
-to hibernate (to disk.)
+{{RootCmd
+|s2ram
+|prompt=root <span style{{=}}"color:blue;">linux #</span>
+}}
 
 A more raw method is to 
-{{RootCmd|echo mem > /sys/power/state}}
+{{RootCmd
+|echo mem > /sys/power/state
+|prompt=root <span style{{=}}"color:blue;">linux #</span>
+}}
 
 == Suspend to disk ==
-
-{{Warning|
-If you are using [[genkernel]] initramfs, you may experience {{Bug|156445}} which makes it impossible to resume after suspend-to-disk. There is a number of ways to avoid it, from editing initramfs (e.g. as described [https://forums.gentoo.org/viewtopic-p-7461806.html#7461806 here]) to dropping genkernel completely. {{Package|sys-kernel/genkernel-next}} works just fine.
-}}
-
-For suspend to disk to operate a swap partition or swap file must exist.
-
-The swap file should be active beforehand and should be echoed on the appropriate file before any attempt to suspend/hibernate.
-
-{{RootCmd|echo /dev/sda1 > /sys/power/resume}}
-
-A more raw method is to:
-
-{{RootCmd|echo disk > /sys/power/state}}
-
-Do not forget to probe:
-
-{{RootCmd|cat /sys/power/tuxonice/swap/headerlocations}}
-
-before issuing an actual command and append the result to kernel command line argument prepended with `resume='.
-This will suffice to resume from a block device or swap file for ToI.
-However, it's more complicated for a swapfile with swsusp. 
-
-=== Suspend to disk with sys-power/pm-utils ===
-
-Yet another way to achieve disk hibernation is to use hibernate to swap partition and pm-utils.
-
-First, make sure a swap partition has been set:
-
-{{RootCmd|swapon -s}}
-
-For this example, we will assume it's <code>/dev/sdc2</code>
-
-Edit <code>/etc/default/grub</code> and append the resume kernel option to <code>GRUB_CMDLINE_LINUX_DEFAULT</code> pointing to the swap partition.
-
-{{FileBox|title=GRUB Config|filename=/etc/default/grub
-|1=GRUB_CMDLINE_LINUX_DEFAULT="resume=/dev/sdc2"
-}} 
-
-Rebuild the GRUB config: 
-
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg}}
-
-Update initramfs:
-
-{{RootCmd|genkernel --install initramfs}}
-
-Add the following to /etc/pm/config.d/gentoo (see [https://bugs.gentoo.org/show_bug.cgi?id=338239 bug 338239]):
-{{FileBox|title=|filename=/etc/pm/config.d/gentoo
-|1=SLEEP_MODULE="kernel"
-}} 
-
-Reboot the system:
-
-{{RootCmd|reboot}}
-
-Next, try 
-
-{{RootCmd|pm-hibernate}}
-
-=== Suspend to disk with swapfile ===
-
-You can use suspend to disk with a swapfile. When you have a functional swapfile you need to configure kernel parameters (via GRUB, etc.).
-
-First find UUID of device where your swapfile resides. For example: {{Path|/dev/sda1}}.
-
-{{Note|If swapfile resides in a LVM volume, GRUB must be compiled with LVM support. Otherwise, the system will not wake up and will be cold started.}}
-
-{{RootCmd|blkid /dev/sda1}}
-
-Find offset of swapfile on given partition using <code>swap-offset</code> utility from {{Package|sys-power/suspend}}:
-
-{{RootCmd|swap-offset /path/to/swapfile}}
-
-After that edit GRUB config and add required parameters to boot string:
-
-{{FileBox|title=GRUB defaults|filename=/etc/defaults/grub
-|1=GRUB_CMDLINE_LINUX_DEFAULT="resume=UUID=<UUID_of_partition> resume_offset=<offset_of_swapfile>"
-}}
-
-Rebuild GRUB config:
-
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg}}
-
-Reboot the system and check used kernel parameters:
-
-{{Cmd|cat /proc/cmdline}}
-
-It should now be possible to hibernate the system.
-
-{{Note|Remember, swap file must contain all memory used by running processes and memory based filesystems like tmpfs or zram prior to hibernating. However, unless specifically set, the hibernation image is compressed. Setting hibernation image size to half of the amount of installed RAM is a safe value in ''most'' cases. One of the cases where this does '''not''' fully apply is when the system has a high usage of [[zswap]] which means that memory may already be compressed.}}
+for suspend to disk make sure you have a swap partition or swap file
 
 == Troubleshooting ==
 
-If troubleshooting suspend the powersave log might be useful:
-
-{{RootCmd|less /var/log/pm-powersave.log}}
-
-Also classic kernel buffer comes handy:
-
-{{Cmd|dmesg}}
-
 === Can not resume after suspend ===
+In case resuming from suspend does not work, disable the security chip in BIOS/UEFI and try again.
 
-In case resuming from suspend does not work, disable the security chip setting in BIOS/UEFI and try again.
-
-Make sure you change the /etc/pm/config.d/gentoo file as described above.
-
-== See also ==
-
-* {{See also|Power management/Guide}}
-* {{See also|Custom Initramfs/Hibernation}}
-
-== External resources ==
-
-* [https://wiki.archlinux.org/index.php/Power_management/Suspend%20and%20hibernate Suspend and hibernate] on wiki.archlinux.org
-* [http://tuxonice.nigelcunningham.com.au TuxOnIce]
-* {{c|tuxonice-sources}} has been last-rited, see {{bug|627924}}.
-* [https://www.kernel.org/doc/Documentation/power/swsusp.txt Linux kernel documentation - swsusp.txt], or the usual location of {{Path|/usr/src/linux/Documentation/power/swsusp.txt}}
-* [https://forums.gentoo.org/viewtopic-p-8111048.html#8111048 Gentoo Forums: Suspend and Hibernate with UEFI]
-
-== References ==
-
-<references />
-
-[[category:Power management]]
-
-</translate>
+== Related links ==
+https://wiki.gentoo.org/wiki/Power_management/HOWTO
