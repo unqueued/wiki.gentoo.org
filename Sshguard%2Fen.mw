@@ -1,179 +1,72 @@
 <languages />
 
-{{DISPLAYTITLE:sshguard}}{{InfoBox stack
-|{{InfoBox homepage|https://www.sshguard.net/|header=true}}
-|{{InfoBox gitweb|https://bitbucket.org/sshguard/sshguard/|raw=true}}
+
+{{InfoBox stack
+|{{InfoBox homepage|http://www.sshguard.net/|header=true}}
 |{{InfoBox ohloh}}
 }}
+{{Metadata|abstract=sshguard is an intrusion prevention system which parses server logs, determines malicious activity and then uses the system firewall to block those ip addresses.}}
 
-{{Metadata|abstract=sshguard is an intrusion prevention system that parses server logs, determines malicious activity, and uses the system firewall to block the IP addresses of malicious connections.}}
-
-{{c|sshguard}} is [[Article description::an intrusion prevention system that parses server logs, determines malicious activity, and uses the system firewall to block the IP addresses of malicious connections.]] sshguard is written in C so it does not tax an interpreter.
+'''sshguard''' is an intrusion prevention system.  sshguard parses server logs, determines malicious activity, and then bans malicious users via firewall rules.  sshguard is written in C so it does not tax an interprator.
 
 == How it works ==
 
-sshguard is a simple daemon that continuously tracks one or more log files. It parses the log events that daemons send out in case of failed login attempts and then blocks any further attempts from those connections by updating the system's firewall.
+The {{Package|app-admin/sshguard}} package is a simple daemon which continuously tracks one or more log files. It parses the log events that daemons send out in case of failed login attempts and then blocks any further attempts of those users by updating the system's firewall.
 
-Unlike what the name implies, sshguard does not only parse SSH logs. It also supports many mail systems as well as a few FTP ones. A full listing of supported services can be found on the [https://www.sshguard.net sshguard.net website].
+Unlike what the name implies, sshguard does not only parse SSH logs. It also supports many mail systems as well as a few FTP ones. A full listing of supported services can be found on the [http://www.sshguard.net sshguard.net website].
 
-== Installation ==
+== Configuration ==
 
-=== Emerge ===
+=== Software ===
 
 Install {{Package|app-admin/sshguard}}:
 
 {{Emerge|app-admin/sshguard}}
 
-Also make sure that {{Package|net-firewall/iptables}} is installed and used as the system firewall. At the time of writing, sshguard does not yet support {{Package|net-firewall/nftables}}.
+Also make sure that {{Package|net-firewall/iptables}} is installed and used as the system firewall. At the time of writing, sshguard does not support {{Package|net-firewall/nftables}} yet.
 
 {{Emerge|net-firewall/iptables}}
 
-More information about using and configuring IPtables can also be found on the [[Iptables|IPtables article]].
-
-== Configuration ==
+More information about using and configuring [[Iptables|iptables]] can also be found on the Gentoo wiki.
 
 === Preparing the firewall ===
 
-When {{c|sshguard}} blocks any malicious users (by blocking their IP addresses), it will use the {{c|sshguard}} chain.
+When sshguard blocks any malicious users (by blocking their IP addresses), it will use the <code>sshguard</code> chain.
 
 Prepare the chain, and make sure it is also triggered when new incoming connections are detected:
 
-{{RootCmd
-|iptables -N sshguard
-|iptables -A INPUT -j sshguard
-}}
+{{RootCmd|iptables -N sshguard}}
+|iptables -A INPUT -j sshguard}}
 
 === Watching logfiles ===
 
 The basic idea behind sshguard is that the administrator passes on the log file(s) to watch as options to the application - there is no native sshguard configuration file.
 
-On Gentoo, the options can be best configured in the {{Path|/etc/sshguard.conf}} file:
+On Gentoo, the options can be best configured in the {{Path|/etc/conf.d/sshguard}} file:
 
-{{FileBox|filename=/etc/sshguard.conf|title=Configuring sshguard to read /var/log/messages and /var/log/auth.log|lang=bash|1=
-# Full path to backend executable (required, no default)
-BACKEND="/usr/libexec/sshg-fw-iptables" 
-
-# Space-separated list of log files to monitor. (optional, no default)
-FILES="/var/log/messages /var/log/auth.log" 
-
-# How many problematic attempts trigger a block
-THRESHOLD=10
-# Blocks last at least 24 hours (60480 seconds)
-BLOCKTIME=60480
-# Track IP addresses for 24 hours (60480 seconds)
-DETECTION_TIME=60480
-
-# IPv6 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 128)
-IPV6_SUBNET=64
-# IPv4 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 32)
-IPV4_SUBNET=24
-
-# Full path to PID file (optional, no default)
-PID_FILE=/run/sshguard.pid
-}}
+{{File|/etc/conf.d/sshguard|Configuring sshguard to read /var/log/messages|<pre>
+PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
+WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
+THRESHOLD="10"    # How many problematic attempts trigger a block
+  
+LOGFILES="-l /var/log/messages"                      # Watch this file...
+LOGFILES="${SSHGUARD_LOGFILES} -l /var/log/auth.log" # And this one
+  
+SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
+</pre>}}
 
 Make sure that the log files are accessible for the runtime user that sshguard uses.
 
-=== Services ===
-
-==== OpenRC ====
+=== Service ===
 
 Have sshguard be started by default by adding it to the default runlevel, and then start it:
 
-{{RootCmd
-|rc-update add sshguard default
-|rc-service sshguard start
-}}
-
-=== Blacklisting hosts ===
-
-With the blacklisting option after a number of abuses the IP address of the attacker or a IP subnet will be blocked permanently. The blacklist will be loaded at each startup and extended with new entries during operation. {{c|sshguard}} inserts a new address after it exceeded a threshold of abuses.
-
-Blacklisted addresses are never scheduled to be released (allowed) again.
-
-To enable blacklisting, create an appropriate directory and file:
-
-{{RootCmd
-|mkdir -p /var/lib/sshguard
-|touch /var/lib/sshguard/blacklist.db
-}}
-
-While defining a blacklist it is important to exclude trusted IP networks and hosts in a whitelist.
-
-To enable whitelisting, create an appropriate directory and file:
-
-{{RootCmd
-|mkdir -p /etc/sshguard
-|touch /etc/sshguard/whitelist
-}}
-
-The whitelist has to include the loopback interface, and should have at least 1 IP trusted network f.e. 192.0.2.0/24. 
-
-{{FileBox|filename=/etc/sshguard/whitelist|title=Whitelisting trusted networks|lang=bash|1=
-127.0.0.0/8
-::1/128
-192.0.2.0/24
-}}
-
-{{Note|The 192.0.2.0/24 entry has to be adjusted to fit the own needs.}}
-
-Add the <var>BLACKLIST_FILE</var> and <var>WHITELIST_FILE</var> file to the configuration:
-
-{{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to blacklist abusers|lang=bash|1=
-BACKEND="/usr/libexec/sshg-fw-iptables"
-FILES="/var/log/auth.log"
-
-THRESHOLD=10
-BLOCK_TIME=43200
-DETECTION_TIME=604800
-
-IPV4_SUBNET=24
-IPV6_SUBNET=64
-
-PID_FILE=/run/sshguard.pid
-
-# Add following lines
-BLACKLIST_FILE=10:/var/lib/sshguard/blacklist.db
-WHITELIST_FILE=/etc/sshguard/whitelist
-}}
-
-Restart the {{c|sshguard}} daemon to have the changes take effect:
-
-{{RootCmd
-|/etc/init.d/sshguard restart
-}}
-
-== Troubleshooting ==
-
-=== File '/var/log/auth.log' vanished while adding! ===
-
-When starting up, sshguard reports the following error:
-
-{{CodeBox|title=Error message when trying to add a monitor for /var/log/auth.log|1=
-Sep 23 03:39:11 foo.bar.com sshguard[64933]: File '/var/log/auth.log' vanished while adding!
-}}
-
-Such an error (the file path itself can be different) occurs when the target file is not available on the system. Make sure that it is created, or update the sshguard configuration to not add it for monitoring.
-
-On a syslog-ng system with OpenRC, the following addition to {{Path|syslog-ng.conf}} can suffice:
-
-{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|title=creating auth.log file|lang=bash|1=
-log { source(src); destination(messages); };
-log { source(src); destination(console_all); };
- 
-destination authlog {file("/var/log/auth.log"); };
-filter f_auth { facility(auth); };
-filter f_authpriv { facility(auth, authpriv); };
-log { source(src);  filter(f_authpriv);  destination(authlog);  };
-}}
-
-Reload the configuration for the changes to take effect:
-
-{{RootCmd|rc-service syslog-ng reload}}
+{{RootCmd|rc-update add sshguard default
+|rc-service sshguard start}}
 
 == See also ==
 
-* [[Iptables]] - An article on installing and configuring the {{c|iptables}} firewall on Gentoo.
+* [[Iptables]], for installing and configuring <code>iptables</code> on Gentoo
 
 == External resources ==
 
