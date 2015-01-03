@@ -1,134 +1,128 @@
 <languages />
 
 
-{{Metadata|abstract=Gentoo はフレキシブル、かつさまざまなインストール方法をサポートしています。 それら個々のインストール手順にすべてのヒントとトリックを記載することはほぼ不可能です。そのため本ドキュメントではリファレンスを目的として、これまでに投稿されたすべてのヒントとトリックを扱うことに挑戦します。}}
+{{Metadata|abstract=The Gentoo installation allows for very flexible approaches to the various installation methods. As it is almost impossible to insert every single tip or trick in the installation instructions this document tries to deal with all submitted tips and tricks for reference purposes.}}
 
-Gentoo はフレキシブル、かつさまざまなインストール方法をサポートしています。それら個々のインストール手順にすべてのヒントとトリックを記載することはほぼ不可能です。そのため本ドキュメントではリファレンスを目的として、これまでに投稿されたすべてのヒントとトリックを扱うことに挑戦します。
+The Gentoo installation allows for very flexible approaches to the various installation methods. As it is almost impossible to insert every single tip or trick in the installation instructions this document tries to deal with all submitted tips and tricks for reference purposes.
 
 
-== イントロダクション ==
+== はじめに ==
 
-=== はじめに ===
+=== Preliminary ===
 
-このドキュメントは Gentoo/x86 のインストールに関して、さまざまなヒントとトリックを含んでいます。それらの多くはこれまで十分に議論されてきたものであり、インストール手順を補足できますが、元の手順を置き換えるものではありません。 
+This document contains various tips and tricks for the Gentoo/x86 installation. Most of them are discussed in a dense way - they are meant as an addendum to the installation instructions and not as a replacement. 
 
-== 高度なインストール方法 ==
+== Advanced Installations ==
 
-=== ソフトウェアRAID ===
+=== Software RAID ===
 
-{{Note/ja|もし、あなたがソフトウェアRAIDそのものに詳しくない場合、[https://raid.wiki.kernel.org/index.php/Linux_Raid ソフトウェア RAID について]を読んでください。}}
+{{Note|If you are not familiar with software raid, please read the [https://raid.wiki.kernel.org/index.php/Linux_Raid Software-RAID-HOWTO].}}
 
-インストール CD からブートする時は適切な RAID モジュールをロードしてください。例えば、RAID-1 の場合は以下を実行します。 
+{{Note|A more detailed procedure can be found in our [http://www.gentoo.org//doc/en/gentoo-x86+raid+lvm2-quickinstall.xml Software Raid and LVM2 x86 Quick Install Guide].}}
+
+Once you are booted from the Installation CD, load the appropriate RAID modules. For instance, if you plan on using RAID-1: 
 
 {{RootCmd|modprobe raid1}}
 
-ここで、対象となるディスクのパーティションタイプが <code>83</code> (Linux native)ではなく、<code>fd</code> (Linux raid autodetect) となっていることを確認してください。パーティションタイプは <code>fdisk</code> の <code>t</code> コマンドで変更できます。 
+When you partition your disks, make sure that your partitions use <code>fd</code> (Linux raid autodetect) as Partition Type instead of <code>83</code> (Linux native). You can alter the partition type using the <code>t</code> command in <code>fdisk</code>. 
 
-また RAID を構成する前にメタデバイスノードを作成する必要があります。 
+Now before we start creating the RAID arrays, we need to create the metadevice nodes: 
 
 {{RootCmd|mknod /dev/md1 b 9 1
 |mknod /dev/md2 b 9 2
 |mknod /dev/md3 b 9 3}}
 
-<div class="mw-translate-fuzzy">
-パーティション作成後、[http://www.linuxdevcenter.com/pub/a/linux/2002/12/05/RAID.html RAID management] のためのより進んだツールである <code>mdadm</code> コマンドで{{Path|/etc/mdadm.conf}} ファイルを作成します（もちろん、インストール CD でブートした場合でも作成します）。例えば、{{Path|/dev/sda}} と {{Path|/dev/sdb}} の上に RAID-1 でミラーされた boot、swap、root パーティションを作成する場合は、以下のようにします。
-</div> 
+After partitioning, create the {{Path|/etc/mdadm.conf}} file (yes, indeed, on the Installation CD environment) using <code>mdadm</code>, an advanced tool for [http://www.linuxdevcenter.com/pub/a/linux/2002/12/05/RAID.html RAID management]. For instance, to have your boot, swap and root partition mirrored (RAID-1) covering {{Path|/dev/sda}} and {{Path|/dev/sdb}}, you can use: 
 
 {{RootCmd|mdadm --create --verbose /dev/md1 --level{{=}}1 --raid-devices{{=}}2 --metadata{{=}}0.90 /dev/sda1 /dev/sdb1
 |mdadm --create --verbose /dev/md2 --level{{=}}1 --raid-devices{{=}}2 --metadata{{=}}0.90 /dev/sda2 /dev/sdb2
 |mdadm --create --verbose /dev/md3 --level{{=}}1 --raid-devices{{=}}2 --metadata{{=}}0.90 /dev/sda3 /dev/sdb3}}
 
-{{Important/ja|ブートパーティションに対しては、RAID-0 や RAID-5 のようなストライピングをする RAID は使用できません。また、<code>--metadata{{=}}0.90</code> はこれらクリティカルなファイルシステムのみに必要です。他のファイルシステムに対しては、より新しいメタデータフォーマットを使用できます。}}
+{{Important|You should not use any form of striping such as RAID-0 or RAID-5 on the partition you boot from. Also, the <code>--metadata{{=}}0.90</code> is only necessary for these critical file systems. Other filesystems can use more recent metadata formats.}}
 
-Linux のソフトウェア RAID ドライバは、まずメタデバイスを作成します。進捗は {{Path|/proc/mdstat}} で確認できます。まずはメタデバイスが完全に生成されるまで待ちましょう。 
+The Linux Software RAID driver will start creating the metadevices. You can see its progress in {{Path|/proc/mdstat}}. Wait until the metadevices are completely finished before proceeding. 
 
 {{RootCmd|mdadm --detail --scan > /etc/mdadm.conf}}
 
-ここから先は、boot パーティションに {{Path|/dev/md1}}、swap パーティションに {{Path|/dev/md2}}、root パーティションに {{Path|/dev/md3}} を使います。 
+From now onwards, use {{Path|/dev/md1}} for the boot partition, {{Path|/dev/md2}} for the swap partition and {{Path|/dev/md3}} for the root partition. 
 
-chroot を実行する直前に、{{Path|/etc/mdadm.conf}} 全体を{{Path|/mnt/gentoo/etc}} にコピーすることを忘れないでください。 
+Right before chrooting, don't forget to copy over {{Path|/etc/mdadm.conf}} to {{Path|/mnt/gentoo/etc}}. 
 
-カーネルを再コンフィグレーションするときは、適切な RAID サポートをモジュールではなく、カーネルに"組み込む"必要があります。 
+When you're configuring your kernel, make sure you have the appropriate RAID support ''in'' your kernel and not as module. 
 
-追加のツールをインストールする場合、{{Package|sys-fs/mdadm}} も emerge しましょう。ただ全てのインストール CD で利用できるわけではない点に注意してください。このため、ネットワークを使用しない場合、ソフトウェア RAID 上に Gentoo をインストールできないかもしれません。 
+When installing extra tools, emerge <code>mdadm</code> as well. Note that this isn't available on all Installation CDs so you might not be able to install Gentoo on a Software RAID when using a networkless installation! 
 
-ブートローダーの設定時、ミラーリングを使っている場合は、ミラーリング対象のディスクの両方の MBR にインストールしなければなりません。
+When configuring your bootloader, make sure it gets installed in the MBR of ''both'' disks if you use mirroring. 
 
-=== カーネル 2.4 を使用した ATA RAID ===
+=== ATA RAID using 2.4 kernels ===
 
-<div class="mw-translate-fuzzy">
-まず、インストール CD を <code>doataraid</code> オプション付きでブートしてください。ブート後、{{Path|/dev/ataraid}} ディレクトリを確認してください。ATA RAIDで使用可能なハードディスクそれぞれに対して、{{Path|disc*}} ディレクトリが存在するはずです。ここでディスク全体は {{Path|disc}} と表示され、パーティションは {{Path|part*}} と表示されます。
-</div> 
+Make sure you boot your Installation CD using the <code>doataraid</code> option. Once booted, check the contents of {{Path|/dev/ataraid}}. It should contain various {{Path|disc*}} directories for each harddisk available in the ATA RAID. An entire disk is displayed as {{Path|disc}} while partitions are {{Path|part*}}. 
 
-Gentoo をインストールしたい {{Path|/dev/ataraid/disc*/*}} デバイスファイルをメモしておいてください。後でインストール例の {{Path|/dev/sda}} と、メモしたパスを置き換えなければならないためです。 
+Write down the various {{Path|/dev/ataraid/disc*/*}} device files that you use to install Gentoo on. You will need to substitute the {{Path|/dev/sda}} examples in the installation with this path. 
 
-chroot する前に、{{Path|/dev}} を新しい環境に bind オプション付きでマウントしなければなりません。 
+Before chrooting, bind-mount the {{Path|/dev}} structure in the new environment: 
 
 {{RootCmd|mount --rbind /dev /mnt/gentoo/dev}}
 
-カーネル設定時、ATA RAID チップセットといくつかのオプションをサポートする必要があります。ポピュラーな ATA RAID システムは、''Promise FastTrack built-in RAID'' で、この場合は <code>Promise FastTrack Options</code> を組み込む必要があります。 
+When configuring your kernel, make sure you enable support for your ATA RAID chipset and options. For instance, a popular ATA RAID system is a ''Promise FastTrack built-in RAID'' in which case you definitely need <code>Promise FastTrack Options</code> built in into your kernel. 
 
-GRUB を設定する時は、まず GRUB のブートディスクを生成しなければなりません。これはあなたが想像するほど難しい作業ではありません。まずは普段どおりGRUB をインストールしますが、GRUB を実際に MBR に書き込むときは以下の手順を実行します。 
+When configuring GRUB, you first have to create a GRUB bootdisk. This is not as hard as you think. First install GRUB as you would, but when you come to the part where GRUB is getting installed in the MBR, follow the following instructions: 
 
 {{RootCmd|cd /boot/grub
 |dd if{{=}}stage1 of{{=}}/dev/fd0 bs{{=}}512 count{{=}}1
 |dd if{{=}}stage2 of{{=}}/dev/fd0 bs{{=}}512 seek{{=}}1}}
 
-{{Path|grub.conf}} の設定も必要です。これは通常のインストール手順と変わりありません。ただ、ATA RAID デバイスを <code>root=</code> で確実に指定してください。 
+You still need to write your {{Path|grub.conf}} file. This is no different from the installation instructions, just make sure that your <code>root=</code> points to the ATA RAID device. 
 
-インストール完了後、GRUB のブートディスクからブートすると、GRUB のプロンプトが表示されるでしょう。ATA RAID デバイスからブートするように設定します。 
+After finishing the installation, boot with your GRUB bootdisk. You will be greeted by a GRUB prompt. Now configure GRUB to boot from the ATA RAID device: 
 
 {{Cmd|root (hd0,x)|prompt=grub> 
 |setup (hd0)
 |quit}}
 
-ここで再起動します。（同時に GRUB の起動用フロッピーは取り出しておきます） 
+Now reboot (with the GRUB bootfloppy removed). 
 
-LILO の場合は、インストール手順に従えば安全にインストールできます。 
+LILO users can safely use the instructions mentioned in the installation instructions. 
 
-=== インストール CD のカーネルを使用する ===
+=== Using the Installation CD kernel ===
 
-もし、カーネルをあなた自身でコンパイルしたくない場合、インストール CD のカーネルをあなたのシステムにコピーすることができます。インストール手順のカーネルをコンパイルする箇所で、別のターミナル（{{Key|Alt}} と {{Key|F2}} を同時押し）に切り替えて、インストールの最初に指定した root のパスワードでログインしてください。 
+If you don't want to compile a kernel yourself you can use the kernel from the Installation CD and copy it to your system. When you come to the point that you're asked to compile a kernel, go to another terminal (press {{Key|Alt}} + {{Key|F2}}) and log in with the root password you've supplied at the beginning of the installation. 
 
-カーネルとモジュールをあなたのGentooにコピーしてください。 
+Copy over the kernel and modules to your Gentoo system: 
 
-{{Note/ja|${KN} はカーネルの名前で、通常は 'gentoo' や 'smp' のような名前になります。}}
+{{Note|${KN} is the kernel name, usually something like 'gentoo' or 'smp'.}}
 
 {{RootCmd|cp /mnt/cdrom/isolinux/${KN} /mnt/cdrom/isolinux/${KN}.igz /mnt/gentoo/boot
 |mkdir -p /mnt/gentoo/lib/modules
 |cp -Rp /lib/modules/`uname -r` /mnt/gentoo/lib/modules}}
 
-Gentoo の起動中に（インストール CD から）ロードされたすべてのモジュールを新しい環境側で設定します。chroot した環境で以下のコマンドを実行してください。 
+To have all modules that are currently running (from the Installation CD) loaded during bootup of your Gentoo system, run the following command from within the chrooted environment: 
 
-<div class="mw-translate-fuzzy">
 {{RootCmd|printf "modules\"" >> /etc/conf.d/modules
-|cat /proc/modules {{!}} cut -d ' ' -f 1 >> /etc/conf.d/modules
+|cat /proc/modules | cut -d ' ' -f 1 >> /etc/conf.d/modules
 |printf "\"\n" >> /etc/conf.d/modules}}
-</div>
 
-<div class="mw-translate-fuzzy">
-{{Path|/etc/conf.d/modules}} の内容が適切に更新されたことを確認しましょう。
-</div>
+Verify the {{Path|/etc/conf.d/modules}} content and update appropriately. 
 
-== インストールを簡単に ==
+== Simplifying the Installation ==
 
-=== ターミナルから離れる ===
+=== Leaving your Terminal ===
 
-多くの場合、時間がかかるコンパイル中はシステムから離れたいものです。しかし、特定のケースではこれは難しくなります。例えば周囲に知らない人がたくさんいる公衆の環境でインストールをする場合です。このようなケースでは、コンパイルはバックグラウンドで実行して、すべてのターミナルからログオフしたくなるでしょう。 
+Many people want to leave their system when it's compiling. In certain cases this is rather difficult as the installation is done in a public environment where you cannot trust everyone. If this is the case, you want to be able to perform the compilation in the background and log out from all terminals. 
 
-これを実現するためのいくつかの手段があります。まず最初の方法は<code>screen</code> を使うことです。インストール CD からブート後、root パスワードを設定して、screen セッションを開始してください。 
+There are several possible solutions for this. The first one is to use <code>screen</code>. After booting the Installation CD, set your root password and start a screen session: 
 
-{{Note/ja|すべてのインストール CD が screen を提供しているわけではありません。その場合、この節に記載している別の方法を使ってください。}}
+{{Note|Not all Installation CDs provide screen. If this is the case, you will have to use one of the other methods described in this section.}}
 
 {{RootCmd|screen -S gentoo}}
 
-一旦、screen セッションに入った後は、すべてのインストール作業を screen 上で行えます。ターミナルを離れたくなった時は、{{Key|Ctrl}} と {{Key|a}} を同時に押した後、{{Key|d}} を押してください。これで screen セッションからターミナルを "detach" するため、安全にログアウトできます。 
+Once inside the screen session you can perform the entire installation. When you want to leave your terminal, press {{Key|Ctrl}} + {{Key|a}}, {{Key|d}} (that is, {{Key|Ctrl}} and {{Key|a}} at the same time, then followed by a {{Key|d}}) to ''detach'' your screen session. You can now safely log out of your system. 
 
-作業を再開する場合、再度 root でログインして、バックグラウンドで動作している screen セッションに "attach" してください。 
+To regain access to your terminal, log in as root again and ''attach'' to the running screen session: 
 
 {{RootCmd|screen -x gentoo}}
 
-仮に screen が使用できなくても、別の方法でターミナルから離れることができます。通常のインストール手順の中で長時間のコンパイルが始まる場合（例えば <code>./scripts/bootstrap.sh</code> の実行時）、<code>nohup</code> を使えばあなたがログアウトしてもコンパイルを継続できます。このとき、忘れずにコンパイルコマンドの末尾に "&" を付けてください。そうしないとコンパイルコマンドはバックグラウンドで実行されません！ここで、あなたが現在どのディレクトリにいるのか（これは <code>pwd</code> コマンドでわかります）を覚えておいてください。これは後の手順で必要です。 
+If you can't use screen, there is still a way to leave your terminal. Follow the installation instructions, but when you come to the point where a long-term compilation would be started (for instance the <code>./scripts/bootstrap.sh</code> step), use <code>nohup</code> which allows for a process to continue even when you log out. Don't forget the trailing "&", otherwise the process won't be placed in the background! Remember where you are (the <code>pwd</code> command will show you that) as you will need to know this later on. 
 
 {{RootCmd|pwd|output=<pre>
 /usr/portage
@@ -136,45 +130,45 @@ Gentoo の起動中に（インストール CD から）ロードされたすべ
 
 {{RootCmd|nohup ./scripts/bootstrap.sh &}}
 
-これで chroot 環境とインストール CD のセッションから出ることができます（<code>exit</code>）。コンパイルはバックグラウンドで実行されます。 
+Now exit the chrooted environment (<code>exit</code>) and the Installation CD session. Your compilation will continue in the background. 
 
-コンパイル結果を確認する場合は、（インストール CD で）root としてログインし、chroot 環境に戻ります。そしてあなたが最後にいたディレクトリに戻ってください。 
+When you want to check the compilation, log in as root (on the Installation CD) and chroot back into your environment and go to the directory where you left off: 
 
 {{RootCmd|chroot /mnt/gentoo /bin/bash
 |env-update && source /etc/profile
 |cd /usr/portage}}
 
-ここで、そのディレクトリに作られているであろう {{Path|nohup.out}} ファイルを <code>less</code> コマンドで見てください。コンパイル結果が {{Path|nohup.out}} ファイルに追加されているでしょう。そのため、もしコンパイルの進捗を随時確認したい場合は、<code>less nohup.out</code> を実行後、<code>F</code> を入力してログの追加を随時反映させましょう。 
+Now use the <code>less</code> command on the {{Path|nohup.out}} file that is situated inside that directory. The compilation will append its output to that file, so if you want to follow the compilation progress, run <code>less nohup.out</code> and press <code>F</code> to follow the changes. When the compilation is finished, you can continue with the next step of the installation instructions. 
 
-もし、変更をフォローすることに疲れた場合、{{Key|Ctrl}} と {{Key|C}} を押した後に、{{Key|q}} を押してください。この場合、コンパイルプロセスは終了せず、単に <code>less</code> が終了するだけです。 
+If you ever get tired of following the changes, press {{Key|Ctrl}} + {{Key|C}} followed by a {{Key|q}}. This won't stop the compilation process, only the <code>less</code> process. 
 
-== エラー/問題の解決 ==
+== Fixing Errors/Issues ==
 
-=== ディスクの詳細テスト ===
+=== Extensive Testing of your Disks ===
 
-ディスク全体を通して整合性（不良セクタ等）をチェックしたい場合は、 <code>mke2fs</code> で ext2 または ext3 のファイルシステムを作成時、<code>-c</code>（小文字の c ）オプションを付与してください。これでディスク全体のフォーマットとリードテストを行い、かつ不良ブロックについてはその旨マークします。もしあなたが本当にパラノイドであるならば、<code>-c -c</code> とすることでディスク全体に対してリード/ライトテストを実行できます。 
+If you think your disk needs to be thoroughly checked for consistency (bad sectors and such), you can use the <code>-c</code> (that's lowercase c) option while placing the ext2 or ext3 filesystem on it (using <code>mke2fs</code>). This will format, perform a read-test and mark all bad blocks as such. If you are really paranoid, use <code>-c -c</code> to format your disk and perform an extensive read/write test. 
 
 {{RootCmd|mke2fs -j -c /dev/sda3}}
 
-=== インストールに失敗したときの復旧方法 ===
+=== Recovering from a malfunctioning installation ===
 
-なんらかの理由で Gentoo のインストールに失敗した場合でも、全てのインストール作業を最初からやり直す必要はありません。あなたがミスをしたと思われる時点まで（もしくは手順に不備があると考える時点まで）安全に戻ることができ、その時点から違うアプローチでインストールを続けることができます。 
+If for some reason your Gentoo installation fails, you don't have to redo the installation all over again. Instead, you can safely "go" to the point where you think you made a mistake (or where you think the instructions are flawed) and try a different approach. 
 
-まず最初に、chroot した Gentoo Linux 環境から抜け出す必要があります。しかしすべての手順を再度実行する必要はありません。例えばパーティションが既に作成されているのであれば、パーティション作成はスキップすることができます。その場合、すぐにそのパーティションを {{Path|/mnt/gentoo}} にマウントできます。また、ステージの展開や {{Path|make.conf}} の修正もスキップできるでしょう。せっかく作ったファイルを上書きしたくありませんよね。 
+First of all you need to chroot back into your Gentoo Linux environment. Follow the instructions again, but ignore the partitioning steps as your partitions are already created and even populated. You can therefore immediately mount those partitions at {{Path|/mnt/gentoo}}. You should also ignore the steps about stage extraction and modifying {{Path|make.conf}} - you don't want to overwrite your files do you? 
 
-一旦、Gentoo Linux 環境に chroot した後は、異なるアプローチを取りたいポイントまですぐに進みましょう。例えばそれ自身が間違いでない限り、通常の手順でブートストラップのような処理が求められていたとしても、それを再度実行する必要はありません。 
+Once chrooted inside your Gentoo Linux environment, immediately go to the step where you think you should try a different approach. Don't redo all the steps like bootstrapping and such unless that is the place where you think things went wrong. 
 
-もしあなたが間違って {{Path|grub.conf}} を設定したと考えているのであれば、すぐにエディタを起動して {{Path|/boot/grub/grub.conf}} を更新しましょう。 
+For instance, if you believe that you have a wrongly configured {{Path|grub.conf}}, you can immediately fire up your editor to update {{Path|/boot/grub/grub.conf}}. 
 
-起こっている問題に対して一旦異なるアプローチを取った場合、いくつの後続ステップの再実行を検討しなければなりません。具体的には、後続ステップがあなたの変更に依存していれば、それらをやり直す必要があります。 
+Once you have tried a different approach for your situation, you should consider how much of the subsequent steps you need to perform again. If the subsequent steps are depending on your change, you will need to redo those. 
 
-例えば、 
+For instance, 
 
-* {{Path|make.conf}} の変数を変更した場合、この変数に依存している全てのコンパイルを再実行しなければなりません。 
-* {{Path|/boot/grub/grub.conf}} を変更した場合、chroot 環境から出てリブートします。理由は{{Path|grub.conf}} に依存する後続のステップを正常に実行するためです。 
-* カーネルをリコンパイルした場合、ブートローダーがそのカーネルイメージを正しくブートできるようにしなければなりません（{{Path|/boot}} をマウントしていることを再確認しましょう）。そして chroot 環境を出て、リブートしてください。
-* {{Path|/etc/fstab}} を変更した場合、chroot 環境を出て、リブートしなければなりません。
+* if you have changed a variable inside {{Path|make.conf}} you will need to do all subsequent compiling since those depend on the settings inside {{Path|make.conf}} 
+* if you have altered {{Path|/boot/grub/grub.conf}} you can immediately exit the chrooted environment and reboot as no subsequent steps are depending on {{Path|grub.conf}} 
+* if you have recompiled your kernel you only need to make sure that your bootloader configuration points to the correct kernel image (double-check that you mounted your {{Path|/boot}}!), then you can exit the chrooted environment and reboot
+* if you have altered {{Path|/etc/fstab}} you can exit the chrooted environment and reboot
 
-ほとんどのリカバリ操作ですぐに再起動が必要になることがわかるでしょう。そのまま後続のインストールステップをやり直さなければならないのは特定のケースだけです。
+As you can see, for most recovery operations you can immediately reboot. Only in certain cases will you need to redo the subsequent installation steps.
 
-[[Category:Server and Security]] {{Migrated|originalauthors=Xavier Neys, nightmorph}}
+[[Category:Server and Security]] {{Migrated|originalauthors=Sven Vermeulen, Xavier Neys, nightmorph}}
