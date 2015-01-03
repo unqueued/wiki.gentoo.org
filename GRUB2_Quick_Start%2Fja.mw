@@ -1,141 +1,133 @@
 <languages />
-<div class="mw-translate-fuzzy">
-この記事では、'''GRUB2'''の最も単純な導入・実行方法について述べています。より高度な情報は、[[GRUB2]] の記事をみてください。[[GRUB|GRUB レガシー]]から GRUB2 への移行については、[[GRUB2 Migration]]の記事をみてください。
-</div>
+This article provides information on how to get up and running with '''GRUB2''' in the simplest configurations. For more comprehensive information, see [[GRUB2]]. For a migration from [[GRUB|GRUB Legacy]] to GRUB2, see [[GRUB2 Migration]].
 
-== GRUB2 ソフトウェアのインストール ==
+== Installing GRUB2 software ==
 
-{{Package|sys-boot/grub}} パッケージは複数のスロットがあり、grub-0.97 と grub-2.xx の両方を同時にインストールすることも可能です。しかし、両方のバージョンの GRUB を同時にインストールしていても、ブートローダとして実際に使えるのは一方のみで、両方を同時に使うことは不可能です。
+The {{Package|sys-boot/grub}} package is slotted; both grub-0.97 and grub-2.00 may be installed at the same time. However, while both versions of GRUB can be installed on the system at the same time, only one version of GRUB may be active as the system's boot loader at the same time.
 
-GRUB2 をインストールするにはまず、システム上の {{Path|make.conf}}で <var>GRUB_PLATFORMS</var> 変数に適切な値を1つ以上設定します。もしも設定がなければ、GRUB2 は当該システムに使われているプラットフォームを推定して動作することになるでしょう。例えば、{{Keyword|x86}} や {{Keyword|amd64}} アーキテクチャであれば <code>pc</code> (MBR 方式のインストール)が推定されます。
+To install GRUB2, first set the <code>GRUB_PLATFORMS</code> variable in {{Path|make.conf}} (optional). If unset, GRUB2 will guess which platform to use on the system. It guesses "pc" (which is not UEFI; see examples below) for X86/AMD64 architecture.
 
-{{FileBox|filename=/etc/portage/make.conf|title=GRUB_PLATFORMS の例|lang=bash|1=
-# 一般的な PC (BIOS)
+{{FileBox|filename=/etc/portage/make.conf|title=GRUB_PLATFORMS example|lang=bash|1=
+# Standard PC (BIOS)
 GRUB_PLATFORMS="pc"
  
-# amd64 (x86_64) の UEFI
+# UEFI on amd64
 GRUB_PLATFORMS="efi-64"
  
-# UEFI と PC の両方
+# UEFI and PC
 GRUB_PLATFORMS="efi-64 pc"
 }}
 
-変数を設定したら、ソフトウェアを emerge:
+After the variable is get, emerge the software:
 
 {{emerge|sys-boot/grub:2}}
 
-== GRUB2 ブートローダを有効にする ==
+== Activating the GRUB2 boot loader ==
 
-マウントしていなければまず、{{Path|/boot}} をマウント:
+Mount {{Path|/boot}} if applicable:
 
 {{RootCmd|mount /boot}}
 
-EFI 方式を使用するには、[[EFI System Partition]](ESP)が {{Path|/boot/efi}} のパスでアクセス可能（マウントされている）ことが必要です。{{Path|/boot/efi}} が個別のマウントポイントでもかまいませんし、{{Path|/boot}} 全体が FAT ファイルシステムでフォーマットされていてもかまいません（そうすると{{Path|/boot}} は大きな EFI システムパーティションになるでしょう）。
-
-{{Path|/boot/efi}} のみが FAT である場合は:
+When using an EFI platform, make sure that the EFI System Partition is available at {{Path|/boot/efi}}. This can either be through a specific mount point (at {{Path|/boot/efi}}) or by having the boot partition ''be'' the EFI System Partition.
 
 {{RootCmd|mount /boot/efi}}
 
-{{c|grub-install}} ユーティリティを実行すると、{{Path|/boot/grub}} に適切なファイルがコピーされます。PC プラットフォームではさらに、ブートイメージがマスターブートレコード(MBR)あるいはパーティションのブートセクタに書き込まれます。
+Run the <kbd>grub2-install</kbd> utility to copy the relevant files to {{Path|/boot/grub}}. On the PC platform, this also installs a boot image to the Master Boot Record (MBR) or a partition's boot sector.
 
-MBR に GRUB2 をインストールする場合:
+To install GRUB2 to the MBR:
 
-{{RootCmd|grub-install /dev/sda||output=<pre>
+{{RootCmd|grub2-install /dev/sda||output=<pre>
 Installation finished. No error reported.
 </pre>}}
 
-EFI 対応システムに GRUB2 をインストールする場合:
+To install GRUB2 to a partition (not recommended):
 
-{{RootCmd|grub-install --target{{=}}x86_64-efi|output=<pre>
+{{RootCmd|grub2-install /dev/sda1|output=<pre>
 Installation finished. No error reported.
 </pre>}}
 
-{{Important/ja|EFI 対応システムへの GRUB2 のインストールがうまくいかないときは、{{Path|/etc/portage/make.conf}} に<var>GRUB_PLATFORMS</var> が正しく設定されているか確認してください}}
+To install GRUB2 on an EFI capable system:
 
-{{c|grub-install}} コマンドは <code>--target</code> オプションを指定することで CPU・プラットフォームを特定することが可能です。もし指定されていなければ、{{c|grub-install}} は、推定をします: 例えば {{Keyword|x86}} や {{Keyword|amd64}} のシステムであれば、<code>i386-pc</code> の値がデフォルトになります。
-
-=== 自動設定 ===
-
-GRUB2 は従前と同様、{{c|grub-mkconfig}} プログラムも使って設定ファイルを生成するようになっています。
-
-{{c|grub-mkconfig}} は、{{Path|/etc/grub.d}} 内のテンプレート項目に基づいて設定ファイルを生成します。デフォルトのテンプレートは、およそ一般的なブート設定を網羅しているはずです。
-
-{{Cmd|ls /etc/grub.d|output=<pre>
-00_header  10_linux  20_linux_xen  30_os-prober  40_custom  41_custom  README
+{{RootCmd|grub2-install --target{{=}}x86_64-efi|output=<pre>
+Installation finished. No error reported.
 </pre>}}
 
-これらテンプレートの動作は、{{Path|/etc/default/grub}} 内の変数で定められます。 [http://www.gnu.org/software/grub/manual/html_node/Simple-configuration.html GRUB マニュアル] に詳しい情報があります。
+{{Important|When installing GRUB2 to an EFI capable system (like the example above) is giving troubles, make sure the <code>GRUB_PLATFORMS</code> variable is properly set in {{Path|/etc/portage/make.conf}}}}
 
-=== カーネルの命名ルール ===
+The <tt>grub2-install</tt> command accepts a <tt>--target</tt> option to specify which CPU/Platform to install. If unspecified, grub2-install will make a guess; on X86/AMD64 it will use "i386-pc" by default.
 
-{{c|grub-mkconfig}} が Linux カーネルの所在を検知するには、カーネルのファイル名が {{Path|vmlinuz-}} か {{Path|kernel-}} で始まっていなければなりません。
+== Automatic configuration ==
 
-例えば:
+GRUB2 is traditionally configured by using the <tt>grub2-mkconfig</tt> program to generate a configuration file.
 
-<div class="mw-translate-fuzzy">
-{{CodeBox|title=GRUB2 が検知可能なカーネルの名称例|<pre>
+<tt>grub2-mkconfig</tt> generates the configuration file based on template sections located in {{Path|/etc/grub.d}}. The default templates should cover most common boot setups.
+
+{{Cmd|ls /etc/grub.d|lang=bash|
+|output=00_header  10_linux  20_linux_xen  30_os-prober  40_custom  41_custom  README}}
+
+The behavior of these templates can be controlled by setting variables in {{Path|/etc/default/grub}}. See the [http://www.gnu.org/software/grub/manual/html_node/Simple-configuration.html GRUB manual] for more information.
+
+=== Kernel naming scheme ===
+
+In order for <tt>grub2-mkconfig</tt> to detect the available Linux kernel(s), their names must start with <code>vmlinuz-</code> or <code>kernel-</code>.
+
+For example:
+
+{{CodeBox|title=Example kernel names that GRUB2 can detect|<pre>
  /boot/vmlinuz-3.4.3
  /boot/kernel-2.6.39-gentoo
  /boot/kernel-genkernel-x86_64-3.17.1-gentoo-r1
 </pre>}}
-</div>
 
-[[initramfs]] を使用する場合は、{{Path|initramfs-}} か {{Path|initrd-}} で始まり、{{Path|.img}} で終わらねばなりません。バージョンはいずれかのカーネルイメージと一致している必要があります。{{c|[[genkernel]]}} で生成したファイル名も機能するでしょう。
+When using an [[initramfs]], its name should start with <code>initramfs-</code> or <code>initrd-</code> and end with <code>.img</code>. The version must match one of a kernel image. File names generated by [[genkernel]] will also work.
 
-例えば:
+For example:
 
-<div class="mw-translate-fuzzy">
-{{CodeBox|title=GRUB2 が検知可能な initramfs のファイル名称例|<pre>
- /boot/initrd.img-3.4.3
- /boot/initrd-3.4.3.img
- /boot/initrd-3.4.3.gz
- /boot/initrd-3.4.3
+{{CodeBox|title=Example initramfs names that GRUB2 can detect|<pre>
  /boot/initramfs-3.4.3.img
- /boot/initramfs-genkernel-3.4.3-gentoo
  /boot/initramfs-genkernel-x86_64-2.6.39-gentoo
 </pre>}}
-</div>
 
-{{Path|grub.cfg}} ファイルを生成するには、{{c|grub-mkconfig}} を次のように実行:
+To generate the {{Path|grub.cfg}} file, execute the <kbd>grub2-mkconfig</kbd> command like so:
 
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg|output=<pre>
+{{RootCmd|grub2-mkconfig -o /boot/grub/grub.cfg|output=<pre>
 Generating grub.cfg ...
 Found linux image: /boot/vmlinuz-3.2.9
 done
 </pre>}}
 
-=== カーネル展開メッセージの抑制 ===
+=== Silent kernel decompression ===
 
-ブート時のカーネルイメージ展開メッセージを抑制するには、{{Path|/etc/default/grub}} 内の<var>GRUB_CMDLINE_LINUX_DEFAULT</var> 変数に <code>quiet</code> を追加します。
+To silence kernel decompression at boot time, edit {{Path|/etc/default/grub}} and add <code>quiet</code> to the <code>GRUB_CMDLINE_LINUX_DEFAULT</code> parameter.
 
-{{FileBox|filename=/etc/default/grub|title=展開メッセージの抑制例|lang=bash|1=
+{{FileBox|filename=/etc/default/grub|title=Silent decompression example|lang=bash|1=
 GRUB_CMDLINE_LINUX_DEFAULT="quiet"
 }}
 
 === Systemd ===
 
-GRUB2 を使用して systemd をブートするには、<var>GRUB_CMDLINE_LINUX</var> 変数を次のようにします:
+To boot systemd while using GRUB2 make the <code>GRUB_CMDLINE_LINUX</code> variable look like this:
 
-{{FileBox|filename=/etc/default/grub|title=Systemd の例|lang=bash|1=
+{{FileBox|filename=/etc/default/grub|title=Systemd example|lang=bash|1=
 GRUB_CMDLINE_LINUX="init=/usr/lib/systemd/systemd"
 }}
 
-=== ほかの OS をロードするには ===
+=== Loading another operating system ===
 
-{{c|grub-mkconfig}} はまた、''ほかの'' オペレーティングシステムをロードするための設定を生成することも可能です。そのためには、{{Package|sys-boot/os-prober}} パッケージが必要です。
+<tt>grub2-mkconfig</tt> can also generate configurations to load ''other'' operating systems. This requires the {{Package|sys-boot/os-prober}} package.
 
-Windows をブートするには、{{Package|sys-fs/ntfs3g}} パッケージのインストールもまた必要です。そうすることで、{{c|grub-mkconfig}} ユーティリティは、 NTFS ファイルシステムを読み込むことも可能になります。
+To boot Windows, the {{Package|sys-fs/ntfs3g}} also needs to be installed. It allows for the <tt>grub2-mkconfig</tt> utility to probe NTFS filesystems.
 
 == マニュアルで設定 ==
 
-{{c|grub-mkconfig}} を使用しなくとも、{{Path|grub.cfg}} ファイルを自ら編集することも可能ではあります。
+Users do not need to use <tt>grub2-mkconfig</tt>. The {{Path|grub.cfg}} file can be edited manually as well.
 
-以下は、GRUB レガシーの形式について経験のあるユーザのために、GRUB レガシーでの設定からの情報に基づいて GRUB2 の設定ファイルをどのように書くかを示した例です。
+As most users have experience with GRUB Legacy format, the next example shows how to write a GRUB2 configuration file based on information from the GRUB Legacy configuration.
 
 {|
-! style="text-align: left;" | {{Path|grub.conf}} (GRUB Legacy)
+! style="text-align: left;" | <code>grub.conf</code> (GRUB Legacy)
 |
-! style="text-align: left;" | {{Path|grub.cfg}} (GRUB 2)
+! style="text-align: left;" | <code>grub.cfg</code> (GRUB 2)
 |-
 | style="background: rgb(250,250,250); vertical-align: top; border: 1px solid black; padding: 5px 7px;" | <code style="color: gray; margin: 0; padding: 0; border: 0; background: transparent; line-height: normal;">timeout 5<br />
 <br />
@@ -151,11 +143,9 @@ root <span style="font-weight: bold; color: maroon;">(</span>hd0,<span style="fo
 <span style="font-weight: bold; color: green;">}</span>
 |}
 
-{{Note/ja|GRUB レガシーのパーティション番号は 0 から始まりますが、GRUB2 では 1 から始まります。しかし、いずれのGRUB も、ドライブ番号は 0 から始まります。}}
+== See also ==
 
-== 参考 ==
-
-*[[GRUB2]] - GRUB2 に関するより多くの情報と情報源を記載している'完全版'の記事
+Please refer to the [[GRUB2]] article for more information and an exhaustive list of resources.
 
 
 [[Category:Bootloaders]]
