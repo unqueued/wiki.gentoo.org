@@ -1,339 +1,287 @@
 <languages />
-{{Metadata|abstract=Portageを使用してバイナリパッケージをビルドしインストールすることもできます。このガイドではバイナリパッケージを作成し、インストールし、それらを配信するサーバーの設置方法を説明します。}}
+{{Metadata|abstract=Portage supports building and installing binary packages. This guide explains how to create binary package hosts and use binary packages.}}
 
-Portage は、通常の ebuild のほかに、バイナリーパッケージの作成とインストールにも対応しています。
-このガイドでは、バイナリーパッケージの作成方法、インストール方法、バイナリーパッケージサーバーのセットアップ方法について説明します。
+Next to the usual support for ebuilds, portage supports building and installing binary packages.
+This guide explains how to create them, how to install them and how to setup a binary package server.
 
 == はじめに ==
 
-<div class="mw-translate-fuzzy">
-いくつかのシステム管理者はGentooでバイナリパッケージのインストールを使用するのに多くの理由があります。
-</div>
+There are many reasons why some administrators like using binary package installations in Gentoo.
 
-<div class="mw-translate-fuzzy">
-# まず第一に、管理者が複数の同様のシステムを更新された状態に維持することが可能になります。 ソースからすべてをコンパイルする必要があるのは、時間の浪費になりえます。 もし、ただひとつのシステムですべてをコンパイルして他のシステムでバイナリパッケージを再利用できれば、いくつかの似たようなシステム(そのうちいくらかには古いハードウェアがあるかもしれません)を管理するのはとても楽になるでしょう。
-# 第二の理由は、安全な更新を行うことです。 ミッションクリティカルなシステムのためには、使用可能な状態で可能な限りありつづけることが重要です。 これは、すべての更新を一番最初に自分自身に行うステージングサーバーによって実現できます。 ステージングサーバが良好な状態になると、その次に更新が重要なシステムに適用することができます。 このアプローチの変化形として、同じシステムのchroot環境で更新を行い、そこで作成されたバイナリを実際のシステムで用いるという方法もあります。
-# 第三の理由は、バックアップとしてです。 多くの場合、バイナリパッケージが壊れたシステム（すなわち、壊れたコンパイラ）を回復する唯一の方法です。 事前にコンパイルされたバイナリをバイナリパッケージサーバ上やローカルで持つことは、ツールチェーンが壊れた場合には大きな助けになるでしょう。
-# 最後に、非常に古いシステムを更新する助けにもなります。 非常に古いシステムを更新する作業は、バイナリパッケージを使用することで大幅に楽になります。 バイナリパッケージではビルド時の依存関係を更新/インストールする必要がないので、通常は古いシステムにバイナリパッケージをインストールするのは助けになります。 また、バイナリパッケージは事前にコンパイルされているので、ビルド工程での失敗も避けられます。
-</div>
+# First of all, it allows administrators to ''keep similar systems updated''. Having to compile everything from source can become time consuming at times. Maintaining several similar systems, possibly some of them rather slow, can be much easier if only one system has to compile everything from source and the other systems reuse the binary packages.
+# A second reason is to ''do safe updates''. For mission critical systems it is important to stay usable as much as possible. This can be done by a staging server that performs all updates first and once the staging server is in a good state updates can be applied to the critical system. A variant of this approach is to do the updates in a chroot on the same system and use the binaries created there on the real system.
+# A third reason is ''as a backup''. Sometimes binary package are the only way of recovering a broken system (i.e. broken compiler). Having them around either on a binary package server or locally can be of great help.
+# Finally, it also supports ''updating very old systems''. The task of updating very old systems can be greatly eased using binary packages. It is usually easier to install binary packages as those don't require the build time dependencies to be installed / updated and the failures in the build process for them can be avoided.
 
-このガイドでは、次のトピックに焦点を当てます。: 
+In this guide, we focus on 
+* how to create binary packages, 
+* how to distribute these to the clients, 
+* how to use binary packages, and
+* how to maintain the binary packages
 
-<div class="mw-translate-fuzzy">
-* バイナリパッケージの作成方法;
-* バイナリパッケージのクライアントへの配信方法;
-* バイナリパッケージの使用方法;
-* バイナリパッケージの管理方法.
-</div>
+We end with a few more advanced topics on dealing with binary packages.
 
-最後に、バイナリパッケージの扱い方に関するいくつかの高度な話題を扱います。
+{{Note|All tools used in this guide are part of {{Package|sys-apps/portage}}, unless otherwise stated.}}
 
-{{Note|このガイドで使用するツールは、特に断りがなければ、すべて{{Package|sys-apps/portage}}に含まれます。}}
+== Creating binary packages ==
 
-== バイナリパッケージを作成する ==
+There are three main methods for creating binary packages:
+# After a regular installation, using <code>quickpkg</code>
+# Explicitly during an emerge operation by using the <code>--buildpkg (-b)</code> option
+# Automatically through the use of the <code>buildpkg</code> portage feature
 
-バイナリパッケージを作成する主な方法は3つあります：
+All three methods will create a binary package in the directory pointed to by the <code>PKGDIR</code> variable (which defaults to {{Path|/usr/portage/packages}}).
 
-<div class="mw-translate-fuzzy">
-# 通常のインストール後、{{c| quickpkg}}のアプリケーションを使用する
-# {{c| emerge}}時に<code>--buildpkg (-b)</code>オプションを明示する
-# Portageの<var>FEATURES</var>変数で値<code>buildpkg</code>を使用して自動的に作成する
-</div>
+=== Using quickpkg ===
 
-<div class="mw-translate-fuzzy">
-これらの三つの方法のうちいずれをとっても<var>PKGDIR</var>変数よって指定されるディレクトリにバイナリパッケージが作成されます。 (デフォルトでは{{Path|/usr/portage/packages}}です)
-</div>
+The <code>quickpkg</code> application takes one or more dependency atoms (or package sets) and creates binary packages for all ''installed'' packages that match the atom.
 
-=== quickpkg を利用する ===
-
-{{c|quickpkg}}は一つ以上のdependency atom (あるいはパッケージセット)を取り、そのatomと一致するインストールされたパッケージに対するバイナリパッケージを作成します。
-
-例えば、すべてのインストールされたGCCのバージョンのバイナリパッケージを作るには
+For instance, to create binary packages of all installed GCC versions:
 
 {{RootCmd|quickpkg sys-devel/gcc}}
 
-システム上のインストールされたすべてのパッケージに対してバイナリパッケージを作成する場合は、<code>*</code> globを以下のように使います:
+To create binary packages of all installed packages, use the <code>*</code> glob:
 
 {{RootCmd|quickpkg "*/*"}}
 
-この方法には注意すべき点があります。それは、インストールされたファイルを元にしてバイナリパッケージが作成され、コンフィグファイルをパッケージに含める際に問題となるかもしれないことです。システム管理者はパッケージをインストールした後にコンフィグファイルを編集することがあります。重要な(、ひょっとしたら機密の)情報の漏洩を防止する観点から、{{c|quickpkg}}はデフォルトでは<var>CONFIG_PROTECT</var>によって保護さされたコンフィグファイルをバイナリパッケージに含めません。これらのコンフィグファイルを含めるには、<code>--include-config</code> or <code>--include-unmodified-config</code> オプションを使用してください。
+There is a caveat with this method though: it relies on the installed files, which can be a problem in case of configuration files. Administrators often change configuration files after installing software. Because this could leak out important or perhaps even confidential data into the packages, <code>quickpkg</code> by default does ''not'' include configuration files that are protected through the CONFIG_PROTECT method. To include those as well, use the <code>--include-config</code> or <code>--include-unmodified-config</code> options.
 
-=== emerge のオプションに --buildpkg を使用する ===
+=== Using the --buildpkg emerge option ===
 
-<div class="mw-translate-fuzzy">
-{{c|emerge}}でソフトウェアをインストールするときに、 Portageに<code>--buildpkg (-b)</code>オプションを通すことによってバイナリパッケージを同時に作成することもできますː
-</div>
+When installing software using <code>emerge</code>, portage can be asked to create binary packages as well by using <code>--buildpkg (-b)</code>:
 
 {{Emerge|params+=--buildpkg|sys-devel/gcc}}
 
-<div class="mw-translate-fuzzy">
-システムにはソフトウェアをインストールせずに、バイナリパッケージのみを作成することもできます。この場合は<code>--buildpkgonly (-B)</code>オプションを通してください:
-</div>
+It is also possible to ask portage to ''only'' create a binary package but ''not'' to install the software on the live system. For this, the <code>--buildpkgonly (-B)</code> option can be used:
 
 {{Emerge|params+=--buildpkgonly|sys-devel/gcc}}
 
-しかしながら、後者のアプローチでは、すべてのビルド時依存が事前にインストールされている必要があります。
+The latter approach however requires that all build time dependencies are already installed.
 
-=== buildpkgをPortageの機能として実行する ===
+=== Automatically using buildpkg feature ===
 
-パッケージがPortageによってインストールされるたびにバイナリパッケージを自動的に作成するもっとも一般的な方法は、以下のようにして{{Path|/etc/portage/make.conf}}で設定できる<code>buildpkg</code>機能を利用することです:
+The most common way is to automatically create binary packages whenever a package is installed by <code>emerge</code>. This is done through the ''buildpkg'' feature, which can be set in {{Path|/etc/portage/make.conf}} like so:
 
-{{FileBox|filename=/etc/portage/make.conf|title=Portageのbuildpkg機能を有効化する|lang=bash|1=
-FEATURES="buildpkg"
+{{FileBox|filename=/etc/portage/make.conf|title=Enabling buildpkg feature|lang=bash|1=
+FEATURES="${FEATURES} buildpkg"
 }}
 
-この機能を有効にすると、Portageがソフトウェアをインストールするたびに、同様にバイナリパッケージも作成します。
+Every time portage installs software, it will create a binary package as well.
 
-=== いくつかのパッケージの作成を除外する ===
+=== Excluding creation of some packages ===
 
-Portageに、いくつかの選択したパッケージやカテゴリについてバイナリパッケージを作成しないよう通知することができます。これは、<code>--buildpkg-exclude</code>オプションをemergeに渡すことにより行います:
+It is possible to tell portage not to create binary packages for a select few packages or categories. This is done through the <code>--buildpkg-exclude</code> option to emerge:
 
 {{RootCmd|emerge -uDN @world --buildpkg --buildpkg-exclude "virtual/* sys-kernel/*-sources"}}
 
-これは、バイナリパッケージを利用可能にすることにほとんど、あるいはまったく利益がないパッケージについて使用できます。例として、Linuxカーネルソースパッケージやアップストリームのバイナリパッケージ({{Package|www-client/firefox-bin}}のように''-bin''で終わるもの)があります。
+This could be used for packages that have little to no benefit in having a binary package available. Examples would be the Linux kernel source packages or upstream binary packages (those ending with ''-bin'' like {{Package|www-client/firefox-bin}}).
 
-== バイナリパッケージホストを構成する ==
+== Setting up a binary package host ==
 
-<div class="mw-translate-fuzzy">
-Portageは、バイナリパッケージのダウンロードのための多くのプロトコルをサポートしています: FTP、FTPS、HTTP、HTTPSおよびSSH。このことは、多くのバイナリパッケージホストの実装を可能にする余地を与えます。
-</div>
+Portage supports a number of protocols for downloading binary packages: FTP, FTPS, HTTP, HTTPS and SSH. This leaves room for many possible binary package host implementations.
 
-しかしながら、Portageでは、バイナリパッケージを配布する"既存の枠組みから外れる"方法は提供されていません。決めた構成によって、追加のソフトウェアのインストールが必要になるでしょう。
+There is, however, no out-of-the-box method provided by portage for distributing binary packages. Depending on the requested setup, additional software will need to be installed.
 
-=== ウェブベースのバイナリパッケージホスト ===
+=== Web based binary package host ===
 
-バイナリパッケージを配布する一般的なアプローチの一つは、ウェブベースのバイナリパッケージホストを作成することです。
+A common approach for distributing binary packages is to create a web based binary package host.
 
-[[lighttpd]] ({{Package|www-servers/lighttpd}})のようなウェブサーバーを使用し、{{Path|/etc/portage/make.conf}}の<var>PKGDIR</var>ディレクトリへの読み込みアクセスを提供するよう設定します。
+Use a web server (such as {{Package|www-servers/lighttpd}}) and configure it to provide read access to the <code>PKGDIR</code> location.
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/lighttpd/lighttpd.conf|title=lighttpd の設定例|lang=bash|1=
-# add this to the end of the standard configuration
-server.modules += ( "mod_alias" )
-alias.url = ( "/packages" => "/usr/portage/packages/" )
-}}
-</div>
+Then, on the clients, configure the <code>PORTAGE_BINHOST</code> variable accordingly:
 
-そして、クライアントシステムで、それに対応する<var>PORTAGE_BINHOST</var>変数を設定します:
-
-{{FileBox|filename=/etc/portage/make.conf|title=ウェブベースのバイナリパッケージホストを使用する|lang=bash|1=
-PORTAGE_BINHOST="http://binhost.example.com/packages"
+{{FileBox|filename=/etc/portage/make.conf|title=Using a web based binary package host|lang=bash|1=
+PORTAGE_BINHOST="http://binhost.genfic.com/Packages"
 }}
 
-=== SSH バイナリパッケージホスト ===
+=== SSH binary package host ===
 
-バイナリパッケージへのより認証されたアプローチを提供するため、SSHの使用も考慮できます。
+To provide a more authenticated approach for binary packages, one can consider using SSH.
 
-SSHを使用する場合、LinuxのrootユーザーのSSH鍵(インストールはバックグラウンドで行われる必要があるため、パスフレーズなしのもの)をリモートのバイナリパッケージホストへの接続に使用できます。
+When using SSH, it is possible to use the portage Linux user's SSH key (without passphraze as the installations need to happen in the background) to connect to a remote binary package host.
 
-これを実現するには、rootユーザーのSSH鍵がサーバーで許可されていることを確認してください。これは、SSHに対応したバイナリホストに接続する各マシンのために行う必要があります:
+To accomplish this, make sure that the portage user's SSH key is allowed on the server:
 
-{{RootCmd|cat root.id_rsa.pub >> /home/binpkguser/.ssh/authorized_keys}}
+{{RootCmd|cat portage.id_rsa.pub >> /home/binpkguser/.ssh/authorized_keys}}
 
-そして、<var>PORTAGE_BINHOST</var>変数は以下のようになります:
+The <code>PORTAGE_BINHOST</code> could then look like so:
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/portage/make.conf|title=PORTAGE_BINHOSTをSSHアクセス用に設定する|lang=bash|1=
-PORTAGE_BINHOST="ssh://binpkguser@binhostserver/usr/portage/packages"
+{{FileBox|filename=/etc/portage/make.conf|title=Setting up PORTAGE_BINHOST for SSH access|lang=bash|1=
+PORTAGE_BINHOST="ssh://binpkguser@yourbinhostserver/usr/portage/packages"
 }}
-</div>
 
-{{Note|{{Path|~/.ssh/config}}にあるSSH設定ファイルをポートやユーザー名の設定に使用しないでください。この場所はPortageがクライアントへのパッケージのrsyncを試みる際には無視されます。その代わりに、すべてのオプションを<var>PORTAGE_BINHOST</var>変数に正しくセットしてください。}}
+=== NFS exported ===
 
-=== NFSエクスポート ===
+When using binary packages on an internal network, it might be easier to just export the packages through NFS and mount it on the clients.
 
-内部ネットワークでバイナリパッケージを使用する場合、パッケージをNFSを通じてエクスポートし、クライアントでそれをマウントするのがより簡単かもしれません。
+The {{Path|/etc/exports}} file could look like so:
 
-{{Path|/etc/exports}}ファイルは以下のようになります:
-
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/exports|title=パッケージのディレクトリをエクスポート|1=
-/usr/portage/packages   2001:db8:81:e2::/48(ro,no_subtree_check,root_squash) 192.168.100.1/24(ro,no_subtree_check,root_squash)
+{{FileBox|filename=/etc/exports|title=Exporting the packages directory|1=
+/usr/portage/packages                            2001:db8:81:e2::/48(ro,no_subtree_check,root_squash) 192.168.100.1/24(ro,no_subtree_check,root_squash)
 }}
-</div>
 
-その後、クライアントでその場所をマウント可能です。{{Path|/etc/fstab}}エントリーの例は以下のようになります:
+On the clients, the location can then be mounted. An example {{Path|/etc/fstab}} entry would look like so:
 
-<div class="mw-translate-fuzzy">
-{{FileBox|filename=/etc/fstab|title=パッケージフォルダーのマウントの例|1=
+{{FileBox|filename=/etc/fstab|title=Entry for mounting the packages folder|1=
 binhost:/usr/portage/packages      /usr/portage/packages    nfs    defaults    0 0
 }}
-</div>
 
-== バイナリーパッケージを使用する ==
 
-バイナリパッケージが他のシステムで利用可能であるためには、いくつかの要件を満たす必要があります:
+== Using binary packages ==
 
-* クライアントとサーバーのアーキテクチャおよび<var>[[CHOST]]</var>は一致していなければなりません。
-* バイナリパッケージのビルドに使用された<var>CFLAGS</var>および<var>CXXFLAGS</var>変数は、すべてのクライアントとの間で互換性がなければなりません。
-* プロセッサ特有の命令セット機能(たとえば、MMX、SSEなど)のためのUSEフラグは注意深く選択しなければなりません: すべてのクライアントがそれらをサポートしている必要があります。
+For binary packages to be usable on other systems they must fulfill some requirements.
+* The client and server architecture and [[CHOST]] must match.
+* The <code>CFLAGS</code> and <code>CXXFLAGS</code> that were used to build the binary packages must be compatible with all clients.
+* USE flags for processor specific features (like MMX, SSE,...) have to be carefully selected; all clients need to support them.
 
-{{Important|Portageは、これらの要件が満たされているか検証することができません。これらの設定を守るのはシステム管理者の責任です。}}
+{{Important|Portage can not validate if these requirements match. It is the responsibility of the administrator to guard over these settings.}}
 
-次に、Portageは、バイナリパッケージがクライアントにおいて期待されるのと同じUSEフラグを用いてビルドされているかチェックします。パッケージが異なるUSEフラグの組み合わせでビルドされている場合、実行の際に{{c|emerge}}コマンドに渡されたオプションによって、Portageはそのバイナリパッケージを無視する(そしてソースベースのビルドを使用する)か、あるいは失敗します([[#バイナリーパッケージをインストールする|バイナリーパッケージをインストールする]]を参照してください)。
+Next to these, portage ''will'' check if the binary package is built using the same USE flags as expected on the client. If a package is built with a different USE flag combination, portage will either ignore the binary package (and use source-based build) or fail, depending on the options passed on to <code>emerge</code> (see [[#Installing binary packages|Installing binary packages]]).
 
-クライアントでは、バイナリパッケージが使用されるようにするために、いくつかの設定の変更が必要です。
+On clients, a few configuration changes are needed in order for the binary packages to be used.
 
-== バイナリーパッケージをインストールする ==
+=== Installing binary packages ===
 
-{{c|emerge}}に渡せる、Portageにバイナリパッケージの使用について通知するオプションがいくつかあります:
+There are a few options that can be passed on to the <code>emerge</code> command that inform portage about using binary packages.
 
-<div class="mw-translate-fuzzy">
-{| class="table table-condensed table-striped"
-|-
-! scope="col" width="20%" | オプション 
-! 説明
-|-
-| <code>--usepkg</code> <code>(-k)</code> || ローカルで使用可能な{{Path|packages}}ディレクトリ内のバイナリパッケージの利用を試みます。[[NFS]]や[[SSHFS]]でマウントされたバイナリパッケージホストを使用する場合に有用です。バイナリパッケージが見つからない場合は、通常の(ソースベースの)インストールが行われます。
-|-
-| <code>--usepkgonly</code> <code>(-K)</code> || <code>--usepkg (-k)</code>と似ていますが、バイナリパッケージが見つけられない場合には失敗します。
-|-
-| <code>--getbinpkg</code> <code>(-g)</code> || リモートのバイナリパッケージホストからバイナリパッケージをダウンロードします。バイナリパッケージが見つからない場合は、通常の(ソースベースの)インストールが行われます。
-|-
-| <code>--getbinpkgonly</code> <code>(-G)</code> || <code>--getbinpkg (-g)</code>と似ていますが、バイナリパッケージがダウンロードできない場合には失敗します。このオプションは、''pre-built''バイナリパッケージのみを利用したい場合に有用です。
-|}
-</div>
+; <code>---usepkg (-k)</code>
+: Try to use the binary package(s) in the locally available packages directory. Useful when using NFS-mounted binary package hosts. If the binary package is not found, a regular (source-based) installation will be done.
+; <code>--usepkgonly (-K)</code>
+: Similar to <code>--usepkg (-k)</code> but fail if the binary package cannot be found.
+; <code>--getbinpkg (-g)</code>
+: Download the binary package from a remote binary package host. If the binary package is not found, a regular (source-based) installation will be done.
+; <code>--getbinpkgonly (-G)</code>
+: Similar to <code>--getbinpkg (-g)</code> but fail if the binary package cannot be downloaded.
 
-バイナリパッケージによるインストールを自動的に利用するために、適切なオプションを<var>EMERGE_DEFAULT_OPTS</var>変数に追加することができます:
+In order to automatically use binary package installations, the appropriate option can be added to the <code>EMERGE_DEFAULT_OPTS</code> variable:
 
-{{FileBox|filename=/etc/portage/make.conf|title=自動的にバイナリパッケージを取得し、パッケージが利用可能でない場合には失敗する|lang=bash|1=
+{{FileBox|filename=/etc/portage/make.conf|title=Automatically fetching binary packages and fail if not available|lang=bash|1=
 EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkgonly"
 }}
 
-<div class="mw-translate-fuzzy">
-<var>EMERGE_DEFAULT_OPTS</var>変数を<code>--getbinpkg</code>という値を用いて更新しなくても、<code>--getbinpkg (-g)</code>と同様のことを自動的に実行するPortageの機能があります:
-</div>
+There is a portage feature that automatically implements the equivalent of <code>--getbinpkg (-g)</code> without the need for updating the <code>EMERGE_DEFAULT_OPTS</code> variable: ''getbinpkg''.
 
-{{FileBox|filename=/etc/portage/make.conf|title=<var>FEATURES</var>変数でgetbinpkgを有効化する|lang=bash|1=
-FEATURES="getbinpkg"
+{{FileBox|filename=/etc/portage/make.conf|title=Enabling getbinpkg as portage feature|lang=bash|1=
+FEATURES="${FEATURES} getbinpkg"
 }}
 
-=== パッケージをバイナリパッケージホストから取得する ===
+=== Pulling packages from a binary package host ===
 
-バイナリパッケージホストを使用する場合、クライアントでは<var>PORTAGE_BINHOST</var>がセットされている必要があります。さもないと、クライアントはバイナリパッケージがどこに保管されているかわからず、Portageがそれらを取得できないという結果をもたらします。
+When using a binary package host, clients need to have the <code>PORTAGE_BINHOST</code> variable set. Otherwise the client will not know where the binary packages are stored (and how to retrieve them).
 
-{{FileBox|filename=/etc/portage/make.conf|title=PORTAGE_BINHOSTをセットする|lang=bash|1=
-PORTAGE_BINHOST="http://binhost.example.com/packages"
+{{FileBox|filename=/etc/portage/make.conf|title=Setting PORTAGE_BINHOST|lang=bash|1=
+PORTAGE_BINHOST="http://binhost.genfic.com/packages"
 }}
 
-<var>PORTAGE_BINHOST</var>変数は、スペースで区切られたURIのリストを使用します。これにより、管理者は複数のバイナリパッケージサーバーを同時に使用できます。URIは、{{Path|Packages}}ファイルが存在するディレクトリを常に指していなければなりません。
+The <code>PORTAGE_BINHOST</code> variable uses a space-separated list of URIs. This allows administrators to use several binary package servers simultaneously. The URI must always point to the directory in which the {{Path|Packages}} file resides.
 
-{{Note|複数のバイナリパッケージサーバーのサポートはやや不完全です。複数のサーバーが同じパッケージバージョンのバイナリパッケージを提供している場合、最初の1つのみが考慮されます。このことは、それらのバイナリパッケージでUSE変数の設定に違いがあり、かつ後の方のバイナリパッケージのUSE変数の設定がシステムの設定と一致する場合に問題となりえます。}}
+{{Note|The support for multiple binary package servers is somewhat incomplete. If several servers serve a binary package for the same package version, then only the first one will be considered. This can be problematic when these binary packages differ in their USE configuration and the USE configuration of a later binary package would match the systems configuration.}}
 
-=== 改変したバイナリーパッケージを再インストールする ===
+=== Reinstalling modified binary packages ===
 
-<div class="mw-translate-fuzzy">
-<code>--rebuilt-binaries</code>オプションを{{c|emerge}}に渡すと、パッケージがインストールされた後に再ビルドされたすべてのバイナリが再インストールされます。これは、{{c|revdep-rebuild}}や{{c|python-updater}}のような再ビルドツールがバイナリパッケージサーバー上で実行された場合に有用です。
-</div>
+The <code>--rebuilt-binaries</code> option to <code>emerge</code> will reinstall every binary that has been rebuild since the package was installed. This is useful in case rebuilding tools like <code>revdep-rebuild</code> or <code>python-updater</code> are run on the binary package server.
 
-関連するオプションの1つが<code>--rebuilt-binaries-timestamp</code>です。これにより、emergeは与えられたタイムスタンプよりも前にビルドされたバイナリパッケージを再インストールにおいて考慮しなくなります。これは、バイナリパッケージサーバーはいちから再ビルドする必要があるが、その他の点で<code>--rebuilt-binaries</code>が使用される場合に、全てのパッケージが再インストールされるのを回避するために有用です。
+A related option is <code>--rebuilt-binaries-timestamp</code>. It causes emerge not to consider binary packages for a re-install if those binary packages have been built before the given time stamp. This is useful to avoid re-installing all packages, if the binary package server had to be rebuild from scratch but <code>--rebuilt-binaries</code> is used otherwise.
 
-=== 追加のクライアント設定 ===
+=== Additional client settings ===
 
-<code>getbinpkg</code>機能に次いで、Portageは<code>binpkg-logs</code>機能にも対応します。この機能は、成功したバイナリパッケージのインストールについてのログファイルを保持するかどうかを制御します。これは<var>PORT_LOGDIR</var>変数がセットされている場合のみ意味があり、またデフォルトでは有効化されています。
+Next to the ''getbinpkg'' feature, portage also listens to the ''binpkg-logs'' feature. This one controls if log files for successful binary package installations should be kept. It is only relevant if <code>PORT_LOGDIR</code> is set and is enabled by default.
 
-特定のパッケージやカテゴリのセットについてバイナリパッケージを除外するのと同様に、クライアントにおいて、特定のパッケージやカテゴリのセットについてバイナリパッケージのインストールを除外するように設定することができます。
+Similar to excluding binary packages for a certain set of packages or categories, clients can be configured to exclude binary package installations for a certain set of packages or categories.
 
-これを実現するには、<code>--usepkg-exclude</code>オプションを使用します:
+To accomplish this, use the <code>--usepkg-exclude</code> option:
 
 {{RootCmd|emerge -uDNg @world --usepkg-exclude "sys-kernel/gentoo-sources virtual/*"}}
 
-こうした追加の設定をemergeの実行ごとに有効にするには、{{Path|make.conf}}ファイル内の<var>EMERGE_DEFAULT_OPTS</var>変数にオプションを追加します:
 
-{{FileBox|title=emergeの設定をすべての実行で有効化する|filename=/etc/portage/make.conf|1=
-EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg-exclude 'sys-kernel/gentoo-sources virtual/*'"
-}}
+== Maintaining binary packages ==
 
-== バイナリーパッケージを管理する ==
+Exporting and distributing the binary packages will lead to useless storage consumption if the binary package list is not actively maintained.
 
-バイナリパッケージのリストが活発に管理されていない場合、バイナリパッケージのエクスポートや配布はストレージの無駄な消費につながります。
+=== Removing outdated binary packages ===
 
-=== 不用なバイナリーパッケージを削除する ===
+In the {{Package|app-portage/gentoolkit}} package an application called <code>eclean</code> is provided. It allows for maintaining portage-related variable files, such as downloaded source code files, but also binary packages.
 
-{{Package|app-portage/gentoolkit}}パッケージでは、{{c|eclean}}というアプリケーションが提供されています。これにより、ダウンロードされたソースコードファイルのようなPortageに関する可変ファイルだけでなく、バイナリパッケージも管理することができます。
-
-以下のコマンドは、該当するebuildがインストール済みebuildのリポジトリの中にないバイナリパッケージをすべて削除します:
+The following command will remove all binary packages that have no corresponding ebuild:
 
 {{RootCmd|eclean packages}}
 
-詳細は [[Eclean]] の記事を読んでください。
+For more details please read the [[Eclean]] article.
 
-もう一つの利用可能なツールは、{{Package|app-portage/portage-utils}}パッケージの{{c|qpkg}}ツールです。しかしながら、このツールはやや設定可能性において劣ります。
+Another tool that can be used is the <code>qpkg</code> tool from the {{Package|app-portage/portage-utils}}. However, this tool is a bit less configurable.
 
-''使用されていない''バイナリパッケージ(バイナリパッケージが保管されているサーバーによって使用されているかという意味で)をクリーンアップするには:
+To clean up ''unused'' binary packages (in the sense of used by the server on which the binary packages are stored):
 
 {{RootCmd|qpkg -c}}
 
-=== Packages のファイルを管理する ===
+=== Maintaining the Packages file ===
 
-パッケージディレクトリ内には、{{Path|Packages}}と呼ばれる[[wikipedia:Manifest_file|マニフェストファイル]]が存在します。このファイルは、パッケージディレクトリ内のすべてのバイナリパッケージのメタデータのキャッシュとして機能します。このファイルは、Portageがバイナリパッケージをディレクトリに追加するたびに更新されます。同様に、{{c|eclean}}はバイナリパッケージを削除する際にこのファイルを更新します。
+Inside the packages directory, a file called {{Path|Packages}} exists. This file acts as a cache for the metadata of all binary packages in the packages directory. The file is updated whenever portage adds a binary package to the directory. Similarly, <code>eclean</code> updates it when it removes binary packages.
 
-なんらかの理由でパッケージが単に削除されたりパッケージディレクトリにコピーされたりした場合、または{{Path|Packages}}ファイルが破損したり削除されたりした場合には、ファイルを再作成する必要があります。これには{{c|emaint}}コマンドを利用します:
+If for some reason binary packages are simply deleted or copied into the packages directory, or the {{Path|Packages}} file gets corrupted or deleted, then it needs to be recreated. This is done using <code>emaint</code>:
 
 {{RootCmd|emaint binhost --fix}}
 
-== 高度な話題 ==
+== Advanced topics==
 
-=== パッケージディレクトリのスナップショットを作成する ===
+=== Creating snapshots of the packages directory ===
 
-多数のクライアントシステムへ向けてバイナリパッケージを配置する場合、パッケージディレクトリのスナップショットを作成する価値が出てきます。そうすると、クライアントシステムはパッケージディレクトリを直接使わず、バイナリパッケージのスナップショットを使用します。
+When deploying binary packages for a large number of client systems it might become worthwhile to create snapshots of the packages directory. The client systems then don't use the packages directory directly but use binary packages from the snapshot.
 
-スナップショットは、{{Path|/usr/lib64/portage/python2.7/binhost-snapshot}}または{{Path|/usr/lib64/portage/python3.3/binhost-snapshot}}ツールを使用して作成できます。このツールは4つの引数をとります:
+Snapshots can be created using the {{Path|/usr/lib64/portage/bin/binhost-snapshot}} tool. It takes four arguments, 
+# a source directory (the path to the packages directory), 
+# a target directory (that must not exist),
+# a URI, and 
+# a binary package server directory.
 
-# ソースディレクトリ(パッケージディレクトリへのパス)
-# ターゲットディレクトリ(存在しないディレクトリである必要があります)
-# URI
-# バイナリパッケージサーバーディレクトリ
+The files from the package directory are copied to the target directory. A {{Path|Packages}} file is then created inside the binary package server directory (fourth argument) with the provided URI.
 
-パッケージディレクトリのファイルはターゲットディレクトリへコピーされます。そして、{{Path|Packages}}ファイルが、バイナリパッケージサーバーディレクトリ(第四引数)内に、提供されたURIを用いて作成されます。
+Client systems need to use an URI that points to the binary package server directory. From there they will be redirected to the URI that was given to <code>binhost-snapshot</code>. This URI has to refer to the target directory.
 
-クライアントシステムは、バイナリパッケージサーバーディレクトリを指すURIを使う必要があります。そこから、{{c|binhost-snapshot}}に与えられたURIへとリダイレクトされます。このURIはターゲットディレクトリを参照していなければなりません。
+=== Understanding the binary package format ===
 
-=== バイナリパッケージの形式を理解する ===
+Binary packages created by portage have the file name ending tbz2. These files consist of two parts:
+# an .tar.bz2 archive containing the files that will be installed on the system, and
+# an xpak archive containing the metadata, the ebuild and the environment file.
 
-Portageによって作成されたバイナリパッケージは、{{Path|.tbz2}}で終わるファイル名を持ちます。これらのファイルは2つの部分から成ります:
+See <code>man xpak</code> for a description of the format.
 
-# システムへインストールされるファイルを含む{{Path|.tar.bz2}}アーカイブ
-# パッケージのメタデータ、ebuild、そしてenvironmentファイルを含む{{Path|xpak}}アーカイブ
+In {{Package|app-portage/portage-utils}} some tools exists that are able to split or create tbz2 and xpak files.
 
-形式の詳細については、{{c|man xpak}}を参照してください。
-
-{{Package|app-portage/portage-utils}}に、{{Path|tbz2}}および{{Path|xpak}}ファイルを分割、作成できるいくつかのツールがあります。
-
-以下のコマンドは、{{Path|tbz2}}を{{Path|.tar.bz2}}および{{Path|.xpak}}ファイルに分割します:
+The following command will split the tbz2 into a {{Path|.tar.bz2}} and an {{Path|.xpak}} file:
 
 {{Cmd|qtbz2 -s <package>.tbz2}}
 
-{{Path|.xpak}}ファイルは、{{c|qxpak}}を使用して調査することができます。
+The xpak file can be examined using <code>qxpak</code>.
 
-内容をリストアップするには:
+To list the contents:
 
 {{Cmd|qxpak -l <package>.xpak}}
 
-次のコマンドは、このパッケージについて有効化されているUSEフラグを含む、{{Path|USE}}と呼ばれるファイルを抽出します:
+The next command will extract a file called {{Path|USE}} which contains the enabled use flags for this package:
 
 {{Cmd|qxpak -x package-manager-0.xpak USE}}
 
-=== PKGDIR の構成 ===
+=== The PKGDIR layout ===
 
-現在使用されているバージョン2形式は、以下のような構成になっています:
+The currently used format version 2 has the following layout:
 
-{{CodeBox|title=パッケージディレクトリの構成(バージョン2)|1=
+{{Code|Packages directory layout (version 2)|<pre>
 PKGDIR
 `+- Packages
  +- app-accessibility/
- {{!}}  +- pkg1-version.tbz2
- {{!}}  `- pkgN-version.tbz2
+ |  +- pkg1-version.tbz2
+ |  `- pkgN-version.tbz2
  +- app-admin/
- {{!}}  `- ...
+ |  `- ...
  `- ...
-}}
+</pre>}}
 
-{{Path|Packages}}ファイルは、最初のバイナリパッケージディレクトリ形式(バージョン1)からの主要な改善点です(また、Portageが、バイナリパッケージディレクトリがバージョン2を採用していると判断するためのトリガーでもあります)。バージョン1では、すべてのバイナリパッケージは単一のディレクトリ({{Path|All/}})内で提供されており、カテゴリのディレクトリには{{Path|All/}}ディレクトリ内のバイナリパッケージへのシンボリックリンクのみが含まれていました。
+The {{Path|Packages}} is the major improvement (and also the trigger for portage to know that the binary package directory uses version 2) over the first binary package directory layout (version 1). In version 1, all binary packages were also hosted inside a single directory (called {{Path|All/}}) and the category directories only had symbolic links to the binary packages inside the {{Path|All/}} directory.
 
-=== quickunpkg を用いて展開する ===
+=== Unpacking with quickunpkg ===
 
-Zoobab氏が、{{Path|tbz2}}ファイルを素早く展開するためのシンプルなシェルツール[https://github.com/zoobab/quickunpkg quickunpkg]を作成しました。
+Zoobab wrote a simple shell tool named [https://github.com/zoobab/quickunpkg quickunpkg] to quickly unpack tbz2 files.
 
 
 [[Category:Portage]]
