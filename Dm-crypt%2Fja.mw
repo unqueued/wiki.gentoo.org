@@ -1,97 +1,78 @@
+{{Lowercase title}}
+
 <languages />
 
 
-{{Metadata|abstract=DM-CryptはLinuxカーネルのcrypto APIフレームワーク及びデバイスマッパーサブシステムを利用したディスク暗号化システムです。}}
+{{Metadata|abstract=DM-Crypt is a disk encryption system using the Linux kernel crypto API framework and device mapper subsystem.}}
 
 {{InfoBox stack
-|{{InfoBox homepage|https://gitlab.com/cryptsetup/cryptsetup|header=true}}
+|{{InfoBox homepage|http://code.google.com/p/cryptsetup/wiki/DMCrypt|header=true}}
 |{{InfoBox wikipedia}}
 }}
 
-'''dm-crypt'''はLinuxカーネルのcrypto APIフレームワーク及びデバイスマッパーサブシステムを利用したディスク暗号化システムです。dm-cryptを利用するとシステム管理者はディスク全体または論理ボリューム単位またはパーティション単位、あるいは一ファイル単位で暗号化をする事ができます。
+'''dm-crypt''' is a disk encryption system using the kernels crypto API framework and device mapper subsystem. With dm-crypt, administrators can encrypt entire disks, logical volumes, partitions, but also single files.
 
-dm-cryptサブシステムは''Linux Unified Key Setup (LUKS)''仕様に準じています。つまり、複数の鍵でデータの復号化ができたり、鍵の変更やパスフレーズの追加といった鍵の操作をする事ができます。dm-cryptを用いてLUKSに準じない暗号化も可能ですが、LUKSがフレキシブルで管理がしやすく広くコミュニティでサポートされている事からこの記事では主にLUKS準拠の機能について記述します。
+The dm-crypt subsystem supports the ''Linux Unified Key Setup (LUKS)'' structure, which allows for multiple keys to access the encrypted data, as well as manipulate the keys (such as changing the keys, adding additional passphrazes, etc.) Although dm-crypt supports non-LUKS setups as well, this article will focus on the LUKS functionality mostly due to its flexibility, manageability as well as broad support in the community.
 
-== 設定 ==
+== Configuration ==
 
-dm-cryptを使用するためには、2つの条件があります。
+There are two prerequisites before one can start using dm-crypt:
 
-# Linuxカーネル設定
-# {{Package|sys-fs/cryptsetup}}のインストール
+# Configuration of the Linux kernel
+# Installation of the {{Package|sys-fs/cryptsetup}} package
 
-== Linux カーネル コンフィグレーション ==
+=== Kernel Configuration ===
 
-dm-cryptを使用するにはいくつかの項目の設定が必要です。
+To use dm-crypt there are a number of configuration entries that are necessary.
 
-まず、''device mapper''と''crypt target''を有効にしなければなりません。
+First of all, support for the ''device mapper'' infrastructure as well as the ''crypt target'' must be included:
 
-{{KernelBox|title=device mapperとcrypt targetの有効化|1=
+{{Kernel|Enabling device mapper and crypt target|<pre>
 [*] Enable loadable module support
-Device Drivers --->
-    [*] Multiple devices driver support (RAID and LVM) --->
-        <*> Device mapper support
-        <*>   Crypt target support
-}}
+    Device Drivers --->
+        [*] Multiple devices driver support (RAID and LVM) --->
+            <*> Device mapper support
+            <*> Crypt target support
+</pre>}}
 
-次に、データの暗号化に使用したい暗号化APIを有効にしなければなりません。暗号化APIの一覧は''Cryptographic API''セクション以下にあります。
+Next, the Linux kernel needs to support the set of cryptographic APIs that the administrator wants to use for encryption. These can be found under the ''Cryptographic API'' section:
 
-{{KernelBox|title=暗号化APIの有効化|1=
+{{Kernel|Enabling cryptographic API functions|<pre>
 [*] Cryptographic API --->
-    <*> XTS support
     <*> SHA224 and SHA256 digest algorithm
-    <*> AES cipher algorithms
-    <*> AES cipher algorithms (x86_64)
-    <*> User-space interface for hash algorithms
-    <*> User-space interface for symmetric key cipher algorithms
+</pre>
 }}
 
-rootファイルシステムも暗号化したい場合、rootファイルシステムを復号化するためのinitramfsも必要です。そのため、initramfs supportも有効化する必要があります。
+If the root file system will be encrypted as well, then an initial ram file system needs to be created in which the root filesystem is decrypted before it is mounted. Thus this requires initramfs support as well:
 
-{{KernelBox|title=initramfs supportの有効化|1=
+{{Kernel|Enabling initramfs support|<pre>
 General setup  --->
     [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
-}}
+</pre>}}
 
-If using the ''tcrypt'' encryption option (TrueCrypt/tcplay/VeraCrypt compatibility mode), then the following items will also need to be added to the kernel.  Otherwise, cryptsetup will return the following errors: "''device-mapper: reload ioctl failed: Invalid argument''" and "''Kernel doesn't support TCRYPT compatible mapping''".
+=== Cryptsetup installation ===
 
-{{KernelBox|title=Enabling tcrypt (TrueCrypt/tcplay/VeraCrypt compatibility mode) support|1=
-Device Drivers --->
-    [*] Block Devices ---> 
-        <*> Loopback device support 
-File systems ---> 
-     <*> FUSE (Filesystem in Userspace) support 
-[*] Cryptographic API ---> 
-     <*> RIPEMD-160 digest algorithm 
-     <*> SHA384 and SHA512 digest algorithms 
-     <*> Whirlpool digest algorithms 
-     <*> LRW support 
-     <*> Serpent cipher algorithm 
-     <*> Twofish cipher algorithm 
-}}
-
-=== Cryptsetupのインストール ===
-
-{{Package|sys-fs/cryptsetup}}パッケージは{{c|cryptsetup}}コマンドを提供します。このコマンドはデータを暗号化や復号化したり、パスフレーズや鍵の管理をするためのコマンドです。
+The {{Package|sys-fs/cryptsetup}} package provides the <code>cryptsetyp</code> command, which is used to open or close the encrypted storage as well as manage the passphrazes or keys associated with it.
 
 {{Emerge|sys-fs/cryptsetup}}
 
-== 暗号化ストレージ ==
+== Encrypted storage ==
 
-=== 鍵ファイルまたはパスフレーズ ===
+=== Keyfile or passphrase ===
 
-ストレージの暗号化を始めるには、管理者は暗号化鍵に何を使うかを決める必要があります。{{c|cryptsetup}}ではパスフレーズか鍵ファイルを選ぶ事ができます。鍵ファイルはどのようなファイルでも構いませんが、適切に保護されたランダムなデータのファイルを使う事を推奨します。誰かが鍵ファイルを読めるならばその人は暗号化されたデータもまた読めるという事になります。
+In order to start with encrypted storage, the administrator will need to decide which method to use for the encryption key. With <code>cryptsetup</code> the choice is either a passphrase or a keyfile. In case of a keyfile, this can be any file, but it is recommended to use a file with random data which is properly protected (considering that access to this keyfile will mean access to the encrypted data).
 
-{{c|dd}}コマンドを使って鍵ファイルを生成する事ができます:
+To create a keyfile, one can use the <code>dd</code> command:
 
 {{RootCmd|dd if{{=}}/dev/urandom of{{=}}/etc/keys/enc.key bs{{=}}1 count{{=}}4096}}
 
-次の項目では、パスフレーズの場合と鍵ファイルの場合どちらの場合のコマンドも例示します。どちらか一方のみを実行する必要があります。
+In the next sections, we will show every command for both situations - passphrase and keyfile. Of course, only one method is necessary.
 
-=== 暗号化ストレージの作成 ===
+=== Creating an encrypted storage platform ===
 
-暗号化ストレージ(ディスク、パーティション、ファイル等)の作成には {{c|cryptsetup}} コマンドで <code>luksFormat</code> を指定します。
+In order to create an encrypted storage platform (which can be a disk, partition, file, ...) use the <code>cryptsetup</code> command with the ''luksFormat'' option.
 
-例えば、パスフレーズを鍵として{{Path|/dev/vdb2}}を暗号化ストレージに指定する場合:
+For instance, to have {{Path|/dev/vdb2}} as the storage medium for the encrypted data:
 
 {{RootCmd|cryptsetup -s 512 luksFormat /dev/vdb2|output=<pre>
 This will overwrite data on /dev/vdb2 irrevocably.
@@ -101,7 +82,7 @@ Enter LUKS passphrase: ...
 Verify passphrase: ...
 </pre>}}
 
-パスフレーズの代わりに鍵ファイルを使う場合:
+To use a keyfile instead of a passphrase:
 
 {{RootCmd|cryptsetup -s 512 luksFormat /dev/vdb2 /etc/keys/enc.key|output=<pre>
 This will overwrite data on /dev/vdb2 irrevocably.
@@ -109,45 +90,39 @@ This will overwrite data on /dev/vdb2 irrevocably.
 Are you sure? (Type uppercase yes): YES
 </pre>}}
 
-{{c|cryptsetup}}の<code>-s 512</code>オプションは実際の暗号化鍵の鍵長を指定します。(パスフレーズや鍵ファイルはこの暗号化鍵を利用するための鍵です。)
+The <code>-s 512</code> tells <code>cryptsetup</code> which keylength to use for the real encryption key (unlike the passphrase or keyfile, which are used to access this real encryption key).
 
-=== 暗号化ストレージを開く ===
+=== Opening the encrypted storage ===
 
-暗号化ストレージを開くには(つまり、データを復号化して読み取れるようにするには)<code>luksOpen</code>オプションを指定します。
+In order to open up the encrypted storage (i.e. make the real data accessible through transparent decryption), use the ''luksOpen'' command.
 
 {{RootCmd|cryptsetup luksOpen /dev/vdb2 myname|output=<pre>
 Enter passphrase for /dev/vdb2: ...
 </pre>}}
 
-鍵ファイルを利用した場合、コマンドはこのようになります:
+If a keyfile is used, then the command would look like so:
 
 {{RootCmd|cryptsetup luksOpen -d /etc/keys/enc.key /dev/vdb2 myname}}
 
-コマンドの実行に成功すると、{{Path|/dev/mapper/myname}}という名前のデバイスが作成され、読み取る事ができるようになります。 
-
-初めて暗号化デバイスを使用する場合、これをフォーマットしなければなりません。次の例では[[Btrfs]]ファイルシステムを使用していますが、他のファイルシステムも使用できます。
-
-{{RootCmd|mkfs.btrfs /dev/mapper/myname}}
-
-ファイルスステムのフォーマットが完了したら、あるいは以前にフォーマットを済ませた事のあるデバイスであれば、次のようにしてマウントできます:
+When the command finishes succesfully, then a new device file called {{/dev/mapper/myname}} will be made available. This device file can then be mounted as a regular storage location:
 
 {{RootCmd|mount /dev/mapper/myname /home}}
 
-=== 暗号化ストレージを閉じる ===
+=== Closing the encrypted storage ===
 
-暗号化ストレージを閉じるには(つまり、復号化した状態のデータを扱えなくするには)<code>luksClose</code>オプションを使用します:
+In order to close the encrypted storage (i.e. ensure that the real data is no longer accessible through transparent decryption), use the ''luksClose'' command:
 
 {{RootCmd|cryptsetup luksClose myname}}
 
-もちろん、デバイスがまだ使用されていない事を確認してください。
+Of course, make sure that the device is no longer in use.
 
-== LUKS用の鍵の操作 ==
+== Manipulating LUKS keys ==
 
-LUKSの鍵(先の例で指定したパスフレーズや鍵ファイル)は実際のデータ暗号化に用いられる暗号鍵を利用するための鍵です。これは暗号化されたパーティションやディスクあるいはファイルの先頭のスロットに保管されています。
+LUKS keys are used to access the real encryption key. They are stored in slots in the header of the (encrypted) partition, disk or file.
 
-=== スロットの一覧表示 ===
+=== Listing the slots ===
 
-<code>luksDump</code>オプションで暗号化ストレージの情報を表示する事ができます。これにはスロットも含まれます:
+With the ''luksDump'' command, information about the encrypted partition, disk or file can be shown. This includes the slots:
 
 {{RootCmd|cryptsetup luksDump /dev/vdb2|output=<pre>
 LUKS header information for /dev/vdb2
@@ -184,11 +159,11 @@ Key Slot 6: DISABLED
 Key Slot 7: DISABLED
 </pre>}}
 
-上の例では2つのスロットが使用されています。<code>luksDump</code>は機微情報を表示はしません。単にLUKSヘッダの内容を表示しているだけです。そのため、<code>luksDump</code>では復号のための鍵は必要ありません。
+In the above example, two slots are used. Note that ''luksDump'' does not give away anything sensitive - it is merely displaying the LUKS header content. No decryption key has to be provided in order to call ''luksDump''.
 
-=== 鍵ファイルやパスフレーズの追加 ===
+=== Adding a keyfile or passphrase ===
 
-暗号化ストレージを利用するための鍵ファイルやパスフレーズを追加するためには、 <code>luksAddKey</code> オプションを使用します:
+In order to add an additional keyfile or passphrase to access the encrypted storage, use the ''luksAddKey'' option:
 
 {{RootCmd|cryptsetup luksAddKey /dev/vdb2|output=<pre>
 Enter any passphrase: (Enter a valid, previously used passphrase to unlock the key)
@@ -196,105 +171,50 @@ Enter new passphrase for key slot: ...
 Verify passphrase: ...
 </pre>}}
 
-鍵ファイルを使用してパスフレーズを追加する場合:
+To use a keyfile to unlock the key (but still add in a passphrase):
 
 {{RootCmd|cryptsetup luksAddKey -d /etc/keys/enc.key /dev/vdb2|output=<pre>
 Enter new passphrase for key slot: ...
 Verify passphrase: '''
 </pre>}}
 
-パスフレーズを使用して新たな鍵ファイル({{Path|/etc/keys/backup.key}})を追加する場合:
+If a keyfile is to be added (say {{Path|/etc/keys/backup.key}}:
 
 {{RootCmd|cryptsetup luksAddKey /dev/vdb2 /etc/keys/backup.key}}
 
-鍵ファイルを使用して新たな鍵ファイルを追加する場合:
+Or, to use the first keyfile to unlock the main key:
 
 {{RootCmd|cryptsetup luksAddKey -d /etc/keys/enc.key /dev/vdb2 /etc/keys/backup.key}}
 
-=== 鍵ファイルやパスフレーズの削除 ===
+=== Removing a keyfile or passphrase ===
 
-<code>luksRemoveKey</code>オプションを利用して鍵ファイルやパスフレーズを削除する事ができます。削除した鍵ではストレージの利用ができなくなります。
+With the ''luksRemoveKey'' a keyfile or passphrase can be removed (so they can no longer be used to decrypt the storage):
 
 {{RootCmd|cryptsetup luksRemoveKey /dev/vdb2|output=<pre>
 Enter LUKS passphrase to be deleted: ...
 </pre>}}
 
-鍵ファイルを削除する場合:
+Or to remove a keyfile:
 
 {{RootCmd|cryptsetup luksRemoveKey -d /etc/keys/backup.key /dev/vdb2}}
 
-最低でも一つの鍵ファイルやパスフレーズが使えるようにしてください。一度削除されたパスフレーズや鍵ファイルは(別の鍵を利用して同じものを再度追加しない限り)二度と復旧する事ができません。
+Make sure that at least one method for accessing the data is still available. Once a passphrase or keyfile is removed for use, this cannot be recovered again.
 
-=== スロットを指定して削除 ===
+=== Emptying a slot ===
 
-パスフレーズや鍵ファイルがわからない場合、スロットを空ける事ができます。もちろん、どのスロットにどの鍵ファイルやパスフレーズが入っているかを知っていなければいけません。
+Suppose the passphrase or keyfile is no longer known, then the slot can be freed. Of course, this does require prior knowledge of which slot that the passphrase or keyfile was stored in.
 
-例えば、スロット2(3番目のスロット)を空ける場合:
+For instance, to empty out slot 2 (which is the third slot as slots are numbered starting from 0):
 
 {{RootCmd|cryptsetup luksKillSlot /dev/vdb2 2}}
 
-このコマンドはパスフレーズを要求します。鍵ファイルを使用する場合:
+This command will ask for a valid passphrase before continuing. Or one can pass on the keyfile to use:
 
 {{RootCmd|cryptsetup luksKillSlot -d /etc/keys/enc.key /dev/vdb2 2}}
 
-== 暗号化されたファイルシステムの自動マウント ==
+== Additional resources ==
 
-この記事のこれまでの項目は手動で暗号化ファイルシステムを扱うための説明でした。{{Path|dmcrypt}}を用いると復号化とファイルシステムのマウントを自動化できます。
-
-=== dm-cryptの設定 ===
-
-{{Path|/etc/conf.d/dmcrypt}}を編集してストレージ毎に項目を追加します。各内容はファイル内に解説されています。以下は一例であり、どのシステムでも動く内容ではありません。
-
-{{FileBox|filename=/etc/conf.d/dmcrypt|title=2つのストレージを自動で利用する設定例|1=
-# Definition for /dev/mapper/home (for /home)
-target=home
-source=UUID="abcdef12-321a-a324-a88c-cac412befd98"
-key=/etc/keys/home.key
- 
-# Definition for /dev/mapper/local (for /usr/local)
-target=local
-source=UUID="fedcba34-4823-b423-a94c-cadbefda2943"
-key=/etc/keys/local.key
-}}
-
-=== fstabの設定 ===
-
-次に、{{Path|/etc/fstab}}を編集して(復号化された)ファイルシステムを自動的にマウントさせます。まずは復号化されマウントされたファイルシステムのUUIDを確認します:
-
-{{RootCmd|blkid /dev/mapper/home|output=<pre>
-/dev/mapper/home: UUID="4321421a-4321-a6c9-de52-ba6421efab76" TYPE="ext4"
-</pre>}}
-
-次に、{{Path|/etc/fstab}}をこのように編集します:
-
-{{FileBox|filename=/etc/fstab|title=復号化されたファイルシステムの自動マウント|1=
-UUID="4321421a-4321-a6c9-de52-ba6421efab76"   /home        ext4   defaults   0   0
-UUID="bdef2432-3bd1-4ab4-523d-badcf234a342"   /usr/local   ext4   defaults   0   0
-}}
-
-=== ブート時の起動スクリプトの追加 ===
-
-{{Path|dmcrypt}}をブート時の起動サービスに追加する事を忘れないようにしましょう:
-
-{{RootCmd|rc-update add dmcrypt boot}}
-
-
-== Mounting TrueCrypt/tcplay/VeraCrypt volumes ==
-
-{{RootCmd|cryptsetup --type tcrypt open ''container-to-mount'' ''container-name''}}
-
-Replace ''container-to-mount'' with the device file under {{Path|/dev}} or the path to the file you wish to open. Upon successful opening, the plaintext device will appear as {{Path|/dev/mapper/container-name}}, which you can <code>mount</code> like any normal device.
-
-If you are using key files, supply them using the <code>--key-file</code> option, to open a hidden volume, supply the <code>--tcrypt-hidden</code> option and for a partition or whole drive that is encrypted in system mode use the <code>--tcrypt-system</code> option.
-
-When done, <code>unmount</code> the volume, and close the container using the following command:
-
-{{RootCmd|cryptsetup close ''container-name''}}
-
-== さらなる情報 ==
-
-* [[Dm-crypt full disk encryption]] を読むとGentoo Linuxのインストール時に暗号化されたファイルシステムを使用する方法についての情報が補完できます。
-* GitLab上の [https://gitlab.com/cryptsetup/cryptsetup/wikis/FrequentlyAskedQuestions cryptsetup FAQ] は広範囲にわたるよくある質問を網羅しています。
+* [[DM-Crypt LUKS]] on the Gentoo Wiki provides a more elaborate approach on using encrypted file systems for Gentoo Linux installations
 
 
 [[Category:Core system]]
