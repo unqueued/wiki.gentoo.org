@@ -1,61 +1,38 @@
 <languages/>
+
+{{Metadata|abstract=The efibootmgr application interacts with the UEFI firmware on the system, and is a popular tool to manipulate the EFI settings in order to create and manage boot entries that are capable of booting Linux (or other operating systems).}}
+
+The <tt>efibootmgr</tt> application interacts with the UEFI firmware on the system, and is a popular tool to manipulate the EFI settings in order to create and manage boot entries that are capable of booting Linux (or other operating systems).
+
 {{InfoBox stack
-|{{InfoBox github|rhinstaller/efibootmgr|header=true}}
-|{{InfoBox package|sys-boot/efibootmgr}}
-|{{InfoBox odoc|https://github.com/rhboot/efibootmgr/blob/master/README.md|text=README}}
-{{InfoBox manpage|https://linux.die.net/man/8/efibootmgr|text=EFIBOOTMGR(8)|raw=true}}
+|{{InfoBox homepage|https://github.com/vathpela/efibootmgr|header=true}}
 }}
 
-{{Metadata|abstract=efibootmgr は、システム上の UEFI ファームウェアを操作します。Linux (およびそのほかの EFI 対応 OS)の起動を可能にするためのブートエントリを作成したり管理したりするために EFI の設定を操作するツールとして、広く知られています。}}
+== EFIbootmgr is not a boot loader ==
 
-{{c|efibootmgr}} は、[[Article description::UEFIブートエントリを管理するためのツール]]です。
+The {{Package|sys-boot/efibootmgr}} application is not a boot loader. It is a tool that interacts with the EFI firmware of the system, which itself is acting as a boot loader. With the <tt>efibootmgr</tt> application, boot entries can be created, reshuffled and updated.
 
-これは、ブートローダでは'''ありません'''。ブートローダとして動作するのはシステムの EFI ファームウェアそれ自体です。{{c|efibootmgr}}は、これを操作するためのツールです。{{c|efibootmgr}} を用いることで、ブートエントリを作成したり順序を変えたり削除したりすることが可能になります。
+== Configuration ==
 
-== インストール ==
-
-=== カーネル ===
-
-<var>CONFIG_EFI_VARS</var> のサポートが有効になっている必要があります:
-
-{{KernelBox|title=EFI 変数のサポートを有功にする|1=
-Firmware Drivers  --->
-   EFI (Extensible Firmware Interface) Support  --->
-       <*> EFI Variable Support via sysfs
-}}
-
-=== Emerge ===
-
-{{Package|sys-boot/efibootmgr}} には USE フラグがありませんから、ただ単にインストールすればよいです:
+The {{Package|sys-boot/efibootmgr}} application does not require any configuration. All that is needed is to install it.
 
 {{Emerge|sys-boot/efibootmgr}}
 
-== 設定 ==
-
-=== EFI 変数 ===
-
-{{c|efibootmgr}} が正しく動作するには、 EFI 変数ファイルシステムにアクセス可能になっていなければなりません。そのためには、システムが（ファームウェア(BIOS)の MBR モードではなく）EFI モードでブートされている必要があります。そうでないと EFI 変数へのアクセス自体が不可能です。システムが MBR モードになっていたら、再起動して、システムのファームウェアに EFI モードで起動するように指示する必要があります。大概は、ファームウェアの設定オプションを変えたり、システムのブートメニューで EFI ブートエントリを選んだりすることで解決します。
-
-システムが EFI モードに入ったら、以下のコマンドを実行すれば [[Filesystem#Disk_filesystems|efivarfs]] が存在するか調べられます:
+However, in order to successfully use the <tt>efibootmgr</tt> application, the EFI variables file system must be accessible. This requires that the system is already booted with EFI (and not through the BIOS) as otherwise the EFI variables themselves are not accessible.
 
 {{RootCmd|mount {{!}} grep efivars|output=<pre>
-efivarfs on /sys/firmware/efi/efivars type efivarfs (ro,relatime)
+efivarfs on /sys/firmware/efi/efivars type efivarfs (rw,nosuid,nodev,noexec,relatime)
 </pre>}}
 
-{{Path|sysfs}}initスクリプトでro（書き込み禁止）でマウントされました。従って以下のコマンドでrw（読み書き可能）として再マウントする必要があります：
+If it is not mounted yet (it should be mounted through the {{Path|sysfs}} init script), it is possible to manually mount it like so:
 
-<!-- https://github.com/OpenRC/openrc/commit/3fd3bfc76dccc3752f4af949ad4076dab26357fb#diff-8312ad0561ef661716b48d09478362f3R6 を理由に変更されました -->
-{{RootCmd|mount -o remount,rw -t efivarfs efivarfs /sys/firmware/efi/efivars}}
+{{RootCmd|mount -t efivars efivars /sys/firmware/efi/efivars}}
 
-== 前提条件 ==
+== Managing EFI boot entries ==
 
-EFI システムパーティション(ESP)が存在しない場合は作成する必要があります。[[EFI System Partition]] を参照してください。
+=== Listing boot entries ===
 
-== 使い方 ==
-
-=== ブートエントリの一覧表示 ===
-
-現在のブートエントリのリストを表示させるには <code>--verbose (-v)</code> オプションを使用します:
+To list the current boot entries, just use <kbd>efibootmgr</kbd>. Use the <kbd>--verbose (-v)</kbd> option to get some additional information:
 
 {{RootCmd|efibootmgr -v|output=<pre>
 BootCurrent: 0002
@@ -67,43 +44,30 @@ Boot0002* Gentoo        HD(1,800,61800,6d98f360-cb3e-4727-8fed-5ce0c040365d)File
 Boot0003* Hard Drive    BIOS(2,0,00)P0: ST1500DM003-9YN16G
 </pre>}}
 
-=== ブートエントリを作成する ===
+=== Creating a boot entry ===
 
-EFI のブートエントリを作成するには、{{c|efibootmgr}} に対していくつかのオプションを与えます:
+To create an EFI boot entry, a couple of arguments are passed to <tt>efibootmgr</tt>:
 
-* <code>--create (-c)</code> 新しいエントリの作成;
-* <code>--part (-p)</code> [[EFI System Partition|EFI システムパーティション(ESP)]]のあるパーティション番号;
-* <code>--disk (-d)</code> EFI システムパーティション(ESP)のあるディスク名;
-* <code>--label (-L)</code> ブートエントリに使用したいラベル名;
-* <code>--loader (-l)</code> ブートする EFI イメージの置いてあるパス
+* <code>--create (-c)</code> to create a new entry
+* <code>--part (-p)</code> followed by the partition number on which the EFI System Partition is hosted
+* <code>--disk (-d)</code> followed by the disk on which the EFI System Partition is hosted
+* <code>--label (-L)</code> followed by the label to use as the boot entry
+* <code>--loader (-l)</code> followed by the path of the EFI image to boot
 
-{{Important/ja|EFI イメージのパスでは、{{Key|/}}(スラッシュ)ではなく ''{{Key|\}}(バックスラッシュ)を使用しなければなりません''。}}
+{{Important|The path of the EFI image to boot must use {{Key|\}} instead of {{Key|/}} as path separator.}}
 
-例えば:
+For instance:
 
 {{RootCmd|efibootmgr -c -d /dev/sda -p 2 -L "Gentoo" -l "\efi\boot\bootx64.efi"}}
 
-必要に応じて、追加のカーネルをインストールして UEFI ファームウェアに登録しておくことができます。これは、より多くのカーネルをテストしたい場合やもう一つのオペレーションシステムとデュアルブートしたい場合に特に便利です。これらは通常、システムの初期化中の適切な時にキーボードのホットキーを押した後にブート選択ダイアログに表示されます。最後に追加したエントリが常に最も高いブート優先度を得るので、これがデフォルトになります。ホットキーの組み合わせがわからなければ、コンピューターの製造業者の公式ドキュメントを探してみてください。通常、この情報を探すのは難しいことではありません。
+=== Deleting a boot entry ===
 
-=== ブートエントリを削除する ===
+Before deleting an entry, first figure out what ID the entry has.
 
-エントリを削除するにはまず、そのエントリのID番号を見つけなければなりません。
-
-例えば Gentoo のエントリが前記のようであれば（"Boot0002" がID であれば）、{{c|efibootmgr}} に対して <code>--bootnum (-b)</code> でID番号を指定し <code>--delete-bootnum (-B)</code> でエントリの削除を命令します。
+To delete the Gentoo entry as shown above (which has ''Boot0002'' as the identifier), ask <tt>efibootmgr</tt> to delete the entry with id 2, passing the arguments <kbd>--bootnum (-b)</kbd> with the identifier, and <kbd>--delete-bootnum (-B)</kbd> to delete the entry:
 
 {{RootCmd|efibootmgr -b 2 -B}}
 
-== 削除 ==
+== See also ==
 
-=== Unmerge ===
-
-{{Unmerge|sys-boot/efibootmgr}}
-
-== 参考 ==
-
-* {{See also|rEFInd}}
-* [[EFI_stub_kernel|EFI stub kernel]] では、Linux カーネルを EFI から直接ブートする設定方法を説明しています
-* [[Handbook:AMD64/Installation/Bootloader#Alternative_2:_efibootmgr|Alternative 2: efibootmgr]] Gentoo ハンドブックの記事
-
-
-[[Category:UEFI]]
+* [[EFI_stub_kernel|EFI stub kernel]] explains how to configure the Linux kernel to be able to be booted from EFI directly
