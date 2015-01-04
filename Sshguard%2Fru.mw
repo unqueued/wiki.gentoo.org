@@ -1,183 +1,76 @@
 <languages />
 
+
 {{InfoBox stack
-|{{InfoBox homepage|https://www.sshguard.net/|header=true}}
-|{{InfoBox gitweb|https://bitbucket.org/sshguard/sshguard/|raw=true}}
+|{{InfoBox homepage|http://www.sshguard.net/|header=true}}
 |{{InfoBox ohloh}}
 }}
+{{Metadata|abstract=sshguard is an intrusion prevention system which parses server logs, determines malicious activity and then uses the system firewall to block those ip addresses.}}
 
-{{Metadata|abstract=sshguard — это система предотвращения вторжений, которая разбирает логи сервера, определяет подозрительную активность и затем использует системный межсетевой экран, чтобы блокировать IP-адреса злонамеренных подключений.}}
+'''sshguard''' is an intrusion prevention system.  sshguard parses server logs, determines malicious activity, and then bans malicious users via firewall rules.  sshguard is written in C so it does not tax an interprator.
 
-{{c|sshguard}} — [[Article description::это система предотвращения вторжений, которая разбирает логи сервера, определяет подозрительную активность и затем использует системный межсетевой экран, чтобы блокировать IP-адреса злонамеренных подключений]]. sshguard написан на C, поэтому он не нагружает систему.
+== How it works ==
 
-== Как это работает ==
+The {{Package|app-admin/sshguard}} package is a simple daemon which continuously tracks one or more log files. It parses the log events that daemons send out in case of failed login attempts and then blocks any further attempts of those users by updating the system's firewall.
 
-sshguard является простой службой, которая постоянно отслеживает изменения в одном или нескольких файлах лога. Она разбирает события, которые демоны посылают в случае неудавшихся попыток входа в систему, а затем, с помощью обновлений правил межсетевого экрана, блокирует любые дальнейшие попытки от данных подключений.
+Unlike what the name implies, sshguard does not only parse SSH logs. It also supports many mail systems as well as a few FTP ones. A full listing of supported services can be found on the [http://www.sshguard.net sshguard.net website].
 
-Несмотря на название, sshguard разбирает не только логи SSH. Он также поддерживает многие почтовые системы, а также некоторые системы FTP. Полный список поддерживаемых устройств можно найти на [https://www.sshguard.net сайте программы].
+== Configuration ==
 
-== Установка ==
+=== Software ===
 
-=== Emerge ===
-
-Установите {{Package|app-admin/sshguard}}:
+Install {{Package|app-admin/sshguard}}:
 
 {{Emerge|app-admin/sshguard}}
 
-Также удостоверьтесь, что пакет {{Package|net-firewall/iptables}} установлен и используется в качестве системного межсетевого экрана. Во время написания данной статьи, sshguard еще не поддерживал {{Package|net-firewall/nftables}}.
+Also make sure that {{Package|net-firewall/iptables}} is installed and used as the system firewall. At the time of writing, sshguard does not support {{Package|net-firewall/nftables}} yet.
 
 {{Emerge|net-firewall/iptables}}
 
-Более детальная информация по использованию и настройке IPtable может быть найдена в соответствующей [[Iptables|статье]].
+More information about using and configuring [[Iptables|iptables]] can also be found on the Gentoo wiki.
 
-== Конфигурация ==
+=== Preparing the firewall ===
 
-=== Подготовка межсетевого экрана ===
+When sshguard blocks any malicious users (by blocking their IP addresses), it will use the <tt>sshguard</tt> chain.
 
-Когда {{c|sshguard}} блокирует какого-либо злонамеренного пользователя (блокируя его IP-адрес), он будет использовать цепочку {{c|sshguard}}.
+Prepare the chain, and make sure it is also triggered when new incoming connections are detected:
 
-Подготовьте цепочку и удостоверьтесь, что она вызывается при обнаружении новых входящих соединений:
+{{RootCmd|iptables -N sshguard
+|iptables -A INPUT -j sshguard}}
 
-{{RootCmd
-|iptables -N sshguard
-|iptables -A INPUT -j sshguard
+=== Watching logfiles ===
+
+The basic idea behind sshguard is that the administrator passes on the log file(s) to watch as options to the application - there is no native sshguard configuration file.
+
+On Gentoo, the options can be best configured in the {{Path|/etc/conf.d/sshguard}} file:
+
+{{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to read /var/log/messages|lang=bash|1=
+PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
+WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
+THRESHOLD="10"    # How many problematic attempts trigger a block
+  
+LOGFILES="-l /var/log/messages"                      # Watch this file...
+LOGFILES="${SSHGUARD_LOGFILES} -l /var/log/auth.log" # And this one
+  
+SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
 }}
 
-=== Просмотр лог-файлов ===
+Make sure that the log files are accessible for the runtime user that sshguard uses.
 
-Основная идея sshguard в том, что администратор указывает приложению отслеживаемые файлы логов через параметры командной строки. Как такового файла конфигурации для sshguard не существует.
+=== Service ===
 
-В Gentoo параметры лучше всего определять в файле {{Path|/etc/sshguard.conf}}:
+Have sshguard be started by default by adding it to the default runlevel, and then start it:
 
-{{FileBox|filename=/etc/sshguard.conf|title=Configuring sshguard to read /var/log/messages and /var/log/auth.log|lang=bash|1=
-# Full path to backend executable (required, no default)
-BACKEND="/usr/libexec/sshg-fw-iptables" 
+{{RootCmd|rc-update add sshguard default
+|rc-service sshguard start}}
 
-# Space-separated list of log files to monitor. (optional, no default)
-FILES="/var/log/messages /var/log/auth.log" 
+== See also ==
 
-# How many problematic attempts trigger a block
-THRESHOLD=10
-# Blocks last at least 24 hours (60480 seconds)
-BLOCKTIME=60480
-# Track IP addresses for 24 hours (60480 seconds)
-DETECTION_TIME=60480
+* [[Iptables]], for installing and configuring <tt>iptables</tt> on Gentoo
 
-# IPv6 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 128)
-IPV6_SUBNET=64
-# IPv4 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 32)
-IPV4_SUBNET=24
+== External resources ==
 
-# Full path to PID file (optional, no default)
-PID_FILE=/run/sshguard.pid
-}}
-
-Убедитесь в том, что файлы логов доступны пользователю, от имени которого работает sshguard.
-
-=== Сервисы ===
-
-==== OpenRC ====
-
-Чтобы sshguard запускался при старте системы, добавьте его в уровень запуска default, после чего запустите его:
-
-{{RootCmd
-|rc-update add sshguard default
-|rc-service sshguard start
-}}
-
-=== Занесение хостов в черный список (blacklist) ===
-
-With the blacklisting option after a number of abuses the IP address of the attacker or a IP subnet will be blocked permanently. The blacklist will be loaded at each startup and extended with new entries during operation. {{c|sshguard}} inserts a new address after it exceeded a threshold of abuses.
-
-Адреса из черного списка никогда не выходят из него (не разрешаются) снова.
-
-Чтобы задействовать черный список, создайте соответствующий каталог и файл:
-
-{{RootCmd
-|mkdir -p /var/lib/sshguard
-|touch /var/lib/sshguard/blacklist.db
-}}
-
-While defining a blacklist it is important to exclude trusted IP networks and hosts in a whitelist.
-
-To enable whitelisting, create an appropriate directory and file:
-
-{{RootCmd
-|mkdir -p /etc/sshguard
-|touch /etc/sshguard/whitelist
-}}
-
-The whitelist has to include the loopback interface, and should have at least 1 IP trusted network f.e. 192.0.2.0/24. 
-
-{{FileBox|filename=/etc/sshguard/whitelist|title=Добавление в белый список доверенных сетей|lang=bash|1=
-127.0.0.0/8
-::1/128
-192.0.2.0/24
-}}
-
-{{Note|The 192.0.2.0/24 entry has to be adjusted to fit the own needs.}}
-
-Add the <var>BLACKLIST_FILE</var> and <var>WHITELIST_FILE</var> file to the configuration:
-
-{{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to blacklist abusers|lang=bash|1=
-BACKEND="/usr/libexec/sshg-fw-iptables"
-FILES="/var/log/auth.log"
-
-THRESHOLD=10
-BLOCK_TIME=43200
-DETECTION_TIME=604800
-
-IPV4_SUBNET=24
-IPV6_SUBNET=64
-
-PID_FILE=/run/sshguard.pid
-
-# Add following lines
-BLACKLIST_FILE=10:/var/lib/sshguard/blacklist.db
-WHITELIST_FILE=/etc/sshguard/whitelist
-}}
-
-Перезапустите {{c|sshguard}}, чтобы изменения вступили в силу:
-
-{{RootCmd
-|/etc/init.d/sshguard restart
-}}
-
-== Устранение проблем ==
-
-=== File '/var/log/auth.log' vanished while adding! ===
-
-При запуске, sshguard показывает следующую ошибку:
-
-{{CodeBox|title=Сообщение об ошибке при попытке добавить монитор для /var/log/auth.log|1=
-Sep 23 03:39:11 foo.bar.com sshguard[64933]: File '/var/log/auth.log' vanished while adding!
-}}
-
-Такая ошибка (путь до файл может быть различным) происходит, когда целевой файл не доступен в системе. Убедитесь, что он создан, или измените конфигурацию sshguard так, чтобы не следить за этим файлом.
-
-На системах с OpenRC и syslog-ng, следующего дополнения к {{Path|syslog-ng.conf}} может хватить:
-
-{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|title=создание файла auth.log|lang=bash|1=
-log { source(src); destination(messages); };
-log { source(src); destination(console_all); };
- 
-destination authlog {file("/var/log/auth.log"); };
-filter f_auth { facility(auth); };
-filter f_authpriv { facility(auth, authpriv); };
-log { source(src);  filter(f_authpriv);  destination(authlog);  };
-}}
-
-Перезагрузите конфигурацию, чтобы изменения вступили в силу:
-
-{{RootCmd|rc-service syslog-ng reload}}
-
-== Смотрите также ==
-
-* [[Iptables]] — статья об установке и настройке {{c|iptables}} в Gentoo
-
-== Внешние ресурсы ==
-
-[http://www.sshguard.net/docs/ Документация по sshguard] дает всю необходимую информацию для дальнейшей настройки приложения.
+The [http://www.sshguard.net/docs/ sshguard documentation] provides all the information needed to further tune the application.
 
 
 [[Category:Security]]
