@@ -1,224 +1,236 @@
 <languages />
 
 
-{{Metadata|abstract=이 글은 젠투/SPARC netboot 설치 이미지 활용을 위해 네트워크 부팅 서버 설정을 안내합니다.}}
+{{Metadata|abstract=Guide for setting up a netboot server for use with the Gentoo/SPARC netboot installation images.}}
 
-이 글은 젠투/SPARC netboot 설치 이미지 활용을 위해 네트워크 부팅 서버 설정을 안내합니다.
+Guide for setting up a netboot server for use with the Gentoo/SPARC netboot installation images.
 
 == 도입부 ==
 
-{{Note|이 안내서는 현재 상당히 SPARC 중심적이며 기존의 젠투 리눅스 머신에 네트워크 부팅 서버를 설정하려는 여러분들을 위해 준비한 문서입니다.}}
+{{Note|This howto is currently very SPARC-centric and expecting that you will be setting up your netboot server on an existing Gentoo Linux machine.}}
+This document will describe how to setup a network booting environment for a Sun Microsystems SPARC or UltraSPARC based computer. The document assumes that you have an existing Gentoo Linux computer available to act as the netboot server. 
 
-이 문서는 썬 마이크로 시스템즈 SPARC 또는 울트라 스팍 기반 컴퓨터용 네트워크 부팅 환경 설정 방법을 설명합니다. 이 문서는 여러분이 네트워크 부팅 서버로 가동할 젠투 리눅스 컴퓨터를 이미 갖추고 있다고 가정합니다. 
+Both the netboot server and netboot client will need to be on the same network subnet, as the ARP protocol is typically not forwarded across different network subnets. 
 
-넷부트 서버와 클라이언트는 동일한 서브넷에 있어야 하는데 ARP 프로토콜이 보통 다른 네트워크 서브넷으로 전달하지 못하기 때문입니다. 
+A generic overview of what happens during the netboot process is as follows; 
 
-네트워크 부팅 과정에서 일어나는 일의 대략적인 내용은 다음과 같습니다:
+# Client machine sends out a reverse ARP (RARP) request to get an IP address
+# A server machine returns a response to the client with the IP address
+# The client then attempts to download a boot image from the RARP server using the TFTP protocol
+# Once the image is downloaded, the netboot client then boots the image
 
-# 클라이언트 머신은 IP 주소를 요청하기 위해 역방향 ARP(RARP) 요청을 보냅니다.
-# 서버 머신은 IP 주소를 클라이언트에 응답으로 반환합니다.
-# 클라이언트에서 TFTP 프로토콜을 이용하여 RARP 서버에서 부팅 이미지 다운로드를 시도합니다.
-# 이미지를 다운로드하고 나면 네트워크 부팅 클라이언트에서 이미지로 부팅합니다.
+Based on this overview, we will need to install software for a reverse ARP daemon and a TFTP daemon. 
 
-이 개요 내용에 따라 역방향 ARP 데몬과 TFTP 데몬 프로그램을 설치해야합니다. 
+== Software Installation And Configuration ==
 
-== 프로그램 설치 및 설정 ==
+=== The Reverse ARP Daemon ===
 
-=== 역방향 ARP 데몬 ===
+A reverse ARP daemon is already installed on your system; it's part of the <code>net-misc/iputils</code> package 
 
-역방향 ARP 데몬은 이미 시스템에 설치되어 있습니다. {{Package|net-misc/iputils}} 꾸러미의 일부입니다.
+'''Setting up common rarpd elements''' : {{Path|/etc/ethers}}  
 
-'''rarpd 일반 요소 설정''' : {{Path|/etc/ethers}}  
+You will need to setup the {{Path|/etc/ethers}} file. This file indicates which hosts <code>rarpd</code> should respond to when a request is seen, and what address to reply with. 
 
-{{Path|/etc/ethers}} 파일을 설정해야합니다. 이 파일에는 어떤 호스트가 요청했을 경우 {{c|rarpd}}에서 응답해야 하는지, 어떤 주소로 응답해야 하는지 나타냅니다. 
+The format of {{Path|/etc/ethers}} is the MAC address of the NIC the machine will be netbooting and its hostname. Whitespace delimits the MAC address from the hostname, and each entry should have its own line. The following example is for a host named sparc-netboot.gentoo.org: 
 
-{{Path|/etc/ethers}} 형식읜 NIC의 MAC 주소이며 머신은 네트워크 부팅을 수행하고 이 언급한 호스트 이름을 부여받습니다. 공백은 MAC 주소를 호스트 이름과 구분하며 각 항목은 한 줄에 기입합니다. 다음은 sparc-netboot.gentoo.org 이름을 가진 호스트에 대한 예제입니다: 
-
-{{FileBox|filename=/etc/ethers|1=
+{{File|/etc/ethers||<pre>
 08:00:20:77:1f:3e  sparc-netboot.gentoo.org
+</pre>
 }}
 
-{{Note|16진수가 0으로 시작하거나 0인 경우 첫번째 0은 생략할 수 있습니다(예를 들면 08:00:20:77:1f:3e 은 8:0:20:77:1f:3e이 됩니다).}}
+{{Note|If a given hexadecimal number in the MAC address starts or is 0, you can chose to omit the first 0 (i.e. 08:00:20:77:1f:3e becomes 8:0:20:77:1f:3e).}}
+If you desire to add additional hosts to {{Path|/etc/ethers}} , you do not need to restart the <code>rarpd</code> services as the file is checked each time a request is received. 
 
-{{Path|/etc/ethers}}에 호스트를 추가하려 한다면, 요청을 받을 때마다 파일을 점검하므로 {{c|rarpd}} 서비스를 다시 시작할 필요가 없습니다. 
+'''Resolving hostnames''' : {{Path|/etc/hosts}}  
 
-'''호스트 이름 해석''' : {{Path|/etc/hosts}}  
+Since each entry in {{Path|/etc/ethers}} has a hostname, the netboot server needs to be able to resolve the hostname into its IP address. This can be done two ways, {{Path|/etc/hosts}} or the nameserver the netboot server uses. 
 
-{{Path|/etc/ethers}}에 있는 각 항목에 호스트 이름이 붙어있다면 네트워크 부팅 서버에서는 각 호스트 이름을 IP 주소로 해석할 수 있어야합니다. 두가지 방법으로 해결할 수 있는데, {{Path|/etc/hosts}} 파일을 쓰거나 네트워크 부팅 서버에서 사용하는 이름 서버를 활용하는 방법입니다. 
+An {{Path|/etc/hosts}} entry for resolving a hostname will look very similar to the one that probably exists from when you installed Gentoo on the netboot server. For our example host, sparc-netboot.gentoo.org, we'll assume that it has an IP address of 10.0.1.15. So the {{Path|/etc/hosts}} entry would look like; 
 
-호스트 이름을 해석하는 {{Path|/etc/hosts}} 항목은 네트워크 부팅 서버에 젠투를 설치했을때 이미 본 것과 매우 유사해보입니다. 우리 예제에서는 sparc-netboot.gentoo.org 호스트의 IP 주소가 10.0.1.15라고 가정하며 {{Path|/etc/hosts}} 항목의 모습은 다음과 같습니다:
 
-{{FileBox|filename=/etc/hosts|1=
+{{File|/etc/hosts||<pre>
 10.0.1.15  sparc-netboot.gentoo.org
+</pre>
 }}
 
-{{Note|환경에 따라 네트워크 관리자에게 적당한 IP 주소 또는 네트워크 부팅을 처리할 호스트의 주소를 달라고 요청해야 할 수도 있습니다.}}
 
-이름 서버를 활용한다면 DNS 서버 관리자는 호스트 이름에 대한 레코드를 등록해야합니다. sparc-netboot.gentoo.org의 경우 적당한 IP 주소를 가리키려면 DNS 서버 관리자에게 문의하거나 DNS 서버의 DNS 프로그램 문서를 찾아 엔트리에 추가하는 방법을 알아보십시오. 
+{{Note|Depending on the environment, you may need to consult your network administrator to get an appropriate IP address or addresses to netboot the host with.}}
 
-{{Note|{{Path|/etc/hosts}} 와 이름 서버 둘 다 호스트에 대한 항목을 네트워크 부팅 처리한다면 {{Path|/etc/hosts}} 을 먼저 활용합니다({{Path|/etc/nsswitch.conf}}에 나타난 승인 순서는 기본으로, 바뀌지 않습니다).}}
+If you use a nameserver, then the DNS server administrator will need to add a record for the hostname, in our example sparc-netboot.gentoo.org, to point to the appropriate IP address. Please consult your DNS server administrator and/or the documentation for the DNS server's DNS software for how to add the entry. 
 
-'''rarpd 설정''' 
+{{Note|If both {{Path|/etc/hosts}} and the nameserver have an entry for the host to be netbooted, {{Path|/etc/hosts}} will be used first (granted the order of {{Path|/etc/nsswitch.conf}} has not been changed from the default).}}
 
-우선 {{c|rarpd}}에 사용할 옵션을 결정해야합니다. 우리가 다룰 옵션 외에 다른 옵션도 있지만, {{c|rarpd}} 에 대한 {{Path|init.d}} 스크립트가 현재 없으면 {{c|rarpd}} 서비스를 부팅할 때마다 활성화하려는 경우 {{Path|/etc/conf.d/local.start}}에 추가해야 하기 때문에, 여기서 다룰 옵션으로 시작합니다. 예제 설정 항목은 다음과 같습니다: 
+'''Setting up rarpd''' 
 
-{{FileBox|filename=/etc/conf.d/local.start|1=
+First, we will need to determine the options to use for <code>rarpd</code> . While there are more options than we'll cover here, these options should get you started As there is currently no {{Path|init.d}} script for <code>rarpd</code> , an entry will need to be added to {{Path|/etc/conf.d/local.start}} if you want to enable <code>rarpd</code> services at boot time. A sample entry is as follows: 
+
+{{File|/etc/conf.d/local.start||<pre>
 /usr/sbin/rarpd -v -e eth0
+</pre>
 }}
 
-위의  {{c|rarpd}} 옵션에 대한 설명은 다음과 같습니다(맨 페이지에서 가져온 그대로입니다): 
+An explanation of the above <code>rarpd</code> options (as taken from the man page): 
 
-* <code>-v</code> 자세하게 뿌림.
-* <code>-e</code> 부팅 이미지가 있는지 여부는 확인하지 말고 {{Path|/etc/ethers}} 데이터베이스와 DNS를 활용하여 MAC 주소를 유효한 IP 주소로 변환할 경우에 응답할 것.
-* eth0은 {{c|rarpd}}에서 바인딩해야 할 인더페이스를 나타냄.
+* <code>-v</code> Be verbose
+*  <code>-e</code> Do not check for the presence of a boot image, reply if MAC address resolves to a valid IP address using {{Path|/etc/ethers}} database and DNS
+* eth0 represents the interface <code>rarpd</code> should bind to
 
-더 많은 옵션은 {{c|man 8 rarpd}}를 참고하십시오.
+For more options, consult <code>man 8 rarpd</code> . 
 
-=== tftpd 데몬 ===
+=== The tftpd Daemon ===
 
-TFTP 데몬에 대해 두 가지 선택지가 있는데, 하나는 {{Package|net-ftp/atftp}}, 다른 하나는 {{Package|net-ftp/tftp-hpa}}입니다. 제대로 된 기능을 사용하려면 이 중 하나를 설치해야합니다. 
+Here there are two options for a TFTP daemon, <code>net-ftp/atftp</code> and <code>net-ftp/tftp-hpa</code> . You only need to install one of the TFTP daemons for proper operation. 
 
-'''tftpd 일반 요소 설정''' 
+'''Setting up common tftpd elements''' 
 
-각 TFTP 데몬은 tftp 클라이언트에 내용물을 전달할 디렉터리가 필요합니다. 우리가 이 설명서에서 언급한 목적으로 사용할 디렉터리는 {{Path|/tftpboot}} 입니다. 이 디렉터리는 클라이언트 입장에서 요청에 대한 응답을 받을 때 루트 ({{Path|/}}) 디렉터리처럼 나타납니다. 또한 TFTP 데몬을 ''nobody'' 사용자 및 그룹으로 실행하도록 설정하겠습니다. 
+Each TFTP daemon will need a directory from which to serve files to tftp clients. The directory we will use for this howto will be {{Path|/tftpboot}} . This will appear as the root ( {{Path|/}} ) directory to the clients when requests are received. Additionally, we'll setup the system to run the TFTP daemon with the user and group <code>nobody</code> . 
 
-현재 없는 디렉터리를 선택했다면 {{c|mkdir}} 명령으로 디렉터리를 만들어야 합니다. {{Path|/tftpboot}} 디렉터리를 만드는 예제 명령은: 
+If the directory you have chosen does not currently exist, it will need to be created with the <code>mkdir</code> command. The command for the example {{Path|/tftpboot}} is: 
 
 {{RootCmd|/bin/mkdir /tftpboot}}
 
-다음 {{Path|/tftpboot}}의 소유주를 바꾸어 소유 사용자와 소유 그룹을 ''nobody''로 설정해야합니다: 
+Then we will need to change the owner of {{Path|/tftpboot}} so that it is owned by user nobody and group <code>nobody</code> : 
 
 {{RootCmd|chown nobody:nobody /tftpboot}}
 
-=== atftp 데몬 ===
 
-우선 다음과 같이 {{Package|net-ftp/atftp}} 꾸러미를 설치하십시오; 
+=== The atftp Daemon ===
 
-{{Emerge|net-ftp/atftp}}
+First, install the <code>atftp</code> package as follows; 
 
-atftp를 설치하고 나면 설정해야합니다. tftpd 서비스를 부팅할 때 시작하려 한다면 {{Path|init.d}}, {{Path|inetd}}, {{Path|xinetd}} 자체에 {{Path|atftp}}가 없으니 추가해야합니다. tftpd 서비스를 관리할 때 {{Path|inetd}} 또는 {{Path|xinetd}}를 이용하려 한다면 관련 맨 페이지를 참조하십시오. 
+{{RootCmd|emerge atftp}}
 
-하단은 {{Path|/etc/conf.d/local.start}}에 있는 atftpd 항목 예제입니다. 
+After the <code>atftp</code> package has been installed, it will need to be configured. If tftpd services are desired at boot time, an entry to {{Path|/etc/conf.d/local.start}} will need to be added as <code>atftp</code> has no {{Path|init.d}} , <code>inetd</code> or <code>xinetd</code> scripts of its own. If you want to use <code>inetd</code> or <code>xinetd</code> for controlling the tftpd service, please see their respective man pages. 
 
-{{FileBox|filename=/etc/conf.d/local.start|1=
+Below is an example entry for <code>atftpd</code> in {{Path|/etc/conf.d/local.start}} . 
+
+{{File|/etc/conf.d/local.start||<pre>
 /usr/sbin/in.tftpd -v --daemon /tftpboot
+</pre>
 }}
 
-위에 대한 설명은 다음과 같습니다(맨 페이지에서 가져온 그대로입니다): 
+An explanation of the above options (as taken from the man page); 
 
-*  <code>-v</code> 는 로깅 수준을 설정하거나 끌어올립니다. 인자를 붙이지 않으면 현지 값을 1로 증가합니다. 기본은 LOG_NOTICE입니다. 로그 레벨 옵션은 syslog(3)을 참고하십시오 현재 값 범위는 0 (LOG_EMERG) 부터 7 (LOG_DEBUG)까지입니다.
-* <code>--daemon</code>은 데몬으로 실행하도록 하는 옵션입니다. atftpd를 inetd 기반으로 실행하는 경우에는 이 옵션을 사용하지 마십시오.
+*  <code>-v</code> Increase or set the logging level. No args will increase by one the current value. Default is LOG_NOTICE, see syslog(3) for log level. Current value range from 0 (LOG_EMERG) to 7 (LOG_DEBUG)
+*  <code>--daemon</code> Run as a daemon. Do not use this option if atftpd is started by inetd.
 
-더 많은 옵션은 {{c|man 8 atftpd}}를 참고하십시오. 
+For more options, consult <code>man 8 atftpd</code> . 
 
-=== tftp-hpa 데몬 ===
+=== The tftp-hpa Daemon ===
 
-우선 {{Package|net-ftp/tftp-hpa}} 꾸러미를 설치하십시오: 
+First, install the <code>tftp-hpa</code> package: 
 
-{{Emerge|net-ftp/tftp-hpa}}
+{{RootCmd|emerge tftp-hpa}}
 
-tftp-hpa는 {{Path|/etc/init.d}} 스크립트와 관련 {{Path|/etc/conf.d}}  설정 파일이 딸려옵니다. {{Path|/etc/conf.d/in.tftpd}}에서 <var>INTFTPD_PATH</var> 변수와 <var>INTFTP_OPTS</var> 변수 값이 아래와 일치하는지 확인하십시오: 
+<code>tftp-hpa</code> comes with an {{Path|init.d}} and the accompanying {{Path|conf.d}} configuration file. Check to make sure that INTFTPD_PATH and INTFTP_OPTS in {{Path|/etc/conf.d/in.tftpd}} match those below: 
 
-{{FileBox|filename=/etc/conf.d/in.tftpd|1=
+{{File|/etc/conf.d/in.tftpd||<pre>
 INTFTPD_PATH="/tftpboot"
 INTFTPD_OPTS="-s -v -l ${INTFTPD_PATH}"
+</pre>
 }}
 
-TFTP 데몬은 {{Path|init.d}} 스크립트로 시작할 수 있습니다: 
+The TFTP daemon can then be started via the {{Path|init.d}} script: 
 
 {{RootCmd|/etc/init.d/in.tftpd start}}
 
-더 많은 옵션은 {{c|man 8 tftpd}}를 참고하십시오. 
+For more options, consult <code>man 8 tftpd</code> . 
 
-== 클라이언트에서 활용할 tftpboot 이미지 준비 ==
+== Preparing a tftpboot image for use by a client ==
 
-네트워크 부팅에 사용할 이미지를 가지고 있는지 확인하십시오. 적당한 이미지를 받을[https://www.gentoo.org/downloads/mirrors/ 로컬] 젠투 [http://distfiles.gentoo.org/experimental/sparc/tftpboot/sparc64/ 배포 파일 미러]를 확인하십시오. {{Path|gentoo-sparc64-20100128.tftpboot}} 이미지를 활용하여 부팅해보겠습니다. 
+Make sure you have an image you want to use for netbooting. Please check your [http://www.gentoo.org//main/en/mirrors.xml local] Gentoo [http://distfiles.gentoo.org/experimental/sparc/tftpboot/sparc64/ distfiles mirror] for the appropriate image. We'll assume you are planning to boot using the {{Path|gentoo-sparc64-20100128.tftpboot}} image. 
 
-이미지를 받았으면 {{Path|/tftpboot}}에 복사하십시오: 
+Once you have an image, copy the image into {{Path|/tftpboot}} : 
 
 {{RootCmd|cp gentoo-sparc64-20100128.tftpboot /tftpboot
 |chmod 644 /tftpboot/gentoo-sparc64-20100128.tftpboot}}
 
-이제 클라이언트에서 TFTP에 네트워크 부팅을 요청할 때, 현재 IP 주소를 16진수로 나타낸, 그리고 {{Path|.ARCH}} 플랫폼 이름이 붙은 파일을 찾습니다. 16진수는 ''대문자''로 사용하십시오. 
+Now, when the netboot client makes a TFTP request, it looks for a file that is the hexadecimal number of its current IP address, and on some platforms an {{Path|.ARCH}} suffix. The hexadecimal number should use ''capital'' characters. 
 
-여기 예제에서 10.0.1.15 IP 주소 대신 동일한 16진수 표기를 살펴보도록 하겠습니다: 
+So for our example IP address, 10.0.1.15, let's look at its hexadecimal equivalent: 
 
 {{Cmd|printf "%.2X%.2X%.2X%.2X\n" 10 0 1 15}}
 
-{{CodeBox|title=IP 주소 예제|1=
+{{Code|Example IP address|<pre>
 decimal       10  0   1   15
 hexadecimal   0A  00  01  0F
+</pre>
 }}
 
-네트워크 부팅 클라이언트의 예제에서 tftp 부팅을 진행할 때 {{Path|0A00010F}} 파일을 찾을 것입니다. 
+So for the example netboot client, it would look for a file named {{Path|0A00010F}} when it tftpboots. 
 
-정말 (저처럼) 엄청나게 귀찮고 게으르다면 네트워크 부팅 서버 로그로부터 클라이언트가 찾고자 하는 파일 이름을 찾을 목적으로 네트워크 부팅을 처리할 수 있습니다. 
+Iif you are really, really lazy (like me), you can netboot the host to get the filename the client is looking for from the netboot server logs. 
 
-{{c|rarpd}}와 여러분이 선택한 TFTP 데몬이 현재 동작중인지 확인하시고 [[#.ED.81.B4.EB.9D.BC.EC.9D.B4.EC.96.B8.ED.8A.B8_.EB.84.B7.EB.B6.80.ED.8C.85|클라이언트 넷부팅]]에 설명한 대로 호스트를 통해 부팅하십시오. 
+Make sure that both the <code>rarpd</code> and TFTP daemon you've chosen are currently running, then boot the host as described below in [[#netbootingclient]] . 
 
-boot net 명령을 실행하고 나면 클라이언트가 멈춘것 처럼 보일 것입니다. 이때 네트워크 부팅 서버에서 <code>in.tftpd</code>에 대한 시스템 로그를 살펴보십시오. 
+The client will appear to hang after the boot net command is issued. Then on the netboot server, check the system logs for an entry for <code>in.tftpd</code> . 
 
-{{c|sysklogd}} 와 {{c|tftp-hpa}}가 실행중인 네트워크 부팅 서버에서의 로그 항목 예제는 다음과 같습니다: 
+An example entry from a netboot server running <code>sysklogd</code> and <code>tftp-hpa</code> looks like: 
 
-{{CodeBox|title=netboot 서버의 기록 항목|1=
+{{Code|Log entry for netboot server|<pre>
 Jan  3 22:48:59 stargazer in.tftpd[8368]: RRQ from 10.0.1.15 filename 0A00010F
+</pre>
 }}
 
-위의 경우 로그 항목에서 나타난 ''filename'' 다음의 파일 이름은 {{Path|0A00010F}} 입니다. 
+The filename is shown above after "filename" in the log entry, which in this case is {{Path|0A00010F}} . 
 
-위의 방법을 통해 어떤 네트워크 부팅 이미지를 사용하는지 찾아보았고, 여러 대의 머신에서 동일한 네트워크 부팅 이미지를 사용할 수 있도록, 16진수 값을 이용하여 파일에 소프트 링크를 걸어둘 수 있습니다. sparc64 예제 호스트와 {{Path|gentoo-sparc64-20100128.tftpboot}}를 활용하여 소프트 링크를 만들려면 다음 명령을 사용하십시오: 
+As a way to keep track of what netboot image you are using, and to allow multiple machines to use the same netboot image, you can use a soft link to create the file with the hexadecimal value. To create this using our sample sparc64 host and the {{Path|gentoo-sparc64-20100128.tftpboot}} , use the following command: 
 
 {{RootCmd|/bin/ln -s /tftpboot/gentoo-sparc64-20100128.tftpboot /tftpboot/0A00010F}}
 
-이제 네트워크 부팅 준비가 다 되었습니다! 
+Now everything should be set for netbooting! 
 
-== 클라이언트 넷부팅 ==
+== Netbooting the client ==
 
-SPARC의 OpenBoot PROM(OBP)에서 다음 명령을 입력하십시오: 
+From OpenBoot PROM (OBP) on the SPARC, enter the command; 
 
 {{Cmd|boot net|prompt=ok }}
 
-이런 머신에서 다른 방법이 있다면: 
+Other methods for certain machines are: 
 
 {{Cmd|boot net-tpe|prompt=ok }}
 
-{{Note|시스템을 부팅할 때 OBP가 나타나지 않는다면, 시스템에서 OS로 부팅하기 전에  {{Key|Stop}} + {{Key|A}} 키를 누르거나, 직렬 콘솔로 중단 시그널을 보내야합니다. 만약 시스템에서 OS를 찾지 못한다면, 네트워크 인터페이스를 통해 (우리가 원하는대로) 부팅을 시도하거나 OBP 프롬프트를 띄워야합니다.}}
+{{Note|If your system doesn't present you with an OBP at boot time, you will either need to press the Stop and A key, or send a break signal via serial console before the system boots an OS. If your system cannot find an OS, it should either try to boot via the network interface (which is what we want), or leave you at an OBP prompt.}}
 
-이 조치를 통해 네트워크 부팅 과정을 초기홯바니다. 16진수 숫자를 일관되게 바꿨을 때 바꾼 결과가 나타나야 합니다. 이미지 불러오기가 끝나면 커널을 취하고 OS 부팅 과정을 시작합니다. sparc64 설치 이미지를 활용하는 경우 어떤 설치 과정을 시작할 수 있는지 나타난 쉘 프롬프트 상태에서 대기합니다. 
+This will initiate the networking booting process. A constantly changing string of hexadecimal digits should appear. When the image has finished loading, the kernel will take over and start the OS booting process. In the case of our sparc64 install image, you will be left at a shell prompt from which you can begin the install process. 
 
-== 문제 해결 ==
+== Troubleshooting ==
 
-'''필수 프로그램 빌드''' 
+'''Building the prerequisite software''' 
 
-네트워크 부팅 서버가 젠투 리눅스 시스템이고 rarpd와 tftpd 꾸러미를 설치한 다음에 문제가 발생했다면 [http://forums.gentoo.org 젠투 포럼]과 [http://bugs.gentoo.org 젠투 버그질라]에서 이미 다른 사람이 발견한 문제인지 확인하십시오. 만약 그렇지않거나 발견한 해결책이 도움이 되지 않는다면 새 문제점 보고서를 작성하십시오. 
+If the netboot server is a Gentoo Linux system and experiences problems after installing the rarpd and tftpd packages, please search the [http://forums.gentoo.org Gentoo Forums] and [http://bugs.gentoo.org Gentoo Bugzilla] to see if this problem has been encountered by anyone else. If it has not, or the solutions found do not work, then please open a new bug. 
 
-'''boot net 명령을 실행했는데 멈춰있는 것 같네요.''' 
+'''I've issued the boot net command but it appears to hang.''' 
 
-불러올 파일이 tftpboot 서버에 없는 것 같습니다. SPARC 시스템에서는 다음처럼 나타날수도 있습니다: 
+This is presumably because the file your system is trying to load from the tftpboot server is not available. On a SPARC system, you would probably see the following: 
 
-{{CodeBox|title=대기 상태에 걸린 부팅 과정|1=
+{{Code|Booting appears to hang|<pre>
 Rebooting with command: boot
 Boot device: net  File and args:
+</pre>
 }}
 
-클라이언트가 필요로 하는 파일이 {{Path|/tftpboot}}에 있는지 다시 확인하십시오. 시스템 로그를 살펴보고 클라이언트가 요청하는 파일 이름을 확인할 수 있습니다. 또한 이 파일이 있으면 클라이언트에서는 불러오려합니다. 때로는 파일이 원래 빠져있을 경우 파일 다운로드 메시지가 뜬 이후 멈춥니다. 이 문제를 해결하려면 OBP 프롬프트로 돌아가서 ''boot net'' 명령을 다시 실행하십시오. 그러면 호스트에서 tftpboot 이미지 다운로드를 시작하고 OS를 부팅합니다. 
+Double check that the file the client needs does exist in {{Path|/tftpboot}} . You can confirm the filename it is requesting by looking in the system logs. Also, once this file exists, the client will try to load it. Sometimes, when the file is missing originally, it will freeze downloading the file once it appears. To resolve this, just get back to an OBP prompt, and issue the "boot net" command again. The host should then start downloading the tftpboot image and boot the OS. 
 
-'''네트워크 부팅을 하려는데요, 항상 "Timeout waiting for ARP/RARP packet" 메시지가 나타나네요.''' 
+'''I'm trying to netboot, but all I see are "Timeout waiting for ARP/RARP packet" messages.''' 
 
-몇가지 다른 문제 때문에 일어날 수 있는 문제입니다:
+This could be due to a few different problems; 
 
-# {{Path|/etc/ethers}} 에 질문을 해결해줄 항목이 있는지 확이하십시오. MAC 주소가 잘못됐거나 네트워크 부팅 서버에서 클라이언트의 호스트 이름을 해석할 수 없다면 필요한 정보로 응답할 수 없습니다.
-# 네트워크 부팅 서버와 클라이언트가 자유롭게 RARP 트래픽을 처리할 수 있도록 연결했는지 네트워크 허브 또는 스위치를 확인하십시오. 만약 클라이언트 요청이 서버에 도달하지 않거나 그 반대의 경우라면, 호스트는 그 다음 동작을 계속 진행할 수 없습니다.
-# RARPD 응답이 없는건 어떤 서비스도 대기중이 아니기 때문입니다. {{c|rarpd}} 서비스를 띄워놓았고 동작중인지 확인하십시오.
-# 클라이언트의 NIC가 네트워크 허브 또는 스위치에 연결한 것 같지 않습니다. NIC 및 네트워크 허브 또는 스위치의 포트에 불이 들어왔는지 확인하십시오. 불이 들어와있으면 OBP에서 {{c|printenv tpe-link-test?}} 명령을 내려 tpe-link-test? 의 설정 값을 확인하십시오. {{Path|tpe-link-test? false true}}와 같은 결과가 떠야합니다. 첫번째 내용은 매개변수 이름, 두번째 내용은 매개변수 현재 값, 세번째 내용은 매개변수의 기본값을 나타냅니다. 위 예제에서 현재 값이 false로 되어 있음을 확인할 수 있으며, 클라이언트와 네트워크 허브 또는 스위치가 RARP 요청을 처리하기 전에 연결을 처리할 수 있는지 검사를 안한다는 의미가 되겠습니다. 종종 이 설정이 문제를 야기할 수 있습니다.
+# Make sure the entry in {{Path|/etc/ethers}} exists for the client in question. If the MAC address is incorrect and/or the netboot server cannot resolve the hostname for the client, it cannot respond with the needed information.
 
-tpe-link-test?의 값을 바꾸려면 OBP 프롬프트에서 다음 명령을 실행해보십시오: 
+# Verify that the network hub or switch the netboot server and client are connected to allow RARP traffic to flow freely. If the client's request cannot reach the server, or vice versa, the host will be unable to continue.
+
+# No one is responding to the RARPD request because no services are listening. Verify that the rarpd service is up and running.
+
+# The client does not think its NIC has a link to the network hub/switch it is plugged into. Check to see if the NIC and the port on the network hub or switch has a link light. If the link light is on, check to see what the setting of tpe-link-test? is in OBP with the command; <code>printenv tpe-link-test?</code> . You should receive something like {{Path|tpe-link-test? false true}} . The first column represents the parameter name, the second column shows the current value for the the parameter, and the third column shows the default value for the parameter. In the example above, we can see that the current value is false, which means that the client is not checking to see if the client and network hub or switch can establish a link before issuing its RARP request. Often times this can cause the problem.
+
+To change the value of tpe-link-test? from an OBP prompt, issue the following command: 
 
 {{Cmd|setenv tpe-link-test? true|prompt=ok |output=<pre>
 tpe-link-test? =      true
 </pre>
 }}
 
-이제 tpe-link-test? 값을 true로 설정했습니다. 클라이언트의 네트워크 부팅을 다시 시도해보십시오. 
+This shows the value of tpe-link-test? is now true. Try netbooting the client again. 
 
-[[Category:Server and Security]] {{Migrated|originalauthors=weeve, nightmorph}}
+[[Category:Server and Security]] {{Migrated|originalauthors=weeve, nightmorph }}
