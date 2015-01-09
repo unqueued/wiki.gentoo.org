@@ -1,196 +1,76 @@
 <languages />
 
+
 {{InfoBox stack
 |{{InfoBox homepage|http://www.sshguard.net/|header=true}}
 |{{InfoBox ohloh}}
 }}
-{{Metadata|abstract=sshguard 는 서버로그를 해석하고 침입 활동을 판단한 후 시스템 방화벽을 사용하여 이들 IP를 차단하는 침투 예방 시스템입니다.}}
+{{Metadata|abstract=sshguard is an intrusion prevention system which parses server logs, determines malicious activity and then uses the system firewall to block those ip addresses.}}
 
-{{Metadata | abstract=sshguard 는 서버로그를 해석하고 침입 활동을 판단한 후 시스템 방화벽을 사용하여 이들 IP를 차단하는 침투 예방 시스템입니다.}}
-
-'''sshguard'''는 침투 예방 시스템입니다. sshguard는 서버 로그를 해석하고 침입 활동을 판단하며, 방화벽 규칙을 사용하여 침입 사용자를 쫒아냅니다. sshguard는 C로 작성했기 때문에 해석기를 거치지 않습니다.
+'''sshguard''' is an intrusion prevention system.  sshguard parses server logs, determines malicious activity, and then bans malicious users via firewall rules.  sshguard is written in C so it does not tax an interprator.
 
 == 동작 원리 ==
 
-{{Package|app-admin/sshguard}} 꾸러미는 하나 이상의 로그 파일을 연속적으로 추적하는 간단한 데몬입니다. 로그인 시도에 실패했을 경우에 데본에서 전달하는 로그 이벤트를 분석하며, 시스템 방화벽을 업데이트하여 로그인에 여러번 실패한 사용자를 막아버립니다.
+The {{Package|app-admin/sshguard}} package is a simple daemon which continuously tracks one or more log files. It parses the log events that daemons send out in case of failed login attempts and then blocks any further attempts of those users by updating the system's firewall.
 
-이름에서 암시하는 의미와는 달리 sshguard는 SSH 로그만 해석하지 않습니다. 메일 시스템과 FTP 로그에 대해서도 지원합니다. 지원 서비스 전체 목록은 [http://www.sshguard.net sshguard.net 웹 사이트]에 있습니다.
+Unlike what the name implies, sshguard does not only parse SSH logs. It also supports many mail systems as well as a few FTP ones. A full listing of supported services can be found on the [http://www.sshguard.net sshguard.net website].
 
-== 설치 ==
+== Configuration ==
 
-=== Emerge ===
+=== Software ===
 
-{{Package|app-admin/sshguard}}를 설치하십시오:
+Install {{Package|app-admin/sshguard}}:
 
 {{Emerge|app-admin/sshguard}}
 
-{{Package|net-firewall/iptables}}를 설치했고 시스템 방화벽으로 사용중인지 확인하십시오. 이 글을 쓰는 시점에서는 아직 {{Package|net-firewall/nftables}}를 지원하지 않습니다.
+Also make sure that {{Package|net-firewall/iptables}} is installed and used as the system firewall. At the time of writing, sshguard does not support {{Package|net-firewall/nftables}} yet.
 
 {{Emerge|net-firewall/iptables}}
 
-IPTables에 대한 더 많은 <sup style="color:#ff0077">en</sup>사용법 및 설정법은 젠투 위키의 [[Iptables|IPTables 게시글]]에서 찾아보실 수 있습니다.
+More information about using and configuring [[Iptables|iptables]] can also be found on the Gentoo wiki.
 
-== 설정 ==
+=== Preparing the firewall ===
 
-=== 방화벽 준비 ===
+When sshguard blocks any malicious users (by blocking their IP addresses), it will use the <tt>sshguard</tt> chain.
 
-sshguard가 침입 사용자(IP 주소로 차단)를 차단할 때 {{c|sshguard}} 체인을 활용합니다.
-
-체인을 준비하고, 새 접속을 감지하면 실행하는지 확인하십시오:
+Prepare the chain, and make sure it is also triggered when new incoming connections are detected:
 
 {{RootCmd|iptables -N sshguard
 |iptables -A INPUT -j sshguard}}
 
-=== 로그 파일 감시 ===
+=== Watching logfiles ===
 
-sshguard의 바탕 개념은 관리자가 프로그램에게 옵션으로 감시할 로그 파일을 전달합니다. 자체적인 sshguard 설정 파일은 없습니다.
+The basic idea behind sshguard is that the administrator passes on the log file(s) to watch as options to the application - there is no native sshguard configuration file.
 
-젠투에서는 {{Path|/etc/conf.d/sshguard}} 파일에서 옵션을 잘 설정할 수 있습니다:
+On Gentoo, the options can be best configured in the {{Path|/etc/conf.d/sshguard}} file:
 
-{{FileBox|filename=/etc/conf.d/sshguard|title=/var/log/messages를 읽도록 sshguard 설정|lang=bash|1=
+{{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to read /var/log/messages|lang=bash|1=
 PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
 WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
 THRESHOLD="10"    # How many problematic attempts trigger a block
   
 LOGFILES="-l /var/log/messages"                      # Watch this file...
-LOGFILES="${LOGFILES} -l /var/log/auth.log"                      # And this one
+LOGFILES="${SSHGUARD_LOGFILES} -l /var/log/auth.log" # And this one
   
 SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
-}} 
-
-# Space-separated list of log files to monitor. (optional, no default)
-FILES="/var/log/messages /var/log/auth.log" 
-
-# How many problematic attempts trigger a block
-THRESHOLD=10
-# Blocks last at least 24 hours (60480 seconds)
-BLOCKTIME=60480
-# Track IP addresses for 24 hours (60480 seconds)
-DETECTION_TIME=60480
-
-# IPv6 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 128)
-IPV6_SUBNET=64
-# IPv4 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 32)
-IPV4_SUBNET=24
-
-# Full path to PID file (optional, no default)
-PID_FILE=/run/sshguard.pid
 }}
 
-sshguard 를 사용하는 실행 시간 사용자가 로그 파일에 접근할 수 있는지 확인하십시오.
+Make sure that the log files are accessible for the runtime user that sshguard uses.
 
-=== 서비스 ===
+=== Service ===
 
-==== OpenRC ====
+Have sshguard be started by default by adding it to the default runlevel, and then start it:
 
-기본 실행 레벨에 sshguard를 추가하여 자동으로 시작하도록 한 후, 서비스를 시작하십시오:
+{{RootCmd|rc-update add sshguard default
+|rc-service sshguard start}}
 
-{{RootCmd
-|rc-update add sshguard default
-|rc-service sshguard start
-}}
+== See also ==
 
-=== 불량 호스트 등록 ===
+* [[Iptables]], for installing and configuring <tt>iptables</tt> on Gentoo
 
-불량 호스트 등록 옵션을 설정하면 침입자가 동일한 IP 주소로 반복해서 여러번 침입했을 때 완전히 차단합니다. 불량 호스트 목록은 sshguard를 시작할 때마다 불러오고, 동작하는 동안 목록을 새로 확장합니다. {{c|sshguard}}에서는 호스트의 신고 횟수가 기준치를 넘으면 해당 호스트의 주소를 새로 추가합니다.
+== External resources ==
 
-불량 목록에 등록한 주소는 다시 릴리스(허용)하지 않습니다.
-
-불량 호스트 목록을 활성화하려면, 적당한 디렉터리 및 파일을 만드십시오:
-
-{{RootCmd
-|mkdir -p /var/db/sshguard
-|touch /var/db/sshguard/blacklist.db
-}}
-
-While defining a blacklist it is important to exclude trusted IP networks and hosts in a whitelist.
-
-To enable whitelisting, create an appropriate directory and file:
-
-{{RootCmd
-|mkdir -p /etc/sshguard
-|touch /etc/sshguard/whitelist
-}}
-
-The whitelist has to include the loopback interface, and should have at least 1 IP trusted network f.e. 192.0.2.0/24. 
-
-{{FileBox|filename=/etc/sshguard/whitelist|title=Whitelisting trusted networks|lang=bash|1=
-127.0.0.0/8
-::1/128
-192.0.2.0/24
-}}
-
-{{Note|The 192.0.2.0/24 entry has to be adjusted to fit the own needs.}}
-
-불량 목록 파일을 설정에 추가하시고 <var>SSHGUARD_OPTS</var> 변수 값을 바꾸십시오:
-
-{{FileBox|filename=/etc/conf.d/sshguard|title=sshguard 불량 목록 신고 처리자 설정|lang=bash|1=
-PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
-WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
-THRESHOLD="10"    # How many problematic attempts trigger a block
-  
-BLACKLIST="/var/db/sshguard/blacklist.db"            # Blacklisted addresses are in this file
-LOGFILES="-l /var/log/messages"                      # Watch this file...
-LOGFILES="${LOGFILES} -l /var/log/auth.log"          # And this one
-  
-SSHGUARD_OPTS="-b 50:${BLACKLIST} -p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
-}}
-
-THRESHOLD=10
-BLOCK_TIME=43200
-DETECTION_TIME=604800
-
-IPV4_SUBNET=24
-IPV6_SUBNET=64
-
-PID_FILE=/run/sshguard.pid
-
-# Add following lines
-BLACKLIST_FILE=10:/var/lib/sshguard/blacklist.db
-WHITELIST_FILE=/etc/sshguard/whitelist
-}}
-
-바뀐 설정대로 동작하게 하려면 {{c|sshguard}} 데몬을 다시 시작하십시오:
-
-{{RootCmd
-|/etc/init.d/sshguard restart
-}}
-
-== 문제 해결 ==
-
-=== '/var/log/auth.log' 파일 추가 중 사라짐! ===
-
-sshguard를 시작할 때 다음 오류가 나타납니다:
-
-{{CodeBox|title=/var/log/auth.log에 감시 주체를 추가할 때 나타나는 오류 메시지|1=
-Sep 23 03:39:11 foo.bar.com sshguard[64933]: File '/var/log/auth.log' vanished while adding!
-}}
-
-대상 파일이 시스템이 발생한다면 어떤 오류(파일 경로가 다름)가 발생하기도 합니다. 파일을 만들었는지 확인하고, 해당 파일을 감시하지 않도록 sshguard 설정을 업데이트하십시오
-
-OpenRC에서 syslog-ng 시스템을 활용할 경우 {{Path | syslog-ng.conf}}에 다음 옵션을 추가하면 좋습니다:
-
-{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|title=auth.log 파일 만들기|lang=bash|1=
-log { source(src); destination(messages); };
-log { source(src); destination(console_all); };
- 
-destination authlog {file("/var/log/auth.log"); };
-filter f_auth { facility(auth); };
-filter f_authpriv { facility(auth, authpriv); };
-log { source(src);  filter(f_authpriv);  destination(authlog);  };
-}}
-
-바뀐 설정 파일을 적용하려면 다시 불러오십시오:
-
-{{RootCmd|rc-service syslog-ng reload}}
-
-== 추가 참조 ==
-
-* [[Iptables]] : 젠투 {{c|iptables}} 설치 및 설정
-
-== 외부 자료 ==
-
-[http://www.sshguard.net/docs/ sshguard 문서]에는 프로그램을 더 세밀하게 설정하는데 필요한 모든 정보가 들어있습니다.
+The [http://www.sshguard.net/docs/ sshguard documentation] provides all the information needed to further tune the application.
 
 
 [[Category:Security]]
