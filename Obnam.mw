@@ -3,26 +3,125 @@
 |{{InfoBox homepage|http://obnam.org/|header=true}}
 |{{InfoBox wikipedia}}
 }}
-Obnam ('''ob'''ligatory '''nam'''e) is an easy to use, snapshotable, FOSS backup utility created by Lars Wirzenius.
+Obnam ('''ob'''ligatory '''nam'''e) is an easy to use, snapshot capable, FOSS backup utility created by Lars Wirzenius. Obnam is a handy utility to have around since it has build in generation support. Upon running the first time it will create a full backup of whatever directory it is pointed to. After the initial creation of the backup repository, each additional time obnam is run is counted as a generation. Generations are incremental backups; Every backup generation looks like a fresh snapshot, but is really incremental: the user does not need to worry whether it's a full backup or not. Only  changed  data  is backed up, and if a chunk of data is already backed up in another file, that data is re-used.<ref>http://obnam.org/obnam.1.txt</ref>
 
 Obnam features:
 * Data dedupliation;
 * Encrypted backups;
-* Snapshots (enabled by default);
+* Snapshots, also known as generations (enabled by default);
 * Backup checkpoints (creates a "save" every 100MBs or so);
 * Multiple users can share the same repository;
-* Python and SSH based
+* The ability to store backups to a server via SFTP;
+* Python based
+
+__TOC__
 
 == Installation ==
 
+=== USE flags ===
+As with most packages in Gentoo users should consider possible USE flag modifications before installing the software. Since Obnam does not depend on much (it uses Python 2.7 and SSH) only one USE flag is available. It is enabled by default.
+{{USEflag|desc=The default USE flag for Obnam:
+|python_targets_python2_7+yes+yes+Build with Python 2.7
+}}
+
+=== Kernel configuration ===
+Obnam is capable of mounting backup repositories using the FUSE filesystem. In order for this to work an intended, the FUSE filesystem (<code>FUSE_FS</code>) must be enabled in the kernel.
+
+{{KernelBox|title=Enabling the FUSE filesystem|
+File systems  --->
+    <*> FUSE (Filesystem in Userspace) support
+}}
+
+{{Note|When enabling the FUSE filesystem for the first time remember to reboot the system to newly compiled kernel for the changes to take effect.}}
+
+Emerge the {{Package|sys-fs/fuse}} package so the system can have the interfaces available to mount filesystems in userspace:
+{{Emerge|sys-fs/fuse}}
+
+=== Emerge Obnam ===
+Kindly ask Portage what it thinks about emerging Obnam. It should happily emerge the package since it was asked nicely:
 {{Emerge|app-backup/obnam}}
 
 == Configuration ==
+Like most backup utilities Obnam can be controlled by configuration files. Obnam will look for configuration files in the following locations:
+# {{Path|/etc/obnam.conf}}
+# {{Path|/etc/obnam/*.conf}}
+# {{Path|~/.obnam.conf}}
+# {{Path|~/.config/obnam/*.conf}}
+
+{{Note|Obnam does not ''require'' any configuration file to work properly. All options defined in configuration files can be defined on the terminal.}}
+
+Options can be defined configuration files for the convenience of the user. Upon typical installation of Obnam, the {{Path|/etc/obnam.conf}} file will exist. Following the normal use of configuration files in the {{Path|/etc/}} folder, any configuration files located there will outline the default configurations for Obnam users globally (location 1 and 2 in the list above). If users wish to have configurations different than the global default, then individual configuration settings may be established in their home directories (locations 3 and 4 in the list above).
+
+== Usage ==
+=== Local backups ===
+The following example will be used to show new users how to create a backup of a user's home directory with Obnam. Be sure to be logged in as the user of interest, otherwise the the command will either fail or the repository will be created with the wrong permissions.
+
+{{Cmd
+|mkdir $HOME/backup
+|obnam backup --repository $HOME/backup --exclude{{=}}$HOME/backup $HOME
+}}
+
+The last command above should work as intended and happily create a repository in the {{Path|backup}} folder. Depending on how many files are in the user's home directory it could take quite a while for the command to complete. Obnam should output information concerning the amount of data it has processed and the time elapsed since the command was ran.
+
+In theory it is not a good idea to create a long term backup in a primary storage location (in this case it is the user's home directory), but for the purpose of explaining some of the options Obman accepts this this example will work. 
+
+The options used to create this repository were <code>--repository</code> and <code>--exclude</code>. They are very descriptive of their functions:
+
+* <code>--repository</code> — indicates where the repository will be stored
+* <code>--exclude</code> — tells Obnam to ignore the following file(s) or folder(s). In the above example only a single folder ({{Path|backup}}) was excluded, however the exclude option can be specified multiple times for various file(s) and folder(s). It also supports the use of file globbing.
+
+Navigate to the {{Path|~/backup}} folder and type the <tt>ls</tt> command:
+{{Cmd
+|cd ~/backup
+|ls
+|output=<pre>
+<huge_unique_number_file> chunklist  chunks  chunksums  clientlist  metadata
+</pre>}}
+
+Some users might not expect the output from the <tt>ls</tt> command to show something other than the data file(s) and folder(s) they backed up. An important aspect to understand is that Obnam creates a ''repository''. The files in the {{Path|backup}} folder ''are'' the data files that were backed up, only the <ls> command views the data files in repository format. A normal version of <tt>ls</tt> will not work to view the files which is why the <tt>obnam ls</tt> command is available. Run the following command in the {{Path|~/backup}} folder:
+
+{{Cmd|obnam ls}}
+
+Ah, that output looks like what one might expect from a repository-creating backup program!
+
+=== Remote backups using SFPT ===
+
+A better example of using Obnam for backups would be to push the backup to an off-site location, or at least to different disk than one used for primary storage. Having a local or remote backup server in a RAID configuration is nice in a situation such as this.
+
+Obnam supports the SFTP protocol for pushing backups over the network:
+
+{{Cmd|obnam backup --repository sftp://your.backup.server/~/backups $HOME}}
+
+=== Backup verification ===
+Reading the [[backup]] and understanding how important it is to ''test'' backups that have been made, a section about backup verification is imperative. Backups should be tested and verified to make sure they working correctly before users consider their data to be safe in Obnam's hands.
+
+{{Cmd
+|mkdir -p $HOME/tmp/home_dir_backup
+|obnam restore --repository $HOME/backup --to $HOME/tmp/home_dir_backup
+}}
+
+Navigate to the {{Path|~/tmp/home_dir_backup}} folder to view the restored files.
+
+=== Mount Obnam repository via FUSE ===
+Obnam can mount backup repositories using FUSE. Make sure the system has been setup accordingly (see the [[Obnam#Kernel_configuration|Kernel configuration section]] above).
+
 Coming soon...
+
+=== Cleaning up ===
+If any of the Obnam example commands in this article were used for testing or experimentation be sure to clean the directories as needed. This section is simply a courtesy for the reader.
+
+== Troubleshooting ==
+=== Shell expansion issues ===
+While making this guide the author noticed certain kinds of shell expansion might not work as intended. When using the <code>~</code> (tilde) symbol as part of the <code>--exclude</code> path ({{Path|~/backup}}) Obnam was ignoring the exclude option and including the {{Path|~/backup}} folder in the repository. At least for now, be aware that '''using variables or full paths is a safer alternative to using <code>~/</code>'''.
 
 == See also ==
 * [[SparkleShare]]
-* [[Owncloud]]
+
+* [[Rdiff-backup]]
 
 == External resources ==
-* <kbd>man obnam</kbd>
+* <kbd>man obnam</kbd> or see the [http://obnam.org/obnam.1.txt Official Obnam manual] online
+
+== References ==
+
+[[Category:Backup]]
