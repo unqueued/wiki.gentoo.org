@@ -1,10 +1,14 @@
 {{Stub}}
 
+This article discusses how to setup a network bridge in order to connect two portions of a network together.
+
+__TOC__
+
 == Introduction ==
 
-A network bridge can be used to connect two independent network segments at layer 2 level (much like a network switch).  Common applications include transparent proxying, transparent filtering (using [[iptables]]) and saving money on hardware as some mainboards come with two PHY interfaces.  For this how-to, eth0 and eth1 are used but of course they can be replaced by whatever you need.  
+A network bridge can be used to connect two independent network segments at layer 2 level (much like a network switch).  Common applications include transparent proxying, transparent filtering (using [[iptables]]) and saving money on hardware as some mainboards come with two PHY interfaces. In this article, eth0 and eth1 will be the network interfaces used but of course they can be replaced by whatever interface names are present on a system.  
 
-The way bridging works on Linux is that a bridging device is created (brX) that contains at least two network devices as ports (e.g. ethX or pppX).  As the bridge works on layer 2, no IP addresses are needed on the port devices - on a typical setup, the bridging device itself will receive the IP (e.g. via DHCP).
+In order to create a bridge on Linux a special bridging device is created (brX) that contains at least two network devices as ports (e.g. ethX or pppX). As the bridge works on layer 2, no IP addresses are needed on the port devices — on a typical setup, the bridging device itself will receive the IP (e.g. via DHCP).
 
 == Kernel ==
 {{KernelBox|title=Enabling Ethernet Bridging|<pre>
@@ -14,13 +18,12 @@ The way bridging works on Linux is that a bridging device is created (brX) that 
 </pre>}}
 
 == Installation ==
-Install {{Package|net-misc/bridge-utils}}:
+Install the {{Package|net-misc/bridge-utils}} package to have access to the utilities needed to manage the bridge device:
 {{Emerge|bridge-utils}}
 
-== Host Configuration (using OpenRC init scripts) ==
-First, we need to add the bridge device to the {{Path|/etc/conf.d/net}} file. As an example, bridge configuration with DHCP:
-
-{{Note|Note that it is important to include 'setfd 0' and 'sethello 10' in order to bring the interface up quickly.  Other values will cause network packets to be dropped for the first 30 seconds after the bridge has become active.  This in turn could prevent DHCP from working.}}
+== Host configuration ==
+=== OpenRC ===
+First, the bridge device must be added to the {{Path|/etc/conf.d/net}} file. As an example, bridge configuration with DHCP:
 
 {{FileBox|filename=/etc/conf.d/net|title=Add bridge device example|lang=bash|1=
 # bridge ports defined empty to avoid DHCP being run for their configuration
@@ -35,23 +38,25 @@ stp off"
 bridge_br0="eth0 eth1"
 }}
 
-More documentation can be found in {{Path|/usr/share/doc/netifrc-*/net.example.bz2}}.
+{{Note|It is important to include <code>setfd 0</code> and <code>sethello 10</code> in the {{Path|/etc/conf.d/net}} file in order to bring the bridge interface up quickly. Other values will cause network packets to be dropped for the first 30 seconds after the bridge has become active. This, in turn, could prevent DHCP from working as intended.}}
 
-Next, create the init script and start the interface as follows:
+More documentation can be found by reading {{Path|/usr/share/doc/netifrc-*/net.example.bz2}}
+
+Next, create the init script by linking {{Path|net.lo}} to {{Path|net.br0}} and start the interface as follows:
 {{RootCmd
 |ln -s /etc/init.d/net.lo /etc/init.d/net.br0
 |/etc/init.d/net.br0 start
 }}
 
-Finally, to make sure the bridge is automatically set up on subsequent boots, run:
+Finally, to make sure the bridge is automatically set up on subsequent boots add the newly generated init script to the system's default run level:
 {{RootCmd|rc-update add net.br0 default}}
 
-== Host Configuration (using systemd) ==
-As of systemd >= 210, a special service called [https://wiki.archlinux.org/index.php/systemd-networkd systemd-networkd] is available for network configuration, including bridge construction.
+=== systemd ===
+As of systemd 210 and up, a special service called [https://wiki.archlinux.org/index.php/systemd-networkd systemd-networkd] is available for network configuration. This service can handle bridge construction.
 
-The basic procedure of creating a network configuration with systemd-networkd is creating several .network and .netdev files.
+The basic procedure of creating a network configuration with systemd-networkd is creating several {{Path|.network}} and {{Path|.netdev}} files.
 
-First, we need to create a bridge. With systemd-networkd this is as simple as creating a new .netdev file:
+First, create a bridge. With systemd-networkd this is as simple as creating a new {{Path|.netdev}} file:
 
 {{FileBox|filename=/etc/systemd/network/''MyBridge''.netdev|title=Systemd-networkd example|1=<pre>
 [NetDev]
@@ -59,7 +64,7 @@ Name=br0
 Kind=bridge
 </pre>}}
 
-After we created the bridge definition, we can assign the interfaces to this bridge:
+After the bridge definition is created, assign the interfaces to the bridge:
 
 {{FileBox|filename=/etc/systemd/network/''MyEth''.network|title=Interface assignment example|1=<pre>
 [Match]
@@ -68,11 +73,12 @@ Name=eth*
 [Network]
 Bridge=br0
 </pre>}}
-You can match multiple interfaces to be attached to the bridge
 
-Notice that this bridge is still not active, this can be solved by creating a .network definition to actually use the bridge.
+Multiple interfaces can be matched and attached to the bridge.
 
-=== DHCP: ===
+Notice that this bridge is still not active. Activation can be achieved by creating a {{Path|.network}} definition to use the bridge.
+
+==== DHCP ====
 {{FileBox|filename=/etc/systemd/network/''MyBridge''.network|title=DHCP configuration|<pre>
 [Match]
 Name=br0
@@ -81,7 +87,7 @@ Name=br0
 DHCP=v4
 </pre>}}
 
-=== Static: ===
+==== Static ====
 {{FileBox|filename=/etc/systemd/network/''MyBridge''.network|title=Static configuration|1=<pre>
 [Match]
 Name=br0
@@ -91,11 +97,12 @@ DNS=192.168.1.1
 Address=192.168.1.2/24
 Gateway=192.168.1.1
 </pre>}}
-Gateway is only necessary if you intend to use your physical network interface as access to another network. If you're using the bridge as a private network, omit it as systemd-networkd will add the bridge as a default route when the Gateway option is set.
+
+Defining a gateway is only necessary if one intends to use the physical network interface as access to another network. When using the bridge as a private network, omit it as systemd-networkd will add the bridge as a default route when the Gateway option is set.
 
 Do remember to enable and start the systemd-networkd service.
 
-== External Resources ==
+== External resources ==
 
 * [http://www.linuxfoundation.org/collaborate/workgroups/networking/bridge Official Linux network bridge documentation.]
 * [http://www.tldp.org/HOWTO/Ethernet-Bridge-netfilter-HOWTO.html Generic Linux network bridge how-to.]
