@@ -28,44 +28,61 @@ See:
 
 === Fedora installation ===
 
+The following script creates a TFTP directory tree, downloads kernel and initrd images from a Fedora mirror and configures a netbootable instance of GRUB.
+
 {{FileBox|filename=~/bin/fedora-pxe-install|1=<nowiki>
 #!/bin/bash -xe
 
 # Mirror URL
-mirror="http://mirrors.nic.cz/fedora/linux/"
+mirror="http://dl.fedoraproject.org/pub/fedora/linux/"
 # Releases
 [ $# -eq 0 ] && releases="22 21/Server 21-Alpha/Workstation 20/Fedora" || releases="$*"
-# Release and product
 # Architecture: x86 | x86_64 | ...
-arch=x86_64
+architectures="x86_64 i386"
 # TFTP directory path
 prefix=/tftproot
 
 test -n "$prefix"
 
 menuentry() { cat << EOF
-menuentry "Install Fedora $release $arch $product ($state)" {
+menuentry "Install Fedora $release $arch ($state)" {
     linux /boot/$kernel repo=$repo
     initrd /boot/$initrd
 }
 EOF
 }
 
+check() {
+    state="$1"
+    repo="$mirror$state/$release/$arch/os"
+
+    curl --silent --fail --head "$repo/" >/dev/null
+}
+
+download() {
+    test -e "$1" && { echo "Skipping: $1" >&2; return 0; }
+    echo "Downloading: $1 from $2" >&2
+    curl --silent --fail --output "$1" "$2"
+}
+
 grub2-mknetdir --net-directory "$prefix"
-> "$prefix/boot/grub/grub.cfg"
 for release in $releases; do
-    check() { state="$1"; repo="$mirror$state/$release/$arch/os"; curl --fail -I "$repo"; }
-    check releases || check development || check releases/test
+    for arch in $architectures; do
+        check releases || check development || check releases/test || { echo "# Check failed for $release $arch"; break; }
 
-    kernel="fedora-$(echo "$release" | tr / -)-$arch-kernel"
-    initrd="fedora-$(echo "$release" | tr / -)-$arch-initrd"
-    pxerepo="$repo/images/pxeboot"
+        kernel="fedora-$(echo "$release" | tr / -)-$arch-kernel"
+        initrd="fedora-$(echo "$release" | tr / -)-$arch-initrd"
+        pxerepo="$repo/images/pxeboot"
 
-    download() { curl --fail -o "$1" "$2"; }
-    download "$prefix/boot/$kernel" "$pxerepo/vmlinuz"
-    download "$prefix/boot/$initrd" "$pxerepo/initrd.img"
-    menuentry >> "$prefix/boot/grub/grub.cfg"
-done
+        download "$prefix/boot/$kernel" "$pxerepo/vmlinuz" || { echo "# Couldn't download kernel for $release $arch"; break; }
+        download "$prefix/boot/$initrd" "$pxerepo/initrd.img" || { echo "# Couldn't download initrd for $release $arch"; break; }
+        menuentry
+    done
+done | tee "$prefix/boot/grub/grub.cfg"
 </nowiki>}}
 
+Adjust it to your needs and then run it without parameters.
+
 {{RootCmd|fedora-pxe-install}}
+
+Now you just need to configure TFTP and DHCP so that <code>/tftproot</code> is available to the netbooted machine and it that it requests <code>/boot/grub/i386-pc/core.0</code> via TFTP.
