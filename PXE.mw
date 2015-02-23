@@ -32,40 +32,40 @@ See:
 #!/bin/bash -xe
 
 # Mirror URL
-mirror="http://mirrors.nic.cz/fedora/linux"
-# Release status: released | development
-status=released
-# Release: <number> | rawhide
-release=22
+mirror="http://mirrors.nic.cz/fedora/linux/"
+# Releases
+[ $# -eq 0 ] && releases="22 21/Server 21-Alpha/Workstation 20/Fedora" || releases="$*"
+# Release and product
 # Architecture: x86 | x86_64 | ...
 arch=x86_64
-# Product: Workstation | Server | Cloud | ...
-product=Workstation
 # TFTP directory path
 prefix=/tftproot
-# Temporary directory path
-tmp=/root/tmp/fedora-pxe-boot
 
 test -n "$prefix"
-test -n "$tmp"
 
-mkdir -p "$tmp"
-
-kernel="fedora-$release-$arch-kernel"
-initrd="fedora-$release-$arch-initrd"
-
-test -x "$tmp/$kernel" || curl -o "$tmp/$kernel" "$mirror/$status/$release/$arch/os/images/pxeboot/vmlinuz"
-test -x "$tmp/$initrd" || curl -o "$tmp/$initrd" "$mirror/$status/$release/$arch/os/images/pxeboot/initrd.img"
-cat > "$tmp/grub.cfg" << EOF
-menuentry "Install Fedora $release $arch $product" {
-    linux /boot/$kernel repo=$mirror/$status/$release/$product/$arch/os
+menuentry() { cat << EOF
+menuentry "Install Fedora $release $arch $product ($state)" {
+    linux /boot/$kernel repo=$repo
     initrd /boot/$initrd
 }
 EOF
+}
 
 grub2-mknetdir --net-directory "$prefix"
-mv "$tmp/$kernel" "$tmp/$initrd" "$prefix/boot"
-mv "$tmp/grub.cfg" "$prefix/boot/grub/grub.cfg"
+> "$prefix/boot/grub/grub.cfg"
+for release in $releases; do
+    check() { state="$1"; repo="$mirror$state/$release/$arch/os"; curl --fail -I "$repo"; }
+    check releases || check development || check releases/test
+
+    kernel="fedora-$(echo "$release" | tr / -)-$arch-kernel"
+    initrd="fedora-$(echo "$release" | tr / -)-$arch-initrd"
+    pxerepo="$repo/images/pxeboot"
+
+    download() { curl --fail -o "$1" "$2"; }
+    download "$prefix/boot/$kernel" "$pxerepo/vmlinuz"
+    download "$prefix/boot/$initrd" "$pxerepo/initrd.img"
+    menuentry >> "$prefix/boot/grub/grub.cfg"
+done
 </nowiki>}}
 
 {{RootCmd|fedora-pxe-install}}
