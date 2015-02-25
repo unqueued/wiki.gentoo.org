@@ -669,5 +669,44 @@ While the template was designed to workaround limitations of unprivileged contai
 And you'll get a new container running the latest build of Ubuntu 15.04 Vivid Vervet amd64.
 
 === Configuring unprivileged LXC ===
-TBD
+Install the required packages:
+{{RootCmd
+|echo "{{=}}sys-apps/shadow-4.2*" >> /etc/portage/package.accept_keywords
+|echo "{{=}}sys-auth/pambase-20150213" >> /etc/portage/package.accept_keywords
+|emerge -1uDNp world}}
+
+Create files necessary for assigning subuids and subgids:
+{{RootCmd|touch /etc/subuid /etc/subgid}}
+
+Assign a set of subuids and subgids for a user:
+{{RootCmd
+|usermod --add-subuids 100000-165536 $USER
+|usermod --add-subgids 100000-165536 $USER
+|chmod +x $HOME}}
+That last one is required because LXC needs it to access ~/.local/share/lxc/ after it switched to the mapped UIDs. If you’re using ACLs, you may instead use “u:100000:x” as a more specific ACL.
+
+Now create <code>~/.config/lxc/guest.conf</code> with the following content:
+{{FileBox|filename=~/.config/lxc/guest.conf|lang=bash||1=
+lxc.network.type = veth
+lxc.network.flags = up
+lxc.network.link = br0.1
+lxc.network.name = eth0
+lxc.network.ipv4 = 192.168.10.101/24
+lxc.network.ipv4.gateway = 192.168.10.1
+lxc.id_map = u 0 100000 65536
+lxc.id_map = g 0 100000 65536
+}}
+The last two strings are mean that you have one uid map and one gid map defined for your container which will map uids and gids 0 through 65536 in the container to uids and gids 100000 through 165536 on the host.
+
+And <code>/etc/lxc/lxc-usernet</code> with:
+{{FileBox|filename=/etc/lxc/lxc-usernet|lang=bash||1=
+<your username> veth br0.1 2
+}}
+This declares that the user “<your username>” is allowed up to 2 veth type devices to be created and added to the bridge called br0.1.
+
+Now let’s create our first unprivileged container with:
+{{RootCmd|lxc-create -t download -n alpha -f ~/.config/lxc/guest.conf -- -d ubuntu -r vivid -a amd64}}
+
+P.S. To be accomplished. There are currently problems with unprivileged LXC creation in Gentoo. It's also "Creating cgroups" section have to be added probably with or without cgmanager through OpenRC/systemd accordingly.
+
 [[Category:Virtualization]]
