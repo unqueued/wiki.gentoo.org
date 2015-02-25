@@ -594,7 +594,80 @@ Prerequisites for well working unprivileged containers are:
 *A version of PAM with a loginuid patch (it's a dependency of recent version of shadow mentioned above, so it installs automatically with recent shadow-4.2.1)
 
 === LXC pre-built containers ===
-TBD
+Because of the limitations mentioned above you won't be allowed to use mknod to create a block or character device in a user namespace as being allowed to do so would let you access anything on the host. Same thing goes with some filesystems, you won’t for example be allowed to do loop mounts or mount an ext partition, even if you can access the block device. Those limitations are a big problem during the initial bootstrap of a container as tools like debootstrap, yum, … usually try to do some of those restricted actions and will fail pretty badly. 
+
+Some templates may be tweaked to work and workaround such as a modified fakeroot could be used to bypass some of those limitations but the current state is that the most distribution templates (including gentoo) simply won't work with those. Instead you should use the "download" template which will provide you with pre-built images of the distributions that are known to work in such an environment. This template is used to contact [https://images.linuxcontainers.org/ a server] which contains daily pre-built rootfs and configuration for most common templates instead of assembling the rootfs and local configuration.
+
+Those images are built from [https://jenkins.linuxcontainers.org/ LXC project's Jenkins server]. The actual build process is pretty straightforward, a basic chroot is assembled, then the current git master is downloaded, built and the standard templates are run with the right release and architecture, the resulting rootfs is compressed, a basic config and metadata (expiry, files to template, …) is saved, the result is pulled by LXC project's main server, signed with a dedicated GPG key and published on the public web server.
+
+The client side is a simple template which contacts the server over https (the domain is also DNSSEC enabled and available over IPv6), grabs signed indexes of all the available images, checks if the requested combination of distribution, release and architecture is supported and if it is, grabs the rootfs and metadata tarballs, validates their signature and stores them in a local cache. Any container creation after that point is done using that cache until the time the cache entries expires at which point it'll grab a new copy from the server. You can also use "--flush-cache" parameter to flush the local copy (if present).
+
+The template has been carefully written to work on any system that has a POSIX-compliant shell with wget. gpg is recommended but can be disabled if your host doesn't have it (at your own risks). The current list of images can be requested by passing "–list" parameter:
+{{RootCmd|lxc-create -t download -n alpha -- --list|output=<pre>
+Setting up the GPG keyring
+Downloading the image index
+
+---
+DIST    RELEASE ARCH    VARIANT BUILD
+---
+centos  6       amd64   default 20150225_02:16
+centos  6       i386    default 20150225_02:16
+centos  7       amd64   default 20150225_02:16
+debian  jessie  amd64   default 20150224_22:42
+debian  jessie  armel   default 20150224_22:42
+debian  jessie  armhf   default 20150224_22:42
+debian  jessie  i386    default 20150224_22:42
+debian  sid     amd64   default 20150224_22:42
+debian  sid     armel   default 20150224_22:42
+debian  sid     armhf   default 20150224_22:42
+debian  sid     i386    default 20150224_22:42
+debian  wheezy  amd64   default 20150224_22:42
+debian  wheezy  armel   default 20150224_22:42
+debian  wheezy  armhf   default 20150224_22:42
+debian  wheezy  i386    default 20150224_22:42
+fedora  19      amd64   default 20150225_01:27
+fedora  19      armhf   default 20150225_01:27
+fedora  19      i386    default 20150225_01:27
+fedora  20      amd64   default 20150225_01:27
+fedora  20      armhf   default 20150225_01:27
+fedora  20      i386    default 20150225_01:27
+gentoo  current amd64   default 20150206_14:12
+gentoo  current armhf   default 20150206_14:12
+gentoo  current i386    default 20150206_14:12
+opensuse        12.3    amd64   default 20141127_00:53
+opensuse        12.3    i386    default 20141127_00:53
+oracle  6.5     amd64   default 20150224_11:40
+oracle  6.5     i386    default 20150224_11:40
+plamo   5.x     amd64   default 20150224_21:36
+plamo   5.x     i386    default 20150224_21:36
+ubuntu  precise amd64   default 20150225_03:49
+ubuntu  precise armel   default 20150225_03:49
+ubuntu  precise armhf   default 20150225_03:49
+ubuntu  precise i386    default 20150225_03:49
+ubuntu  trusty  amd64   default 20150225_03:49
+ubuntu  trusty  arm64   default 20150203_03:49
+ubuntu  trusty  armhf   default 20150225_03:49
+ubuntu  trusty  i386    default 20150225_03:49
+ubuntu  trusty  ppc64el default 20150225_03:49
+ubuntu  utopic  amd64   default 20150225_03:49
+ubuntu  utopic  arm64   default 20150203_03:49
+ubuntu  utopic  armhf   default 20150225_03:49
+ubuntu  utopic  i386    default 20150225_03:49
+ubuntu  utopic  ppc64el default 20150225_03:49
+ubuntu  vivid   amd64   default 20150225_03:49
+ubuntu  vivid   arm64   default 20150203_03:49
+ubuntu  vivid   armhf   default 20150225_03:49
+ubuntu  vivid   i386    default 20150225_03:49
+ubuntu  vivid   ppc64el default 20150225_03:49
+---
+</pre>}}
+
+While the template was designed to workaround limitations of unprivileged containers, it works just as well with system containers, so even on a system that doesn’t support unprivileged containers you can do:
+
+{{RootCmd|lxc-create -t download -n alpha -f /etc/lxc/guest.conf -- -d ubuntu -r vivid -a amd64}}
+
+And you'll get a new container running the latest build of Ubuntu 15.04 Vivid Vervet amd64.
+
 === Configuring unprivileged LXC ===
 TBD
 [[Category:Virtualization]]
