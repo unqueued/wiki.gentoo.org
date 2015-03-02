@@ -16,14 +16,14 @@
 <!--T:2-->
 When planning on using <tt>distcc</tt> to help bootstrap a Gentoo installation, make sure to read [[#Using_distcc_to_bootstrap|Using distcc to bootstrap]]. 
 
-== Setup == <!--T:3-->
+== Installation == <!--T:3-->
 
-=== Dependencies === <!--T:4-->
+=== Requirements across all hosts === <!--T:4-->
 
 <!--T:5-->
 In order to use <tt>distcc</tt>, all of the computers on the network need to have the same GCC versions. For example, mixing 3.3.x (where the x varies) is okay, but mixing 3.3.x with 3.2.x may result in compilation errors or runtime errors. 
 
-=== Installing distcc === <!--T:6-->
+=== Installing the software === <!--T:6-->
 
 <!--T:8-->
 Distcc ships with a graphical monitor to monitor tasks that a computer is sending away for compilation. This monitor is enabled when the <code>gtk</code> <code>USE</code> flag is set.
@@ -37,46 +37,47 @@ After configuring the <code>USE</code> setting, install the {{Package|sys-devel/
 <!--T:10-->
 {{Important|Remember to install {{Package|sys-devel/distcc}} on all of the participating machines.}}
 
-=== Setting up Portage to use distcc === <!--T:11-->
+=== Auto-starting the distcc daemon ===
 
-<!--T:12-->
-Setting up [[Portage]] to use <tt>distcc</tt> is easy. Execute the following steps on each system that should participate in the distributed compiling.
+==== Using OpenRC ====
 
-<!--T:92-->
-First, make sure that {{Package|sys-devel/distcc}} is installed:
+<!--T:25-->
+Edit {{Path|/etc/conf.d/distccd}} and make sure to set the <tt>--allow</tt> directive to allow only trusted clients. For added security, use the <tt>--listen</tt> directive to tell the <tt>distccd</tt> daemon what IP to listen on (for multi-homed systems). More information on <tt>distcc</tt> security can be found at [http://distcc.googlecode.com/svn/trunk/doc/web/security.html Distcc security notes].
 
-<!--T:13-->
-{{Emerge|distcc}}
+The following example allows the distcc clients running at <tt>192.168.0.4</tt> and <tt>192.168.0.5</tt> to connect to the <tt>distccd</tt> server running locally:
 
-<!--T:14-->
-Next, set the <code>MAKEOPTS</code> variable and <code>FEATURES</code> variable as shown below.
-A common strategy is to set <code>N</code> to ''twice'' the number of ''total'' (local + remote) CPU cores + 1 and <code>M</code> as number of ''local'' CPU cores. In case participating hosts are not available, or when the ebuild that is being installed requires a local-only compile (e.g. gcc), then the <code>-lM</code> flag will prevent the spawning of too many tasks.
-
-<!--T:15-->
-{{FileBox|filename=/etc/portage/make.conf|title=Setting MAKEOPTS and FEATURES|lang=bash|1=
-MAKEOPTS="-jN -lM"
-FEATURES="distcc distcc-pump"
+{{FileBox|filename=/etc/conf.d/distccd|title=Allowing specific clients to connect to distccd|lang=bash|1=
+DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distccd.log -N 15 --allow 192.168.0.4 --allow 192.168.0.5"
 }}
 
-<!--T:85-->
-For instance, when there are two quad-core host PCs running <tt>distccd</tt> and the local PC has a dual core CPU, then the <code>MAKEOPTS</code> variable could look like this:
+<!--T:26-->
+{{Important|It is important to use <tt>--allow</tt> and <tt>--listen</tt>. Please read the <tt>distccd</tt> man page or the above security document for more information.}}
 
-<!--T:86-->
-{{FileBox|filename=/etc/portage/make.conf|title=MAKEOPTS example for 2 quad-core (remote) and one dual core (local) PC|lang=bash|1=
-# 2 remote hosts with 4 cores each = 8 cores remote
-# 1 local host with 2 cores = 2 cores local
-# total number of cores is 10, so N = 2*10+1 and M=2
-MAKEOPTS="-j21 -l2"
+<!--T:27-->
+Now start the <tt>distccd</tt> daemon on all the participating computers: 
+
+<!--T:28-->
+{{RootCmd|rc-update add distccd default
+|rc-service distccd start}}
+
+==== Using systemd ====
+
+Edit {{Path|/etc/systemd/system/distccd.service.d/00gentoo.conf}} and add the allowed clients in CIDR format. Here is an example:
+
+{{FileBox|filename=/etc/systemd/system/distccd.service.d/00gentoo.conf|title=Setting ALLOWED_SERVERS|lang=bash|1=
+Environment="ALLOWED_SERVERS=192.168.1.0/24"
 }}
 
-<!--T:87-->
-While editing the {{Path|make.conf}} file, make sure that it does not have <tt>-march=native</tt> in the <code>CFLAGS</code> or <code>CXXFLAGS</code> variables. <tt>distccd</tt> will not distribute work to other machines if <code>march</code> is set to <code>native</code>. The appropriate <tt>-march=</tt> value can be obtained by running the following command:
+Reload the unit files after making such changes:
 
-<!--T:93-->
-{{Cmd|gcc -v -E -x c -march{{=}}native -mtune{{=}}native - < /dev/null 2>&1 {{!}} grep cc1 {{!}} perl -pe 's/ -mno-\S+//g; s/^.* - //g;'}}
+{{RootCmd|systemctl daemon-reload}}
 
-<!--T:94-->
-See [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <tt>-march=native</tt> for distcc] for more information.
+Enable auto-starting <tt>distcc</tt> and then start the service:
+
+{{RootCmd|systemctl enable distccd
+|systemctl start distccd}}
+
+== Configuration ==
 
 === Specifying participating hosts === <!--T:16-->
 
@@ -106,50 +107,48 @@ Let's configure <tt>distcc</tt> to use the hosts mentioned on the first line in 
 <!--T:24-->
 {{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1 192.168.0.2 192.168.0.3"}}
 
-=== Configuring Servers ===
+=== Using distcc with Portage === <!--T:11-->
 
-==== OpenRC ====
+<!--T:12-->
+Setting up [[Portage]] to use <tt>distcc</tt> is easy. It is a matter of enabling the <tt>distcc</tt> feature, and setting a decent value for the number of simultaneous build jobs (as <tt>distcc</tt> increases the amount of build resources).
 
-<!--T:25-->
-Edit {{Path|/etc/conf.d/distccd}} and be sure to set the <tt>--allow</tt> directive to allow only trusted clients. For added security, use the <tt>--listen</tt> directive to tell the <tt>distccd</tt> daemon what IP to listen on (for multi-homed systems). More information on <tt>distcc</tt> security can be found at [http://distcc.googlecode.com/svn/trunk/doc/web/security.html Distcc security notes]. The following example allows the distcc clients running at 192.168.0.4 and 192.168.0.5 to connect to the distccd server running locally:
+<!--T:14-->
+Set the <code>MAKEOPTS</code> variable and <code>FEATURES</code> variable as shown below.
 
-{{FileBox|filename=/etc/conf.d/distccd|title=Allowing specific clients to connect to distccd|lang=bash|1=
-DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distccd.log -N 15 --allow 192.168.0.4 --allow 192.168.0.5"
+A common strategy is to
+* set the value of <code>N</code> to ''twice'' the number of ''total'' (local + remote) CPU cores + 1, and
+* set the value of <code>M</code> to the number of ''local'' CPU cores
+
+The use of <code>-lM</code> in the <code>MAKEOPTS</code> variable will prevent spawning too many tasks when some of the <tt>distcc</tt> cluster hosts are unavailable (increasing the amount of simultaneous jobs on the other systems) or when an ebuild is configured to disallow remote builds (such as with gcc). This is accomplished by refusing to start additional jobs when the system load is at or above the value of <tt>M</tt>.
+
+<!--T:15-->
+{{FileBox|filename=/etc/portage/make.conf|title=Setting MAKEOPTS and FEATURES|lang=bash|1=
+# Replace N and M with the right value as calculated previously
+MAKEOPTS="-jN -lM"
+FEATURES="distcc distcc-pump"
 }}
 
-<!--T:26-->
-{{Important|It is important to use <tt>--allow</tt> and <tt>--listen</tt>. Please read the <tt>distccd</tt> man page or the above security document for more information.}}
+<!--T:85-->
+For instance, when there are two quad-core host PCs running <tt>distccd</tt> and the local PC has a dual core CPU, then the <code>MAKEOPTS</code> variable could look like this:
 
-<!--T:27-->
-Now start the <tt>distccd</tt> daemon on all the participating computers: 
-
-<!--T:28-->
-{{RootCmd|rc-update add distccd default
-|rc-service distccd start}}
-
-==== Systemd ====
-
-Edit {{Path|/etc/systemd/system/distccd.service.d/00gentoo.conf}} and add the allowed clients in CIDR format. Here is an example:
-
-{{FileBox|filename=/etc/systemd/system/distccd.service.d/00gentoo.conf|title=Setting ALLOWED_SERVERS|lang=bash|1=
-Environment="ALLOWED_SERVERS=192.168.1.0/24"
+<!--T:86-->
+{{FileBox|filename=/etc/portage/make.conf|title=MAKEOPTS example for 2 quad-core (remote) and one dual core (local) PC|lang=bash|1=
+# 2 remote hosts with 4 cores each = 8 cores remote
+# 1 local host with 2 cores = 2 cores local
+# total number of cores is 10, so N = 2*10+1 and M=2
+MAKEOPTS="-j21 -l2"
 }}
 
-Reload the unit files after making such changes:
+<!--T:87-->
+While editing the {{Path|make.conf}} file, make sure that it does not have <tt>-march=native</tt> in the <code>CFLAGS</code> or <code>CXXFLAGS</code> variables. <tt>distccd</tt> will not distribute work to other machines if <code>march</code> is set to <code>native</code>. The appropriate <tt>-march=</tt> value can be obtained by running the following command:
 
-{{RootCmd|systemctl daemon-reload}}
+<!--T:93-->
+{{Cmd|gcc -v -E -x c -march{{=}}native -mtune{{=}}native - < /dev/null 2>&1 {{!}} grep cc1 {{!}} perl -pe 's/ -mno-\S+//g; s/^.* - //g;'}}
 
-Enable autostarting <tt>distcc</tt> and then start the service:
+<!--T:94-->
+See [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <tt>-march=native</tt> for distcc] for more information.
 
-{{RootCmd|systemctl enable distccd
-|systemctl start distccd}}
-
-With these changes in place, installing software can be done either
-
-* in pump mode, using {{Emerge|cowsay}}}, or
-* in plain mode, using {{Emerge|cowsay}}
-
-=== Setting up distcc to work with automake === <!--T:29-->
+=== Using distcc with automake === <!--T:29-->
 
 <!--T:30-->
 This is, in some cases, easier than the Portage setup. All that is needed is to update the <code>PATH</code> variable to include {{Path|/usr/lib/distcc/bin/}} in front of the directory that contains <tt>gcc</tt> ({{Path|/usr/bin/}}). However, there is a caveat. If <tt>ccache</tt> is used, then put the distcc location after the ccache one: 
@@ -163,7 +162,7 @@ Put this in the user's {{Path|~/.bashrc}} or equivalent file to have the <code>P
 <!--T:33-->
 Instead of calling just <kbd>make</kbd>, add in <kbd>-jN</kbd> (where <code>N</code> is an integer). The value of <code>N</code> depends on the network and the types of computers that are used to compile. A heuristic approach to the right value is given earlier in this article.
 
-=== Setting up distcc to work with SSH === <!--T:74-->
+=== Using distcc over SSH === <!--T:74-->
 
 <!--T:34-->
 Setting up distcc via SSH includes some pitfalls. First, generate an SSH key pair without password setup. Be aware that portage compiles programs as the Portage user. The home folder of the Portage user is {{Path|/var/tmp/portage/}}, which means the keys need to be stored in {{Path|/var/tmp/portage/.ssh/}}
