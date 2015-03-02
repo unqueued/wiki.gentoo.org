@@ -13,6 +13,8 @@ Cuando planee utilizar <tt>distcc</tt> para ayudarle a realizar el bootstrap en 
 
 == Configuración ==
 
+Before configuring <tt>distcc</tt>, let's first look into the installation of the {{Package|sys-devel/distcc}} package on all hosts.
+
 === Dependencias ===
 
 Para utilizar <tt>distcc</tt>, todas las máquinas en la red deben tener la misma versión de GCC. Mezclar 3.3.x (variando la x) es correcto, pero mezclar 3.3.x y 3.2.x "puede" resultar en errores en tiempo de compilación o ejecución. 
@@ -27,35 +29,46 @@ Después de configurar el ajuste <code>USE</code>, instale el paquete {{Package|
 
 {{Important/es|Recuerde instalar {{Package|sys-devel/distcc}} en todas las máquinas que vayan a participar en la construcción.}}
 
-=== Configurar Portage para utilizar distcc ===
+=== Auto-starting the distcc daemon ===
 
-Configurar [[Portage]] para usar <tt>distcc</tt> es fácil. Siga estos sencillos pasos en cada sistema que vaya a participar en la compilación distribuida.
+In order to have <tt>distccd</tt> started automatically, follow the next set of instructions, depending on the init system used.
 
-En primer lugar asegúrese de que {{Package|sys-devel/distcc}} está instlado:
+==== Using OpenRC ====
 
-{{Emerge|distcc}}
+Modifique {{Path|/etc/conf.d/distccd}} y asegúrese de usar la directiva <code>--allow</code> para permitir únicamente máquinas de confianza. Para mayor seguridad debería utilizar también la directiva <code>--listen</code> para indicarle al demonio <tt>distcc</tt> en qué dirección IP debe escuchar (en sistemas con más de una dirección IP). Se puede encontrar más información acerca de seguridad en <tt>distcc</tt> en las [http://distcc.googlecode.com/svn/trunk/doc/web/security.html notas sobre seguridad de distcc].
 
-A continuación, ajuste la variable <code>MAKEOPTS</code> y la variable <code>FEATURES</code> tal y como se describe abajo. Una estrategia común es definir <code>N</code> como el ''doble'' del número ''total'' de CPUs disponibles (locales y remotas) más uno y definir <code>M</code> como el número de CPUs ''locales''. En el caso en el que las máquinas participantes no estén disponibles o cuando el ebuild a instalar requiera un compilación exclusivamente local (por ejemplo gcc), entonces el ajuste <code>-lM</code> evitará que se lancen demasiadas tareas.
+The following example allows the distcc clients running at <tt>192.168.0.4</tt> and <tt>192.168.0.5</tt> to connect to the <tt>distccd</tt> server running locally:
 
-{{FileBox|filename=/etc/portage/make.conf|title=Ajustar MAKEOPTS y FEATURES|lang=bash|1=
-MAKEOPTS="-jN -lM"
-FEATURES="distcc"
+{{FileBox|filename=/etc/conf.d/distccd|title=Allowing specific clients to connect to distccd|lang=bash|1=
+DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distccd.log -N 15 --allow 192.168.0.4 --allow 192.168.0.5"
 }}
 
-Por ejemplo, cuando hay dos equipos PC anfitriones con cuatro núcleos que corren <tt>distcc</tt> y el equipo PC local tiene una CPU con doble núcleo entonces la variable <code>MAKEOPTS</code> podría ser:
+{{Important/es|Es importante utilizar <code>--allow</code> y <code>--listen</code>. Por favor, lea la página del manual de <tt>distccd</tt> o el documento sobre seguridad indicado arriba para obtener más información.}}
 
-{{FileBox|filename=/etc/portage/make.conf|title=Ejemplo jde MAKEOPTS para dos equipos PC con cuádruple núcleo (remotos) y un equipo PC con dos núcleos (local)|lang=bash|1=
-# Dos equipos remotos con cuatro núcleos cada uno = 8 núcleos remotos
-# Un equipo local con dos núcleos = 2 núcleos en local
-# El número total de núcleos es 10, de modo que:N = 2*10+1 and M=2
-MAKEOPTS="-j21 -l2"
+Ahora inicie el demonio <tt>distcc</tt> en todas las máquinas participantes: 
+
+{{RootCmd|rc-update add distccd default |rc-service distccd start}}
+
+==== Using systemd ====
+
+Edit {{Path|/etc/systemd/system/distccd.service.d/00gentoo.conf}} and add the allowed clients in CIDR format. Here is an example:
+
+{{FileBox|filename=/etc/systemd/system/distccd.service.d/00gentoo.conf|title=Setting ALLOWED_SERVERS|lang=bash|1=
+Environment="ALLOWED_SERVERS=192.168.1.0/24"
 }}
 
-Cuando edite el fichero {{Path|make.conf}}, asegúrese de que no se ha definido <code>-march=native</code> en las variables <code>CFLAGS</code> o <code>CXXFLAGS</code>. <tt>distcc</tt> no distribuirá trabajos a otras máquinas si <code>march</code> está definido a <code>native</code>. El valor adecuado para <code>-march=</code> se puede obtener lanzando la siguiente orden:
+Reload the unit files after making such changes:
 
-{{Cmd|gcc -Q -march{{=}}native --help{{=}}target}}
+{{RootCmd|systemctl daemon-reload}}
 
-Lea [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ -march=native en línea para distcc] para ampliar la información.
+Enable auto-starting <tt>distcc</tt> and then start the service:
+
+{{RootCmd|systemctl enable distccd
+|systemctl start distccd}}
+
+== Configuration ==
+
+Let's now look into the configuration of <tt>distcc</tt>.
 
 === Especificar las máquinas participantes ===
 
@@ -78,13 +91,37 @@ Configuraremos <tt>distcc</tt> para que usar los equipos mencionados en la prime
 
 {{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1 192.168.0.2 192.168.0.3"}}
 
-Modifique {{Path|/etc/conf.d/distccd}} y asegúrese de usar la directiva <code>--allow</code> para permitir únicamente máquinas de confianza. Para mayor seguridad debería utilizar también la directiva <code>--listen</code> para indicarle al demonio <tt>distcc</tt> en qué dirección IP debe escuchar (en sistemas con más de una dirección IP). Se puede encontrar más información acerca de seguridad en <tt>distcc</tt> en las [http://distcc.googlecode.com/svn/trunk/doc/web/security.html notas sobre seguridad de distcc]. 
+=== Configurar Portage para utilizar distcc ===
 
-{{Important/es|Es importante utilizar <code>--allow</code> y <code>--listen</code>. Por favor, lea la página del manual de <tt>distccd</tt> o el documento sobre seguridad indicado arriba para obtener más información.}}
+Configurar [[Portage]] para usar <tt>distcc</tt> es fácil. Siga estos sencillos pasos en cada sistema que vaya a participar en la compilación distribuida.
 
-Ahora inicie el demonio <tt>distcc</tt> en todas las máquinas participantes: 
+A continuación, ajuste la variable <code>MAKEOPTS</code> y la variable <code>FEATURES</code> tal y como se describe abajo. Una estrategia común es definir <code>N</code> como el ''doble'' del número ''total'' de CPUs disponibles (locales y remotas) más uno y definir <code>M</code> como el número de CPUs ''locales''. En el caso en el que las máquinas participantes no estén disponibles o cuando el ebuild a instalar requiera un compilación exclusivamente local (por ejemplo gcc), entonces el ajuste <code>-lM</code> evitará que se lancen demasiadas tareas.
 
-{{RootCmd|rc-update add distccd default |rc-service distccd start}}
+A common strategy is to
+* set the value of <code>N</code> to ''twice'' the number of ''total'' (local + remote) CPU cores + 1, and
+* set the value of <code>M</code> to the number of ''local'' CPU cores
+
+The use of <code>-lM</code> in the <code>MAKEOPTS</code> variable will prevent spawning too many tasks when some of the <tt>distcc</tt> cluster hosts are unavailable (increasing the amount of simultaneous jobs on the other systems) or when an ebuild is configured to disallow remote builds (such as with gcc). This is accomplished by refusing to start additional jobs when the system load is at or above the value of <tt>M</tt>.
+
+{{FileBox|filename=/etc/portage/make.conf|title=Ajustar MAKEOPTS y FEATURES|lang=bash|1=
+MAKEOPTS="-jN -lM"
+FEATURES="distcc"
+}}
+
+Por ejemplo, cuando hay dos equipos PC anfitriones con cuatro núcleos que corren <tt>distcc</tt> y el equipo PC local tiene una CPU con doble núcleo entonces la variable <code>MAKEOPTS</code> podría ser:
+
+{{FileBox|filename=/etc/portage/make.conf|title=Ejemplo jde MAKEOPTS para dos equipos PC con cuádruple núcleo (remotos) y un equipo PC con dos núcleos (local)|lang=bash|1=
+# Dos equipos remotos con cuatro núcleos cada uno = 8 núcleos remotos
+# Un equipo local con dos núcleos = 2 núcleos en local
+# El número total de núcleos es 10, de modo que:N = 2*10+1 and M=2
+MAKEOPTS="-j21 -l2"
+}}
+
+Cuando edite el fichero {{Path|make.conf}}, asegúrese de que no se ha definido <code>-march=native</code> en las variables <code>CFLAGS</code> o <code>CXXFLAGS</code>. <tt>distcc</tt> no distribuirá trabajos a otras máquinas si <code>march</code> está definido a <code>native</code>. El valor adecuado para <code>-march=</code> se puede obtener lanzando la siguiente orden:
+
+{{Cmd|gcc -Q -march{{=}}native --help{{=}}target}}
+
+Lea [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ -march=native en línea para distcc] para ampliar la información.
 
 === Configurar distcc para trabajar con Automake ===
 
@@ -96,36 +133,9 @@ Coloque esto en el archivo {{Path|~/.bashrc}} del usuario  o fichero equivalente
 
 En lugar de llamar únicamente a <kbd>make</kbd>, agregue <kbd>-jN</kbd> (donde <code>N</code> es un número entero). El valor de <code>N</code> depende de la red y de la tipología de los computadores que se utilizan para compilar. Una aproximación heurística a los valores correctos se ha dado anteriormente en este artículo.
 
-=== Configurar distcc para trabajar con ssh ===
-
-La configuración de distcc a través de ssh incluye algunos detalles. En primer lugar, genere un par de claves SSH sin contraseña. Observe que portage compila los programas con el usuario <tt>portage</tt>. La carpeta de inicio del usuario <tt>portage</tt> es {{Path|/var/tmp/portage/}} lo que implica que las claves se deben almacenar en {{Path|/var/tmp/portage/.ssh/}}.
-
-{{RootCmd|ssh-keygen -b 2048 -t rsa -f /var/tmp/portage/.ssh/id_rsa}}
-
-A continuación cree una sección para cada máquina en el fichero de configuración de SSH:
-
-{{FileBox|filename=/var/tmp/portage/.ssh/config|title=Añadir las secciones para cada equipo|1=
-Host test1
-  HostName 123.456.789.1
-  Port 1234
-  User UserName
-Host test2
-  HostName 123.456.789.2
-  Port 1234
-  User UserName
-}}
-
-También asegúrese de que todas las máquinas están listadas en el fichero {{Path|known_hosts}} y añada la clave pública al fichero {{Path|authorized_keys}} de todas las máquinas. Para configurar las máquinas <tt>test1</tt> y <tt>test2</tt> lance:
-
-{{RootCmd|/usr/bin/distcc-config --set-hosts "@test1 @test2"}}
-
-Por favor, observe que el símbolo <tt>'@'</tt>, especifica las máquinas ssh para distcc.
-
-== Compilación cruzada ==
-
-La compilación cruzada consiste en construir programa para otra arquitectura. Esto puede ser tan simple como usar un Athlon (i686) para construir un programa para un K6-2 (i586) o usar un SPARC para construir un programa para un PowerPC. Esto se documenta en la [[Distcc/Cross-Compiling/es| guía de compilación cruzada]].
-
 == Utilizar distcc para realizar el bootstrap ==
+
+Using <tt>distcc</tt> to bootstrap (i.e. build a working toolchain before installing the remainder of the system) requires some additional steps to take.
 
 === Paso 1: Configurar Portage ===
 
@@ -156,7 +166,103 @@ Lance <kbd>distcc-config --install</kbd> para configurar distcc. Sustituya la ca
 
 {{Note/es|Durante el arranque y <kbd>emerge system</kbd> puede que parezca que <tt>distcc</tt> no se está utilizando. Esto es normal ya que algunos ebuilds no funcionan bien con distcc por lo que se deshabilita intencionadamente.}}
 
+== Extras de distcc ==
+
+The <tt>distcc</tt> application has additional features and applications to support working in a <tt>distcc</tt> environment.
+
+=== Monitores de distcc === 
+
+Distcc se distribuye con dos herramientas de monitorización. La basada en texto se construye siempre y se llama <tt>distccmon-text</tt>. Al lanzarlo la primera puede resultar confuso, pero es muy fácil de utilizar. Si el programa se lanza sin parámetros, correrá solo una vez. Sin embargo si se le pasa un número, actualizará la información cada <code>N</code> segundos, donde <code>N</code> es el argumento indicado.
+
+{{Cmd|distccmon-text 10}}
+
+La otra utilidad de monitorización solo se habilita cuando se habilita el ajuste <code>USE</code> <code>gtk</code>. Esta herramienta está basada en GTK+, corre en un entorno X y es bastante encantador. En Gentoo, se ha cambiado el nombre a <tt>distccmon-gui</tt> para evitar confusiones (originalmente se llamaba <tt>distccmon-gnome</tt>).
+
+{{Cmd|distccmon-gui}}
+
+Para monitorizar el uso de <tt>distcc</tt> por parte de Portage:
+
+{{RootCmd|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-text 10 |DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-gui}}
+
+{{Important/es|Si el directorio distcc está en otro lugar, cambie la variable <code>DISTCC_DIR</code> adecuadamente.}}
+
+A trick is to set <code>DISTCC_DIR</code> in environment variables:
+
+{{RootCmd|echo 'DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/"' >> /etc/env.d/02distcc}}
+
+Now update the environment:
+
+{{RootCmd|env-update
+|source /etc/profile}}
+
+Finally, start the GUI application:
+
+{{RootCmd|distccmon-gui}}
+
+=== Configurar distcc para trabajar con ssh ===
+
+La configuración de distcc a través de ssh incluye algunos detalles. En primer lugar, genere un par de claves SSH sin contraseña. Observe que portage compila los programas con el usuario <tt>portage</tt>. La carpeta de inicio del usuario <tt>portage</tt> es {{Path|/var/tmp/portage/}} lo que implica que las claves se deben almacenar en {{Path|/var/tmp/portage/.ssh/}}.
+
+{{RootCmd|ssh-keygen -b 2048 -t rsa -f /var/tmp/portage/.ssh/id_rsa}}
+
+A continuación cree una sección para cada máquina en el fichero de configuración de SSH:
+
+{{FileBox|filename=/var/tmp/portage/.ssh/config|title=Añadir las secciones para cada equipo|1=
+Host test1
+  HostName 123.456.789.1
+  Port 1234
+  User UserName
+Host test2
+  HostName 123.456.789.2
+  Port 1234
+  User UserName
+}}
+
+Send the public key to each compilation node:
+
+{{RootCmd|ssh-copy-id -i /var/tmp/portage/.ssh/id_rsa.pub UserName@CompilationNode}}
+
+También asegúrese de que todas las máquinas están listadas en el fichero {{Path|known_hosts}} y añada la clave pública al fichero {{Path|authorized_keys}} de todas las máquinas. Para configurar las máquinas <tt>test1</tt> y <tt>test2</tt> lance:
+
+{{RootCmd|ssh-keyscan -t rsa <compilation-node-1> <compilation-node-2> [...] > /var/tmp/portage/.ssh/known_hosts}}
+
+Fix the file permissions as follows:
+
+{{RootCmd|chown -R portage:portage /var/tmp/portage/.ssh/}}
+
+To set up the hosts <tt>test1</tt> and <tt>test2</tt>, run:
+
+{{RootCmd|/usr/bin/distcc-config --set-hosts "@test1 @test2"}}
+
+Por favor, observe que el símbolo <tt>'@'</tt>, especifica las máquinas ssh para distcc.
+
 == Solución a problemas ==
+
+<!-- Consider moving this section to a separate subpage if it becomes too large -->
+
+If a problem occurs while using <tt>distcc</tt>, then this section might help in resolving the problem.
+
+=== ERROR: failed to open {{Path|/var/log/distccd.log}} ===
+
+<!-- To be removed when the bug is resolved and the fixed package is stable -->
+
+As of January 22nd, 2015 emerging fails to create the proper {{Path|distccd.log}} file in {{Path|/var/log/}}. This apparently only effects version 3.1-r8 of distcc. This bug is in the process of being corrected (see {{Bug|477630}}). It is possible to work around this by manually creating the log file, giving it proper ownership, and restarting the distccd daemon:
+
+{{RootCmd
+|mkdir -p /var/log/distcc
+|touch /var/log/distcc/distccd.log
+|chown distcc:daemon /var/log/distcc/distccd.log
+}}
+
+Next update the {{Path|/var/log}} path of the <tt>distccd</tt> configuration file in {{Path|/etc/conf.d/distccd}} to the {{Path|distcc}} directory created in the step before:
+
+{{FileBox|filename=/etc/conf.d/distccd|title=Updating log path|lang=bash|1=
+DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distcc/distccd.log -N 15 
+}}
+
+Finally, restart the distccd service:
+
+{{RootCmd|/etc/init.d/distccd restart}}
 
 === Algunos paquetes no utilizan distcc ===
 
@@ -190,23 +296,9 @@ Para conocer los ajustes que GCC habilitaría cuando se llama con <code>-march=n
 --param l1-cache-line-size=64 --param l2-cache-size=6144 -mtune=corei7-avx
 </pre>}}
 
-== Extras de distcc ==
+== Compilación cruzada ==
 
-=== Monitores de distcc === 
-
-Distcc se distribuye con dos herramientas de monitorización. La basada en texto se construye siempre y se llama <tt>distccmon-text</tt>. Al lanzarlo la primera puede resultar confuso, pero es muy fácil de utilizar. Si el programa se lanza sin parámetros, correrá solo una vez. Sin embargo si se le pasa un número, actualizará la información cada <code>N</code> segundos, donde <code>N</code> es el argumento indicado.
-
-{{Cmd|distccmon-text 10}}
-
-La otra utilidad de monitorización solo se habilita cuando se habilita el ajuste <code>USE</code> <code>gtk</code>. Esta herramienta está basada en GTK+, corre en un entorno X y es bastante encantador. En Gentoo, se ha cambiado el nombre a <tt>distccmon-gui</tt> para evitar confusiones (originalmente se llamaba <tt>distccmon-gnome</tt>).
-
-{{Cmd|distccmon-gui}}
-
-Para monitorizar el uso de <tt>distcc</tt> por parte de Portage:
-
-{{RootCmd|DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-text 10 |DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-gui}}
-
-{{Important/es|Si el directorio distcc está en otro lugar, cambie la variable <code>DISTCC_DIR</code> adecuadamente.}}
+La compilación cruzada consiste en construir programa para otra arquitectura. Esto puede ser tan simple como usar un Athlon (i686) para construir un programa para un K6-2 (i586) o usar un SPARC para construir un programa para un PowerPC. Esto se documenta en la [[Distcc/Cross-Compiling/es| guía de compilación cruzada]].
 
 == Recursos externos ==
 
