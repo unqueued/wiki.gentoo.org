@@ -8,70 +8,106 @@
 
 커널 업그레이드는 시스템 업데이트 후 커널 소스를 설치하거나 새 커널 소스를 직접 설치했을 경우 필요합니다.
 
-== 설정 ==
+Installing new kernel sources doesn't provide the user with a new kernel. It is necessary to make and install a new kernel from the new sources and then reboot the system to actually run the new kernel.
 
-설정 파일은 다시 사용하므로, [[Kernel/Configuration|직접 설정]]과 설정을 병행합니다. 모든 단계에 대하여는 다른 글에서 볼 수 있는 내용에 대한 더 자세한 설명을 위해 완벽을 기하려 다시 적어놓았습니다.
+Making a new kernel from the new sources is basically the same process as making a kernel when installing the system. The difference is that one can use the configuration of the old kernel to create a configuration for the new kernel. Using the old configuration saves the user from going through all the kernel options (like <tt>make menuconfig</tt>) again.
 
-=== 심볼릭 링크 설정 ===
+The configuration of the kernel is saved in a file named {{Path|.config}} in the directory that holds the kernel sources. A new kernel may have options or features the old kernel does not have, or it might not have a feature or option anymore which the old kernel still has.  The kernel configuration specifies whether the features and options of a kernel are to be enabled or not, perhaps built into the kernel, or perhaps built as modules which can be loaded into the running kernel on demand. Hence the configuration file of the new kernel may have new entries the configuration file of the old kernel doesn't have, and it might not have entries anymore which are present in the configuration file of the old kernel.
+
+To deal with such changes of the configuration file, the configuration file of the old kernel needs to be converted to a configuration that can be used with the new kernel. This article shows how to make a new kernel from new kernel sources with converting the configuration file of the old kernel.
+
+== Make a backup of the current kernel configuration ==
+
+It is wise to make a backup of the kernel configuration so that the previous configurations are not lost. After all, many users devote considerable time to figure out the best configuration for the system, and losing that information is definitely not wanted.
+
+It is easy to make a backup of the current kernel configuration:
+
+{{RootCmd|cd /usr/src/linux
+|cp .config ~/kernel-config-`uname -r`|}}
+
+Provided that the symlink to the kernel sources has been set correctly, this copies the configuration of the currently used kernel to the home directory of root, renaming the configuration to {{Path|kernel-config-}} followed by the version of the current running Linux kernel.
+
+== Set symlink to new kernel sources ==
 
 {{Path|/usr/src/linux}} 심볼릭 링크는 언제든  현재 사용하는 커널 소스를 가리킵니다. 다음 세가지 방법 중 하나로 끝낼 수 있습니다:
 
-; 1. 활성 ''symlink'' [[USE flag]]로 커널 소스를 설치합니다
-: {{Path|/usr/src/linux}}가 가리키는 곳을 새로 설치한 커널 소스로 가도록 합니다. 다음의 수정된 두가지 방식이 또 있습니다:
+# Installing the kernel sources with <code>USE="symlink"</code>
+# Setting the link with eselect
+# Manually updating the symbolic link
 
-; 2. '''eselect'''로 심볼릭 링크를 선택합니다:
+=== Installing the kernel sources with the symlink USE flag ===
 
-: {{RootCmd| eselect kernel list |
-  |output=Available kernel symlink targets:<br /> &nbsp; [1] linux-3.14.14-gentoo *<br /> &nbsp; [2]   linux-3.16.3-gentoo}}
+This will make the {{Path|/usr/src/linux}} point to the newly installed kernel sources.
 
-: 이 출력 내용은 사용할 수 있는 커널 소스를 포함합니다. 별표 기호는 선택한 소스를 나타냅니다. 커널 소스를 바꾸려면 (예: 두번째 항목) 다음처럼 하십시오:
+If necessary, it can still be modified later with one of the other two methods.
 
-: {{RootCmd|eselect kernel set 2}}
+=== Setting the link with eselect ===
 
-; 3. 직접 심볼릭 링크를 설정합니다:
+To set the symlink with <tt>eselect</tt>:
 
-: {{RootCmd|ln -sf /usr/src/linux-3.16.3 /usr/src/linux |
-  |ls -l /usr/src/linux |
-  |output=lrwxrwxrwx 1 root root 19 Oct  4 10:21 /usr/src/linux -> linux-3.16.3-gentoo}}
+{{RootCmd|eselect kernel list|output=<pre>
+Available kernel symlink targets:
+ [1] linux-3.14.14-gentoo *
+ [2] linux-3.16.3-gentoo
+</pre>}}
 
-=== 소스코드의 자질구레한 부분 제거하기 ===
+This outputs the available kernel sources. The asterisk indicates the chosen sources.
 
-현재 커널을 다시 하는 동안 빌드에 문제가 있음을 경험했을 경우 커널 소스를 정리하는데 도움이 필요합니다. 동작중에 {{Path|.config}} 파일을 제거하므로 먼저 백업했는지 확인하십시오. 백업에 <code>.bak</code> 또는 <code>~</code> 접미사를 사용하면 <code>make distclean</code>에서 지우므로 사용하지 마십시오.
+To change the kernel sources, e.g. to the second entry, do:
 
-{{RootCmd|cp .config /usr/src/kernel_config_bk
-|make distclean
-|mv /usr/src/kernel_config_bk .config}}
+{{RootCmd|eselect kernel set 2}}
 
-=== 이전 커널 설정 복사 ===
-현재 실행중인 커널로부터의 설정은 새로운 설정으로 복사해야 합니다. 몇가지 위치에서 찾아볼 수 있습니다:
+=== Manually updating the symbolic link ===
+
+To set the symbolic link manually:
+
+{{RootCmd|ln -sf /usr/src/linux-3.16.3 /usr/src/linux
+|ls -l /usr/src/linux|output=<pre>
+lrwxrwxrwx 1 root root 19 Oct  4 10:21 /usr/src/linux -> linux-3.16.3-gentoo
+</pre>}}
+
+== Copy previous kernel configuration ==
+
+The configuration of the old kernel needs to be copied to the new one. It can be found in several places:
 
 * [[procfs]] 파일 시스템에서 현재 커널로부터 ''Enable access to .config through /proc/config.gz'' 옵션을 활성화 했다면:
 
-: {{RootCmd|zcat /proc/config.gz > /usr/src/linux/.config}}
-
 * {{Path|/boot}} 디렉터리에 설정 파일을 설치했다면:
-
-: {{RootCmd|cp /boot/config-3.14.14-gentoo /usr/src/linux/.config}}
 
 * 현재 동작중인 커널의 디렉터리에서:
 
-: {{RootCmd|cp /usr/src/linux-3.14.14-gentoo/.config /usr/src/linux/}}
+== Configure the new kernel ==
 
-=== make silentoldconfig ===
-이제 이전 설정 파일을 새 커널에 맞춰 업데이트 하십시오:
+To use the configuration of the old kernel with the new kernel, it needs to be converted.  The conversion can be done by running either <tt>make oldconfig</tt> or <tt>make silentoldconfig</tt>.
 
-{{RootCmd|cd /usr/src/linux
-|make silentoldconfig}}
+<tt>make oldconfig</tt> gives many choices, <tt>make silentoldconfig</tt> does not.  Use either, not both.
 
-다음 설정은 '''make config''' 텍스트 기반 설정과 병행합니다. 커널 버전 사이에 항상 차이점이 있으므로 드라이버나 기능을 활성화 할건지 다음 예제처럼 물을 것입니다:
+=== make oldconfig ===
+
+The following configuration is like the text based configuration with <tt>make config</tt>.  For new configuration options, it gives a choice. For example:
 
 {{RootCmd|make oldconfig
 |output=Anticipatory I/O scheduler (IOSCHED_AS) [Y/n/m/?] (NEW)
 }}
 
-줄 마지막에 '''(NEW)''' 문자열은 이 옵션이 새로 들어왔음을 의미하는 표시입니다. 각괄호 안에 남길 수 있는 답을 남기십시오. ''Y''es, ''N''o, ''m''odule 이 있으며, 도움말을 보기 위한 ''?''가 있습니다. 대문자 답변을 추천합니다(여기서는 ''Y'' 입니다). 도움말에서는 옵션 또는 드라이버에 대해 설명합니다.
+The string ''(NEW)'' at the end of the line marks this option as new. Left to the string in square brackets are the possible answers: ''Y''es, ''n''o, ''m''odule or ''?'' to show the help. The recommend answer is capitalized (here ''Y''). The help explains the option or driver.
 
-불행하게도 '''make oldconfig'''은 각각의 옵션에 대한 더 많은 정보를 - 도움말 옆에 - 상황 설명 처럼 보여주지 않으므로, 올바른 대답을 주기는 가끔은 어렵습니다. 이런 경우 진행하는 가장 좋은 방법은 [[Kernel/Configuration#Configuration tools|그래픽 커널 설정 도구]]중 하나를 통해 옵션 이름을 기억한 다음 내용을 바꾸는 것입니다.
+Unfortunately <tt>make oldconfig</tt> doesn't show - next to the help - a lot more information for each option, like the context, so that it is sometimes difficult to give the right answer. In this case the best way to go is to remember the option name and revise it afterwards through one of the [[Kernel/Configuration#Configuration tools|graphical kernel configuration tools]].
+
+=== make silentoldconfig ===
+
+If interactivity is not wanted (no questions should be asked), then use <tt>make silentoldconfig</tt>:
+
+{{RootCmd|cd /usr/src/linux
+|make silentoldconfig}}
+
+== 빌드 ==
+
+{{Important|When external kernel modules are installed (like nvidia or zfs), it may be necessary to run <tt>make modules_prepare</tt> as described [[Kernel/Upgrade#Reinstall external kernel modules|below]] before bulding the kernel. Some modules cannot be installed or prepared before the kernel has been built.}}
+
+{{Important|Do not forget to reconfigure the [[Bootloader|bootloader]] to account for the new kernel filenames, and rebuild the initramfs if one is used as well.}}
+
+이 단계에서 다음 단계는 [[Kernel/Configuration#Build|직접 설정하기]] 글에 있습니다.
 
 == 외부 커널 모듈 다시 설치 ==
 
@@ -83,9 +119,13 @@
 
 {{Emerge|@module-rebuild}}
 
-== 빌드 ==
+== Solving build problems ==
 
-이 단계에서 다음 단계는 [[Kernel/Configuration#Build|직접 설정하기]] 글에 있습니다.
+현재 커널을 다시 하는 동안 빌드에 문제가 있음을 경험했을 경우 커널 소스를 정리하는데 도움이 필요합니다. 동작중에 {{Path|.config}} 파일을 제거하므로 먼저 백업했는지 확인하십시오. 백업에 <code>.bak</code> 또는 <code>~</code> 접미사를 사용하면 <code>make distclean</code>에서 지우므로 사용하지 마십시오.
+
+{{RootCmd|cp .config /usr/src/kernel_config_bk
+|make distclean
+|mv /usr/src/kernel_config_bk .config}}
 
 == 오래된 커널 제거 ==
 
