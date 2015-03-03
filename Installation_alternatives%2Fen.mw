@@ -101,6 +101,116 @@ cleaning it up to a reasonable state.}}
 
 Finally, know that some Portage FEATURES may not work in your LiveCD. Especially watch out for <code>userpriv</code> and <code>usersandbox</code>. If you find yourself getting errors, it might be wise to disable some or all of the optional FEATURES.
 
+== Diskless install using PXE and kernel/initrd/squashfs from the LiveCD ==
+
+This method is easier to configure than PXE boot based on iSCSI or NFS. Multiple machines can boot from the same set of images distributed via TFTP and can be easily extended to also work over HTTP or other protocol.
+
+Some other distributions including Fedora already distribute images needed to bootstrap a live or installation CD but with Gentoo it's necessary to (1) extract kernel, initrd and squashfs from the live CD, (2) patch initrd contents and (3) merge squashfs into initrd. Only then it is possible to configure a PXE based boot loader that will load the images and boot into a live system.
+
+Save the following script and make sure it is executable and in <code>$PATH</code> or follow its steps manually.
+
+
+{{CodeBox|title=gentoo-pxe-boot|<nowiki>
+#!/bin/bash -xe
+
+tftproot="$1"
+image="$2"
+tmp="./tmp"
+
+test -z "$tftproot" -o -z "$image" && echo "Usage: $0 <tftproot> <gentoo-iso>" >&2 && exit 1
+test -e "$tmp" && echo "Temporary path '$tmp' already exists." >&2 && exit 1
+
+iso="$tmp/iso"
+initrd="$tmp/initrd.dir"
+
+# prepare directories
+mkdir -p "$tmp" "$iso" "$initrd/mnt/cdrom"
+
+# extract files from ISO image
+mount -o ro,loop "$image" "$iso"
+cp "$iso"/{image.squashfs,isolinux/gentoo,isolinux/gentoo.igz} "$tmp"
+umount "$iso"
+
+# rename kernel
+mv "$tmp/gentoo" "$tmp/kernel"
+
+# patch initramfs and add squashfs to it
+xz -dc "$tmp/gentoo.igz" | ( cd "$initrd" && cpio -idv )
+patch -d "$initrd" -p0 <<'EOF'
+--- init.orig	2012-05-21 16:14:35.000000000 +0400
++++ init	2012-05-21 18:14:43.000000000 +0400
+@@ -368,10 +368,10 @@
+ 		[ ! -e "${NEW_ROOT}/dev/tty1" ] && mknod "${NEW_ROOT}/dev/tty1" c 4 1
+ 	fi
+ 
+-	if [ "${REAL_ROOT}" != "/dev/nfs" ] && [ "${LOOPTYPE}" != "sgimips" ]
+-	then
+-		bootstrapCD
+-	fi
++#	if [ "${REAL_ROOT}" != "/dev/nfs" ] && [ "${LOOPTYPE}" != "sgimips" ]
++#	then
++#		bootstrapCD
++#	fi
+ 
+ 	if [ "${REAL_ROOT}" = '' ]
+ 	then
+@@ -456,7 +456,7 @@
+ 		else
+ 			bad_msg "Block device ${REAL_ROOT} is not a valid root device..."
+ 			REAL_ROOT=""
+-			got_good_root=0
++			got_good_root=1
+ 		fi
+ 	done
+ 
+@@ -520,7 +520,7 @@
+ 	[ -z "${LOOP}" ] && find_loop
+ 	[ -z "${LOOPTYPE}" ] && find_looptype
+ 
+-	cache_cd_contents
++	#cache_cd_contents
+ 
+ 	# If encrypted, find key and mount, otherwise mount as usual
+ 	if [ -n "${CRYPT_ROOT}" ]
+EOF
+cp "$tmp/image.squashfs" "$initrd/mnt/cdrom"
+( cd "$initrd" && find . -print | cpio -o -H newc | gzip -9 -c - ) > "$tmp/initrd"
+
+# prepare boot data
+grub2-mknetdir -v --net-directory="$tftproot"
+cat > "$tftproot/boot/grub/grub.cfg" <<'EOF'
+menuentry "Gentoo Live" {
+    linux /boot/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
+    initrd /boot/initrd
+}
+EOF
+cp "$tmp"/{kernel,initrd} "$tftproot/boot"
+
+# cleanup
+rm -rf "$tmp"
+</nowiki>}}
+
+
+Download <code>install-amd64-minimal-20141204.iso</code> (or try with the current version if it differs). Install {{Package|net-ftp/tftp-hpa}}, make sure it serves <code>/tftproot</code> and start it.
+
+Run the script with the appropriate parameters.
+
+{{RootCmd|gentoo-pxe-boot /tftproot install-amd64-minimal-20141204.iso}}
+
+Now your tftp boot service is ready and you need to configure your DHCP
+service. You can set up DHCP server on the same machine and make sure
+booted machines are connected to it, or you can just tweak the configuration
+of your existing router.
+
+Example configuration for OpenWRT dhcp service follows:
+
+{{CodeBox|title=/etc/config/dhcp|
+config boot linux                   
+        option filename boot/grub/i386-pc/core.0
+        option servername boot
+        option serveraddress 84.246.161.86
+}}
+
 == Diskless install using PXE boot ==
 
 === Requirements ===
@@ -149,12 +259,28 @@ INTFTPD_OPTS="-u ${INTFTPD_USER} -l -vvvvvv -p -c -s ${INTFTPD_PATH}"
 </pre>
 }}
 
-Setup GRUB: To provide PXE booting I use GRUB with the <code>netboot</code> USE flag enabled. Once GRUB is compiled, copy the PXE image to the diskless client's boot directory. Then edit its {{Path|grub.lst}} config file. 
+Setup GRUB: To provide PXE booting I use GRUB with the <code>netboot</code> USE flag enabled. Once GRUB is compiled, copy the PXE image to the diskless client's boot directory. Then edit its {{Path|grub.lst}} config file.
 
 {{RootCmd|echo "sys-boot/grub netboot" >> /etc/portage/package.use
 |emerge -av grub
 |cp /usr/lib/grub/pxegrub /diskless/eta/boot/pxegrub
 |nano -w /diskless/eta/boot/grub.lst}}
+
+Install GRUB.
+
+{{RootCmd|emerge -av grub}}
+
+Once GRUB is compiled, create the diskless client's boot directory.
+
+{{RootCmd|grub2-mknetdir --net-directory{{=}}/diskless/eta}}
+
+Original way was to copy the PXE image to the diskless client but the path doesn't seem to exit any more.
+
+{{RootCmd|mkdir /diskless/eta/boot|cp /usr/lib/grub/pxegrub /diskless/eta/boot/pxegrub}}
+
+Then edit its {{Path|grub.lst}} config file.
+
+{{RootCmd|nano -w /diskless/eta/boot/grub.lst}}
 
 {{File|grub.lst||<pre>
 default 0
@@ -248,7 +374,7 @@ Bootloader. Don't install another bootloader because we already have one - pxegr
 
 === Booting the new client ===
 
-For the new client to boot properly, you'll need to configure the BIOS and the network card to use PXE as the first boot method - before CD-ROM or floppy. For help with this consult your hardware manuals or manufacturers website. The network card should get an IP address using DHCP and download the GRUB PXE image using TFTP. Then, you should see a nice black and white GRUB bootmenu where you will select the kernel to boot and press Enter. If everything is ok the kernel should boot, mount the root filesystem using NFS and provide you with a login prompt. Enjoy. 
+For the new client to boot properly, you'll need to configure the BIOS and the network card to use PXE as the first boot method - before CD-ROM or floppy. For help with this consult your hardware manuals or manufacturers website. The network card should get an IP address using DHCP and download the GRUB PXE image using TFTP. Then, you should see a nice black and white GRUB bootmenu where you will select the kernel to boot and press Enter. If everything is ok the kernel should boot, mount the root filesystem using NFS and provide you with a login prompt. Enjoy.
 
 == Installing Gentoo from an existing Linux distribution ==
 
