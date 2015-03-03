@@ -15,7 +15,7 @@ Download Smart BootManager available from [http://btmgr.sourceforge.net/download
 
 Either compile the package from source or just grab the binary. There are several options that can be utilized while creating your boot floppy, as seen below. 
 
-{{Code|Smart BootManager Options|<pre>
+{{CodeBox|title=Smart BootManager Options|1=
 sbminst [-t theme] [-d drv] [-b backup_file] [-u backup_file]
   
    -t theme       select the theme to be used, in which the theme could be:
@@ -42,7 +42,6 @@ sbminst [-t theme] [-d drv] [-b backup_file] [-u backup_file]
    -u backup_file uninstall Smart BootManager, should be used alone;
   
    -y             do not ask any question or warning.
-</pre>
 }}
 
 Use <code>sbminst</code> to build the boot floppy:
@@ -71,25 +70,25 @@ There are too many LiveCDs out there to [http://distrowatch.com/search.php list]
 
 === インストール手順 ===
 
-Boot from your LiveCD. Open a terminal and run <code>su -</code> so you can change your password. This lets you set the root password for the CD. You can now configure <code>sshd</code> for remote login, if you need to install Gentoo remotely. Next, you'll need to create the {{Path|/mnt/gentoo}} mount point. 
+Boot from your LiveCD. Open a terminal and run <kbd>su -</kbd> so you can change your password. This lets you set the root password for the CD. You can now configure the sshd daemon for remote login if you need to install Gentoo remotely. Next, you'll need to create the {{Path|/mnt/gentoo}} mount point. 
 
 {{RootCmd|mkdir /mnt/gentoo}}
 
-At this point, you can pick up with the standard install documentation at [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part{{=}}1&chap{{=}}4 part 4]. However, when you are asked to mount the proc system, issue the following command instead: 
+At this point, you can pick up with the standard install documentation at [[Handbook:AMD64/Installation/Disks|Preparing the Disks]]. However, when you are asked to mount the proc system, issue the following command instead: 
 
 {{RootCmd|mount -o bind /proc /mnt/gentoo/proc}}
 
-When you're ready to unpack the stage tarball in [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part{{=}}1&chap{{=}}5#doc_chap2_sect2 part 5], you will need to use a different <code>tar</code> command to ensure that proper group IDs are enforced on the unpacked stage: 
+When you're ready to unpack the stage tarball in [[Handbook:AMD64/Installation/Stage#Unpacking_the_stage_tarball|Unpacking the stage tarball]], you will need to use a different <tt>tar</tt> command to ensure that proper group IDs are enforced on the unpacked stage: 
 
 {{RootCmd|tar --numeric-owner -xvjpf stage3-*.tar.bz2}}
 
-If you are using Ubuntu, note that <code>/dev/shm</code> is a symbolic link to <code>/run/shm</code>. You must bind or create a tmpfs at this location (within the chroot path). On the system before chroot'ing:
+If you are using Ubuntu, note that {{Path|/dev/shm}} is a symbolic link to {{Path|/run/shm}}. You must bind or create a tmpfs at this location (within the chroot path). On the system before chroot'ing:
 
 {{RootCmd|mount --rbind /run/shm /mnt/gentoo/run/shm}}
 
-This is to avoid a [https://bugs.gentoo.org/show_bug.cgi?id=496328 bug] where Python sees <code>sem_open()</code> as broken (due to lack of <code>/dev/shm</code>) and Portage seeing that as an error (technically Python configuration would continue and build assuming <code>POSIX_SEMAPHORES_NOT_ENABLED</code> but this would lead to a very undesired Python build).
+This is to avoid {{Bug|496328}} where Python sees <code>sem_open()</code> as broken (due to lack of {{Path|/dev/shm}}) and Portage seeing that as an error (technically Python configuration would continue and build assuming <code>POSIX_SEMAPHORES_NOT_ENABLED</code> but this would lead to a very undesired Python build).
 
-Once you're ready to chroot into your unpacked stage in [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part{{=}}1&chap{{=}}6#doc_chap1 part 6], you will need to use a different chroot command sequence. This ensures that your environment variables are properly setup. 
+Once you're ready to chroot into your unpacked stage in [[Handbook:AMD64/Installation/Base|Installing Base System]], you will need to use a different chroot command sequence. This ensures that your environment variables are properly setup. 
 
 {{Note|Some LiveCDs use a funny environment setup, hence the <code>env -i</code> option for
 cleaning it up to a reasonable state.}}
@@ -101,7 +100,117 @@ cleaning it up to a reasonable state.}}
 
 Finally, know that some Portage FEATURES may not work in your LiveCD. Especially watch out for <code>userpriv</code> and <code>usersandbox</code>. If you find yourself getting errors, it might be wise to disable some or all of the optional FEATURES.
 
-== Diskless install using PXE boot ==
+== Diskless install using PXE and kernel/initrd/squashfs from the LiveCD ==
+
+This method is easier to configure than PXE boot based on iSCSI or NFS. Multiple machines can boot from the same set of images distributed via TFTP and can be easily extended to also work over HTTP or other protocol.
+
+Some other distributions including Fedora already distribute images needed to bootstrap a live or installation CD but with Gentoo it's necessary to (1) extract kernel, initrd and squashfs from the live CD, (2) patch initrd contents and (3) merge squashfs into initrd. Only then it is possible to configure a PXE based boot loader that will load the images and boot into a live system.
+
+Save the following script and make sure it is executable and in <code>$PATH</code> or follow its steps manually.
+
+
+{{CodeBox|title=gentoo-pxe-boot|<nowiki>
+#!/bin/bash -xe
+
+tftproot="$1"
+image="$2"
+tmp="./tmp"
+
+test -z "$tftproot" -o -z "$image" && echo "Usage: $0 <tftproot> <gentoo-iso>" >&2 && exit 1
+test -e "$tmp" && echo "Temporary path '$tmp' already exists." >&2 && exit 1
+
+iso="$tmp/iso"
+initrd="$tmp/initrd.dir"
+
+# prepare directories
+mkdir -p "$tmp" "$iso" "$initrd/mnt/cdrom"
+
+# extract files from ISO image
+mount -o ro,loop "$image" "$iso"
+cp "$iso"/{image.squashfs,isolinux/gentoo,isolinux/gentoo.igz} "$tmp"
+umount "$iso"
+
+# rename kernel
+mv "$tmp/gentoo" "$tmp/kernel"
+
+# patch initramfs and add squashfs to it
+xz -dc "$tmp/gentoo.igz" | ( cd "$initrd" && cpio -idv )
+patch -d "$initrd" -p0 <<'EOF'
+--- init.orig	2012-05-21 16:14:35.000000000 +0400
++++ init	2012-05-21 18:14:43.000000000 +0400
+@@ -368,10 +368,10 @@
+ 		[ ! -e "${NEW_ROOT}/dev/tty1" ] && mknod "${NEW_ROOT}/dev/tty1" c 4 1
+ 	fi
+ 
+-	if [ "${REAL_ROOT}" != "/dev/nfs" ] && [ "${LOOPTYPE}" != "sgimips" ]
+-	then
+-		bootstrapCD
+-	fi
++#	if [ "${REAL_ROOT}" != "/dev/nfs" ] && [ "${LOOPTYPE}" != "sgimips" ]
++#	then
++#		bootstrapCD
++#	fi
+ 
+ 	if [ "${REAL_ROOT}" = '' ]
+ 	then
+@@ -456,7 +456,7 @@
+ 		else
+ 			bad_msg "Block device ${REAL_ROOT} is not a valid root device..."
+ 			REAL_ROOT=""
+-			got_good_root=0
++			got_good_root=1
+ 		fi
+ 	done
+ 
+@@ -520,7 +520,7 @@
+ 	[ -z "${LOOP}" ] && find_loop
+ 	[ -z "${LOOPTYPE}" ] && find_looptype
+ 
+-	cache_cd_contents
++	#cache_cd_contents
+ 
+ 	# If encrypted, find key and mount, otherwise mount as usual
+ 	if [ -n "${CRYPT_ROOT}" ]
+EOF
+cp "$tmp/image.squashfs" "$initrd/mnt/cdrom"
+( cd "$initrd" && find . -print | cpio -o -H newc | gzip -9 -c - ) > "$tmp/initrd"
+
+# prepare boot data
+grub2-mknetdir -v --net-directory="$tftproot"
+cat > "$tftproot/boot/grub/grub.cfg" <<'EOF'
+menuentry "Gentoo Live" {
+    linux /boot/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
+    initrd /boot/initrd
+}
+EOF
+cp "$tmp"/{kernel,initrd} "$tftproot/boot"
+
+# cleanup
+rm -rf "$tmp"
+</nowiki>}}
+
+
+Download <code>install-amd64-minimal-20141204.iso</code> (or try with the current version if it differs). Install {{Package|net-ftp/tftp-hpa}}, make sure it serves <code>/tftproot</code> and start it.
+
+Run the script with the appropriate parameters.
+
+{{RootCmd|gentoo-pxe-boot /tftproot install-amd64-minimal-20141204.iso}}
+
+Now your tftp boot service is ready and you need to configure your DHCP
+service. You can set up DHCP server on the same machine and make sure
+booted machines are connected to it, or you can just tweak the configuration
+of your existing router.
+
+Example configuration for OpenWRT dhcp service follows:
+
+{{CodeBox|title=/etc/config/dhcp|
+config boot linux                   
+        option filename boot/grub/i386-pc/core.0
+        option servername boot
+        option serveraddress 84.246.161.86
+}}
+
+== Diskless install using PXE boot and NFS ==
 
 === Requirements ===
 
@@ -121,7 +230,7 @@ For dhcpd, just run <code>emerge dhcp</code> (or any other DHCP server of your c
 
 {{Note|This provides a static IP address for the client and the path of a PXE boot image, here {{Path|pxegrub}}. You have to replace the MAC address of the ethernet card of the client and the directory where you will put the client files with the one you use.}}
 
-{{File|dhcpd.conf||<pre>
+{{FileBox|filename=dhcpd.conf|title=|lang=bash|1=
 option option-150 code 150 = text ;
 ddns-update-style none ;
 host eta {
@@ -130,31 +239,44 @@ fixed-address ip.add.re.ss;
 option option-150 "/eta/boot/grub.lst";
 filename "/eta/boot/pxegrub";
 }
-</pre>
 }}
 
 Next you'll need to configure your interface in {{Path|/etc/conf.d/net}} so that it doesn't get cleared at bootup. See {{Path|/usr/share/doc/openrc-*/net.example.bz2}} for more information. 
 
-{{File|/etc/conf.d/net|Ensure your interface (here eth0 as example) is not reconfigured at boot|<pre>
+{{FileBox|filename=/etc/conf.d/net|title=Ensure your interface (here eth0 as example) is not reconfigured at boot|lang=bash|1=
 config_eth0=( "noop" )
-</pre>
 }}
 
 For TFTP, emerge {{Package|net-ftp/tftp-hpa}}. In {{Path|/etc/conf.d/in.tftpd}}, put the following: 
 
-{{File|in.tftpd||<pre>
+{{FileBox|filename=in.tftpd|title=|lang=bash|1=
 INTFTPD_PATH="/diskless"
 INTFTPD_USER="nobody"
 INTFTPD_OPTS="-u ${INTFTPD_USER} -l -vvvvvv -p -c -s ${INTFTPD_PATH}"
-</pre>
 }}
 
-Setup GRUB: To provide PXE booting I use GRUB with the <code>netboot</code> USE flag enabled. Once GRUB is compiled, copy the PXE image to the diskless client's boot directory. Then edit its {{Path|grub.lst}} config file. 
+Setup GRUB: Older versions of GRUB used the <code>netboot</code> USE flag to create a PXE image.
 
 {{RootCmd|echo "sys-boot/grub netboot" >> /etc/portage/package.use
 |emerge -av grub
 |cp /usr/lib/grub/pxegrub /diskless/eta/boot/pxegrub
 |nano -w /diskless/eta/boot/grub.lst}}
+
+Install GRUB.
+
+{{RootCmd|emerge -av grub}}
+
+Once GRUB is compiled, create the diskless client's boot directory.
+
+{{RootCmd|grub2-mknetdir --net-directory{{=}}/diskless/eta}}
+
+Original way was to copy the PXE image to the diskless client but the path doesn't seem to exit any more.
+
+{{RootCmd|mkdir /diskless/eta/boot|cp /usr/lib/grub/pxegrub /diskless/eta/boot/pxegrub}}
+
+Then edit its {{Path|grub.lst}} config file.
+
+{{RootCmd|nano -w /diskless/eta/boot/grub.lst}}
 
 {{File|grub.lst||<pre>
 default 0
@@ -205,24 +327,23 @@ Stage tarballs and chroot: This example uses a stage3 tarball. Mount {{Path|/pro
 
 Kernel configuration: When you do the <code>make menuconfig</code> of your kernel configuration, don't forget to enable the following options with the others recommended into the install howto. 
 
-{{Kernel|Necessary options for diskless installations|<pre>
+{{KernelBox|title=Necessary options for diskless installations|<pre>
 - Your network card device support
 (In the kernel, *not* as a module!)
   
-- Under "Networking options" :
+-*- Networking support --->  
+  Networking options --->
+    [*] TCP/IP networking
+    [*] IP: kernel level autoconfiguration
+    [*] IP: DHCP support
+    [*] IP: BOOTP support
   
-[*] TCP/IP networking
-[*] IP: kernel level autoconfiguration
-[*] IP: DHCP support
-[*] IP: BOOTP support
-  
-- Under "File systems --> Network File Systems" :
-  
-<*> NFS file system support
-[*] Provide NFSv3 client support
-[*] Root file system on NFS
-</pre>
-}}
+File systems --->
+  [*] Network File Systems --->
+    <*> NFS file system support
+    [*] Provide NFSv3 client support
+    [*] Root file system on NFS
+</pre>}}
 
 Save the kernel in your chrooted {{Path|/}} (not in {{Path|/boot}}) according to the pxegrub setting defined earlier. Next configure your diskless client's {{Path|/etc/fstab}}. 
 
@@ -248,7 +369,7 @@ Bootloader. Don't install another bootloader because we already have one - pxegr
 
 === Booting the new client ===
 
-For the new client to boot properly, you'll need to configure the BIOS and the network card to use PXE as the first boot method - before CD-ROM or floppy. For help with this consult your hardware manuals or manufacturers website. The network card should get an IP address using DHCP and download the GRUB PXE image using TFTP. Then, you should see a nice black and white GRUB bootmenu where you will select the kernel to boot and press Enter. If everything is ok the kernel should boot, mount the root filesystem using NFS and provide you with a login prompt. Enjoy. 
+For the new client to boot properly, you'll need to configure the BIOS and the network card to use PXE as the first boot method - before CD-ROM or floppy. For help with this consult your hardware manuals or manufacturers website. The network card should get an IP address using DHCP and download the GRUB PXE image using TFTP. Then, you should see a nice black and white GRUB bootmenu where you will select the kernel to boot and press Enter. If everything is ok the kernel should boot, mount the root filesystem using NFS and provide you with a login prompt. Enjoy.
 
 == Installing Gentoo from an existing Linux distribution ==
 
