@@ -165,6 +165,52 @@ Then, if the builds succeeds, you can load it in memory. Once loaded, it will be
 
 {{RootCmd|semodule -i fixlocal.pp}}
 
+=== How to I load an entire policy set? ==
+
+Usually, it is sufficient to go into the {{Path|/usr/share/selinux/strict}} location and execute <tt>semodule</tt> like so:
+
+{{RootCmd|semodule -b base.pp -i $(ls *.pp {{!}} grep -v base.pp)}}
+
+With the 2.4 userspace, that command can be simplified:
+
+{{RootCmd|semodule -i *.pp}}
+
+However, there is a downside. With the 2.4 userspace onwards, modules can have a certain priority. Modules that were loaded in through the 2.3 userspace utilities are at priority 100, whereas new modules are at priority 400. When a new set of policy modules is loaded, but it does not contain every previous module, then weird things can happen.
+
+Consider the following situation where there no longer is a <tt>storage</tt> module:
+
+{{RootCmd|semodule -i *.pp|output=<pre>
+Re-declaration of typeattribute fixed_disk_raw_read
+Failed to create node
+Bad typeattribute declaration at line 74 of /var/lib/selinux/mcs/tmp/modules/100/storage/cil
+Failed to build ast
+semodule:  Failed!
+</pre>}}
+
+However removing that module is not possible, because the currently loaded modules depend on objects defined by it:
+
+{{RootCmd|semodule -X 100 -r storage|output=<pre>
+libsemanage.semanage_direct_remove_key: Removing last storage module (no other storage module exists at another priority).
+Failed to resolve typeattributeset statement at 193 of /var/lib/selinux/mcs/tmp/modules/400/authlogin/cil
+Failed to resolve ast
+semodule:  Failed!
+</pre>}}
+
+As it is not possible to load in a set of new policies on a new priority (400) and remove an older one from another priority (100) we seem to be in a deadlock.
+
+To resolve this, make an empty policy module named <tt>storage</tt> and load it (at the higher priority):
+
+{{RootCmd|semodule -i storage.pp -i /usr/share/selinux/mcs/*.pp|output=<pre>
+libsemanage.semanage_direct_install_info: Overriding storage module at lower priority 100 with module at priority 400.
+</pre>}}
+
+With that in place, there is now an empty <tt>storage</tt> module active at priority 400, allowing the administrator to remove the older one, followed by the empty one.
+
+{{RootCmd|semodule -X 100 -r storage
+|semodule -r storage|output=<pre>
+libsemanage.semanage_direct_remove_key: Removing last storage module (no other storage module exists at another priority).
+</pre>}}
+
 == SELinux Kernel Error Messages ==
 
 === I get a register_security error message when booting ===
