@@ -11,15 +11,15 @@
 
 Cuando planee utilizar <tt>distcc</tt> para ayudarle a realizar el bootstrap en una instalación Gentoo, asegúrese de leer [[#Utilizar_distcc_para_realizar_el_bootstrap|Utilizar distcc para realizar el bootstrap]]. 
 
-== Configuración ==
+== Instalación ==
 
 Before configuring <tt>distcc</tt>, let's first look into the installation of the {{Package|sys-devel/distcc}} package on all hosts.
 
-=== Dependencias ===
+=== Requirements across all hosts ===
 
 Para utilizar <tt>distcc</tt>, todas las máquinas en la red deben tener la misma versión de GCC. Mezclar 3.3.x (variando la x) es correcto, pero mezclar 3.3.x y 3.2.x "puede" resultar en errores en tiempo de compilación o ejecución. 
 
-=== Instalar distcc ===
+=== Installing the software ===
 
 Distcc incluye un monitor gráfico para monitorizar las tareas que un computador está enviando para compilación. Este monitor se habilita cuando el ajuste <code>USE</code> <code>gtk</code> está activado.
 
@@ -35,7 +35,7 @@ In order to have <tt>distccd</tt> started automatically, follow the next set of 
 
 ==== Using OpenRC ====
 
-Modifique {{Path|/etc/conf.d/distccd}} y asegúrese de usar la directiva <code>--allow</code> para permitir únicamente máquinas de confianza. Para mayor seguridad debería utilizar también la directiva <code>--listen</code> para indicarle al demonio <tt>distcc</tt> en qué dirección IP debe escuchar (en sistemas con más de una dirección IP). Se puede encontrar más información acerca de seguridad en <tt>distcc</tt> en las [http://distcc.googlecode.com/svn/trunk/doc/web/security.html notas sobre seguridad de distcc].
+Edit {{Path|/etc/conf.d/distccd}} and make sure to set the <tt>--allow</tt> directive to allow only trusted clients. For added security, use the <tt>--listen</tt> directive to tell the <tt>distccd</tt> daemon what IP to listen on (for multi-homed systems). More information on <tt>distcc</tt> security can be found at [http://distcc.googlecode.com/svn/trunk/doc/web/security.html Distcc security notes].
 
 The following example allows the distcc clients running at <tt>192.168.0.4</tt> and <tt>192.168.0.5</tt> to connect to the <tt>distccd</tt> server running locally:
 
@@ -43,7 +43,7 @@ The following example allows the distcc clients running at <tt>192.168.0.4</tt> 
 DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distccd.log -N 15 --allow 192.168.0.4 --allow 192.168.0.5"
 }}
 
-{{Important/es|Es importante utilizar <code>--allow</code> y <code>--listen</code>. Por favor, lea la página del manual de <tt>distccd</tt> o el documento sobre seguridad indicado arriba para obtener más información.}}
+{{Important|It is important to use <tt>--allow</tt> and <tt>--listen</tt>. Please read the <tt>distccd</tt> man page or the above security document for more information.}}
 
 Ahora inicie el demonio <tt>distcc</tt> en todas las máquinas participantes: 
 
@@ -91,11 +91,11 @@ Configuraremos <tt>distcc</tt> para que usar los equipos mencionados en la prime
 
 {{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1 192.168.0.2 192.168.0.3"}}
 
-=== Configurar Portage para utilizar distcc ===
+=== Using distcc with Portage ===
 
-Configurar [[Portage]] para usar <tt>distcc</tt> es fácil. Siga estos sencillos pasos en cada sistema que vaya a participar en la compilación distribuida.
+Setting up [[Portage]] to use <tt>distcc</tt> is easy. It is a matter of enabling the <tt>distcc</tt> feature, and setting a decent value for the number of simultaneous build jobs (as <tt>distcc</tt> increases the amount of build resources).
 
-A continuación, ajuste la variable <code>MAKEOPTS</code> y la variable <code>FEATURES</code> tal y como se describe abajo. Una estrategia común es definir <code>N</code> como el ''doble'' del número ''total'' de CPUs disponibles (locales y remotas) más uno y definir <code>M</code> como el número de CPUs ''locales''. En el caso en el que las máquinas participantes no estén disponibles o cuando el ebuild a instalar requiera un compilación exclusivamente local (por ejemplo gcc), entonces el ajuste <code>-lM</code> evitará que se lancen demasiadas tareas.
+Set the <code>MAKEOPTS</code> variable and <code>FEATURES</code> variable as shown below.
 
 A common strategy is to
 * set the value of <code>N</code> to ''twice'' the number of ''total'' (local + remote) CPU cores + 1, and
@@ -103,9 +103,10 @@ A common strategy is to
 
 The use of <code>-lM</code> in the <code>MAKEOPTS</code> variable will prevent spawning too many tasks when some of the <tt>distcc</tt> cluster hosts are unavailable (increasing the amount of simultaneous jobs on the other systems) or when an ebuild is configured to disallow remote builds (such as with gcc). This is accomplished by refusing to start additional jobs when the system load is at or above the value of <tt>M</tt>.
 
-{{FileBox|filename=/etc/portage/make.conf|title=Ajustar MAKEOPTS y FEATURES|lang=bash|1=
+{{FileBox|filename=/etc/portage/make.conf|title=Setting MAKEOPTS and FEATURES|lang=bash|1=
+# Replace N and M with the right value as calculated previously
 MAKEOPTS="-jN -lM"
-FEATURES="distcc"
+FEATURES="distcc distcc-pump"
 }}
 
 Por ejemplo, cuando hay dos equipos PC anfitriones con cuatro núcleos que corren <tt>distcc</tt> y el equipo PC local tiene una CPU con doble núcleo entonces la variable <code>MAKEOPTS</code> podría ser:
@@ -117,13 +118,13 @@ Por ejemplo, cuando hay dos equipos PC anfitriones con cuatro núcleos que corre
 MAKEOPTS="-j21 -l2"
 }}
 
-Cuando edite el fichero {{Path|make.conf}}, asegúrese de que no se ha definido <code>-march=native</code> en las variables <code>CFLAGS</code> o <code>CXXFLAGS</code>. <tt>distcc</tt> no distribuirá trabajos a otras máquinas si <code>march</code> está definido a <code>native</code>. El valor adecuado para <code>-march=</code> se puede obtener lanzando la siguiente orden:
+While editing the {{Path|make.conf}} file, make sure that it does not have <tt>-march=native</tt> in the <code>CFLAGS</code> or <code>CXXFLAGS</code> variables. <tt>distccd</tt> will not distribute work to other machines if <code>march</code> is set to <code>native</code>. The appropriate <tt>-march=</tt> value can be obtained by running the following command:
 
-{{Cmd|gcc -Q -march{{=}}native --help{{=}}target}}
+{{Cmd|gcc -v -E -x c -march{{=}}native -mtune{{=}}native - < /dev/null 2>&1 {{!}} grep cc1 {{!}} perl -pe 's/ -mno-\S+//g; s/^.* - //g;'}}
 
-Lea [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ -march=native en línea para distcc] para ampliar la información.
+See [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <tt>-march=native</tt> for distcc] for more information.
 
-=== Configurar distcc para trabajar con Automake ===
+=== Using distcc with automake ===
 
 Esto es más fácil de configurar en algunos casos que con Portage. Todo lo que se necesita hacer es actualizar la  variable de entorno <code>PATH</code> para incluir {{Path|/usr/lib/distcc/bin}} delante del directorio que contiene <tt>gcc</tt> ({{Path|/usr/bin/}}). No obstante, hay un problema. Si se utiliza <tt>ccache</tt>, entonces deberá poner la localización de distcc después de la de ccache: 
 
@@ -139,7 +140,7 @@ Using <tt>distcc</tt> to bootstrap (i.e. build a working toolchain before instal
 
 === Paso 1: Configurar Portage ===
 
-Inicie la nueva máquina con un LiveCD de Gentoo Linux y siga las [[Handbook:AMD64/es|instrucciones de instalación]] mientras se siguen las instrucciones en las [[FAQ/es|FAQ de Gentoo]] para obtener más información sobre el bootstrap. A continuación configure Portage para que utilice <tt>distcc</tt>: 
+Boot the new box with a Gentoo Linux LiveCD and follow the [[Handbook:AMD64|installation instructions]], while keeping track of the instructions in the [[FAQ|Gentoo FAQ]] for information about bootstrapping. Then configure Portage to use <tt>distcc</tt>: 
 
 {{FileBox|filename=/etc/portage/make.conf|title=Configure Portage para usar distcc|lang=bash|1=
 FEATURES="distcc"
@@ -199,9 +200,9 @@ Finally, start the GUI application:
 
 {{RootCmd|distccmon-gui}}
 
-=== Configurar distcc para trabajar con ssh ===
+=== Using SSH for distcc communication ===
 
-La configuración de distcc a través de ssh incluye algunos detalles. En primer lugar, genere un par de claves SSH sin contraseña. Observe que portage compila los programas con el usuario <tt>portage</tt>. La carpeta de inicio del usuario <tt>portage</tt> es {{Path|/var/tmp/portage/}} lo que implica que las claves se deben almacenar en {{Path|/var/tmp/portage/.ssh/}}.
+Setting up distcc via SSH includes some pitfalls. First, generate an SSH key pair without password setup. Be aware that portage compiles programs as the Portage user. The home folder of the Portage user is {{Path|/var/tmp/portage/}}, which means the keys need to be stored in {{Path|/var/tmp/portage/.ssh/}}
 
 {{RootCmd|ssh-keygen -b 2048 -t rsa -f /var/tmp/portage/.ssh/id_rsa}}
 
@@ -222,7 +223,7 @@ Send the public key to each compilation node:
 
 {{RootCmd|ssh-copy-id -i /var/tmp/portage/.ssh/id_rsa.pub UserName@CompilationNode}}
 
-También asegúrese de que todas las máquinas están listadas en el fichero {{Path|known_hosts}} y añada la clave pública al fichero {{Path|authorized_keys}} de todas las máquinas. Para configurar las máquinas <tt>test1</tt> y <tt>test2</tt> lance:
+Also make sure that each host is available in the {{Path|known_hosts}} file:
 
 {{RootCmd|ssh-keyscan -t rsa <compilation-node-1> <compilation-node-2> [...] > /var/tmp/portage/.ssh/known_hosts}}
 
@@ -280,13 +281,13 @@ Las actualizaciones de Portage más recientes utilizan <code>${CHOST}-gcc</code>
 
 === -march=native ===
 
-A partir de la versión 4.3.0 de GCC, el compilador ofrece soporta para la opción <code>-march=native</code> que habilita la detección automática de la CPU y de las optimizaciones que merece la pena activar en el procesador sobre el que está corriendo GCC. Esto es un problema cuando se utiliza <tt>distcc</tt>, ya que permite mezclar código optimizado para diferentes procesadores. Por ejemplo, al correr <tt>distcc</tt> con <code>-march=native</code> en un sistema que tiene un procesador AMD Athlon y haciendo lo mismo en ''otro'' sistema que tiene un procesador Intel Pentium processor se mezclará el código compilado en ambos procesadores.
+Starting with GCC 4.3.0, the compiler supports the <tt>-march=native</tt> option which turns on CPU auto-detection and optimizations that are worth being enabled on the processor on which GCC is running. This creates a problem when using <tt>distcc</tt> because it allows the mixing of code optimized for different processors. For example, running <tt>distcc</tt> with <tt>-march=native</tt> on a system that has an AMD Athlon processor and doing the same on ''another'' system that has an Intel Pentium processor will mix code compiled on both processors together.
 
 Preste atención a la siguiente advertencia:
 
-{{Warning/es|'''No''' utilice <code>-march{{=}}native</code> o <code>-mtune{{=}}native</code> en las varibales <code>CFLAGS</code> o <code>CXXFLAGS</code> de {{Path|make.conf}} cuando compile con <tt>distcc</tt>.}}
+{{Warning|Do '''not''' use <tt>-march{{=}}native</tt> or <tt>-mtune{{=}}native</tt> in the <code>CFLAGS</code> or <code>CXXFLAGS</code> variables of {{Path|make.conf}} when compiling with <tt>distcc</tt>.}}
 
-Para conocer los ajustes que GCC habilitaría cuando se llama con <code>-march=native</code>, lance lo siguiente:
+To know the flags that GCC would enable when called with <tt>-march=native</tt>, execute the following:
 
 {{Cmd|gcc -march{{=}}native -E -v - &lt;/dev/null 2&gt;&amp;1 {{!}} grep cc1|output=<pre>
 /usr/libexec/gcc/x86_64-pc-linux-gnu/4.7.3/cc1 -E -quiet -v - -march=corei7-avx \
@@ -296,14 +297,14 @@ Para conocer los ajustes que GCC habilitaría cuando se llama con <code>-march=n
 --param l1-cache-line-size=64 --param l2-cache-size=6144 -mtune=corei7-avx
 </pre>}}
 
-== Compilación cruzada ==
+== See also ==
 
-La compilación cruzada consiste en construir programa para otra arquitectura. Esto puede ser tan simple como usar un Athlon (i686) para construir un programa para un K6-2 (i586) o usar un SPARC para construir un programa para un PowerPC. Esto se documenta en la [[Distcc/Cross-Compiling/es| guía de compilación cruzada]].
+* The [[Distcc/Cross-Compiling|DistCC Cross-compiling guide]] explains how using one architecture to build programs for another architecture is done through <tt>distcc</tt>. This can be as simple as using an Athlon (i686) to build a program for a K6-2 (i586), or using a SPARC to build a program for a PowerPC.
 
 == Recursos externos ==
 
-* [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Uso de -march=native en línea para distcc]
-* [https://code.google.com/p/distcc/ Página oficial de Distcc]
+* [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <tt>-march=native</tt> for distcc]
+* [https://code.google.com/p/distcc/ Distcc homepage]
 
 
 {{Migrated|originalauthors=Lisa Seelye, Mike Frysinger, Erwin, Sven Vermeulen, Lars Weiler, Tiemo Kieft and nightmorph}}
