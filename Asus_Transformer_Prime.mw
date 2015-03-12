@@ -96,7 +96,58 @@ Outside chroot:
 
 TODO: Not all of these files are necessary.  We should weed out the ones that aren't.  AFAIK, just the bcm4329 firmware is required.  See make menuconfig for more information.
 
-Compile your own kernel (see below) to populate {{Path|/lib/modules}}. The kernel sources for the "all linux" kernel are from [https://github.com/tux-mind/tf201-kernel tux-mind TF201 kernel]
+'''Start the configuration'''
+
+First start to make some configurations. It is important to set the password for the root user.
+
+{{RootCmd|passwd}}
+
+Type in your root password two times. And give your TF201 a nice name.
+
+{{FileBox|filename=/etc/conf.d/hostname|lang=bash|1=
+# Set the hostname variable to the selected host name
+hostname="YourHostname"
+}}
+
+Configure your timezone:
+{{FileBox|filename=/etc/timezone|lang=bash|1=
+Europe/Brussels
+}}
+
+Enabling US and DE locales with the appropriate character formats. Search the gentoo documentation and forums to get information for your own language settings.
+{{FileBox|filename=/etc/locale.gen|lang=bash|1=
+en_US ISO-8859-1
+en_US.UTF-8 UTF-8
+de_DE ISO-8859-1
+de_DE@euro ISO-8859-15
+de_DE.UTF-8 UTF-8
+}}
+Generare the locales.
+{{RootCmd|locale-gen}}
+
+Print the locales which were generated.
+{{RootCmd|eselect locale list|output=<pre>
+Available targets for the LANG variable:
+  [1] C
+  [2] POSIX
+  [3] en_US
+  [4] en_US.iso88591
+  [5] en_US.utf8
+  [6] de_DE
+  [7] de_DE.iso88591
+  [8] de_DE.iso885915
+  [9] de_DE.utf8
+  [ ] (free form)</pre>
+}}
+
+Select your locales.
+{{RootCmd|eselect locale set 9}}
+
+Now reload the environment:
+{{RootCmd|env-update && source /etc/profile}}
+
+Verify if you have the right profile (armhf with desktop if you like to have XFCE, LXDE, LXQT, Enlightenment, razor-qt etc.)
+{{RootCmd|eselect profile list}}
 
 Comment all serial consoles and ttyX where X > 1 in your {{Path|/etc/inittab}} and in {{Path|/etc/syslog-ng/syslog-ng.conf}}, if you use syslog-ng 
 
@@ -132,6 +183,12 @@ You can either add -userfetch to {{Path|make.conf}} FEATURES (to fix an emerge e
 
 {{Note|Usually portage should not be in the inet group - this is just for chroot environment.}}
 
+Sync the portage-tree the first time and update portage itself.
+{{RootCmd
+|emerge --sync
+|emerge --oneshot portage
+}}
+
 You must install {{Package|wpa_supplicant}}, {{Package|dhcpcd}}, and {{Package|sshd}} and add them to the default run-level. It would be easiest to disable qt4 USE flag with respect to wpa_supplicant (for now).
 
 Adjust the {{Path|/etc/portage/make.conf}} to your needs. At least deactivate the qt4 flag.
@@ -148,60 +205,14 @@ USE="bindist -qt4"
 |rc-update add sshd default
 }}
 
-TODO: Configure {{Path|/etc/wpa_supplicant/wpa_supplicant.conf}}, {{Path|/etc/conf.d/net}}, etc.
-
-Verify if you have the right profile.
-{{RootCmd|eselect profile list}}
-
-Configure your timezone:
-{{FileBox|filename=/etc/timezone|lang=bash|1=
-Europe/Brussels
+You may need to emerge swig, m2crypto and crda this way if wpa_supplicant fails to emerge with a python/crypto error.
+{{RootCmd
+|<nowiki>emerge -v1 =dev-lang/swig-3.0.4</nowiki>
+|emerge -v1 dev-python/m2crypto
+|emerge -v1 net-wireless/crda
 }}
 
-Enabling US and DE locales with the appropriate character formats
-{{FileBox|filename=/etc/locale.gen|lang=bash|1=
-en_US ISO-8859-1
-en_US.UTF-8 UTF-8
-de_DE ISO-8859-1
-de_DE@euro ISO-8859-15
-de_DE.UTF-8 UTF-8
-}}
-Generare the locales.
-{{RootCmd|locale-gen}}
-
-Print the locales which were generated.
-{{RootCmd|eselect locale list|output=<pre>
-Available targets for the LANG variable:
-  [1] C
-  [2] POSIX
-  [3] en_US
-  [4] en_US.iso88591
-  [5] en_US.utf8
-  [6] de_DE
-  [7] de_DE.iso88591
-  [8] de_DE.iso885915
-  [9] de_DE.utf8
-  [ ] (free form)</pre>
-}}
-
-Selest your locales.
-{{RootCmd|eselect locale set 9}}
-
-Now reload the environment:
-{{RootCmd|env-update && source /etc/profile}}
-
-Adjust the {{Path|/etc/fstab}}:
-
-{{FileBox|filename=/etc/fstab|lang=bash|1=
-# <fs>                  <mountpoint>    <type>          <opts>          <dump/pass>
-# NOTE: If your BOOT partition is ReiserFS, add the notail option to opts.
-#/dev/BOOT               /boot           ext2            noauto,noatime  1 2
-/dev/mmcblk1p1          /               ext4            noatime         0 1
-#/dev/SWAP               none            swap            sw              0 0
-#/dev/cdrom              /mnt/cdrom      auto            noauto,ro       0 0
-#/dev/fd0                /mnt/floppy     auto            noauto          0 0
-}}
-See the Tips-Section at the end and create a 2G swap partition.
+The configuration of wireless network is described in section 3 Gentoo Configuration -> 3.1 Network / Wifi after a your first start direct into gentoo.
 
 In Gentoo you need to choose a syslogger like sysklogd, syslog-ng, metalog, etc. Here is the example how to install syslog-ng:
 {{RootCmd|emerge syslog-ng
@@ -216,7 +227,33 @@ destination console_all { file("/dev/tty1"); };
 # ------ >8 --
 }}
 
-Exit the chroot environment and umount devices.
+Adjust the {{Path|/etc/fstab}}:
+
+{{FileBox|filename=/etc/fstab|lang=bash|1=
+# <fs>                  <mountpoint>    <type>          <opts>          <dump/pass>
+# NOTE: If your BOOT partition is ReiserFS, add the notail option to opts.
+/dev/mmcblk1p1          /               ext4            noatime         0 1
+#/dev/mmcblk1p2		/home		ext4		defaults	0 2
+#/dev/mmcblk0pX		/media/andro	ext4		noauto,ro	0 0
+#/dev/SWAP              none            swap            sw              0 0
+}}
+See the Tips-Section at the end and create a 2G swap partition.
+
+Compile your own kernel to populate {{Path|/lib/modules}}. The kernel sources for the "all linux" kernel are from 
+[https://github.com/tux-mind/tf201-kernel tux-mind TF201 kernel]
+
+{{RootCmd
+|wget https://github.com/tux-mind/tf201-kernel/archive/master.zip
+|unzip master.zip -d /usr/src
+|ln -s /usr/src/tf201-kernel-master /usr/src/linux
+|cd /usr/src/linux
+|make menuconfig
+|make && make modules_install
+}}
+
+The fresh compiled kernel is /usr/src/linux/arch/arm/boot/zImage, which belongs to kernel_choosers /data/boot (but you can still use the "3.1.10 kernel for 'any' distro").
+
+You should now have a gentoo which can start a terminal without X. So exit the chroot environment and umount devices.
 
 {{RootCmd
 |exit
