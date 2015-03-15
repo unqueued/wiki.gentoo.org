@@ -611,24 +611,25 @@ To enter the jail environment will use the jexec command.
 {{RootCmd|jexec 1 /bin/bash}}
 
 == Upgrade howto ==
-This guide will show you how to upgrade Gentoo/FreeBSD 9.1 from previous version.
+This guide will show you how to upgrade Gentoo/FreeBSD 10.1 from previous version.
 
-{{Note|This guide is targeted to version 7.2 or higher.}}
+{{Note|This guide is targeted to version 9.0 or higher.}}
 
 === Preparation ===
 ==== Change to latest profile ====
-To emerge related to FreeBSD 9.1 is necessary to change the [[profile]].
+To emerge related to FreeBSD 10.1 is necessary to change the [[profile]].
 
 Get a list of available profiles:
 {{RootCmd|eselect profile list|output=
 <pre>
 Available profile symlink targets:
-  [1]   default/bsd/fbsd/x86/9.0
-  [2]   default/bsd/fbsd/x86/9.1
+  [1]   default/bsd/fbsd/x86/9.1
+  [2]   default/bsd/fbsd/x86/9.2
+  [3]   default/bsd/fbsd/x86/10.1
 </pre>}}
 
-Set the profile of 9.1:
-{{RootCmd|eselect profile set 2}}
+Set the profile of 10.1:
+{{RootCmd|eselect profile set 3}}
 
 ==== Updating sys-apps/portage ====
 Please check first, what will be installed.
@@ -660,32 +661,37 @@ If it does not, please add FEATURES="preserve-libs" in {{Path|make.conf}}.
 FEATURES="assume-digests binpkg-logs chflags config-protect-if-modified distlocks ebuild-locks fixlafiles merge-sync news parallel-fetch preserve-libs protect-owned sfperms strict unknown-features-warn unmerge-logs unmerge-orphans userfetch"
 }}
 
+===== For too old x86-fbsd stages. =====
+Currently, profile requests EAPI=5.
+However, not very old x86 stage support it. Please forcibly update the portage.
+
+{{RootCmd|emerge -pu sys-apps/portage|output=
+<pre>
+!!! Unable to parse profile: '/etc/portage/make.profile'
+!!! ParseError: Profile contains unsupported EAPI '5': '/usr/portage/profiles/default/bsd/fbsd/x86/10.1/eapi'
+!!! Your current profile is invalid. If you have just changed your profile
+!!! configuration, you should revert back to the previous configuration.
+!!! Allowed actions are limited to --help, --info, --search, --sync, and
+!!! --version.
+</pre>}}
+
+{{RootCmd|cd /tmp
+|wget http://dev.gentoo.org/~dolsen/releases/portage/portage-2.2.18.tar.bz2
+|tar xjf portage-2.2.18.tar.bz2
+|PYTHON_TARGETS{{=}}"python2_7" portage-2.2.18/bin/emerge --nodeps dev-lang/python-exec
+|PYTHON_TARGETS{{=}}"python2_7" portage-2.2.18/bin/emerge --nodeps sys-apps/portage}}
+
+
 ==== Move /etc/make.conf ====
 Recently, {{Path|/etc/make.conf}} has been moved to {{Path|/etc/portage/make.conf}}. If it exists in {{Path|/etc}}, please move it.
 
 In addition, remove LDFLAGS from {{Path|make.conf}}. If it is set, upgrade may fail.
 
 {{RootCmd|mkdir -p /etc/portage
-| if [ -e /etc/make.conf ] && [ ! -e /etc/portage/make.conf ] ; then
-| mv /etc/make.conf /etc/portage/make.conf
-| fi
-| gsed -i '/LDFLAGS{{=}}/d' /etc/portage/make.conf}}
-
-==== Fixed collision of tabs ====
-If you are using version 8.0 and fewer, tabs might collide.
-Please check the following steps.
-
-{{RootCmd|cd /var/db/pkg/sys-freebsd}}
-{{RootCmd|<nowiki>grep -r tabs * | grep obj</nowiki>|output=
-<pre>
-freebsd-ubin-7.2/CONTENTS:obj /usr/bin/tabs 741bc04f9e321d5d0f312b5cb8a87d6a 1257735235
-freebsd-ubin-7.2/CONTENTS:obj /usr/share/man/man1/tabs.1.bz2 ed7bca86bc66d164cc1434583f6d8cd7 1257735225
-</pre>}}
-{{RootCmd|rm /usr/bin/tabs /usr/share/man/man1/tabs.1.bz2}}
-
-And please update {{Package|sys-libs/ncurses}}.
-
-{{RootCmd|emerge -u sys-libs/ncurses --exclude sys-freebsd/*}}
+|if [ -e /etc/make.conf ] && [ ! -e /etc/portage/make.conf ] ; then
+|mv /etc/make.conf /etc/portage/make.conf
+|fi
+|gsed -i '/LDFLAGS{{=}}/d' /etc/portage/make.conf}}
 
 ==== Package updates the minimum required ====
 update the minimal packages needed to upgrade.
@@ -693,20 +699,9 @@ update the minimal packages needed to upgrade.
 {{RootCmd|emerge sys-freebsd/freebsd-mk-defs
 |emerge -u sys-apps/findutils --exclude sys-freebsd/*
 |emerge sys-devel/libtool --exclude sys-freebsd/*
-|emerge -u sys-devel/flex sys-devel/patch sys-devel/m4 net-libs/libpcap sys-devel/gettext app-arch/libarchive dev-libs/libelf --exclude sys-freebsd/*
+|emerge -u sys-devel/flex sys-devel/patch sys-devel/m4 net-libs/libpcap sys-devel/gettext app-arch/libarchive --exclude sys-freebsd/*
 |emerge sys-devel/libtool --exclude sys-freebsd/*
 }}
-
-==== Migrate to lib from lib64 (for amd64-fbsd users, 9.0 stage3 only) ====
-{{Important|Do not skip this chapter!}}
-
-If you are using 9.0 stage3 of amd64-fbsd, you will need to migrate to lib from lib64 first.
-
-If you skip this step, all the commands you will not be able to run when upgrade sys-apps/baselayout. For details, see {{Bug|436560}}
-
-{{RootCmd|wget -O /tmp/migrate_libdir.sh "http://git.overlays.gentoo.org/gitweb/?p{{=}}proj/gentoo-bsd.git;a{{=}}blob_plain;f{{=}}scripts/migrate_libdir.sh;hb{{=}}HEAD"
-|bash /tmp/migrate_libdir.sh
-|emerge -u sys-apps/baselayout --exclude sys-freebsd/* }}
 
 === Kernel update ===
 First of all, you need to update your kernel.
@@ -714,13 +709,12 @@ It is because the package of a userland may use the new function of a kernel.
 
 Please be sure to update a kernel first !
 
-{{RootCmd|<nowiki>USE=symlink emerge freebsd-sources</nowiki>
-|cd /usr/src/sys/i386/conf (case of x86-fbsd)
-|cd /usr/src/sys/amd64/conf (case of amd64-fbsd)
-|cp GENERIC.hints /boot/device.hints}}
-{{RootCmd|config GENERIC
-|cd ../compile/GENERIC
-|make cleandepend &amp;&amp; make depend &amp;&amp; make -j3 &amp;&amp; make install}}
+clang is required for kernel compile. clang requires gcc-4.7 or higher. Please update the gcc if old.
+
+Please try 3.4.x if latest clang fails to compile.
+{{RootCmd|emerge -C freebsd-sources
+|emerge sys-devel/clang --exclude sys-freebsd/*
+|emerge --nodeps freebsd-sources}}
 
 ==== failed to compile the kernel ====
 Please get the GENERIC kernel of FreeBSD if you fail to compile the kernel.
@@ -728,8 +722,8 @@ If you are using amd64-fbsd, please replace the i386 to amd64 in URL.
 
 {{Important|Don't forget to rebuild the kernel after updating FreeBSD userland!}}
 
-{{RootCmd|wget -P /tmp http://ftp.freebsd.org/pub/FreeBSD/releases/i386/i386/9.1-RELEASE/base.txz
-|wget -P /tmp http://ftp.freebsd.org/pub/FreeBSD/releases/i386/i386/9.1-RELEASE/kernel.txz
+{{RootCmd|wget -P /tmp http://ftp.freebsd.org/pub/FreeBSD/releases/i386/i386/10.1-RELEASE/base.txz
+|wget -P /tmp http://ftp.freebsd.org/pub/FreeBSD/releases/i386/i386/10.1-RELEASE/kernel.txz
 |mv /boot /boot.orig
 |cd /
 |tar xvJf /tmp/base.txz ./boot
@@ -743,20 +737,42 @@ Don't have a problem? Now we restart.
 After rebooting your machine, please check if the kernel is new. 
 
 {{RootCmd|uname -a|output=
-<pre>FreeBSD daemon 9.1-Gentoo FreeBSD Gentoo 9.1 #0: Fri Jan 20 00:01:04 JST 2012
-     root@daemon:/usr/src/sys-9.1-r0/amd64/compile/GENERIC  amd64
+<pre>FreeBSD daemon 10.1-Gentoo FreeBSD Gentoo 10.1 #0: Fri Jan 20 00:01:04 JST 2012
+     root@daemon:/var/tmp/portage/sys-freebsd/freebsd-sources-10.1/work/sys/amd64/compile/GENTOO  amd64
 </pre>}}
 
+=== Prepare of multilib (for amd64-fbsd users) ===
+{{Important|Do not skip this chapter!}}
+
+If you're using the old amd64-fbsd stage before multilib migration, additional steps are required.
+
+Let's check.
+{{RootCmd|<nowiki>[[ ! -e /libexec/ld-elf32.so.1 ]] && echo "need prepare multilib"</nowiki>}}
+
+
+Please execute additional when "need prepare multilib" is displayed.
+{{RootCmd|<nowiki>[[ ! -e /etc/portage/profile ]] && mkdir -p /etc/portage/profile</nowiki>
+|echo "sys-freebsd/freebsd-libexec abi_x86_32" >> /etc/portage/profile/package.use.mask}}
+
+
 === Updating FreeBSD userland ===
+
 The first emerge the core library. 
 
-{{RootCmd|<nowiki>USE=build emerge -1 --nodeps sys-freebsd/freebsd-lib</nowiki>}}
+{{RootCmd|emerge -C dev-libs/libelf dev-libs/libexecinfo dev-libs/libiconv
+|emerge binutils
+|emerge --nodeps sys-freebsd/freebsd-libexec
+|USE{{=}}build emerge --nodeps sys-freebsd/freebsd-lib sys-freebsd/freebsd-share
+|<nowiki>[[ -e /etc/portage/profile/package.use.mask ]] && gsed -i '/sys-freebsd\/freebsd-libexec abi_x86_32/d' /etc/portage/profile/package.use.mask</nowiki>}}
 
 Update the userland of FreeBSD.
 
 {{RootCmd|emerge -C sys-process/fuser-bsd
-|USE{{=}}symlink emerge -auN boot0 freebsd-bin freebsd-contrib freebsd-lib freebsd-libexec freebsd-mk-defs freebsd-pam-modules freebsd-sbin freebsd-share freebsd-ubin freebsd-usbin
+|emerge -auN boot0 freebsd-bin freebsd-lib freebsd-libexec freebsd-mk-defs freebsd-pam-modules freebsd-sbin freebsd-share freebsd-ubin freebsd-usbin
 }}
+
+Please to emerge again sys-freebsd packages. Some of the package is in need of include files of 10.1, did not use it when the upgrade.
+{{RootCmd|emerge boot0 freebsd-bin freebsd-lib freebsd-libexec freebsd-mk-defs freebsd-pam-modules freebsd-sbin freebsd-share freebsd-ubin freebsd-usbin}}
 
 Cleanup, utmp related files
 {{RootCmd|rm /var/run/utmp /var/log/lastlog /var/log/wtmp*}}
@@ -767,61 +783,55 @@ Cleanup, utmp related files
 Change CHOST, and emerge binutils gcc. (FYI, [[Changing the CHOST variable|Changing the CHOST variable]])
 
 x86-fbsd users)
-{{RootCmd|<nowiki>gsed -i 's:CHOST=.*:CHOST="i686-gentoo-freebsd9.1":g' /etc/portage/make.conf</nowiki>}}
+{{RootCmd|<nowiki>gsed -i 's:CHOST=.*:CHOST="i686-gentoo-freebsd10.1":g' /etc/portage/make.conf</nowiki>}}
 amd64-fbsd users)
-{{RootCmd|<nowiki>gsed -i 's:CHOST=.*:CHOST="x86_64-gentoo-freebsd9.1":g' /etc/portage/make.conf</nowiki>}}
+{{RootCmd|<nowiki>gsed -i 's:CHOST=.*:CHOST="x86_64-gentoo-freebsd10.1":g' /etc/portage/make.conf</nowiki>}}
 
 emerge binutils gcc
 
 {{emerge|sys-devel/binutils sys-devel/gcc|params=--oneshot}}
 
-check gcc's 8.x stuff
+check gcc's 9.x stuff
 
 {{RootCmd|gcc-config -l|output=
-<pre> * broken config file: /etc/env.d/gcc/i686-gentoo-freebsd8.0-4.4.3
- [1] i686-gentoo-freebsd8.0-4.4.3 *
- [2] i686-gentoo-freebsd9.1-4.6.3
+<pre>  [1] i686-gentoo-freebsd10.1-4.8.4 *
+ * broken config file: /etc/env.d/gcc/i686-gentoo-freebsd9.0-4.5.3
+ [2] i686-gentoo-freebsd9.0-4.5.3
 </pre>}}
 
-remove 8.x stuff.
+remove 9.x stuff.
 
 {{RootCmd|emerge -C '&lt;gcc-4.6'}}
 
 {{RootCmd|gcc-config -c|output=
-i686-gentoo-freebsd9.1-4.6.3}}
+i686-gentoo-freebsd10.1-4.8.4}}
 
 also check binutils
 
 {{RootCmd|binutils-config -l|output=
-<pre> [1] i686-gentoo-freebsd9.1-2.20.1 *
+<pre>  [1] i686-gentoo-freebsd10.1-2.25 *
 </pre>}}
 
 {{RootCmd|binutils-config -c|output=
-i686-gentoo-freebsd9.1-2.20.1}}
+i686-gentoo-freebsd10.1-2.25}}
 
-remove FreeBSD 8.x env data.
+remove FreeBSD 9.x env data.
 
 {{RootCmd|cd /etc/env.d/
-|grep gentoo-freebsd8. *|output=
+|grep gentoo-freebsd9. *|output=
 <pre>
-04gcc-i686-gentoo-freebsd8.0:PATH="/usr/i686-gentoo-freebsd8.0/gcc-bin/4.4.3"
-04gcc-i686-gentoo-freebsd8.0:ROOTPATH="/usr/i686-gentoo-freebsd8.0/gcc-bin/4.4.3"
-04gcc-i686-gentoo-freebsd8.0:MANPATH="/usr/share/gcc-data/i686-gentoo-freebsd8.0/4.4.3/man"
-04gcc-i686-gentoo-freebsd8.0:INFOPATH="/usr/share/gcc-data/i686-gentoo-freebsd8.0/4.4.3/info"
-04gcc-i686-gentoo-freebsd8.0:LDPATH="/usr/lib/gcc/i686-gentoo-freebsd8.0/4.6.3
-04gcc-i686-gentoo-freebsd8.0:/usr/lib/gcc/i686-gentoo-freebsd8.0/4.4.3"
-05gcc-i486-gentoo-freebsd8.0:MANPATH="/usr/share/gcc-data/i486-gentoo-freebsd8.0/4.4.3/man"
-05gcc-i486-gentoo-freebsd8.0:INFOPATH="/usr/share/gcc-data/i486-gentoo-freebsd8.0/4.4.3/info"
-05gcc-i486-gentoo-freebsd8.0:LDPATH="/usr/lib/gcc/i486-gentoo-freebsd8.0/4.4.3"
-05gcc-i486-gentoo-freebsd8.0:PATH="/usr/i486-gentoo-freebsd8.0/gcc-bin/4.4.3"
-05gcc-i486-gentoo-freebsd8.0:ROOTPATH="/usr/i486-gentoo-freebsd8.0/gcc-bin/4.4.3"
+04gcc-i686-gentoo-freebsd9.0:PATH="/usr/i686-gentoo-freebsd9.0/gcc-bin/4.8.4"
+04gcc-i686-gentoo-freebsd9.0:ROOTPATH="/usr/i686-gentoo-freebsd9.0/gcc-bin/4.8.4"
+04gcc-i686-gentoo-freebsd9.0:MANPATH="/usr/share/gcc-data/i686-gentoo-freebsd9.0/4.8.4/man"
+04gcc-i686-gentoo-freebsd9.0:INFOPATH="/usr/share/gcc-data/i686-gentoo-freebsd9.0/4.8.4/info"
+04gcc-i686-gentoo-freebsd9.0:LDPATH="/usr/lib/gcc/i686-gentoo-freebsd9.0/4.8.4
+04gcc-i686-gentoo-freebsd9.0:/usr/lib/gcc/i686-gentoo-freebsd9.0/4.5.3"
 </pre>}}
 
-target file name is {{Path|04gcc-i686-gentoo-freebsd8.0}}, {{Path|05gcc-i486-gentoo-freebsd8.0}} in this case.
+target file name is {{Path|04gcc-i686-gentoo-freebsd9.0}} in this case.
 
-{{RootCmd|rm 04gcc-i686-gentoo-freebsd8.0 05gcc-i486-gentoo-freebsd8.0
+{{RootCmd|rm 04gcc-i686-gentoo-freebsd9.0
 |env-update &amp;&amp; source /etc/profile
-|/usr/share/gcc-data/i686-gentoo-freebsd9.1/4.6.3/fix_libtool_files.sh 4.4.3 --oldarch i686-gentoo-freebsd8.0
 }}
 
 Recreate all packages.
