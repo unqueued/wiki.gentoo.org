@@ -1,6 +1,70 @@
 This page describes how to install Gentoo Linux with Gnome 3 on a Gigabyte P27G v2 laptop.
 
+
 == Preliminary assumptions ==
 
-In this page, we assume we are using rEFInd as a bootmanager. rEFInd is able to detect kernels with EFI stub support. Please refer to the [http://www.rodsbooks.com/efi-bootloaders/refind.html  Managing EFI Boot Loaders for Linux:
-Using rEFInd] page, to learn more about how to install rEFInd on your laptop.
+* In this page, we assume we are using rEFInd as a bootmanager. rEFInd is able to detect kernels with EFI stub support. Please refer to the [http://www.rodsbooks.com/efi-bootloaders/refind.html  Managing EFI Boot Loaders for Linux:Using rEFInd] page, to learn more about how to install rEFInd on your laptop,
+* The installation is done from a terminal into the OpenSuse distribution (easy to install with EFI) or from a live CD of any distribution EFI bootable(e.g. Ubuntu),
+* The necessary partitions have already been created with a tool like ''gparted'' (in our case /dev/sda8 for /, /dev/sda9 for /home, /dev/sda12 for swap),
+* The ESP partition is already existing on the disk (/dev/sda2 ) and is FAT32.
+
+
+== First boot ==
+
+First of all open a terminal and switch user to root with the 'su' command.
+=== Installation files ===
+{{RootCmd|swapon /dev/sda12}}
+{{RootCmd|mount /dev/sda8 /mnt/gentoo}}
+{{RootCmd|mkdir /mnt/gentoo/home}}
+{{RootCmd|mount /dev/sda9 /mnt/gentoo/home}}
+{{RootCmd|mkdir /mnt/gentoo/boot}}
+{{RootCmd|mount /dev/sda2 /mnt/gentoo/boot}}
+
+{{RootCmd| cd /mnt/gentoo}}
+
+Follow the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Stage Installing the Gentoo Installation files] page and at the point on defining the MAKEOPTS variable enter:
+
+{{CodeBox|title=Example MAKEOPTS declaration in make.conf|lang=bash|1=MAKEOPTS="-j9"}}
+
+=== Installing the Gentoo Base System ===
+Follow the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Base Installing the Gentoo base system] page. The only exception is to not run ''mirrorselect'' as it is specific to Gentoo.
+
+At the time of choosing the profile, please choose the ''default/linux/amd64/13.0/desktop/gnome/systemd'' profile, then update the system
+
+{{Emerge| --update --deep --newuse @world}}
+
+=== Configuring the kernel ===
+Do not emerge genkernel here but genkernel-next instead.
+{{RootCmd|emerge genkernel-next}}
+Then emerge ''lvm''
+{{Emerge|lvm2}}
+==== Creating an initramfs ====
+We create an initramfs with ''genkernel'' to be embedded into the EFI stub.
+To do so run
+{{RootCmd|genkernel --lvm --no-compress-initramfs --menuconfig  initramfs}}
+{{Note|The --no-compress-initramfs option may not be necessary but as we want an uncompressed initramfs it doesn't harm.}}
+In order to boot directly from UEFI, the kernel needs to have CONFIG_EFI_STUB support enabled.
+{{KernelBox|title=Enable EFI stub support|1=
+Processor type and features  --->
+    [*] EFI runtime service support 
+    [*]   EFI stub support
+}}
+
+UEFI does not pass kernel parameters to the kernel during normal boot, so you need to hardcode them via CONFIG_CMDLINE. Example for the root partition on {{Path|/dev/sda2}}:
+{{KernelBox|title=Enable built-in kernel parameters|1=
+Processor type and features  --->
+    [*] Built-in kernel command line
+    (rootroot=/dev/sda8 rootfstype=ext4 real_init=/usr/lib/systemd/systemd dolvm)
+}}
+==== Renaming the initramfs file ====
+{{RooCmd| mv /boot/initramfs-genkernel-x86-64-3.18.7-gentoo /boot/initramfs-genkernel-x86-64-3.18.7-gentoo.cpio}}
+
+=== Compiling the kernel ===
+{{RootCmd|genkernel --lvm  --menuconfig  kernel}}
+To embed the initramfs in the kernel stub set it up in the General setup menu:
+{{KernelBox|title=Build in the initramfs CPIO archive|1=
+General setup  --->
+    [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
+    (/boot/initramfs-genkernel-x86-64-3.18.7-gentoo.cpio) Initramfs source file(s)
+}}
+{{Note| In the commands above, change the name of the ''initramfs'' and ''kernel'' according to your actual version.}}
