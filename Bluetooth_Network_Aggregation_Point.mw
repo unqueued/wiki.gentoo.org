@@ -82,8 +82,8 @@ You should now be able to connect and load webpages.
 ==== Modifying the bluez-test-nap script ====
 If you want to get rid of the sleep timer in the standard bluez-test-nap script, or you want to run the NAP service in the background, you could make these small changes:
 {{FileBox|filename=signal-pause.patch|lang=diff|1=
---- /usr/local/bin/bluez-test-nap	2012-07-08 17:49:31.517734026 +0200
-+++ /usr/local/bin/bluez-test-nap.new	2012-07-08 17:51:41.749731790 +0200
+--- /usr/local/bin/bluez-test-nap.orig	2015-03-18 19:55:43.592015279 +0100
++++ /usr/local/bin/bluez-test-nap	2015-03-18 20:06:22.042021618 +0100
 @@ -3,7 +3,7 @@
  from __future__ import absolute_import, print_function, unicode_literals
  
@@ -93,15 +93,22 @@ If you want to get rid of the sleep timer in the standard bluez-test-nap script,
  import dbus
  from optparse import OptionParser, make_option
  
-@@ -42,8 +42,7 @@
+@@ -42,8 +42,12 @@
  print("Press CTRL-C to disconnect")
  
  try:
 -	time.sleep(1000)
 -	print("Terminating connection")
++	# CTRL-C = KeyboardInterrupt = SIGINT
++	# SIGINT is ignored in a non-interactive shell
++	# Use SIGUSR1 with a startup script
++
++	signal.signal(signal.SIGUSR1, signal.default_int_handler)
 +	signal.pause()
  except:
  	pass
+ 
+
 }}
 
 Copy the script to an alternate location, and apply the patch.
@@ -116,14 +123,14 @@ Now the NAP service can be started in three ways:
 {{RootCmd|bluez-test-nap br1}}
 
 * To run the script in the background, and stop it:
-{{RootCmd|/usr/local/bin/bluez-test-nap br1 >/dev/null 2>&1 &|killall -SIGINT bluez-test-nap}}
+{{RootCmd|/usr/local/bin/bluez-test-nap br1 >/dev/null &|killall -SIGINT bluez-test-nap}}
 
 * To run at startup, let [[Local.d|{{Path|/etc/init.d/local}}]] read next scripts. These files must be made executable.
 {{FileBox|filename=/etc/local.d/bluez-test-nap.start|lang=bash|1=
 exec /usr/local/bin/bluez-test-nap br1 >/dev/null 2>&1 &
 }}
 {{FileBox|filename=/etc/local.d/bluez-test-nap.stop|lang=bash|1=
-killall -SIGHUP bluez-test-nap >/dev/null 2>&1 &
+killall -SIGUSR1 bluez-test-nap
 }}
 {{RootCmd|chmod +x /etc/local.d/bluez-test-nap.start /etc/local.d/bluez-test-nap.stop}}
 
@@ -134,7 +141,8 @@ Also the default behaviour of BlueZ 5 changed, and before using ''test-nap'' the
 {{RootCmd|hciconfig hci0 up}}
 
 {{FileBox|filename=/etc/local.d/test-nap.start|lang=bash|1=
-hciconfig hci0 up && exec /usr/local/bin/test-nap br1 >/dev/null 2>&1 &
+hciconfig hci0 up {{!}}{{!}} exit 1
+exec /usr/local/bin/test-nap br1 >/dev/null 2>&1 &
 }}
 
 == Troubleshooting ==
