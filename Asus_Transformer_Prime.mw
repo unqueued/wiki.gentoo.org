@@ -599,6 +599,76 @@ A classic and simple one is TWM:
 
 TWM should now be working with touchpad and touchscreen and you have windows. exit all xterms and your get back to console.
 
+=== Proprietary Nvidia Tegra 3 driver ===
+
+The tegra xorg driver (from L4T RC16.5) works!
+
+The actual Xorg-server version is 19 and Nvidias last release of the tegra driver is version 14. So you need to mask Xorg-server to versions bigger than 1.14.
+
+{{Note|Masking <nowiki>>=</nowiki>xorg-server-1.15.2-r1 results in xorg-server-1.12.4, which is not 1.14. Maybe it is possible to get better masks in the dependancies of Xorg-server.}}
+
+{{FileBox|filename=/etc/portage/package.mask|lang=ini|1=
+>=x11-base/xorg-server-1.15.2-r1
+>=x11-drivers/xf86-input-synaptics-1.8.0
+>=app-admin/eselect-opengl-1.3.1-r2
+>=media-libs/mesa-10.3.7-r2
+>=x11-proto/glproto-1.4.17-r1
+>=x11-base/xorg-drivers-1.17
+}}
+
+Install X11:
+{{Emerge|xorg-server}}
+
+Download the latest Cardu driver package from Nvidia (https://developer.nvidia.com/linux-tegra). Here is an example to download the Version r16.5:
+{{RootCmd|wget http://developer.download.nvidia.com/mobile/tegra/l4t/r16.5.0/cardhu_release_armhf/Tegra30_Linux_R16.5_armhf.tbz2}}
+
+Extract the package and copy <code>config.tbz2</code> and <code>nvidia_drivers.tgz</code> to roots home directory.
+{{RootCmd
+|cd /root
+|tar -xvjf Tegra30_Linux_R16.5_armhf.tbz2
+|mv Linux_for_Tegra/nv_tegra/config.tbz2 .
+|mv Linux_for_Tegra/nv_tegra/nvidia_drivers.tbz2 .
+|rm -r Linux_for_Tegra
+}}
+
+Extract the driver and the config files.
+{{RootCmd
+|cd /
+|tar xvjf root/nvidia_drivers.tbz2
+|tar xvjf root/config.tbz2
+}}
+
+{{Note|The two files {{Path|libjpeg.so}} and {{Path|libEGL.so.1}} are overwritten (TODO: test the conflicts))}}
+
+There are some different builds of the tegra driver in {{Path|/usr/lib/xorg/modules/drivers}} for Xorg versions, which differ in ABI (application binary interface) versions. Get to know your Xorg-server version:
+{{RootCmd
+|Xorg -version
+|output=<pre>X.Org S Server 1.12.4
+</pre>
+}}
+
+<code>tegra_drv.so</code> needs to be linked to the ABI version of the X-server.
+{{RootCmd
+|cd /usr/lib/xorg/modules/drivers
+|ln -s tegra_drv.abi12.so tegra_drv.so
+}}
+
+Clean up the files config files. {{Path|/etc/wpa_supplicant.conf}} is unnecessary and in the wrong place. Place the contents {{Path|/etc/init/nv.conf}} in an local.d/mystart.start (I'm not sure what these do, but they cause cpufreq-set to not work and give us wonderful new messages in messages). The {{Path|/etc/init/ttyS0.conf}}
+{{RootCmd
+|rm /etc/wpa_supplicant.conf
+|cat /etc/init/nv.conf > /etc/local.d/mystart.start
+|cd /etc
+|rm -rf init
+}}
+
+Add "vt01" to the end of the command line in {{Path|/etc/X11/xinit/xserverrc}} (see FAQ below for details).
+
+Run "startx" or "startx --vt01" if xserverrc is not configured. If no window/desktop manager is configured but everything is working you'll get a usual X output log and then dumped back at the command prompt; if you have configured a window/desktop manager (e.g. 'echo "startxfce4" > ~/.xinitrc') it should start; if the system is misconfigured a hang followed by reboot is possible.
+
+=== OpenTegra driver ===
+
+Recently (December 2012 / January 2013), Stephen Warren and Thierry Reding have been working on getting an open tegra implementation in the kernel and also an xorg driver associated with that.  Purportedly, this will be in the 3.8 kernel.  We'll be keeping an eye on this over the next few weeks!  If anyone has given it a go, drop me a line!  Thierry's git is: https://gitorious.org/thierryreding/xf86-video-opentegra
+
 === Keyboard ===
 
 It is possible to change the keyboard layout to be similar to a normal desktop's. If you are using at least the [https://github.com/tux-mind/tf201-dev/tree/master/v3/images v3 kernel] you're able to modify the kernel keyboard layout using setkeycodes. Give a look to the [https://github.com/tux-mind/tf201-dev/blob/master/scripts/00-setkeycodes.start /etc/local.d/00-setkeycodes.start] script installed from the root_patch. Otherwise you have to change the way Xorg translate keycodes throught xmodmap (it's slower, do it only if you have a kernel version minor than the v3).
@@ -621,38 +691,6 @@ keycode 180 = Super_L NoSymbol Super_L
 Add the following to {{Path|~/.xinitrc}} to automatically apply this configuration
 
 {{Cmd|xmodmap ~/.Xmodmap}}
-
-=== Proprietary Nvidia Tegra 3 driver ===
-
-The tegra xorg driver (from L4T RC16.2) works! Be sure to use at least the v2 images.
-
-Install X11:
-{{Emerge|xorg-x11}}
-
-Download the latest Cardu driver package from Nvidia (https://developer.nvidia.com/linux-tegra).
-
-Extract the package and copy {{Path|config.tbz2}} and {{Path|nvidia_drivers.tgz}} from {{Path|Linux_for_Tegra/nv_tegra/}} to the device.
-
-Extract (using --backup!) the two tars to {{Path|/}}.
-
-{{Note|The two files {{Path|libjpeg.so}} and {{Path|libEGL.so.1}} are overwritten (TODO: test the conflicts))}}
-
-Remove {{Path|/etc/wpa_supplicant.conf}} (unnecessary; and in the wrong place).
-
-{{Cmd|cd /usr/lib/xorg/modules/drivers; ln -s tegra_drv.abi13.so tegra_drv.so}}
-
-Place the contents {{Path|/etc/init/nv.conf}} in an local.d/mystart.start (I'm not sure what these do, but they cause cpufreq-set to not work and give us wonderful new messages in messages).
-
-{{Cmd
-|# the ttyS0.conf file has no effect
-|rm -rf /etc/init
-}}
-
-Add "vt01" to the end of the command line in {{Path|/etc/X11/xinit/xserverrc}} (see FAQ below for details).
-
-Run "startx". If no window/desktop manager is configured but everything is working you'll get a usual X output log and then dumped back at the command prompt; if you have configured a window/desktop manager (e.g. "echo startxfce4 > ~/.xinitrc") it should start; if the system is misconfigured a hang followed by reboot is possible.
-
-Recently (December 2012 / January 2013), Stephen Warren and Thierry Reding have been working on getting an open tegra implementation in the kernel and also an xorg driver associated with that.  Purportedly, this will be in the 3.8 kernel.  We'll be keeping an eye on this over the next few weeks!  If anyone has given it a go, drop me a line!  Thierry's git is: https://gitorious.org/thierryreding/xf86-video-opentegra
 
 === Atmel Maxtouch touchscreen ===
 
