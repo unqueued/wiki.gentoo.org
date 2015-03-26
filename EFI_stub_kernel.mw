@@ -1,7 +1,9 @@
-The (U)EFI firmware present in many newer computers can function as [[bootloader]], allowing you to boot without installing a separate bootloader.
+The (U)EFI firmware present in many newer computers can function as [[bootloader]], allowing systems to boot without needing an additional software bootloader.
 
 == Partitioning ==
-You need to create a [[partition]] of type "EFI System partition", which is EF00 on GPT and EF on MBR. Example using {{Package|sys-apps/gptfdisk}}:
+
+Create a [[partition]] of type "EFI System partition", which is <code>EF00</code> on GPT and <code>EF</code> on MBR. Using <tt>gdisk</tt>:
+
 {{RootCmd|gdisk /dev/sda|output=<pre>
 Command (? for help): n
 Partition number (1-128, default 1): 1
@@ -11,74 +13,93 @@ Partition number (1-2): 1
 Hex code or GUID (L to show codes, Enter = 8300): EF00
 Command (? for help): w
 </pre>}}
+
 Create a FAT32 filesystem inside:
+
 {{RootCmd|mkfs.vfat -F 32 /dev/sda1}}
-If you don't have mkfs.vfat (part of {{Package|sys-fs/dosfstools}}) installed, you can use busybox:
+
+If the <tt>mkfs.vfat</tt> command is not present (part of {{Package|sys-fs/dosfstools}}), the Busybox version can be used instead:
+
 {{RootCmd|busybox mkfs.vfat /dev/sda1}}
+
+{{Note|The <tt>gdisk</tt> utility comes with the {{Package|sys-apps/gptfdisk}} package.}}
 
 == Kernel ==
 
 === Configuration ===
-In order to boot directly from UEFI, the kernel needs to have CONFIG_EFI_STUB support enabled.
+
+In order to boot directly from UEFI, the kernel needs to have <code>CONFIG_EFI_STUB</code> support enabled:
+
 {{KernelBox|title=Enable EFI stub support|1=
 Processor type and features  --->
     [*] EFI runtime service support 
     [*]   EFI stub support
 }}
 
-UEFI does not pass kernel parameters to the kernel during normal boot, so you need to hardcode them via CONFIG_CMDLINE. Example for the root partition on {{Path|/dev/sda2}}:
+UEFI does not pass kernel parameters to the kernel during normal boot, so they must be hardcoded them via <code>CONFIG_CMDLINE</code>. to boot a root partition located at {{Path|/dev/sda2}} input the following text in the kernel configuration:
+
 {{KernelBox|title=Enable built-in kernel parameters|1=
 Processor type and features  --->
     [*] Built-in kernel command line
     (root=/dev/sda2)
 }}
 
-For GPT systems, using ''root=PARTUUID=...'' might be preferable. To find out, you can use gdisk:
+For GPT systems, using <code>root=PARTUUID=</code> might be preferable. To find out use <tt>gdisk</tt>:
+
 {{RootCmd|gdisk /dev/sda|output=<pre>
 Command (? for help): i
 Partition number (1-5): 2
 Partition unique GUID: (pass the ID that is shown here to the kernel)
 Command (? for help): q
 </pre>}}
-{{Note|The partition's UUID is distinct from the filesystem's UUID.}}
+
+{{Note|The ''partition's'' UUID is distinct from the ''filesystem's'' UUID.}}
 
 === Initramfs ===
 
-EFI Stub can load an initramfs and pass it to the kernel, but this requires passing a parameter from the EFI bootloader (ie. initrd=\efi\boot\myinitrd.img). This parameter cannot be built into CONFIG_CMDLINE as outlined above.  This may defeat the purpose of using EFI stub as many users prefer it as a way to avoid the necessity of a bootloader and/or dealing with efi bootmgr.  Another possibility is to embed the initramfs directly in the kernel image. In order to do this:
+EFI Stub can load an initramfs and pass it to the kernel, but this requires passing a parameter from the EFI bootloader (ie. initrd=\efi\boot\myinitrd.img). This parameter cannot be built into <code>CONFIG_CMDLINE</code> as outlined above. This may defeat the purpose of using EFI stub since many users prefer it as a way to avoid the necessity of a bootloader and/or dealing with <tt>efibootmgr</tt>.  Another possibility is to embed the initramfs directly into the kernel image. In order to do this:
 
-* Generate the initramfs using your preferred method (Genkernel, Dracut, etc.)
-* Ensure the image is not compressed (just a cpio archive). Genkernel and Dracut both have command line switches for this.
-* Rename the initramfs with a .cpio extension, the kernel requires this to embed a cpio archive. The kernel image (with the cpio archive within it) will still be compressed as usual.
-* Ensure that the initramfs has the correct read-permissions for the user building the kernel.  Most users build the kernel as the root user and may skip this step.  Dracut makes the initramfs image readable only by the root user, so if you build the kernel as any other user adjust its permissions first. Failing to do so, and ignoring the kernel build warnings will result in a kernel with no embedded initramfs and potentially an unbootable system.
-{{KernelBox|title=Build in the initramfs CPIO archive|1=
+* Generate the initramfs using a preferred method (Genkernel, Dracut, etc.);
+* Ensure the image is not compressed (just a cpio archive). Genkernel and Dracut both have command line switches for this;
+* Rename the initramfs with a {{Path|.cpio}} extension, the kernel requires this to embed a cpio archive. The kernel image (with the cpio archive within it) will still be compressed as usual.
+* Ensure that the initramfs has the correct read-permissions for the user building the kernel. Most users build the kernel as the root user and may skip this step.  Dracut makes the initramfs image readable only by the root user, so if the kernel was built as any other user adjust its permissions as needed. Failing to do so (and ignoring the kernel build warnings) will result in a kernel with no embedded initramfs which will leave the system potentially unbootable.
+
+: {{KernelBox|title=Build in the initramfs CPIO archive|1=
 General setup  --->
     [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
     (/boot/initramfs-3.12.21-gentoo-r1.cpio) Initramfs source file(s)
 }}
+
 * Install the kernel on the EFI partition.
 
-
-However, if you do wish to pass an initramfs as a boot parameter, you still can using only efibootmgr (ie. no GRUB2). An external initramfs has some advantages over building the initramfs directly into the kernel (see the kernel help on CONFIG_INITRAMFS_SOURCE for details on its limitations). In fact you can use both a built-in and external initramfs simultaneously. Create and install your initramfs with genkernel, dracut, by hand, etc.. Install your kernel as outlined in the Installation section below. Then:
+However, if passing an initramfs as a boot parameter is still desired, the only way it can be done is by using <tt>efibootmgr</tt> ([[GRUB2]] will not work). An external initramfs has some advantages over building the initramfs directly into the kernel (see the kernel help on <code>CONFIG_INITRAMFS_SOURCE</code> for details on its limitations). In fact, both a built-in and external initramfs can be used simultaneously. Create and install the initramfs with Genkernel, Dracut, by hand, etc. Install the kernel as outlined in the [[EFI_stub_kernel#Installation|Installation section below]]. Then:
 
 {{RootCmd|cp /boot/vmlinuz-3.14.14-gentoo /mnt/EFI/EFI/Boot/bootx64.efi
 |cp /boot/initramfs-3.14.14-gentoo.img /mnt/EFI/EFI/Boot/initramfs.img
 |efibootmgr --create --part 1 --label "Gentoo" --loader '\efi\boot\bootx64.efi' -u initrd{{=}}'\efi\boot\initramfs.img'}}
-{{Note|EFI uses \ as path separator.}}
-{{Note|The system tested on required the kernel arguments to be passed as Unicode text (-u option). YMMV.}}
+
+{{Note|EFI uses {{Path|\}} (backslash) as path separators.}}
+
+{{Note|The system tested on required the kernel arguments to be passed as Unicode text (<code>-u</code> option). YMMV.}}
 
 === Installation ===
-Now build the kernel and copy the image to your EFI partition as {{Path|EFI/Boot/bootx64.efi}}. Example (with your EFI partition mounted to {{Path|/mnt/EFI}}):
+
+Now build the kernel and copy the image to the EFI partition as {{Path|EFI/Boot/bootx64.efi}}. The following example shows the EFI partition mounted to {{Path|/mnt/EFI}}):
+
 {{RootCmd|cd /usr/src/linux
 |make -jN
 |make install modules_install
 |mkdir -p /mnt/EFI/EFI/Boot
 |cp /boot/vmlinuz-3.7.9-gentoo /mnt/EFI/EFI/Boot/bootx64.efi}}
 
-== Adding more kernels ==
-{{Note|In order to modify UEFI boot entries, your system needs to be booted in EFI mode. This means that you need to already have booted the EFI stub image as described above, or some EFI capable live media.}}
-You can optionally make additional kernels known to UEFI. This is especially useful if you want to test more kernels or dual-boot with another operating system. These will be shown in the boot selection prompt, normally shown after you press a hotkey at the right time during system initialization.
+== Adding additional kernels ==
 
-Ensure that you have CONFIG_EFI_VARS enabled in your kernel, install {{Package|sys-boot/efibootmgr}} and make them known to your UEFI.
+{{Note|In order to modify UEFI boot entries, the system needs to be booted in EFI mode. This means that the EFI stub image or some EFI capable live media must have been booted as described above.}}
+
+Optionally additional kernels can be made known to the UEFI firmware. This is especially useful when wanting to test more kernels or to dual-boot with another operating system. These will be shown in the boot selection prompt, normally after a keyboard hotkey is pressed at the right time during system initialization. If the hotkey combination is unknown, search for official documentation from the computer manufacture. This information is usually not difficult to find.
+
+Ensure that <code>CONFIG_EFI_VARS</code> have been enabled in the kernel, install {{Package|sys-boot/efibootmgr}} and make them known to the UEFI firmware.
+
 {{KernelBox|title=Enable EFI sysfs controls|1=
 Firmware Drivers  --->
     <*> EFI Variable Support via sysfs
@@ -86,12 +107,15 @@ Firmware Drivers  --->
 
 {{RootCmd|cp /boot/vmlinuz-3.6.11-gentoo /mnt/EFI/EFI/Boot/vmlinuz.efi
 |efibootmgr --create --part 1 --label "Gentoo" --loader '\efi\boot\vmlinuz.efi'}}
-{{Note|EFI uses \ as path separator.}}
+
+{{Note|EFI uses {{Path|\}} (backslash) as path separators.}}
 
 == See also ==
+
 * [[UEFI Gentoo Quick Install Guide]]
 
 == External resources ==
+
 * [http://blog.realcomputerguy.com/2012/05/efi-stub-booting-without-bootloader.html EFI Stub - booting without a bootloader] Blog posting which this article is partially based on.
 * [http://www.rodsbooks.com/gdisk/ GPT fdisk homepage] with information and tutorials about GPT partitioning.
 * [http://www.rodsbooks.com/efi-bootloaders/ EFI bootloaders] listing alternative ways to boot an (U)EFI system.
