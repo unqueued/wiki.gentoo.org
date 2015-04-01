@@ -1,34 +1,94 @@
 {{WIP|author=Maffblaster}}
 {{Stub}}
-Another Union File System ('''Aufs''') is an advanced multi-layered unification filesystem. Aufs was originally a re-design and re-implementation of the popular [[UnionFS]], however after adding many new original ideas it became entirely separate from UnionFS. '''Aufs''' is considered a UnionFS alternative as it supports many of the same features. Currently '''Aufs''' is in version 3.
+{{InfoBox stack
+|{{InfoBox homepage|http://aufs.sourceforge.net/|header=true}}
+|{{InfoBox wikipedia}}
+}}
+
+'''Aufs''' ('''A'''nother '''U'''nion '''F'''ile '''S'''ystem) is an advanced multi-layered unification filesystem. Aufs was originally a re-design and re-implementation of the popular [[UnionFS]], however after adding many new original ideas it became entirely separate from UnionFS. Aufs is considered a UnionFS alternative since it supports many of the same features. Currently Aufs is in version 3.
 
 __TOC__
 
 == Features ==
+
 * The ability to unite several directories into a single virtual filesystem. Calling the member directory as a branch;
 * Specification of the permission flags on each branch (readonly, readwrite, and whiteout-able);
 * Via upper writable branch, internal copyup and whiteout is possible (files and directories on the readonly branch are logically modifiable);
-* Dynamic branch manipulation (add, delete, etc.).
+* Dynamic branch manipulation (add, delete, etc.)
 
 == Installation ==
-There are two ways to obtain support for aufs in the kernel.
-# Emerge '''aufs3 patch set'''. This will download and install aufs support to the ''existing'' kernel allowing the user to keep using the ''same'' kernel.
-# Emerge the '''pre-patched aufs kernel'''. This will download and install a new aufs kernel to {{Path|/usr/src/linux}} The kernel will then need to be (re)configured.
 
-If the system has an old kernel and aufs support is needed, then it might be best to choose the second option, however the package might need to be unmasked. If the system already has an up to date kernel, then the first option will probably work out better.
+Users currently have two options in Gentoo to obtain support for Aufs in the kernel:
 
-Currently, the Aufs3 package ({{Package|sys-fs/aufs3}}) is the only version of '''Aufs''' in the Portage tree. For anything older than 3.x, search the net. Why would anyone desire to use an older version?!
+# Emerge the {{Package|sys-fs/aufs3}} package. This will download and install Aufs support to the ''existing'' kernel sources allowing the user to keep using the ''same'' (patched) sources. After the Aufs patch has been applied a re-configuration and re-compilation of the kernel (or at least the kernel modules) must be performed in order to obtain Aufs support. One caveat to this approach is that the Aufs patches can only be applied to a hardened-sources ({{Package|sys-kernel/hardened-sources}}) kernel with specific options enabled. For most users the next option is a simpler choice.
+# Emerge the pre-patched ({{Package|sys-kernel/aufs-sources}}) package. This method will install another set of kernel sources that have had the Aufs3 patches applied. The new sources will show up in {{Path|/usr/src/linux}} using a X suffixed name scheme. Proceed to the relevant section below if this method has been chosen. The kernel will then need to be reconfigured and recompiled.
+
+Currently, the Aufs3 package ({{Package|sys-fs/aufs3}}) is the only version of Aufs in the Portage tree. For anything older than 3.x, search the net. Why would anyone desire to use an older version? Just use the versions in the Portage tree.
 
 From here on out, this article will suppose the first option ({{Package|sys-fs/aufs3}}) was chosen. See [[Kernel/Overview#aufs-sources|the aufs-sources entry in the kernel overview]] for more information concerning the {{Package|sys-kernel/aufs-sources}} package.
 
-To install the '''Aufs''' patch-set run:
+=== Emerge hardened-sources ===
 
-{{Emerge|sys-fs/aufs3}}
+If hardened sources are not yet emerged on the system, do so presently:
 
-{{Important|'''Aufs3''' will not emerge properly unless there is an existing {{Path|.config}} file in the system's current kernel directory. When upgrading kernels, be sure the old {{Path|.config}} is copied to the new kernel's directory before emerging this package. For more information on kernel configuration see the [[Kernel/Configuration|kernel configuration page]].}
+{{Emerge|sys-kernel/hardened-sources}}
 
-There are several '''USE''' flag options for Aufs:
-{{USEflag
+After the <tt>emerge</tt> process is finished, list the available sources:
+
+{{RootCmd|eselect kernel list|output=
+  [1]   linux-3.19.3-gentoo
+  [2]   linux-3.19.3-hardened
+}}
+
+Use <tt>eselect</tt> to set the symlink to the hardened kernel sources:
+
+{{RootCmd|eselect kernel set 2}}
+
+=== Kernel ===
+
+For the Aufs package to not complain upon install, quite a few features must be enabled in the kernel. Navigate to the kernel sources directory:
+
+{{RootCmd|cd /usr/src/linux}}
+
+Using a [[Kernel/Configuration#Configuration_tools|method of choice]], set the following options in the kernel to prepare for the Aufs patches:
+
+{{KernelBox|title=Enabling support for Aufs|1=
+[*] Enable loadable module support  --->
+   [*]   Module unloading
+   [*]   Module versioning support
+File systems  --->
+   [*] FUSE (Filesystem in Userspace) support
+   [*] Inotify support for userspace
+   Miscellaneous filesystems  --->
+      [*]   Apple Extended HFS file system support
+      [*]     HFS+ POSIX Access Control Lists
+   [*] Network File Systems  --->
+      [*]   NFS client support
+   
+Security options  --->
+   Grsecurity  --->
+      [*] Grsecurity
+         Customize Configuration  --->
+	    PaX  --->
+	       [*] Enable various PaX features
+                  Address Space Layout Randomization  ---> 
+                     [*] Address Space Layout Randomization
+                     [*] Randomize kernel stack base
+                     [*] Randomize user stack and mmap() bases
+                  Miscellaneous hardening features  --->
+                     [*] Sanitize all freed memory
+                     [*] Sanitize kernel stack
+}}
+
+After the features have been set, build the kernel:
+
+{{RootCmd|make}}
+
+{{Note|Depending on the speed of the CPU(s) available, building the kernel could take a while. If the number of CPU cores in the system are known the <code>-jN</code> (where <code>N</code> is a number) option can be used to speed up the complication process. See the [[Kernel/Configuration#Build|build section of the manual kernel configuration article]] for more information.}}
+
+=== USE flags ===
+
+{{USEflag|package=sys-fs/aufs3|desc=Optional USE flags for {{Package|sys-fs/aufs3}}:
 |debug
 |doc
 |fuse+++Enables fuse support
@@ -40,12 +100,20 @@ There are several '''USE''' flag options for Aufs:
 |ramfs+++Enable initramfs/rootfs support
 }}
 
+=== Emerge Aufs===
+
+To install the Aufs patch-set onto hardened kernel sources run the following command:
+
+{{RootCmd|USE{{=}}"kernel-patch" emerge -a sys-fs/aufs3}}
+
+
 == Configuration ==
-In order to work with Aufs, the {{Package|sys-fs/aufs-util}} package is needed; utilities are always necessary for Aufs:
+
+In order to work with Aufs, the {{Package|sys-fs/aufs-util}} package is needed; utilities are always necessary for Aufs. This packages should be pulled in when emerging {{Package|sys-fs/aufs3}}. In the case that it is not, run:
 
 {{Emerge|sys-fs/aufs-util}}
 
-===Kernel configuration ===
+=== Kernel configuration ===
 
 Aufs must be enabled in the kernel.
 
@@ -54,11 +122,19 @@ Aufs must be enabled in the kernel.
 }}
 
 
+== Troubleshooting ==
+
+=== Kernel configuration ===
+
+When installing {{Package|sys-fs/aufs3}} many issues are a result of an incorrect kernel configuration. Currently the ebuild does not helpfully provide messages instructing the user on which kernel features must be enabled for correct kernel configuration.
+
+Reading the kernel configuration section above is one helpful method to determine which features are missing. Another method is to open the actual ebuild file and investigate. Although opening an ebuild may seem like a daunting task, it is really not difficult at all. Use a favorite [[pager]] or [[text editor]], browse to the ebuild's directory ({{Path|/usr/portage/sys-fs/aufs3}} is the default location for Portage's ebuilds), and open the ebuild file that failed to install the selected software version. Supposing {{Path|aufs3-3_p20150223.ebuild}} was the selected ebuild:
+
+{{RootCmd|less /usr/portage/sys-fs/aufs3/aufs3-3_p20150223.ebuild}}
+
+Look in the <code>pkg_setup</code> function for kernel variable names that may not be selected in the current kernel configuration. If missing features are found, then update the kernel sources accordingly.
 
 == See also ==
-[[UnionFS]]
 
-[[OverlayFS]]
-
-== External resources ==
-[http://aufs.sourceforge.net/ Aufs at SourceForge]
+* [[UnionFS]] - The original union filesystem.
+* [[OverlayFS]] - An overlay filesystem.
