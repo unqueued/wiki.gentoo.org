@@ -6,7 +6,7 @@
 
 '''eix''' is a set of utilities for searching and diffing the local Portage tree and overlays using a binary cache.
 
-It is made to be more efficient and flexible than the <tt>emerge</tt> search functionality. <tt>eix</tt> comes with colorized output which helps users easily find the needed package information.
+It is made to be more efficient and flexible than the <tt>emerge --search</tt> command. <tt>eix</tt> comes with colorized output which helps users easily find the needed package information.
 
 == Installation ==
 
@@ -14,11 +14,11 @@ Install {{Package|app-portage/eix}}:
 
 {{Emerge|app-portage/eix}}
 
-After the installation has finished, it is important to update the cache to index all packages on the system.
+== Configuration ==
 
-== Updating the cache ==
+=== Updating the cache ===
 
-Running following command will update the local <tt>eix</tt> cache which will index all packages on the system:
+After the installation has finished, it is important to update the cache to index all packages on the system. Running following command will update the local <tt>eix</tt> cache:
 
 {{RootCmd|eix-update}}
 
@@ -34,25 +34,46 @@ To spare some typing work, run following command:
 
 The above command is a shorthand way to running these commands sequentially:
 
-{{RootCmd|emerge --sync
+{{RootCmd
+|emerge --sync
 |eix-update
 |eix-diff}}
 
-or something like. Check <tt>eix-sync</tt> with the <code>--dry-run</code> option for more information:
+Check <tt>eix-sync</tt> with the <code>--dry-run</code> option for more information:
 
 {{RootCmd|eix-sync -nv}}
 
-== Adding overlays to the cache ==
+=== Using tmpfs cache ===
+
+This breaks <tt>eix</tt> because {{Path|/var/cache/eix}} is missing when {{Path|/var/cache}} is mounted:
+
+{{RootCmd|grep /var/cache /etc/fstab|output=<pre>
+none /var/cache tmpfs size=512m 0 0
+</pre>}}
+
+The simple solution is to move the <tt>eix</tt> cache file away from the default location:
+
+{{RootCmd|echo EIX_CACHEFILE{{=}}%{EPREFIX}/var/cache/eix-portage.eix >> /etc/eixrc/00-eixrc
+|eix --dump {{!}} grep EIX_CACHEFILE|output=<pre>
+EIX_CACHEFILE=%{EPREFIX}/var/cache/eix-portage.eix
+# EIX_CACHEFILE=%{EPREFIX}/var/cache/eix/portage.eix</pre>}}
+
+One side effect is needing to run <tt>eix-update</tt> after reboot which will take a few seconds.
+
+=== Adding overlays to the cache ===
 
 To search not only in the portage tree but all the overlays, add overlays to the cache:
 
-{{RootCmd|eix-remote update
+{{RootCmd
+|eix-remote update
 |eix-sync
 }}
 
-== Searching for packages ==
+== Usage ==
 
-=== Simple search ===
+=== Searching for packages ===
+
+==== Simple search ====
 
 To find package names containing ''kernel'' keyword:
 
@@ -101,7 +122,7 @@ To find package names containing ''kernel'' keyword:
 Found 8 matches.
 </pre>}}
 
-=== Searching for installed packages ===
+==== Searching for installed packages ====
 
 Search for installed packages using the <code>-I</code> option:
 
@@ -113,7 +134,7 @@ Search for installed packages using the <code>-I</code> option:
      Description:         Gentoo automatic kernel building scripts
 </pre>}}
 
-=== Searching in package descriptions ===
+==== Searching in package descriptions ====
 
 To search in package descriptions use the <code>-S</code> option. It is possible to print out results in a compact list using <code>-c</code>:
 
@@ -126,9 +147,9 @@ To search in package descriptions use the <code>-S</code> option. It is possible
 [N] net-misc/omniORB (4.1.4-r1): A robust, high-performance CORBA 2 ORB
 </pre>}}
 
-=== Searching in package categories ===
+==== Searching in package categories ====
 
-Search for certain category using the <code>-C</code> optoin and print out the results in a compact list (<code>-c</code>):
+Search for certain category using the <code>-C</code> option and print out the results in a compact list (<code>-c</code>):
 
 {{Cmd|eix -C -c app-officeext|output=<pre>
 [N] app-officeext/barcode (1.3.5.0): Extension for reading barcodes
@@ -140,7 +161,7 @@ Search for certain category using the <code>-C</code> optoin and print out the r
 [N] app-officeext/texmaths (0.35): LaTeX Equation Editor for LibreOffice
 </pre>}}
 
-=== Searching for installed obsolete packages ===
+==== Searching for installed obsolete packages ====
 
 Search for obsolete packages on the system using the <tt>eix-test-obsolete</tt> command:
 
@@ -213,46 +234,30 @@ Installed packages with a version not in the database (or masked):
 Found 2 matches.
 </pre>}}
 
-== Format strings ==
+=== Format strings ===
 
-This is probably the most powerful aspect of eix, but the documentation is hard to understand. eix has a minilanguage for specifying more precise queries and output formats than are possible using only the basic options. The format string is specified as the option argument to the <code>--format</code> option. There are basically two major concepts: properties and variables.
+This is probably the most powerful aspect of <tt>eix</tt>, but the documentation is hard to understand. <tt>eix</tt> has a mini-language for specifying more precise queries and output formats than are possible using only the basic options. The format string is specified as the option argument to the <code>--format</code> option. There are basically two major concepts: properties and variables.
 
 * '''Properties:''' Each package has a set of associated properties that can either be printed or used as part of a predicate in a conditional block.
 * '''Variables:''' A variable can be any environment variable set in the environment of eix, or any of the variables printed from the output of <tt>eix --dump</tt>.
 
-=== Conditional blocks ===
+==== Conditional blocks ====
 
 Conditional blocks take can 3 forms, each with an optional RHS, each of which can be optionally negated:
 
-{{CodeBox|title=if-then string comparison|<pre>{[!]PROPERTY=RHS}TCODE{}</pre>}}
-{{CodeBox|title=if-then predicate|<pre>{[!]PROPERTY}TCODE{}</pre>}}
-{{CodeBox|title=if-then-else string comparison|<pre>{[!]PROPERTY=RHS}TCODE{else}FCODE{}</pre>}}
-{{CodeBox|title=if-then-else predicate|<pre>{[!]PROPERTY}TCODE{else}FCODE{}</pre>}}
-{{CodeBox|title=assignment|<pre>{[!]*VARIABLE=RHS}</pre>}}
-{{CodeBox|title=assign 1 or empty string|<pre>{[!]*VARIABLE}</pre>}}
-
-== Using tmpfs cache ==
-
-This breaks eix because {{Path|/var/cache/eix}} is missing when {{Path|/var/cache}} is mounted:
-
-{{RootCmd|grep /var/cache /etc/fstab|output=<pre>
-none /var/cache tmpfs size=512m 0 0
-</pre>}}
-
-The simple solution is to move the eix cache file away from the default location:
-
-{{RootCmd|echo EIX_CACHEFILE{{=}}%{EPREFIX}/var/cache/eix-portage.eix >> /etc/eixrc/00-eixrc
-|eix --dump {{!}} grep EIX_CACHEFILE|output=<pre>
-EIX_CACHEFILE=%{EPREFIX}/var/cache/eix-portage.eix
-# EIX_CACHEFILE=%{EPREFIX}/var/cache/eix/portage.eix</pre>}}
-
-One side effect is needing to run <tt>eix-update</tt> after reboot which will take a few seconds.
+{{CodeBox|title=If-then string comparison|<pre>{[!]PROPERTY=RHS}TCODE{}</pre>}}
+{{CodeBox|title=If-then predicate|<pre>{[!]PROPERTY}TCODE{}</pre>}}
+{{CodeBox|title=If-then-else string comparison|<pre>{[!]PROPERTY=RHS}TCODE{else}FCODE{}</pre>}}
+{{CodeBox|title=If-then-else predicate|<pre>{[!]PROPERTY}TCODE{else}FCODE{}</pre>}}
+{{CodeBox|title=Assignment|<pre>{[!]*VARIABLE=RHS}</pre>}}
+{{CodeBox|title=Assign 1 or empty string|<pre>{[!]*VARIABLE}</pre>}}
 
 == See also ==
 
-* [http://www.gentoo.org/news/en/gwn/20061106-newsletter.xml#doc_chap4 Eix tips and tricks from the Gentoo Linux Newsletter]
 * [[Equery]]
 
 == External resources ==
+
+* [http://www.gentoo.org/news/en/gwn/20061106-newsletter.xml#doc_chap4 eix tips and tricks from a Gentoo Weekly Newsletter].
 
 [[Category:Portage tools]]
