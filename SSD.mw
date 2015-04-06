@@ -2,24 +2,31 @@
 |{{InfoBox wikify|header=true}}
 }}
 {{Stub}}
-This article assumes describes how to set up SSDs (Solid State Drives) on Gentoo Linux. It presumes the user has obtained knowledge of setting up, partitioning, and formatting mechanical hard drives.
+
+This article describes how to set up SSDs (Solid State Drives) on Gentoo Linux. It presumes the user has obtained knowledge of setting up, partitioning, and formatting mechanical hard drives.
 
 == Considerations ==
 
 === Rootfs ===
+
 The <code>-odiscard</code> option on a rootfs mount should not be used. <tt>discard</tt> is the "TRIM" command that tells the SSD to do its magic. Having discard running constantly could potentially cause performance degradation on older SSDs. Modern SSDs use discard by default. Rather the following command can be used manually or be setup as a cron job (see below) to run twice a day, which should suffice for the rootfs:
 
 {{RootCmd|fstrim -v /}}
 
-=== Mountpoint===
+=== Mount point ===
+
 If you're going to have a low write directory mounted on SSD, using the "discard" option will be fine in {{Path|/etc/fstab}}. See below. If you're going to mount a database to an SSD, you probably want timed TRIM commands rather than the discard option. 
 
 == After hardware installation ==
 
 === Partitioning ===
-You can use usual <tt>fdisk</tt> (sys-apps/util-linux>=2.24.1-r2). Here is an example for GPT partition table with BIOS motherboard.
-Use type <kbd>fdisk /dev/sda</kbd> to run <tt>fdisk</tt>, use {{Key|m}} option for help. Type {{Key|g}}+{{Key|Enter}} to create a new empty GPT partition table on the SSD. Type {{Key|n}}+{{Key|Enter}}, {{Key|Enter}}, {{Key|Enter}}, {{Key|+2M}}+{{Key|Enter}}, {{Key|t}}+{{Key|Enter}}, {{Key|4}}+{{Key|Enter}} to create BIOS boot partition.
 
+The <tt>fdisk</tt> utility ({{Package|sys-apps/util-linux}}, version 2.24.1-r2 and up) can be used for GPT disk partitioning.
+
+Use type <tt>fdisk /dev/sda</tt> to run <tt>fdisk</tt>, use {{Key|M}} option for help. The following is an example for GPT partition table with BIOS motherboard. Type {{Key|G}}+{{Key|Enter}} to create a new empty GPT partition table on the SSD. Type {{Key|N}}+{{Key|Enter}}, {{Key|Enter}}, {{Key|Enter}}, {{Key|+2M}}+{{Key|Enter}}, {{Key|T}}+{{Key|Enter}}, {{Key|4}}+{{Key|Enter}} to create BIOS boot partition.
+
+{{RootCmd|fdisk /dev/sda
+|output=<pre>
    Command (m for help): n
    Partition number (1-128, default 1): 
    First sector (2048-117231374, default 2048): 
@@ -31,9 +38,11 @@ Use type <kbd>fdisk /dev/sda</kbd> to run <tt>fdisk</tt>, use {{Key|m}} option f
    Selected partition 1
    Partition type (type L to list all types): 4
    Changed type of partition 'Linux filesystem' to 'BIOS boot partition'.
+</pre>}}
    
-Then we create 2GB swap partition:
+Next create a 2GB swap partition:
 
+{{GenericCmd|<pre>
    Command (m for help): n
    Partition number (2-128, default 2): 
    First sector (6144-117231374, default 6144): 
@@ -46,9 +55,11 @@ Then we create 2GB swap partition:
    Partition type (type L to list all types): 15
    
    Changed type of partition 'Linux filesystem' to 'Linux swap'.
-   
-Then we create system root partition and write changes:
+</pre>}}
 
+Finally create system root partition and write the changes:
+
+{{GenericCmd|<pre>
    Command (m for help): n
    Partition number (3-128, default 3): 
    First sector (4200448-117231374, default 4200448): 
@@ -74,8 +85,9 @@ Then we create system root partition and write changes:
    The partition table has been altered.
    Calling ioctl() to re-read partition table.
    Syncing disks.
+</pre>}}
 
-So, as you can see, you don't need anything special with new <tt>fdisk</tt> from linux utils. You can also use alternative common tool that you prefer:  <tt>gdisk</tt>, <tt>gparted</tt>, <tt>parted</tt> there if you don't like <tt>fdisk</tt>. All of them (newer versions) handle partition alignment automatically. But if you have some doubt whether partition is aligned, check that each partition starts on a MiB boundary (multiple of 2048 sectors), which should be fine for any device.
+Although <tt>fdisk</tt> is a tool familiar to many Linux users, other common partitioning tools exist: <tt>gdisk</tt>, <tt>gparted</tt>, and <tt>parted</tt>. All of them (newer versions) handle partition alignment automatically. When in doubt whether partition is aligned, check that each partition starts on a MiB boundary (multiple of 2048 sectors). This should be 'safe' for any device (SSD or not).
 
 ==== LVM ====
 
@@ -89,7 +101,7 @@ In order to TRIM all unused space in the VG use the <tt>blkdiscard</tt> utility:
 |lvremove yourvg/trim
 }}
 
-Alternatively, there is a discard option in {{Path|lvm.conf}} which makes LVM discard entire LV on lvremove, lvreduce, pvmove and other actions that free physical extents (PE) in your VG. However, enabling it will immediately render you unable to undo any changes to your LV layout.
+Alternatively, there is a discard option in {{Path|lvm.conf}} which makes LVM discard entire LV on lvremove, lvreduce, pvmove and other actions that free physical extents (PE) in a VG. However, enabling it will immediately render the system unable to undo any changes to the LV layout.
 
 {{FileBox|filename=/etc/lvm/lvm.conf|1=
 devices {
@@ -100,104 +112,138 @@ devices {
 
 ==== LUKS ====
 
-If you have your root-device on [[DM-Crypt_LUKS|LUKS]], you need to set a kernel option:
+When root-device exists on [[DM-Crypt_LUKS|LUKS]], set the following kernel option:
 
 {{FileBox|filename=/etc/default/grub|1=
 GRUB_CMDLINE_LINUX_DEFAULT="[...] root_trim=yes"
 }}
 
-Although this depends on your [[Initramfs]] implementation. In any case, for TRIM to work on encrypted [[DM-Crypt_LUKS|LUKS]] devices, they have to be opened with the --allow-discards option.
+Although this depends on the [[Initramfs]] implementation. In any case, for TRIM to work on encrypted [[DM-Crypt_LUKS|LUKS]] devices, they have to be opened with the <code>--allow-discards</code> option.
 
 {{RootCmd|cryptsetup luksOpen --allow-discards /dev/thing luks}}
 
 === Formatting ===
+
 If you can find your erase block size, you can add some extended attributes that may help performance.
 For software raid, you really should know the erase block size. Consider this information when making your purchase.
 Regardless of whether you're using RAID or not, setting extended values is known to be beneficial. https://raid.wiki.kernel.org/index.php/RAID_setup#ext2.2C_ext3.2C_and_ext4
+
 http://blog.nuclex-games.com/2009/12/aligning-an-ssd-on-linux/
-The modern FAQ you can find on Arch-wiki too:
+
+The modern FAQ found on the Arch wiki too:
+
 https://wiki.archlinux.org/index.php/SSD
 
 ==== Without knowing the erase block size ====
-   #Formatting the rootfs partition /dev/sda3:
-   #Using 4096 byte blocks by default aligns the SSD for writes (see [defaults] section of /etc/mke2fs.conf and also 
-   #man mkfs.ext4 about "-b block-size" and "-T usage-type[,...]" inside it):
 
-   mkfs.ext4 /dev/sda3
+#Formatting the rootfs partition /dev/sda3:
+#Using 4096 byte blocks by default aligns the SSD for writes (see [defaults] section of /etc/mke2fs.conf and also 
+#man mkfs.ext4 about "-b block-size" and "-T usage-type[,...]" inside it):
+
+{{RootCmd|mkfs.ext4 /dev/sda3}}
 
 ==== With knowing the erase block size | this info can be outdated ====
-   #Formatting the rootfs partition /dev/sda3:
-   #Using 4096 byte blocks aligns the SSD for writes;
-   #Using ERASE_BLOCK_SIZE / 4 as the stride and stripe width size;
-   #In this example, OCZ Vertex drives have 512 kibbibyte -
-   #Erase Block size, therefore stride/stripe-width = 512/4 = 128:
 
-   mkfs.ext4 -E stride=128,stripe-width=128 /dev/sda3
+#Formatting the rootfs partition /dev/sda3:
+#Using 4096 byte blocks aligns the SSD for writes;
+#Using ERASE_BLOCK_SIZE / 4 as the stride and stripe width size;
+#In this example, OCZ Vertex drives have 512 kibbibyte -
+#Erase Block size, therefore stride/stripe-width = 512/4 = 128:
+
+{{RootCmd|mkfs.ext4 -E stride{{=}}128,stripe-width{{=}}128 /dev/sda3}}
 
 ==== <tt>blkdiscard</tt> ====
+
 If you are formatting a previously used device and your preferred <tt>mkfs</tt> does not support bulk discards when creating the filesystem, you can use <tt>blkdiscard</tt> (from {{Package|1=sys-apps/util-linux-2.23}} or later) before creating the filesystem.
 
 === Mounting ===
+
 Given the considerations above, either add something similar to this:
-   /dev/sda3          /          ext4          defaults,relatime,discard          0 1
-Or this:
-   /dev/sda3          /          ext4          defaults,relatime                  0 1
+
+{{FileBox|filename=/etc/fstab|1=
+/dev/sda3          /          ext4          defaults,relatime,discard          0 1
+}}
+
+Or:
+
+{{FileBox|filename=/etc/fstab|1=
+/dev/sda3          /          ext4          defaults,relatime                  0 1
+}}
+
 If you choose the latter, see the [[SSD#Cron|cron]] section below you don't want to manually TRIM the drive.
 
 Once you've set up {{Path|/etc/fstab}} you can run the following command to have the drive mounted:
-   mount -a
 
-In the same way you can add discard option to the swap line in fstab too. The following example shows you how you can parallelize your SSD disk swap with your SATA disk swap:
-   /dev/sda2          none           swap         sw,pri=3,discard          0 0
-   /dev/sdb2          none           swap         sw,pri=3                  0 0
+{{RootCmd|mount -a}}
+
+In the same way you can add discard option to the swap line in fstab too. The following example shows you how SSD disk swap can be parallelized with SATA disk swap:
+
+{{FileBox|filename=/etc/fstab|1=
+/dev/sda2          none           swap         sw,pri=3,discard          0 0
+/dev/sdb2          none           swap         sw,pri=3                  0 0
+}}
 
 Once you've set up swap in fstab you can run the following command to make swap available:
-   swapon -a
+
+{{RootCmd|swapon -a}}
 
 == Notes ==
 
 === cron ===
-Run fstrim -v / from cron twice a day to automatically do "discard":
+
+Run <tt>fstrim -v /</tt> from cron twice a day to automatically do "discard":
+
    #Mins  Hours  Days   Months  Day of the week   command
    15     1,13   *      *       *                 /sbin/fstrim -v /
 
-There is also a semi-automatic cronjob available on github called [http://chmatse.github.io/SSDcronTRIM/ SSDcronTRIM] which has the following features:
+There is also a semi-automatic cronjob available on GitHub called [http://chmatse.github.io/SSDcronTRIM/ SSDcronTRIM] which has the following features:
 
 * Distribution Independent script (developed on my Gentoo system).
 * The script decides every time depending on the disk usage how often (monthly, weekly, daily, hourly) each partition has to be trimmed.
-* Recognizes if it should install itself into /etc/cron.{monthly,weekly,daily,hourly}, /etc/cron.d or any other defined directory and if it should make an entry into crontab.
-* Checks if the kernel meets the requirements, the filesystem is able to and if your ssd supports trimming.
-* simply install it by running it once without any option and deinstall it with the -d option
+* Recognizes if it should install itself into /etc/cron.{monthly,weekly,daily,hourly}, {{Path|/etc/cron.d}} or any other defined directory and if it should make an entry into crontab.
+* Checks if the kernel meets the requirements, the filesystem is able to and if the SSD supports trimming.
+* Simply install it by running it once without any option and uninstall it with the <code>-d</code> option
 
 Future version should implement:
 
-* Use of '''nice''' and '''ionice''' to let trimm only run when the disc is not busy.
+* Use of <tt>nice</tt> and <tt>ionice</tt> to let trimm only run when the disc is not busy.
 * Overgive options to fstrim (e.g. '-m 1M')
 * support for encrypted filesystem (LUKS)
 
 === fstrimDaemon ===
 
-If your computer turned off when cron scheduled its job, fstrim would not be called at all. You can install [https://github.com/dobek/fstrimDaemon fstrimDaemon] instead to solve this problem.
+If your computer turned off when cron scheduled its job, fstrim would not be called at all. You can install [https://github.com/dobek/fstrimDaemon fstrimDaemon] to solve this problem.
 
 === tmpfs ===
-When using an SSD, administrators generally want to reduce the amount of writes performed. On Gentoo, portage is a huge source of writes, and putting these writes into system memory rather than a disk is beneficial.
-If you have more than 8gb of ram you may want to consider using tmpfs, which is a way to dedicate some system memory to storage on a temporary basis.
-It's generally advised to not use more than 1/2 of your available system memory for tmpfs unless you know what you're doing. So let's assume you have 12GB of memory and want to allow up to 6 gigs of tmpfs. Edit /etc/fstab and add:
-   tmpfs			/tmp		tmpfs		noatime,nodiratime,size=6G 	0 0
-You can then tell portage to use this as it's compile scratch space in /etc/portage/make.conf:
-   PORTAGE_TMPDIR="/tmp"
-#this may fail on large compiles unless you have >20GB of system memory. scratch space for libreoffice can exceed 8GB, and the entire compile will fail if it runs out of space.
-#Ram used by TMPFS is freed back to the pool when it is no longer in use, so when using portage or other software that uses /tmp you will notice a huge performance gain.
+
+When using an SSD, administrators generally want to reduce the amount of writes performed. On Gentoo, Portage is a huge source of writes, and putting these writes into system memory rather than a disk is beneficial. If you have more than 8GB of ram you may want to consider using tmpfs, which is a way to dedicate some system memory to storage on a temporary basis. It is generally advised to not use more than half of the available system memory for tmpfs.
+
+For the next example, presume the system has 12GB of memory and the user would like to allow up to 6GBs for tmpfs. Edit {{Path|/etc/fstab}} and add:
+
+{{FileBox|filename=/etc/fstab|1=
+tmpfs			/tmp		tmpfs		noatime,nodiratime,size=6G 	0 0
+}}
+
+After the fstab entry is set, tell Portage to use the above location to compile temporary space. This is done in {{Path|/etc/portage/make.conf}}:
+
+{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
+# This may fail on large compiles unless you have greater than 20GB of system memory is available. Scratch space for Libreoffice can exceed 8GB; compile will fail if it runs out of space.
+# RAM used by TMPFS is freed back to the pool when it is no longer in use, so when using Portage or other software that uses /tmp there should be a huge performance gain.
+PORTAGE_TMPDIR="/tmp"
+}}
 
 === XDG cache ===
 
-If you are running gentoo on desktop, many programs, using X windows systems (like: chromium, firefox, skype) are making frequent disk I/O every few seconds to cache. Default cache dir is ~/.cache, which is on hard drive.
+When running Gentoo on desktop, many programs, using X windows systems (Chromium, Firefox, Skype, etc.) are making frequent disk I/O every few seconds to cache. Default cache directory is {{Path|~/.cache}}, which is on hard drive.
 
-Edit /etc/env.d/30xdg-data-local and add line:
+Edit {{Path|/etc/env.d/30xdg-data-local}} and add line:
 
-   XDG_CACHE_HOME="/tmp/.cache"
+{{FileBox|filename=/etc/env.d/30xdg-data-local|1=
+XDG_CACHE_HOME="/tmp/.cache"
+}}
 
-Don't forget:
+Do not forget to run <tt>env-update</tt>:
+
 {{RootCmd|env-update}}
 
 
