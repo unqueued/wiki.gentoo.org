@@ -15,7 +15,7 @@ Ext4 is safe and stable and can handle large filesystems with extents, but why s
 * '''File level checksums''' - Metadata for each file includes a checksum that can be used to detect and repair errors.
 * '''[[Btrfs#Compression|Compression]]''' - Files may be compressed and decompressed on the fly, which speeds up read performance.
 * '''Autodefrag''' - The filesystems may be tuned by a background thread ''while'' they are being used.
-* '''Sub-volumes''' - Filesystems can share a single pool of space instead of being put into their own partitions.
+* '''[[Btrfs#Subvolumes|Subvolumes]]''' - Filesystems can share a single pool of space instead of being put into their own partitions.
 * '''[[Btrfs#RAID|RAID]]''' - Btrfs does its own RAID implementations so LVM or <tt>mdadm</tt> are not required in order to have RAID. Currently RAID 0 and 1 are support; RAID 5 and 6 are upcoming.
 * '''Partitions are optional''' - While it can be given partitions to work with, Btrfs has the potential to use raw devices (/dev/<device>).
 * '''Data Deduplication (upcoming)''' - There is limited data deduplication support, however deduplication will eventually become a standard feature in Btrfs. This enables Btrfs to save space by comparing files via binary diffs.
@@ -90,8 +90,74 @@ The simplest method is to use the entire device to create a RAID:
 
 {{RootCmd|mkfs.btrfs --m raid1 /dev/device1 /dev/device2 -d raid1 /dev/device1 /dev/device2}}
 
+=== Subvolumes ===
 
-=== Converting from ext4 ===
+As mentioned above in the features list, Btrfs has the ability to create subvolumes. Subvolumes can be used to better organize and manage data. They become especially powerful when combine with snapshots. Important distinctions must be made between Btrfs subvolumes and subvolumes created by Logical Volume Management ([[LVM]]). Btrfs subvolumes are not block level devices, they are POSIX file namespaces.<ref>https://btrfs.wiki.kernel.org/index.php/SysadminGuide#Subvolumes</ref> They can be created at any location in the filesystem and will act like any other directory on the system with one special caveat: subvolumes can be mounted and unmounted. Subvolumes are nestable (subvolumes can be created inside other subvolumes), and easily created or removed.
+
+{{Note|A subvolume cannot be created ''across'' different Btrfs filesystems. If {{Path|/dev/sda}} and {{Path|/dev/sdb}} both contain separate (non-RAID) Btrfs filesystems, there is no way a subvolume can expand across the two filesystems. The snapshot can be ''moved'' from one filesystem to another, but it cannot span across the two. It must be on {{Path|/dev/sda}} ''or'' {{Path|/dev/sdb}}.}}
+
+==== Create ====
+
+To create a subvolume, issue the following command inside a Btrfs filesystem's name space:
+
+{{RootCmd|btrfs subvolume create dest-name}}
+
+Replace <code>dest-name</code> with the desired destination and subvolume name. For example, if a Btrfs filesystem exists at {{Path|/mnt/btrfs}}, a subvolume could be created inside of it using the following command:
+
+{{RootCmd|btrfs subvolume create /mnt/btrfs/subvolume1}}
+
+==== List ====
+
+To see the subvolume(s) that have been created use the <code>subvolume list</code> command followed by a Btrfs filesystem location. If the current directory is somewhere inside a Btrfs filesystem, the following command will display the subvolume(s) that exist on the filesystem:
+
+{{RootCmd|btrfs subvolume list .}}
+
+If a Btrfs filesystem with subvolumes exists at the mount point created in the example command above, the output from the list command will look similar to the following:
+
+{{RootCmd|btrfs subvolume list /mnt/btrfs|output=<pre>
+ID 309 gen 102913 top level 5 path mnt/btrfs/subvolume1
+</pre>}}
+
+==== Remove ====
+
+Since subvolumes can be properly removed by using the <code>subvolume delete</code> command followed by the path to the subvolume. All available subvolume paths in a Btrfs filesystem can be seen using the list command above
+
+{{RootCmd|btrfs subvolume delete /path/to/subvolume}}
+
+As stated above, be sure to replace <code>/path/to/subvolume</code> with the actual path to the subvolume that will be removed. To delete the subvolume used in the examples above, the following command would be issued:
+
+{{RootCmd|btrfs subvolume delete /mnt/btrfs/subvolume1|output=<pre>
+Delete subvolume (no-commit): '/mnt/btrfs/subvolume1'
+</pre>}}
+
+==== Snapshots ====
+
+Snapshots are subvolumes that share data and metadata with ''other'' subvolumes. This is made possible by  Btrfs' Copy on Write (CoW) ability.<ref>https://btrfs.wiki.kernel.org/index.php/SysadminGuide#Subvolumes</ref> Snapshots can be used for several purposes, one of which is to create backups of file system structures at specific points in time.
+
+If the root filesystem is Btrfs, it is possible to create a snapshot using the <code>subvolume snapshot</code> commands:
+
+{{RootCmd
+|mkdir -p /mnt/backup/rootfs
+|btrfs subvolume snapshot / /mnt/backup/rootfs/
+}}
+
+The following small shell script can be added to a timed cron job to create a time stamped snapshot backup of a Btrfs formatted root filesystem. The timestamps can be adjusted to whatever is preferred by the user.
+
+{{FileBox|filename=btrfs_snapshot.sh|title=Btrfs rootfs snapshot cron job example|lang=bash|1=
+#!/bin/bash
+NOW=$(date +"%Y-%m-%d_%H:%M:%S")
+
+if [ ! -e /mnt/backup ]; then
+mkdir -p /mnt/backup
+fi
+
+cd /
+/sbin/btrfs subvolume snapshot / "/mnt/backup/backup_${NOW}"
+}}
+
+=== Converting from ext* based file systems ===
+
+It is possible to concert ext2, ext3, and ext4 filesystems to Btrfs using the <tt>btrfs-convert</tt> utility.
 
 ==== Non-root ====
 
@@ -103,13 +169,13 @@ Check the integrity of non-root filesystem using the appropriate <tt>fsck</tt> t
 
 {{RootCmd|fsck.ext4 -f /dev/unmounted_device}}
 
-Use the <tt>btrfs-convert</tt> utility to convert the ext4 formatted device into a btrfs formatted device:
+Use <tt>btrfs-convert</tt> to convert the ext* formatted device into a btrfs formatted device:
 
 {{RootCmd|btrfs-convert /dev/unmounted_device}}
 
 Be sure to edit {{Path|/etc/fstab}} after the device has been formatting in order to change the filesystem column from ext4 to btrfs:
 
-{{FileBox|file=/etc/fstab|title=Changing ext4 to btrfs|1=<pre>
+{{FileBox|filename=/etc/fstab|title=Changing ext4 to btrfs|1=<pre>
 /dev/device               /mnt/mountpoint          btrfs    defaults  0 0
 </pre>}}
 
@@ -119,5 +185,8 @@ Be sure to edit {{Path|/etc/fstab}} after the device has been formatting in orde
 
 == External resources ==
 
+== References ==
+
+{{reflist}}
 
 [[Category:Filesystems]]
