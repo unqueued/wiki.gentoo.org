@@ -1,14 +1,14 @@
 <languages />
 
-{{Metadata|abstract=В этом документе подробно рассказывается, как превратить старый компьютер с системой Gentoo в маршрутизатор для соединения домашней сети с интернетом.}}
+{{Metadata|abstract=This document details how to turn an old Gentoo machine into a router for connecting a home network to the Internet.}}
 
-В этом документе подробно рассказывается, как превратить старый компьютер с системой Gentoo в маршрутизатор для соединения домашней сети с интернетом.
+This document details how to turn an old Gentoo machine into a router for connecting a home network to the Internet.
 
 == Введение ==
 
-Создание собственного маршрутизатора из старых компонентов имеет массу преимуществ по сравнению с покупкой уже собранного и запечатанного на заводе: скажем, Linksys. Самое главное — управление соединением. Остальные преимущества вы сами можете придумать и воплотить в жизнь. Возможно сделать буквально все что угодно в случае собственного маршрутизатора, дело лишь в том, действительно ли вам это нужно. 
+Building a personal router out of old spare parts has many advantages over buying a pre-made router built by big companies (Linksys, D-Link, Netgear, etc). The biggest advantage by far is control over the connection. The other advantages can be left up to the user's imagination; just about anything can be done in this scenario, it is simply a matter of need. 
 
-В руководстве рассказывается, как настроить преобразование сетевых адресов (NAT) на маршрутизаторе (ядро и iptables), как добавить и настроить распространённые службы (вроде системы доменных имён (DNS) с помощью dnsmasq, DHCP через dhcpcd, ADSL через ppp). Статья завершается более сложными и интересными вещами, которые можно настроить (port forwarding, шейпинг (traffic shaping), прокси/кэширование и т.д.). 
+This guide will provide instructions on how to setup Network Address Translation (NAT) on a custom router (kernel and iptables), add and configure common services (Domain Name System (DNS) via {{Package|net-dns/dnsmasq}}, DHCP via {{Package|net-misc/dhcpcd}}, ADSL via {{Package|net-dialup/ppp}}), and conclude with some elaborate and fun things custom routers are capable of (port forwarding, traffic shaping, proxies/caching, etc...). 
 
 Before getting started, please review the list of basic requirements:
 # A computer that has at least 2 Network Interface Cards (NICs) installed.
@@ -24,11 +24,11 @@ Before getting started, please review the list of basic requirements:
 * Router is hardcoded to the standard 192.168.0.1 IP address
 * Router is running Linux 2.4 or 2.6; other versions of the kernel are not supported by this guide).
 
-{{Important/ru|Из соображений безопасности, я вам настоятельно рекомендую остановить все ненужные службы на маршрутизаторе, пока у нас не будет возможности запустить межсетевой экран и rolling. Для отображения текущих запущенных служб, просто выполните <code>rc-status</code>.}}
+{{Important|Due to security precautions, it is highly suggested to shut down any unneeded services on the router until the firewall is up. To view the currently running services run <tt>rc-status</tt>.}}
 
 == Настройка ядра (сначала познай себя) ==
 
-Ядру необходимы работающие драйверы для обоих сетевых плат. Возможно, сетевые платы уже настроены — чтобы проверить это, просто выполните <code>ifconfig</code>. Вывод может немного отличаться от нашего, ничего страшного. Самое главное, присутствует ли интерфейс в списке. 
+The kernel needs to have the drivers installed for both NICs present on the system. To see if the cards are already setup use the <tt>ifconfig</tt> command. The output may differ slightly from the following example. What matters is that the interface shows up. 
 
 {{RootCmd|ifconfig -a|output=<pre>
 eth0      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B8
@@ -49,11 +49,12 @@ eth1      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B9
 </pre>
 }}
 
-Если вы не видите обе свои платы, и не уверены, какого типа платы у вас установлены, попробуйте запустить <code>lspci | grep Ethernet</code>. Вы получите такой вывод от <code>emerge pciutils</code>. Как только вы получили эту информацию, зайдите в настройки ядра и включите поддержку нужных драйверов.
+If only one (or none) of the two cards show up try running <tt>lspci | grep Ethernet</tt>.
+{{Note|The <tt>lspci</tt> utility is part of the {{Package|sys-apps/pciutils}} package and can be installed by running <tt>emerge sys-apps/pciutils</tt>.}}
 
 Once the make(s)/model(s) of the NIC(s) has been obtained, configure the kernel with support for the correct drivers. For more information on kernel configuration see the [[Kernel/Gentoo_Kernel_Configuration_Guide|Kernel Configuration Guide]].
 
-Далее, вам необходима поддержка iptables и NAT (а также, по желанию, шейпинга (packet shaping)). Нижеследующий список разделён на всегда необходимое (*), нужное только для adsl через PPPoE (a), предлагаемое для всех (x), и только для shaping'a (s). Не имеет значения, встраиваете ли вы функцию в ядро, или компилируете как модуль, когда нужна какая-либо функция, нужные модули загружаются автоматически (тем не менее, загрузка модулей оставлена читателю как веселое упражнение). 
+The next thing needed is support for iptables and NAT (and packet shaping if desired). The following list is split up into always required (*), required only for ADSL via PPPoE (a), suggested for everyone (x), and only for shaper (s) features. It does not matter whether the features are built into the kernel or as modules as long as when the feature is needed, the correct module(s) are loaded. For more information on loading modules see the 
 
 {{KernelBox|title=Network Options|<pre>
 Networking options  --->
@@ -98,19 +99,19 @@ When using a 2.4.x kernel, the following must be enabled for DHCP:
       [a] PPP over Ethernet
 </pre>}}
 
-{{Note/ru|Кое-что может немного отличаться в настройке ядра 2.4 от 2.6, но, по-идее, вы должны разобраться <!--(-->:). Даже среди ядер версии 2.6 параметры имеют склонность менять местонахождение. Удачи!}}
+{{Note|Some things may be slightly different in a 2.4.x vs. a 2.6.x kernel, however things should not be too difficult to figure out. Even among 2.6 kernels, these options have a tendency to move around. Good luck!}}
 
 == Поближе к WAN (он же Интернет) ==
 
 === Введение ===
 
-Существует настолько много способов соединения с интернетом, что я просто опишу некоторые, в которых разбираюсь. Таким образом, мы остались с ADSL (PPPoE) и кабельными модемами (статическими/динамическими). Если там есть другие способы, не стесняйтесь написать рекламку, и сообщить мне по эл. почте. Не бойтесь пропустить любой из разделов этой главы,  который к вам не относится. Эта глава просто про подключение маршрутизатора к интернету через плату eth1. 
+There are ''many'' ways to connect to the Internet, however there are generally only a couple of ways that are used by most of the public. ADSL (PPPoE) and cable modems (static/dynamic) are the two most common methods ISP (Internet Service Providers) provide. If there are other methods available, feel free to add them to this wiki article. Skip any of the following sections in this chapter that are not applicable to the needed use case. This chapter addresses getting the router connected to the Internet via eth1. 
 
 === ADSL и PPPoE ===
 
-Всевозможное программное обеспечение PPPoE, которое обеспечивалось пакетом rp-pppoe ([http://www.roaringpenguin.com/ Roaring Penguin]) было включено в [http://samba.org/ppp/ стандартный пакет PPP]. Просто выполните <code>emerge ppp</code>, и вы будете на пути к успеху. Помните как я сказал, что вам понадобится логин и пароль? Я тогда не соврал, и теперь надеюсь, у вас они есть! Откройте файл {{Path|/etc/conf.d/net}} в вашем любимом редакторе, и настройте его. 
+All the fancy PPPoE software that used to be provided by rp-pppoe ([http://www.roaringpenguin.com/ Roaring Penguin]) has been integrated into the [http://samba.org/ppp/ standard PPP package]. Simply <tt>emerge ppp</tt> to install PPPoE. Remember how username and password information was a requirement listed above? Load up {{Path|/etc/conf.d/net}} in a favorite text editor and configure it accordingly. 
 
-Замените «vla9h924» в следующем примере своим именем пользователя, и «boogie» - паролем.
+Replace <code><username></code> and <code><user_password></code> in the following example with the required username with the password:
 
 {{FileBox|filename=/etc/conf.d/net|title=Use ADSL over eth1 for ppp0|lang=bash|1=
 config_ppp0="ppp"
@@ -128,19 +129,19 @@ password_ppp0="<user_password>"
 |rc-update add net.ppp0 default
 |/etc/init.d/net.ppp0 start}}
 
-{{Warning/ru|Когда активируется интерфейс DSL, он создаст ppp0. Несмотря на то, что ваша сетевая плата называется eth1, IP-адрес на самом деле привязан к ppp0. Начиная отсюда, когда вы видите в примерах «eth1», подставьте вместо этого «ppp0».}}
+{{Warning|When the DSL interface comes up, it will create a "ppp0" entry to the output of <tt>ifconfig</tt> command. Although the NIC is called eth1, the IP address is actually bound to ppp0. From now on substitute <code>eth1</code> with <code>ppp0</code>}}
 
-{{Warning/ru|Убедитесь, что вы настроили доступ к файлу {{Path|/etc/conf.d/net}} так, что только администратор может производить чтение/запись с того момента, как там содержится ваш логин и пароль.}}
+{{Warning|Be sure to change the permissions of the {{Path|/etc/conf.d/net}} file so that only users with ''root'' privileges can read/write to it. This important because the a username and password have been entered to the file in plain text format.}}
 
-{{Warning/ru|Если вы переходите с пакета <code>rp-pppoe</code>, или если вам повезло со странными обрывами соединения, смотрите раздел MTU во главе Устранение неполадок.}}
+{{Warning|For users transitioning from the {{Package|net-dialup/rp-pppoe}} package, or for users who experience weird connection resets, see the MTU section in the Troubleshooting chapter below.}}
 
 === Cable and/or dynamic/static IP ===
 
-Если у вас статический IP, потребуется немного больше информации, чем если бы у вас был динамический IP. Вам потребуются IP, шлюз (gateway) и DNS-сервера. 
+If a static IP is necessary then additional configuration details will be required. Static users IP users will need to add the IP address, gateway address, and DNS server addresses. 
 
 Пользователи с динамическим IP:
 
-{{Emerge|dhcpcd}}
+{{Emerge|net-misc/dhcpcd}}
 
 {{FileBox|filename=/etc/conf.d/net|title=Dynamic IP addresses|lang=bash|1=
 config_eth1="dhcp"
@@ -163,7 +164,7 @@ nameserver 123.123.123.123
 |rc-update add net.eth1 default
 |/etc/init.d/net.eth1 start}}
 
-Вы все настроили для старта. 
+After working through the changes above the system should be ready to continue. 
 
 == Настройка LAN (приведем своих друзей) ==
 
@@ -182,15 +183,15 @@ config_eth0="192.168.0.1/24 brd 192.168.0.255"
 
 == Сервисы LAN (мы же хорошие ребята) ==
 
-=== Сервер DHCP ===
+=== DHCP server ===
 
-Я уверен, было бы отлично, если любой желающий в доме просто бы мог подключить свои компьютеры к сети, после чего всё сразу бы заработало. Без необходимости помнить сбивающие с толку данные, или заставлять пялиться на запутанные окна настройки. Жизнь была бы прекрасна, не так ли? Познакомьтесь с протоколом динамической настройки узла (DHCP), и с тем, почему о нём действительно стоит позаботиться.
+It would be nice if everyone in the house could plug their computers into the network and things would just work. No need to remember mind-numbing details or make them stare at confusing configuration screens! Life would be grand, eh? Introducing the Dynamic Host Configuration Protocol (DHCP) and why everyone should care.
 
-DHCP — вещь, соответствующая своему названию. Это протокол, который позволяет вам настраивать другие узлы автоматически, прямо во время работы. Вы запускаете DHCP-сервер на маршрутизаторе, снабжаете его данными о своей сети (правильные IP, сервера DNS, шлюзы и т. п.), и как только другие компьютеры включаются, они запускают DHCP-клиент, чтобы автоматически настроиться. Ни забот, ни хлопот! За дополнительными сведениями о DHCP всегда можно обратиться к [[Wikipedia:DHCP|Википедии]]. 
+DHCP is exactly what its name implies: a protocol that allows dynamic configuration of hosts automatically. Run a DHCP server on the router, give it all the information about the network (valid IPs, DNS servers, gateways, etc...), then when the other hosts start up, they can run a DHCP ''client'' to automatically configure themselves. No fuss, no muss! For more information about DHCP, visit [[Wikipedia:DHCP|Wikipedia's DHCP article]]. 
 
 This HowTo article will use the {{Package|net-dns/dnsmasq}} package which will provide both DHCP and DNS services. For now lets focus on the DHCP aspect. Note: to run a different DHCP server, another example can be found in the Fun Things chapter below. Also, to tinker with the DHCP server settings read the comments in the {{Path|/etc/dnsmasq.conf}} file. 
 
-{{Emerge|dnsmasq}}
+{{Emerge|net-dns/dnsmasq}}
 
 {{FileBox|filename=/etc/dnsmasq.conf|1=
 dhcp-range=192.168.0.100,192.168.0.250,72h
@@ -204,21 +205,21 @@ Setting the interface is very important. Using default dnsmasq settings will ope
 
 Now the little router is a bona-fide DHCP server. Plug in those computers and watch them work! With Windows systems navigate to the {{Path|TCP/IP Properties}} and select the {{Path|Obtain an IP address automatically}} and {{Path|Obtain DNS server address automatically}} options. Sometimes the changes are not instantaneous, so opening a command prompt and running <tt>ipconfig /release</tt> and <tt>ipconfig /renew</tt> might be necessary. Enough about Windows, time to get back to everyone's favorite penguin!
 
-=== Сервер DNS ===
+=== DNS server ===
 
-Когда человек хочет посетить адрес в интернете, он помнит его название, но не строку страшных цифр. Действительно, что легче запомнить, vk.com, или 87.240.131.99? Именно в этом замешан DNS. Сервера DNS работают по всему интернету, и когда кто-то хочет посетить «vk.com», эти сервера преобразовывают «vk.com» (что нам понятно) в «87.240.131.99» (что понятно нашим компьютерам). За дополнительными сведенями о DNS вы всегда можете обратиться к [[Wikipedia:DNS|Википедии]]. 
+When people want to visit a place on the Internet, they remember names, not a string of funky numbers. After all, what is easier to remember, eBay.com or 66.135.192.87? This is where the DNS steps in. DNS servers run all over the Internet, and whenever someone wants to visit eBay.com, these servers turn the text "eBay.com" (what we understand) into IP address "66.135.192.87" (what computers understand). For more information about DNS visit [[Wikipedia:DNS|Wikipedia]]. 
 
-Как только мы начали использовать dnsmasq для нашего DHCP-сервера, к іому же пакет включает и DNS-сервер, вам просто больше нечего делать! Ваш маленький маршрутизатор уже обеспечивает DNS для своих DHCP-клиентов. Держу пари, вам бы хотелось, чтобы <i>всё</i> было так просто. 
+Since dnsmasq is being used for the DHCP server, and it includes a DNS server, there is nothing left to do here! The little router is already providing DNS to its DHCP clients. Shouldn't everything be this easy? ;) 
 
-Вы всегда можете выбрать другие DNS-сервера, если с ними вам удобнее; но причина, по которой dnsmasq великолепен — что он разработан чтобы делать именно то, что мы хотим, не более. Это маленький кэширующий/перенаправляющий DNS-сервер для локальных сетей. Здесь мы не пытаемся поднять DNS на собственном домене, а просто предоставляем простые услуги DNS для каждого в нашей локальной сети. 
+It is possible to choose other DNS servers if they are more comfortable to setup. dnsmasq is used in this article because it was designed to do exactly what this guide required. It is a little DNS caching/forwarding server for local networks. The scope of this howto is not to provide DNS for a domain; but it does offer simple DNS services to every user of a home-based LAN. 
 
 === NAT (или IP-маскарадинг) ===
 
-На данном этапе люди в сети могут общаться друг с другом, и могут просматривать имена узлов через DNS, но до сих пор не в состоянии соединиться с интернетом. Пока вы думаете, что все круто (желаю побольше пропускной способности!), уверен, они не очень счастливы. 
+At this point, people on the network can talk to each other and look up hostnames via DNS, but they still ca not actually connect to the Internet. While the network administrator (the person reading this) may think it is great (more bandwidth for the Admin!), the other users are probably not very happen without an Internet connection. 
 
-Здесь вступает в игру преобразователь сетевых адресов (NAT). Это способ соединения нескольких компьютеров в частной сети к интернету, при малом количестве доступных публичных IP-адресов. Как правило, провайдер выделяет вам 1 IP, но вам нужно подключить целое здание к интернету. NAT — та магия, делающая это возможным. За дополнительной информацией о NAT всегда можно обратиться к [[Wikipedia:NAT|Википедии]]. 
+This is where Network Address Translation (NAT) steps in. NAT is a way of connecting multiple computers in a private LAN to the Internet when a small number of public IP addresses are available. Typically a home Internet user is provided with 1 public IP address by an ISP for the whole house to connect to the Internet. NAT is the magic that makes this possible. For more information about NAT, please visit [[Wikipedia:NAT|Wikipedia]]. 
 
-{{Note/ru|Перед тем как начать, удостоверьтесь, что установили iptables в вашей системе. Не смотря на то, что обычно этот пакет предустановлен, у вас его может не быть. Если у вас нет, просто выполните <code>emerge iptables</code>.}}
+{{Note|Before getting started, make sure IPtables has been installed on the system. If it is not installed, install it: <tt>emerge iptables</tt>}}
 
 After IPtables is installed, flush the current rules:
 
@@ -231,19 +232,19 @@ Setup default policies to handle unmatched traffic:
 |iptables -P OUTPUT ACCEPT
 |iptables -P FORWARD DROP}}
 
-Скопируйте эти примеры...
+Copy and paste the following:
 
 {{RootCmd|export LAN{{=}}eth0
 |export WAN{{=}}eth1}}
 
-Теперь мы заблокируем наши службы, чтобы они были доступны только из локальной сети.
+The next step locks the services so they only work from the LAN:
 
 {{RootCmd|iptables -I INPUT 1 -i ${LAN} -j ACCEPT
 |iptables -I INPUT 1 -i lo -j ACCEPT
 |iptables -A INPUT -p UDP --dport bootps ! -i ${LAN} -j REJECT
 |iptables -A INPUT -p UDP --dport domain ! -i ${LAN} -j REJECT}}
 
-(Необязательно) Разрешите доступ к нашему серверу ssh из WAN:
+(Optional) Allow access to the ssh server from the WAN:
 
 {{RootCmd|iptables -A INPUT -p TCP --dport ssh -i ${WAN} -j ACCEPT}}
 
@@ -252,20 +253,20 @@ Drop TCP / UDP packets to privileged ports:
 {{RootCmd|iptables -A INPUT -p TCP ! -i ${LAN} -d 0/0 --dport 0:1023 -j DROP
 |iptables -A INPUT -p UDP ! -i ${LAN} -d 0/0 --dport 0:1023 -j DROP}}
 
-Наконец, мы добавим правила для NAT:
+Finally add the rules for NAT:
 
 {{RootCmd|iptables -I FORWARD -i ${LAN} -d 192.168.0.0/255.255.0.0 -j DROP
 |iptables -A FORWARD -i ${LAN} -s 192.168.0.0/255.255.0.0 -j ACCEPT
 |iptables -A FORWARD -i ${WAN} -d 192.168.0.0/255.255.0.0 -j ACCEPT
 |iptables -t nat -A POSTROUTING -o ${WAN} -j MASQUERADE}}
 
-Уведомим ядро, что ip-форвардинг настроен:
+Inform the kernel that IP forwarding is OK:
 
 {{RootCmd|echo 1 > /proc/sys/net/ipv4/ip_forward}}
 
 {{RootCmd|for f in /proc/sys/net/ipv4/conf/*/rp_filter ; do echo 1 > $f ; done}}
 
-Теперь после загрузки нам не нужно вручную задействовать правила.
+Instruct the IPtables daemon to save the changes to the rules, then add IPtables to the default runlevel:
 
 {{RootCmd|/etc/init.d/iptables save
 |rc-update add iptables default}}
@@ -275,23 +276,23 @@ net.ipv4.ip_forward = 1
 net.ipv4.conf.default.rp_filter = 1
 }}
 
-Если у вас динамический IP-адрес, возможно вы захотите активировать следующее:
+For dynamic Internet the following setting should be enabled:
 
 {{FileBox|filename=/etc/sysctl.conf|lang=ini|1=
 net.ipv4.ip_dynaddr = 1
 }}
 
-Как только вы все это написали, остальные пользователи сети должны получить возможность использовать интернет так, как будто сами подключились напрямую. 
+Once the above text has been entered the rest of the network users should now be able to use the Internet as if they were directly connected themselves. 
 
 The <code>ip_dynaddr</code> option is useful for dial on demand systems or when the ISP gives out dynamic addresses. This works around the problem where a connection is attempted before the Internet interface is fully setup. This provides a smoother network experience for users behind the router. 
 
-== Прикольные вещи (для дождливого дня) ==
+== Fun things (for a rainy day) ==
 
 === Введение ===
 
-Верите ли, или нет, но вы закончили <!--(-->:). В этом разделе я опишу некоторые часто используемые возможности, которые могут вас заинтересовать. Чтение всего, что содержится в разделе, необязательно.
+Believe it or not, it is done! From here on out, some other common topics that may interest will be covered. Everything in the following sections are completely optional.
 
-=== Переадресация портов (Port Forwarding) ===
+=== Port forwarding ===
 
 Sometimes users need to be able to host services on a computer behind the router, or need to be able to connect remotely to a computer behind the router. Perhaps a FTP, HTTP, SSH, or VNC server is needed on one or more machines behind the router and outsiders need to connect to them all. The only caveat to Port Forwarding is only one service/machine combo can be established per port. For example, there is no practical way to setup three FTP servers behind the router and connect to them all through port 21; only one system can be on port 21 while the others would need to be on other ports (port 123 and port 567 would be fine options). 
 
@@ -362,11 +363,11 @@ Internet Relay Chat utilizes the ident service pretty heavily. Now that the IRC 
 
 There are a few other ident servers in the Portage tree. Other viable options are {{Package|net-misc/oidentd}} and {{Package|net-misc/fakeidentd}}. 
 
-=== Сервер времени (Time Server) ===
+=== Time server ===
 
-Забота о точности установленного времени необходима для поддержки работающей системы. Самый распространенный способ достигнуть этого — использовать Network Time Protocol (NTP), и пакет ntp (который включает в себя как серверную, так и клиентскую реализации). 
+Keeping the system time correct is essential to maintaining a healthy system. One of the most common ways of accomplishing this is with the Network Time Protocol (NTP) and the {{Package|net-misc/ntp}} package (which provides implementations for both server and client). 
 
-У многих запущен ntp-клиент на компьютере. Очевидно, что чем больше пользователей, тем большую нагрузку должны выдерживать ntp-сервера. Однако в случаях, подобных домашней сети, мы можем снизить нагрузку на публичные сервера, продолжая при этом обеспечивать все компьютеры точным временем. Тем самым мы получаем еще один бонус: наши пользователи будут быстрее обновлять время через локальную сеть! Все что нужно — запустить ntp-сервер на нашем маршрутизаторе, который синхронизирует сам себя с публичными серверами в интернете, при этом передавая время остальным компьютерам в сети. Начните с команды <code>emerge ntp</code> на маршрутизаторе, и отредактируйте файл {{Path|/etc/conf.d/ntp-client}} по своему вкусу.
+Many users run ntp clients on their computers. Obviously, the more clients in the world, the larger the load ntp servers need to shoulder. In environments like home networks an NTP server can be setup locally to help keep the load down on public servers while still providing the proper time to local systems. As an added bonus, private updates will be a lot faster for the local clients! The setup is simple: run a NTP server on the router that synchronizes itself with the public Internet servers while, at the same time, providing the time to the rest of the computers in the network. To get started, simply <tt>emerge ntp</tt> on the router and edit {{Path|/etc/conf.d/ntp-client}} as desired.
 
 {{RootCmd|rc-update add ntp-client default}}
 
@@ -375,22 +376,22 @@ restrict default ignore
 restrict 192.168.0.0 mask 255.255.255.0 notrust nomodify notrap
 }}
 
-Это позволит использовать ваш ntp-сервер лишь тем ntp-клиентам, IP-адрес которых находится в пределах 192.168.0.xxx.
+These will allow only NTP clients with an IP address in the 192.168.0.xxx range to use the NTP server.
 
 {{RootCmd|rc-update add ntpd default
 |/etc/init.d/ntp-client start
 |/etc/init.d/ntpd start}}
 
-{{Note/ru|Вам следует убедиться, что вы разрешили входящие и исходящие соединения для порта ntp (123/udp) когда настраивали сервер. Для ntp-клиента нужно разрешить только исходящие соединения для порта 123 (UDP).}}
+{{Note|Make sure to allow inbound and outbound communication on the NTP port (123/udp) when setting up the server. The client just needs outbound access on port 123 over UDP.}}
 
-Теперь запустите <code>emerge ntp</code> и на ваших клиентских компьютерах. На них мы просто запустим ntp-клиент, поэтому настройка будет намного проще. 
+Now, on the clients, run <tt>emerge ntp</tt>. By running the NTP client setup is a lot simpler. 
 
-В файле {{Path|/etc/conf.d/ntp-client}} измените значение переменной NTPCLIENT_OPTS с 'pool.ntp.org' на '192.168.0.1'.
+In {{Path|/etc/conf.d/ntp-client}}, change the <code>pool.ntp.org</code> server in the <code>NTPCLIENT_OPTS</code> variable to <code>192.168.0.1</code>
 
 {{RootCmd|rc-update add ntp-client default
 |/etc/init.d/ntp-client start}}
 
-=== Сервер Rsync ===
+=== Rsync server ===
 
 For those who run multiple Gentoo boxes on the same LAN, it is wise to prevent every machine running <tt>emerge --sync</tt> with remote servers. By setting up a ''local'' rsync, both personal bandwidth and the Gentoo rsync servers' bandwidth is saved. The process is relatively simple.
 
@@ -421,13 +422,13 @@ Only thing left is to set tell the clients to sync against the router.
 SYNC="rsync://192.168.0.1/gentoo-portage"
 }}
 
-=== Почтовый сервер ===
+=== Mail server ===
 
 Sometimes it is nice to run a Simple Mail Transfer Protocol (SMTP) server on the router. Each user may have their own reason for wanting to do so, however one advantage to running SMTP on the router is the users see mail as being sent instantly and the work of retrying/routing is left up to the mail server. Some ISPs do not allow for mail relaying for accounts that are not part of their network (like Verizon). Also, throttling the delivery of mail may be needed so that large attachments will not seriously lag the Internet connection. 
 
 {{Emerge|netqmail}}
 
-Убедитесь, что вывод «hostname» правильный.
+Make sure the output of `hostname` is correct:
 
 {{RootCmd|emerge --config netqmail}}
 
@@ -448,9 +449,9 @@ Edit {{Path|tcp.qmail-smtp}} and add an entry like so to the allow section:
 
 When e-mail is setup on the hosts in the network, tell them the SMTP server is 192.168.0.1. Visit the [http://netqmail.org/ netqmail homepage] for more documentation on netqmail usage.
 
-=== Улучшенный сервер DHCP ===
+=== Full DHCP server ===
 
-Ранее мы использовали dnsmasq для обеспечения работы клиентских служб DHCP. Для большинства пользователей с небольшой сетью LAN это идеально подходит. Но вам могут понадобиться дополнительные возможности - поэтому мы превратим наш сервер в полнофункциональный, как, например, у ребят из [http://www.isc.org/products/DHCP ISC].
+Earlier dnsmasq was used to provide DHCP service to all DHCP clients. For most people with a simple small LAN, this is perfect, however there may needs something with more features. Thus a full-featured DHCP server is provided by the [http://www.isc.org/products/DHCP ISC] folks for users who crave the maximum.
 
 {{Emerge|dhcp}}
 
@@ -466,18 +467,18 @@ subnet 192.168.0.0 netmask 255.255.255.0 {
     option routers 192.168.0.1;
     option domain-name-servers 192.168.0.1;
 }
-</pre>}}
+}}
 
 В {{Path|/etc/conf.d/dhcpd}} установите значение <code>IFACE</code> равным "eth0".
 
 {{RootCmd|rc-update add dhcpd default
 |/etc/init.d/dhcpd start}}
 
-Это минимальная настройка, необходимая для замены функциональности DHCP, ранее предоставляемой dnsmasq. Кстати, не забыли ли вы отключить функции DHCP в dnsmasq? В противном случае сделайте это сейчас (просто закомментируйте настройку <code>dhcp-range</code> в {{Path|/etc/dnsmasq.conf}} и перезапустите службу).
+This is the minimal setup required to replace the dnsmasq DHCP functionality used earlier. The DHCP features in dnsmasq should be disabled? If not, comment out the <code>dhcp-range</code> setting in {{Path|/etc/dnsmasq.conf}} and restart the service.
 
-=== Присоединение другой LAN (или двух, или трёх, или...) ===
+=== Connect another LAN (or two or three)===
 
-Иногда необходимо соединить маршрутизатор с другой LAN. Может, вы хотите на время подключить нескольких друзей, или вы помешаны на аккуратности, и хотите отделить разные группы компьютеров, или вам просто очень скучно. Какая бы ни была причина, добавить в зону доступа маршрутизатора другие локальные сети довольно просто. В следующих примерах я буду считать, что эта новая сеть подключена к третьей сетевой карте <code>eth2</code>. 
+Sometimes the router must be connected to another LAN. This can be done to hook up a group of friends temporarily or to section off different groups of computers. Whatever the reason, extending the router to other LAN networks should is straightforward. In the following examples, This article presumes that the ''new'' network is connected via a third ethernet card, namely <code>eth2</code>. 
 
 First configure the interface. Take the instructions in [[Hug_the_LAN_.28bring_along_some_friends.29|this section]] and replace <code>eth0</code> with <code>eth2</code> and <code>192.168.0</code> with <code>192.168.1</code>.
 
@@ -487,7 +488,7 @@ Finally, see the rules in [[#LAN_Services_.28because_we.27re_nice_people.29|this
 
 == Устранение неполадок ==
 
-=== Полезные инструменты ===
+=== Useful tools ===
 
 When having trouble getting computers to communicate try out the following tools (they can all be found in the net-analyzer Portage category): 
 
@@ -510,9 +511,9 @@ When having trouble getting computers to communicate try out the following tools
 |-
 |}
 
-=== DHCP не запускается ===
+=== DHCP fails to start ===
 
-При первом запуске сценарий init.d для dhcp может завершиться с ошибкой, не предоставив никакой полезной информации. 
+When starting the dhcp init.d script for the first time, it may fail to load but neglect to provide any useful infomation. 
 
 {{RootCmd|/etc/init.d/dhcp start|output=<pre>
  * Setting ownership on dhcp.leases ...          [ ok ]
@@ -520,11 +521,11 @@ When having trouble getting computers to communicate try out the following tools
 </pre>
 }}
 
-Фокус в том, чтобы знать, куда dhcpd направляет вывод. Просто перейдите в {{Path|/var/log}} и прочитайте файлы журналов. Если какой-то файл журнала зависит от пакета, который используется вами в качестве syslog, попробуйте запустить <code>grep -Rl dhcpd /var/log</code>, чтобы сузить круг поиска. Скорее всего, вы опечатались в конфигурационном файле. Вы также можете запустить <code>dhcpd -d -f</code> (сокращенно debug / foreground) и найти ошибку, основываясь на выводе программы. 
+The trick is used to know where dhcpd is sending its output. Browse to {{Path|/var/log}} and read the log files. Since the exact log file depends on the package using a syslog, try running <tt>grep -Rl dhcpd /var/log</tt> to narrow down the possibilities. Chances are a typo was made in the configuration file. Another command to try running: <tt>dhcpd -d -f</tt> (short for debug / foreground). This aids in debugging the errors based upon the output. 
 
-=== Неправильное значение MTU ===
+=== Incorrect MTU value ===
 
-Если у вас случаются странные ошибки (вроде невозможности доступа к некоторым веб-страницам, когда остальные прекрасно загружаются), возможно, проблема в Path MTU Discovery. Быстрий способ проверить, так ли это, заключается в этих коммандах iptables: 
+If odd errors are experienced (such as not being able to access some webpages while others load fine), it might be Path MTU Discovery trouble. The quick way to test for this is to run the following iptables command: 
 
 {{RootCmd|iptables -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu}}
 
@@ -534,10 +535,10 @@ If the above command does not work, consider putting the rule into the mangle ta
 
 === Невозможно соединить два компьютера напрямую ===
 
-Если (по какой-либо причине) вам нужно напрямую соединить два компьютера, без использования концентратора (хаба) или коммутатора, скорее всего не получится сделать это обычным Ethernet-кабелем, если только у вас нет сетевой платы с поддержкой Auto MDI/MDI-X (т. н. автоопределение). Вам также понадобится перекрёстный (crossover) кабель. На странице [[Wikipedia:Ethernet_crossover_cable|Wikipedia]] содержится подробная низкоуровневая информация.
+If (for whatever reason) connecting two machines directly together without a hub or switch is required, a regular ethernet cable will likely not work, unless an Auto MDI/MDI-X (also known as "autosensing") capable network adapter is available. A different cable called a crossover cable will be needed for direct NIC to NIC connections. This [[Wikipedia:Ethernet_crossover_cable|Wikipedia]] page explains the low level details.
 
-== Завершающие заметки ==
+== Final notes ==
 
-У меня нет завершающих заметок. Если у вас появятся проблемы со статьей, напишите пользователю {{Mail|vapier}} (обратите внимание, что он знает только английский язык - прим. перев.), либо оформите баг на [https://bugs.gentoo.org/ багтрекере Gentoo] (опять же, на английском языке, прим. перев.). Если у вас есть некоторая информация, которая может улучшить данную статью, сразу же присылайте ее мне для включения.
+There are no other final notes. If any troubles with this guide are experienced either update this article with the correct information or leave a brief message on this article's talk page with a summary of what is broken. Eventually someone should be able to correct any issue(s). It is also possible to file a bug on [https://bugs.gentoo.org/ Gentoo's Bugtracking Website]. If there are any other interesting bits that would enhance this guide, by all means include them! The worst that could happen is they could be removed.
 
 [[Category:Server and Security]] {{Migrated|originalauthors={{Mail|vapier}}}}
