@@ -78,17 +78,13 @@ systemd comes with the <tt>timedatectl</tt> command to manage the system clock t
 
 == Hardware clock ==
 
-Typically the hardware clock is used to setup the system clock on boot. This can be done by the kernel itself or by a boot service (init script). Also on shutdown the kernel or a service can write the software clock to the hardware clock. This aids the system in having the correct time on boot.
-
-=== Kernel ===
-
-The following kernel options must be activated:
+To have a hardware clock, the following kernel options must be activated:
 
 {{KernelBox|1=
 Device Drivers  --->
         [*] Real Time Clock  --->
-        [*]   Set system time from RTC on startup and resume
-        [*]   Set the RTC time based on NTP synchronization
+        [ ]   Set system time from RTC on startup and resume
+        [ ]   Set the RTC time based on NTP synchronization
 
         [*]   /sys/class/rtc/rtcN (sysfs)
         [*]   /proc/driver/rtc (procfs for rtc0)
@@ -105,17 +101,50 @@ To set the hardware clock to the current system clock:
 
 {{RootCmd|hwclock --systohc}}
 
-=== OpenRC ===
+=== Syncing Hardware clock and System time ===
 
-The service {{Path|hwclock}} setup the system clock on boot and sync the hardware clock on shutdown. The service is enabled by default and should be disabled in favour of the above mentioned kernel settings.
+Typically the hardware clock is used to setup the system clock on boot. This can be done by the kernel itself or by a boot service (init script). Also on shutdown the kernel or a service can write the software clock to the hardware clock. This aids the system in having the correct time on boot.
+
+==== In-kernel method ====
+
+On a sufficiently modern kernel (3.9 or newer), Linux can be configured to handle setting the system time automatically. To do so, also the '''Set system time ...''' and '''Set the RTC time ...''' drivers need to be activated:
+
+{{KernelBox|1=
+Device Drivers  --->
+        [*] Real Time Clock  --->
+        [*]   Set system time from RTC on startup and resume
+        [*]   Set the RTC time based on NTP synchronization
+
+        [*]   /sys/class/rtc/rtcN (sysfs)
+        [*]   /proc/driver/rtc (procfs for rtc0)
+        [*]   /dev/rtcN (character devices)
+
+        <*>   PC-style 'CMOS'
+}}
+
+==== Init script method ====
+
+Also, the service {{Path|hwclock}} can setup the system clock on boot and sync system time to the hardware clock on shutdown. The service is enabled by default and should be disabled in favour of the above mentioned in-kernel method. The {{Path|hwclock}} init script should not be run when using the kernel's real time clock. 
 
 {{RootCmd|rc-update del hwclock}}
 
-By default the service is configured for UTC time standard. To change to localtime edit the {{Path|/etc/conf.d/hwclock}} file:
+If however there is a need for using the init script method, set both clock_hctosys and clock_systohc to YES in {{Path|/etc/conf.d/hwclock}}. By default the service is configured for UTC time standard. To change to localtime add clock="local".
 
-{{FileBox|filename=/etc/conf.d/hwclock|1=clock="local"}}
+{{FileBox|filename=/etc/conf.d/hwclock|title=Adding hardware clock sync|lang=bash|1=
+clock_hctosys="YES" 
+clock_systohc="YES"
+# clock="local"
+}}
 
-=== systemd ===
+Restart the {{Path|hwclock}} service and have the hardware clock init script run on system boot:
+
+{{RootCmd
+|rc-service hwclock restart
+|rc-update add hwclock boot
+}}
+
+
+==== systemd ====
 
 systemd can be used to set the system clock on boot. Use <tt>timedatectl</tt> to manage the hardware clock:
 
