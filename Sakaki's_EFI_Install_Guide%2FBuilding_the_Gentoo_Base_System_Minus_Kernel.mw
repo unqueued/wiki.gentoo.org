@@ -341,11 +341,13 @@ then copy the line just output by <tt>cpuinfo2cpuflags-x86</tt> in place of the 
 
 We have ([[../Installing_the_Gentoo_Stage_3_Files#parallel_emerge|intentionally]]) set our Portage system up to maximize parallelism when emerging. However, a side-effect of this is that, because multi-job support is active, <tt>emerge</tt> does not show any console build output, just a summary progress display.
 
-This is easily fixed, using a simple script, which will show us the latest lines from both the Portage background tarball download log ({{Path|/var/log/emerge-fetch.log}}) ''and'' from the most recently updated build log (Portage builds its projects in {{Path|/var/tmp/portage}} by default). I have provided this and some other necessary utilities for this tutorial in an ''overlay'', which makes them straightforward to install and keep up to date within Portage (for details of overlays, see the background reading section [[../Installing_the_Gentoo_Stage_3_Files#overlays|earlier]]).
+This is easily fixed, using a simple script, which will show us the latest lines from both the Portage background tarball download log ({{Path|/var/log/emerge-fetch.log}}) ''and'' from the most recently updated build log (Portage builds its projects in {{Path|/var/tmp/portage}} by default). I have provided this and some other necessary utilities for this tutorial in a GitHub ''overlay'', which makes them straightforward to install and keep up to date within Portage (for details of overlays, see the background reading section [[../Installing_the_Gentoo_Stage_3_Files#overlays|earlier]]).
 
-To begin with, we'll first install the [[Layman|<tt>layman</tt>]] tool, as this greatly simplifies overlay management. Issue:
+{{Note|As of version 2.16 of {{Package|sys-apps/portage}}, a new [[Project:Portage/Sync{{!}}plug-in sync system]] is available, which simplifies the use of overlays, and obviates the need for tools like [[Layman|<tt>layman</tt>]] (which was recommended in previous versions of this tutorial).}}
+
+To begin with, we'll first install the [[:Wikipedia:Git_(software)|<tt>git</tt>]] source code management software, as we'll need this to be able to synchronize the overlay from [https://github.com/sakaki-/sakaki-tools GitHub]. Issue:
 {{RootCmd
-|emerge --ask --verbose app-portage/layman
+|emerge --ask --verbose dev-vcs/git
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 |output=<pre>
 ... additional output suppressed ...
@@ -353,115 +355,84 @@ Would you like to merge these packages? [Yes/No] <press y, then Enter>
 ... additional output suppressed ...
 </pre>
 }}
-{{Note|This may take some time to complete, as it'll bring in other packages transitively required by {{Package|app-portage/layman}} itself.}}
+{{Note|This may take some time to complete, as it'll bring in other packages transitively required by {{Package|dev-vcs/git}} itself.}}
 
-Next, we need to ensure that Portage will check the overlay locations managed by <tt>layman</tt> (in effect setting the <tt>PORTDIR_OVERLAY</tt> variable). Issue:
+Next, we need to tell Portage about our overlay, by adding an entry into the {{Path|/etc/portage/repos.conf}} directory. Issue:
 {{RootCmd
-|echo 'source "/var/lib/layman/make.conf"' >> /etc/portage/make.conf
+|nano -w /etc/portage/repos.conf/sakaki-tools.conf
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+}}
+and add the following content to that file:
+{{FileBox|filename=/etc/portage/repos.conf/sakaki-tools.conf|title=Add the following text to specify the sakaki-tools overlay|1=
+[sakaki-tools]
+
+# Various utility ebuilds for Gentoo on EFI
+# Maintainer: sakaki (sakaki@deciban.com)
+
+location = /usr/local/portage/sakaki-tools
+sync-type = git
+sync-uri = https://github.com/sakaki-/sakaki-tools.git
+priority = 50
+auto-sync = yes}}
+Save, and exit <tt>nano</tt>.
+
+The above simply specifies that:
+* The repository is called <tt>sakaki-tools</tt>;
+* It should be cloned to the {{Path|/usr/local/portage/sakaki-tools}} directory;
+* It is a git archive, which may be synchronized via the URI https://github.com/sakaki-/sakaki-tools.git;
+* It has 'priority' 50 (ebuilds with higher priority override those of lower priority, in the event of a name clash; the default <tt>gentoo</tt> tree has priority -1000); and
+* It will be automatically synced during during <tt>emerge --sync</tt> or <tt>emaint sync --auto</tt> runs. 
+
+Next, we'll pull in the overlay itself. Issue:
+{{RootCmd
+|emaint sync --repo sakaki-tools
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
 
-{{Note|By default, a <tt>layman</tt>-managed overlay called (for example) "foobar" will be stored at {{Path|/var/lib/layman/foobar}}.}}
+{{Note|After adding an overlay, you may find (as in this case) you are prompted that new news items (supplied by that overlay) are available. It's generally a good idea to take a look at these before proceeding; for brief instructions, please see [[#reading_news|these earlier notes]].}}
 
-Next, we'll download and display a list of the overlays that <tt>layman</tt> currently knows about. Issue:
-{{RootCmd
-|layman --list
-|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
-}}
-
-{{Note|If you experience a problem with this command (particularly if it fails with the error [http://stackoverflow.com/questions/14102416/python-requests-requests-exceptions-sslerror-errno-8-ssl-c504-eof-occurred "EOF occurred in violation of protocol"]), it may be because your ISP implements DNS-based filtering (as does BT in the UK, for example). If so, one workaround is to ensure you have <tt><nowiki>http://api.gentoo.org/overlays/repositories.xml</nowiki></tt> set under the 'overlays:' section in the file <tt>/etc/layman/layman.cfg</tt> (as opposed to <tt><nowiki>http://www.gentoo.org/proj/en/overlays/repositories.xml</nowiki></tt>, which you can comment out).<br>
-There is no need to take any action if the 'vanilla' invocation works successfully for you, of course.}} 
-
-However, as the overlay we need (<tt>sakaki-tools</tt>) is not in this list, we need to add it. Information about additional remote overlays [[Layman#Adding_custom_overlays|may be specified]] via [[:Wikipedia:XML|xml]] files stored in {{Path|/etc/layman/overlays}}, so issue:
-{{RootCmd
-|nano -w /etc/layman/overlays/sakaki-tools.xml
-|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
-}}
-Then add the following text into the (new) file (the contents should be self-explanatory):
-{{FileBox|filename=/etc/layman/overlays/sakaki-tools.xml|title=Add the following text to specify the sakaki-tools overlay|lang=xml|<nowiki>
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE repositories SYSTEM "/dtd/repositories.dtd">
-<repositories xmlns="" version="1.0">
-	<repo priority="50" quality="experimental" status="unofficial">
-		<name>sakaki-tools</name>
-		<description>Various utility ebuilds for Gentoo on EFI.</description>
-		<homepage>https://github.com/sakaki-/sakaki-tools</homepage>
-		<owner>
-			<email>sakaki@deciban.com</email>
-			<name>sakaki</name>
-		</owner>
-		<source type="git">https://github.com/sakaki-/sakaki-tools.git</source>
-	</repo>
-</repositories></nowiki>
-}}
-Save and exit the <tt>nano</tt> editor.
-
-Now we must synchronize and display the overlay list again, and verify that <tt>sakaki-tools</tt> is now visible (this is important to do, or the subsequent <tt>layman --add</tt> command may fail). Issue once more:
-{{RootCmd
-|layman --list
-|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
-}}
-
-Now, we need to ask <tt>layman</tt> to ''activate'' the overlay, which will download its <tt>ebuild</tt> repository (no software will be installed from the new overlay yet, however). Issue:
-
-{{RootCmd
-|layman --add{{=}}"sakaki-tools"
-|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
-|output=<pre>
-... additional output suppressed ...
- * Overlay "sakaki-tools" is not an official. Continue install? [y/n]: <press y, then Enter>
-... additional output suppressed ...
-</pre>
-}}
-
-Whenever using a third-party overlay such as this one, remember that it will (in general) take precedence over your 'real' Portage tree (the one it 'overlays'). For this reason, it is prudent in such cases to:
+Whenever using a third-party overlay such as this one, remember that it will (in general, due to the 'priority' setting) take precedence over your 'real' Portage tree (the one it 'overlays'), in case of conflicting ebuilds. For this reason, it is prudent in such cases to:
 # '''mask''' (blacklist) ''all'' packages from the overlay, then
 # '''unmask''' (whitelist) ''only'' those packages from the overlay you explicitly know you want, then
 # '''read''' the contents of those remaining, unmasked overlay ebuilds before installing (emerging) them.
 
 {{Note|For more background details about ebuilds and other Portage internals, see [[../Installing_the_Gentoo_Stage_3_Files#gentoo_overview{{!}}this earlier primer]].}}
 
-We'll begin by wildcard-masking everything from <tt>sakaki-tools</tt>. As described [[../Installing_the_Gentoo_Stage_3_Files#about_package_mask|earlier]], we use the {{Path|/etc/portage/package.mask}} file for this. Issue:
+We'll begin by wildcard-masking everything from <tt>sakaki-tools</tt>. As described [[../Installing_the_Gentoo_Stage_3_Files#about_package_mask|earlier]], we'll use a file in the {{Path|/etc/portage/package.mask}} directory for this. Issue:
 {{RootCmd
-|echo '*/*::sakaki-tools' >> /etc/portage/package.mask
+|mkdir -p -v /etc/portage/package.mask
+|echo '*/*::sakaki-tools' >> /etc/portage/package.mask/sakaki-tools-repo
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
 {{Note|This qualified atom specifies all versions of all packages in all categories, that are supplied from the <tt>sakaki-tools</tt> overlay. For more details, refer to the background reading [[../Installing_the_Gentoo_Stage_3_Files#qualified_version_atom|in the previous chapter]].}}
 
-Now we can unmask what we explicitly need (using, as described [[../Installing_the_Gentoo_Stage_3_Files#about_package_unmask|earlier]], the {{Path|/etc/portage/package.unmask}} file). Issue:
+Now we can unmask what we explicitly need (using, as described [[../Installing_the_Gentoo_Stage_3_Files#about_package_unmask|earlier]], files in the {{Path|/etc/portage/package.unmask}} directory). Issue:
 {{RootCmd
-|nano -w /etc/portage/package.unmask
+|mkdir -p -v /etc/portage/package.unmask
+|echo "app-portage/showem::sakaki-tools" >> /etc/portage/package.unmask/showem
+|echo "app-portage/buildkernel::sakaki-tools" >> /etc/portage/package.unmask/buildkernel
+|echo "app-portage/genup::sakaki-tools" >> /etc/portage/package.unmask/genup
+|echo "app-portage/efitools::sakaki-tools" >> /etc/portage/package.unmask/efitools
+|echo "app-portage/staticgpg::sakaki-tools" >> /etc/portage/package.unmask/staticgpg
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
-Then ''append'' the following text into the file:
-{{FileBox|filename=/etc/portage/package.unmask|title=Append the following lines to whitelist necessary packages from sakaki-tools|1=
-# new packages provided only by sakaki-tools
-app-portage/showem::sakaki-tools
-sys-kernel/buildkernel::sakaki-tools
-app-portage/genup::sakaki-tools
-# existing packages modified by sakaki-tools to patch problems
-app-crypt/efitools::sakaki-tools
-# existing (unslotted) packages provided in static form by sakaki-tools
-app-crypt/staticgpg::sakaki-tools
-}}
-Save and exit the <tt>nano</tt> editor.
 
 Here is a brief summary of what the above (whitelisted) ebuilds are, and what they do:
 {| class="wikitable"
 |-
 ! Package !! <tt>ebuild</tt> Location !! Description
 |-
-| {{Package|app-portage/showem}} || {{Path|/var/lib/layman/sakaki-tools/app-portage/showem/showem-1.0.1.ebuild}} || Provides a simple utility script (<tt>showem</tt>), which enables you to monitor the progress of a parallel <tt>emerge</tt>. A manpage is provided. The underlying source is available on [https://github.com/sakaki-/showem GitHub].
+| {{Package|app-portage/showem}} || {{Path|/usr/local/portage/sakaki-tools/app-portage/showem/showem-1.0.1.ebuild}} || Provides a simple utility script (<tt>showem</tt>), which enables you to monitor the progress of a parallel <tt>emerge</tt>. A manpage is provided. The underlying source is available on [https://github.com/sakaki-/showem GitHub].
 |-
-| {{Package|sys-kernel/buildkernel}} || {{Path|/var/lib/layman/sakaki-tools/sys-kernel/buildkernel/buildkernel-1.0.10.ebuild}} || <span id="buildkernel_script">Provides a script</span> (<tt>buildkernel</tt>) to build a kernel suitable for booting from a USB key in UEFI mode, together with an integral initramfs. Automatically sets the necessary kernel configuration parameters, including the command line, and signs the resulting kernel if possible. Has a interactive and non-interactive (batch) mode. (Will be used [[../Configuring_and_Building_the_Kernel#first_buildkernel|later in the tutorial]].) On installation, attempts to automatically configure the {{Path|/etc/buildkernel.conf}} settings file (to set the two variables <tt>EFIPARTUUID</tt> and <tt>CRYPTPARTUUID</tt>, which ''must'' be assigned before <tt>buildkernel</tt> is run). Manpages for the script and the configuration file are provided. The underlying source is available on [https://github.com/sakaki-/buildkernel GitHub].
+| {{Package|sys-kernel/buildkernel}} || {{Path|/usr/local/portage/sakaki-tools/sys-kernel/buildkernel/buildkernel-1.0.10.ebuild}} || <span id="buildkernel_script">Provides a script</span> (<tt>buildkernel</tt>) to build a kernel suitable for booting from a USB key in UEFI mode, together with an integral initramfs. Automatically sets the necessary kernel configuration parameters, including the command line, and signs the resulting kernel if possible. Has a interactive and non-interactive (batch) mode. (Will be used [[../Configuring_and_Building_the_Kernel#first_buildkernel|later in the tutorial]].) On installation, attempts to automatically configure the {{Path|/etc/buildkernel.conf}} settings file (to set the two variables <tt>EFIPARTUUID</tt> and <tt>CRYPTPARTUUID</tt>, which ''must'' be assigned before <tt>buildkernel</tt> is run). Manpages for the script and the configuration file are provided. The underlying source is available on [https://github.com/sakaki-/buildkernel GitHub].
 |-
-| {{Package|app-portage/genup}} || {{Path|/var/lib/layman/sakaki-tools/app-portage/genup/genup-1.0.7.ebuild}}|| Provides the <tt>genup</tt> script, to simplify the process of keeping your Gentoo system up-to-date. <tt>genup</tt> can automatically update the Portage tree, all installed packages, and kernel. Has interactive and non-interactive (batch) modes. (Will be used [[../Configuring_systemd_and_Installing_Necessary_Tools#ensure_system_up_to_date|later in the tutorial]].) A manpage is provided. The underlying source is available on [https://github.com/sakaki-/genup GitHub].
+| {{Package|app-portage/genup}} || {{Path|/usr/local/portage/sakaki-tools/app-portage/genup/genup-1.0.7.ebuild}}|| Provides the <tt>genup</tt> script, to simplify the process of keeping your Gentoo system up-to-date. <tt>genup</tt> can automatically update the Portage tree, all installed packages, and kernel. Has interactive and non-interactive (batch) modes. (Will be used [[../Configuring_systemd_and_Installing_Necessary_Tools#ensure_system_up_to_date|later in the tutorial]].) A manpage is provided. The underlying source is available on [https://github.com/sakaki-/genup GitHub].
 |-
-| {{Package|app-crypt/efitools}} || {{Path|/var/lib/layman/sakaki-tools/app-crypt/efitools/efitools-1.4.2-r2.ebuild}}|| <span id="efitools_patch">Later in the tutorial</span>, we will need to use programs provided by this package to manipulate the secure boot keystores on the target machine. However, at the time of writing, the latest version available on Gentoo (1.4.2-r1) does not yet reflect a [http://git.kernel.org/cgit/linux/kernel/git/jejb/efitools.git/commit/ change made upstream] which is necessary to allow <tt>efitools</tt> to work properly with LVM. The supplied overlay ebuild (1.4.2-r2) is identical to the standard version (1.4.2-r1), except that it additionally applies a patch file ({{Path|/var/lib/layman/sakaki-tools/app-crypt/efitools/files/efitools-1.4.2-recognize-efivarfs.patch}}) to bring version 1.4.2-r1 in line with upstream.
+| {{Package|app-crypt/efitools}} || {{Path|/usr/local/portage/sakaki-tools/app-crypt/efitools/efitools-1.4.2-r2.ebuild}}|| <span id="efitools_patch">Later in the tutorial</span>, we will need to use programs provided by this package to manipulate the secure boot keystores on the target machine. However, at the time of writing, the latest version available on Gentoo (1.4.2-r1) does not yet reflect a [http://git.kernel.org/cgit/linux/kernel/git/jejb/efitools.git/commit/ change made upstream] which is necessary to allow <tt>efitools</tt> to work properly with LVM. The supplied overlay ebuild (1.4.2-r2) is identical to the standard version (1.4.2-r1), except that it additionally applies a patch file ({{Path|/usr/local/portage/sakaki-tools/app-crypt/efitools/files/efitools-1.4.2-recognize-efivarfs.patch}}) to bring version 1.4.2-r1 in line with upstream.
 
 When the modified upstream version becomes available in Gentoo, this component of the overlay will be removed, and your system will revert to using the 'stock' version of this package. This will happen automatically.
 |-
-| {{Package|app-crypt/staticgpg}} || {{Path|/var/lib/layman/sakaki-tools/app-crypt/staticgpg/staticgpg-1.4.16.ebuild}}|| <span id="staticgpg_first_intro">The <tt>buildkernel</tt> tool (above)</span> needs to be able to be able to place a copy of the <tt>gpg</tt> tool into the initramfs, so that the keyfile (which we created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]) can be decrypted.
+| {{Package|app-crypt/staticgpg}} || {{Path|/usr/local/portage/sakaki-tools/app-crypt/staticgpg/staticgpg-1.4.16.ebuild}}|| <span id="staticgpg_first_intro">The <tt>buildkernel</tt> tool (above)</span> needs to be able to be able to place a copy of the <tt>gpg</tt> tool into the initramfs, so that the keyfile (which we created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]) can be decrypted.
 
 Unfortunately, the version of <tt>gpg</tt> that is emerged by Portage by default is the 2.x variant. This <span id="pinentry_problem">requires</span> a (rather convoluted) service known as <tt>pinentry</tt> to ask you for your password (even when compiled statically), and currently <tt>genkernel</tt>'s initramfs builder (and init script) does not work correctly with it. Instead, <tt>genkernel</tt> expects to be using a version 1.x <tt>gpg</tt> which can query for passphrases itself, without invoking an outside agent.
 
@@ -472,30 +443,23 @@ To work around this, I have provided the {{Package|app-crypt/staticgpg}} <tt>ebu
 
 {{Note|If for some reason you ''don't'' wish to use these packages directly, then by all means review and adapt their underlying source independently. However, you won't be able to follow along directly with the text in that case: in what follows, I'll be assuming that you ''have'' chosen to install the overlay.}}
 
-Next, note that all user overlay ebuilds (by [http://devmanual.gentoo.org/keywording/index.html stipulation]) ''must'' specify that they are on the 'unstable' branch (since not yet fully tested). However, we are allowing (by default) only ''stable'' (<tt>amd64</tt>) packages (see [[../Installing_the_Gentoo_Stage_3_Files#set_keywords|above]]), we have to specify that for the above packages, the unstable/testing ('tilde') branch is acceptable. We use the {{Path|/etc/portage/package.accept_keywords}} file for this, as [[../Installing_the_Gentoo_Stage_3_Files#about_package_accept_keywords|described earlier]]. Issue:
+Next, note that all user overlay ebuilds (by [http://devmanual.gentoo.org/keywording/index.html stipulation]) ''must'' specify that they are on the 'unstable' branch (since not yet fully tested). However, we are allowing (by default) only ''stable'' (<tt>amd64</tt>) packages (see [[../Installing_the_Gentoo_Stage_3_Files#set_keywords|above]]), we have to specify that for the above packages, the unstable/testing ('tilde') branch is acceptable. We use a file in the {{Path|/etc/portage/package.accept_keywords}} directory for this, as [[../Installing_the_Gentoo_Stage_3_Files#about_package_accept_keywords|described earlier]]. Issue:
 {{RootCmd
-|nano -w /etc/portage/package.accept_keywords
+|mkdir -p -v /etc/portage/package.accept_keywords
+|echo "*/*::sakaki-tools ~amd64" >> /etc/portage/package.accept_keywords/sakaki-tools-repo
+|echo -e "# required by efitools\nsys-boot/gnu-efi ~amd64" >> /etc/portage/package.accept_keywords/gnu-efi
+|echo -e "# buildkernel in sakaki-tools needs v58+ of genkernel-next\nsys-kernel/genkernel-next ~amd64" >> /etc/portage/package.accept_keywords/genkernel-next
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
-Then ''append'' the following text into the file:
-{{FileBox|filename=/etc/portage/package.accept_keywords|path=Append the following to allow specified packages to use the 'testing' branch|1=
-# all (unmasked) sakaki-tools packages accept the ~amd64 keyword
-*/*::sakaki-tools                       ~amd64
-# required by efitools                  ~amd64
-sys-boot/gnu-efi                        ~amd64
-# buildkernel in sakaki-tools needs v58+ of genkernel-next
-sys-kernel/genkernel-next               ~amd64
-}}
-Save and exit the <tt>nano</tt> editor.
 {{Note|For explanation of the qualified atoms used here, refer to [[../Installing_the_Gentoo_Stage_3_Files#qualified_version_atom{{!}}the previous chapter]].}}
 {{Note|The <tt>buildkernel</tt> package (in <tt>sakaki-tools</tt>) requires version 58+ of {{Package|sys-kernel/genkernel-next}}, in the testing branch at the time of writing.}}
-{{Note|The only extra file here is {{Package|/sys-boot/gnu-efi}}: the (testing) variant is required by {{Package|app-crypt/efitools}}. We're not going to be installing (emerging) <tt>efitools</tt> yet, but we add the entry here so we don't have to come back to it later.}}
+{{Note|The only other keyworded package here is {{Package|/sys-boot/gnu-efi}}: the (testing) variant is required by {{Package|app-crypt/efitools}}. We're not going to be installing (emerging) <tt>efitools</tt> yet, but we add the entry here so we don't have to come back to it later.}}
 
 Next, if you like, take a look through the <tt>ebuild</tt> files in the overlay (and any patches), read the underlying sources, and satisfy yourself that everything is benign. It is good hygiene to do this, particularly prior to using a third-party overlay for the first time.
 
 {{Note|One useful hint, for ebuilds which are modified versions of packages in the default Portage tree, is to <tt>diff</tt> the new ebuild from the standard version, to check what has been changed. For example, for the <tt>sakaki-tools</tt> overlay, you could run:
 {{RootCmd
-|diff /usr/portage/app-crypt/efitools/efitools-1.4.2-r1.ebuild /var/lib/layman/sakaki-tools/app-crypt/efitools/efitools-1.4.2-r2.ebuild
+|diff /usr/portage/app-crypt/efitools/efitools-1.4.2-r1.ebuild /usr/local/portage/sakaki-tools/app-crypt/efitools/efitools-1.4.2-r2.ebuild
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
 to check the differences in {{Package|app-crypt/efitools}}.
