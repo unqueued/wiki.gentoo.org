@@ -1,58 +1,72 @@
+<languages/>
+<translate>
+
 == Installing Postfix ==
+
 Postfix installation is quite straight forward. A basic installation instruction for [[Postfix]] should be followed.
 
 == Linking Postfix ==
-Once postfix is working on its most basic level its time to link it to the database.
+
+Once postfix is working on its most basic level it's time to link it to the database.
 
 === Gaining access ===
 
 ==== PostgreSQL ====
+
 A database-user to query the database is required:
+
 {{RootCmd|createuser -U postgres -D -P -R -S postfix|output=<pre>
 Enter password for new role: $password
 Enter it again: $password
 </pre>}}
 
 Also the postfix user needs some permissions on the tables:
-{{RootCmd|psql -U postfixadmin postfix|output=<pre>
-postfix=>
-GRANT SELECT ON alias TO postfix;
-GRANT SELECT ON domain TO postfix;
-GRANT SELECT ON mailbox TO postfix;
-</pre>}}
+
+{{RootCmd|psql -U postfixadmin postfix}}
+
+{{RootCmd|prompt=postfix{{=}}> |GRANT SELECT ON alias TO postfix;
+|GRANT SELECT ON domain TO postfix;
+|GRANT SELECT ON mailbox TO postfix;}}
 
 ==== MySQL ====
-If you use MySQL instead of PostgresSQL then follow this instruction.
-You'll need the [http://www.gentoo.org/doc/en/files/genericmailsql.sql genericmailsql.sql] dumpfile for this step. 
 
-{{CodeBox|title=Installing and configuring MySQL|1=
-# emerge -av mysql
+If MySQL is used instead of PostgresSQL then follow the following instructions. Download the [http://www.gentoo.org/doc/en/files/genericmailsql.sql genericmailsql.sql] dumpfile for this step as it will be needed soon.
 
-# /usr/bin/mysql_install_db
-## (After this command runs follow the onscreen directions
-for adding a root password with mysql, otherwise your db will
-be wide open.)
+First install MySQL:
 
-# /etc/init.d/mysql start
-# mysqladmin -u root -p create mailsql
-# mysql -u root -p mailsql < genericmailsql.sql
-# mysql -u root -p mysql
-mysql> GRANT SELECT,INSERT,UPDATE,DELETE
-  ->     ON mailsql.*
-  ->     TO mailsql@localhost
-  ->     IDENTIFIED BY '$password';
+{{Emerge|mysql}}
+
+Create an initial database:
+
+{{RootCmd|/usr/bin/mysql_install_db}}
+
+Follow the on-screen instructions for adding a root password within MySQL as otherwise the database will be wide open.
+
+Start the MySQL database server and create the <tt>mailsql</tt> database:
+
+{{RootCmd|/etc/init.d/mysql start
+|mysqladmin -u root -p create mailsql
+|mysql -u root -p mailsql < genericmailsql.sql}}
+
+Fire up the <tt>mysql</tt> client to grant the proper rights to the <tt>mailsql</tt> database:
+
+{{RootCmd|mysql -u root -p mysql}}
+
+{{RootCmd|prompt=mysql> |GRANT SELECT,INSERT,UPDATE,DELETE ON mailsql.* TO mailsql@localhost IDENTIFIED BY '$password';|output=<pre>
 Query OK, 0 rows affected (0.02 sec)
+</pre>}}
 
-mysql> FLUSH PRIVILEGES;
+{{RootCmd|prompt=mysql> |FLUSH PRIVILEGES;|output=<pre>
 Query OK, 0 rows affected (0.00 sec)
+</pre>}}
 
-mysql> quit
-## (Verify that the new mailsql user can connect to the mysql server.)
+{{RootCmd|prompt=mysql> |quit}}
 
-# mysql -u mailsql -p mailsql
-}}
+Verify that the new <tt>mailsql</tt> user can connect to the mysql server:
 
-Your new database has default values and tables set up for two domains. The following tables are included: 
+{{RootCmd|mysql -u mailsql -p mailsql}}
+
+The new database has default values and tables set up for two domains. The following tables are included: 
 
 * alias - local email alias and mailman alias information.
 * relocated - relocated user email address maps
@@ -90,16 +104,20 @@ id   email                destination
 }}
 
 === Querying ===
-All these queries are tested on the database to ensure the queries are written properly. This does require however that the database has been filled to be useful. When 'postfixadmin' is used, this can be done easily from the UI. Otherwise, simple ''INSERT'' SQL queries need to be written and executed.
-{{Note|During this entire howto, the user ''testuser'' with the password ''secret'' is used.}}
+
+All these queries are tested on the database to ensure the queries are written properly. This does require however that the database has been filled to be useful. When postfixadmin is used, this can be done easily from the UI. Otherwise, simple <tt>INSERT</tt> SQL queries need to be written and executed.
+
+{{Note|During this entire HOWTO, the user <tt>testuser</tt> with the password <tt>secret</tt> is used.}}
 
 ==== PostgreSQL ====
+
 Linking postfix to a database isn't that special, postfix just executes predefined SQL routines. These SQL queries will be stored in a file per query in a directory.
+
 {{RootCmd|mkdir /etc/postfix/pgsql}}
-Be aware that any errors in the configuration information in these files can be pretty tricky to track down. Be meticulous with both the contents of the files and their names. Many errors in these files will be announced in the mail log such as "user example@example.com doesn't exist" without much further explanations.
+
+Be aware that any errors in the configuration information in these files can be pretty tricky to track down. Be meticulous with both the contents of the files and their names. Many errors in these files will be announced in the mail log such as "user example@example.com doesn't exist" without any further explanation.
 
 {{Note|In the following files, the variable 'hosts' is commented on purpose. When no hosts are defined, the local unix socket is used.}}
-
 
 {{FileBox|filename=/etc/postfix/pgsql/virtual_mailbox_domains.cf|title=virtual_mailbox_domains|1=
 # virtual_mailbox_domains.cf
@@ -109,16 +127,19 @@ dbname          = postfix
 #hosts          = localhost
 query           = SELECT description FROM domain WHERE domain = '%s' AND backupmx = '0' AND active = '1';
 }}
-It's best to test the query on the database (using copy paste) to ensure no typo's exist in the query.
-{{RootCmd|psql -U postfix postfix|output=<pre>
-postfix=> SELECT description FROM domain WHERE domain = 'example.com' AND backupmx = '0' AND active = '1';
+
+It's best to test the query on the database (using copy paste) to ensure no typo's exist in the query:
+
+{{RootCmd|psql -U postfix postfix}}
+
+{{RootCmd|prompt=postfix{{=}}> |SELECT description FROM domain WHERE domain {{=}} 'example.com' AND backupmx {{=}} '0' AND active {{=}} '1';|output=<pre>
      description      
 ----------------------
  An example domain.
 (1 row)
 </pre>}}
-{{Note|Postfix does not care about the result in this query, it is more of a yes/no answer.}}
 
+{{Note|Postfix does not care about the result in this query, it is more of a yes/no answer.}}
 
 {{FileBox|filename=/etc/postfix/pgsql/virtual_mailbox_maps.cf|title=virtual_mailbox_maps|1=
 # virtual_mailbox_maps.cf
@@ -128,15 +149,17 @@ dbname          = postfix
 #hosts          = localhost
 query           = SELECT maildir FROM mailbox WHERE local_part='%u' AND domain='%d' AND active='1';
 }}
-Also here, it's best again to execute the query on the database.
-{{RootCmd|psql -U postfix postfix|output=<pre>
-postfix=> SELECT maildir FROM mailbox WHERE local_part='testuser' AND domain='example.com' AND active='1';
+
+Also here, it's best again to execute the query on the database:
+
+{{RootCmd|psql -U postfix postfix}}
+
+{{RootCmd|prompt=postfix{{=}}> |SELECT maildir FROM mailbox WHERE local_part{{=}}'testuser' AND domain{{=}}'example.com' AND active{{=}}'1';|output=<pre>
       maildir
 -------------------
  example.com/testuser/
 (1 row)
 </pre>}}
-
 
 {{FileBox|filename=/etc/postfix/pgsql/virtual_alias_maps.cf|title=virtual_alias_maps|1=
 # virtual_alias_maps.cf
@@ -146,18 +169,23 @@ dbname          = postfix
 #hosts          = localhost
 query           = SELECT goto FROM alias WHERE address='%s' AND active='1';
 }}
-Run the query on the database to verify its output.
-{{RootCmd|psql -U postfix postfix|output=<pre>
-postfix=> SELECT goto FROM alias WHERE address='testuser@example.com' AND active='1';
+
+Run the query on the database to verify its output:
+
+{{RootCmd|psql -U postfix postfix}}
+
+{{RootCmd|prompt=postfix{{=}}> |SELECT goto FROM alias WHERE address{{=}}'testuser@example.com' AND active{{=}}'1';|output=<pre>
        goto       
 ------------------
  testuser@example.com
 (1 row)
 </pre>}}
-{{Note|'postfixadmin' creates an alias for each user. This is not required for postfix to function properly, it is something ''needed'' for 'postfixadmin'.}}
+
+{{Note|postfixadmin creates an alias for each user. This is not required for postfix to function properly, it is something ''needed'' for postfixadmin.}}
 
 ==== MySQL  ====
-Set up the necessary configs for postfix to interract with the database for all its other transport needs. Remember to replace each value with the name of your own user, user id, password, alias, email address, and so on. 
+
+Set up the necessary configurations for postfix to interact with the database for all its other transport needs. Remember to replace each value with the name of the proper user, user id, password, alias, email address, and so on. 
 
 {{FileBox|filename=/etc/postfix/mysql-aliases.cf|1=
 user         = mailsql
@@ -233,24 +261,27 @@ hosts        = unix:/var/run/mysqld/mysqld.sock
 }}
 
 === Access rights ===
-Only postfix should have access rights to these files, as they contain passwords.
+
+Only postfix should have access rights to these files, as they contain passwords:
+
 {{RootCmd|chown root:postfix -R /etc/postfix/|chmod 640 /etc/postfix/*/*.cf}}
 
 === Connecting postfix to the queries ===
 
 ==== Postgres ====
+
 {{FileBox|filename=/etc/postfix/main.cf|title=Connect postfix to postgres|1=
 #
 # Settings required to support virtual mail delivery using lookups in
 # the Postgres database.
 #
-
+ 
 # A list of all virtual domains serviced by this instance of postfix.
 virtual_mailbox_domains = pgsql:/etc/postfix/pgsql/virtual_mailbox_domains.cf
-
+ 
 # Look up the mailbox location based on the email address received.
 virtual_mailbox_maps = pgsql:/etc/postfix/pgsql/virtual_mailbox_maps.cf
-
+ 
 # Any aliases that are supported by this system
 virtual_alias_maps = pgsql:/etc/postfix/pgsql/virtual_alias_maps.cf
 }}
@@ -261,15 +292,15 @@ virtual_alias_maps = pgsql:/etc/postfix/pgsql/virtual_alias_maps.cf
 ## (Ensure that there are no other alias_maps definitions)
 alias_maps = mysql:/etc/postfix/mysql-aliases.cf
 relocated_maps = mysql:/etc/postfix/mysql-relocated.cf
-
+ 
 local_transport = local
 local_recipient_maps = $alias_maps $virtual_mailbox_maps unix:passwd.byname
-
+ 
 virtual_transport = virtual
 ## (The domains listed by the mydestination should not be listed in
 ##  the virtual_mailbox_domains parameter)
 virtual_mailbox_domains = virt-domain.com, $other-virtual-domain.com
-
+ 
 virtual_minimum_uid = 1000
 ## (Substitute $vmail-gid with the GID of the vmail group)
 virtual_gid_maps = static:$vmail-gid
@@ -279,16 +310,20 @@ virtual_alias_maps = mysql:/etc/postfix/mysql-virtual.cf
 virtual_uid_maps = static:$vmail-uid
 }}
 
-As of Postfix 2.0.x, there were a number of significant changes over the 1.1.x release. Notably the transport, virtual-gid, and virtual-uid tables are no longer necessary. The tables are still included if you wish to use them. 
+As of Postfix 2.0.x, there were a number of significant changes over the 1.1.x release. Notably the transport, virtual-gid, and virtual-uid tables are no longer necessary. The tables are still included to support potential different use cases. 
 
-{{Note|It is recommended that you read VIRTUAL_README included with the postfix docs for more information.}}
+{{Note|It is recommended that {{Path|VIRTUAL_README}}, included with the postfix docs, is read for more information.}}
 
 === Testing the database connection ===
-Postfix needs to restarted to make it connect to the database.
+
+Postfix needs to be restarted to have it connect to the database:
+
 {{RootCmd|/etc/init.d/postfix restart}}
+
 Check for any problems in {{Path|/var/log/mail.log}}, such as incorrect permissions.
 
-Using telnet the mailserver can be tested again to check whether the database is properly used.
+Using telnet, the mailserver can be tested again to check whether the database is properly used:
+
 {{Cmd|telnet localhost 25|output=<pre>
 Trying 127.0.0.1...
 Connected to foo.example.com.
@@ -316,6 +351,7 @@ quit
 221 2.0.0 Bye
 Connection closed by foreign host.
 </pre>}}
+
 {{FileBox|filename=/var/log/mail.log|title=Verify test messages|1=
 Mar 16 19:25:15 foo postfix/smtpd[32321]: connect from unknown[127.0.0.1]
 Mar 16 19:25:32 foo postfix/smtpd[32321]: EA94F164C7: client=unknown[127.0.0.1]
@@ -330,6 +366,8 @@ Mar 16 19:26:15 foo postfix/smtp[32338]: 3A276164C7: to=<test.user@example.com>,
 Mar 16 19:26:15 foo postfix/qmgr[31681]: 3A276164C7: removed
 }}
 
-{{Warning|If the '''vda''' useflag is set, it may happen that test messages get (Soft) bounced due to too overdrawn diskspace quota. There are then two options. Re-merge without the '''vda''' useflag and re-merge with the '''vda''' useflag enabled once doing quota's. Or jump ahead to the quota support bit, follow those steps, then return here.}}
+{{Warning|If the <code>vda</code> USE flag is set, it may happen that test messages get (Soft) bounced due to too overdrawn diskspace quota. There are then two options. Re-merge without the <code>vda</code> USE flag and re-merge with the <code>vda</code> USE flag enabled once doing quota's. Or jump ahead to the quota support bit, follow those steps, then return here.}}
+
+</translate>
 
 [[Category:Mail Servers]]
