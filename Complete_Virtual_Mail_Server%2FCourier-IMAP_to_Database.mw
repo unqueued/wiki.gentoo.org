@@ -1,12 +1,17 @@
+<languages/>
+<translate>
+
 == Introduction ==
+
 Courier-IMAP will be used to provide both [[Wikipedia:Internet Message Access Protocol|IMAP]] and [[Wikipedia:Post Office Protocol|POP3]] services. Many will be interested in IMAP as POP3 is not being used as much anymore. This is quite understandable as IMAP has many advantages.
 
-The major difference between POP3 and IMAP would be that IMAP keeps messages on the server whereas with POP3, the client retrieves the messages and are then gone from the server. Having the messages kept on server allows for several clients to actively work with the same mailbox from different locations. The most basic example would be webmail and a desktop client, both accessing the same mailbox at the same time. Also in general, webmail clients strongly favor IMAP. The price this comes with of course, is primarily disk space and processing power on your server. With disk space being as cheap as it is these days, 32Gb set aside pure for e-mail offers a lot of space for mails, at hardly any cost. And if processing power is an issue, which are generally used by server-side based searches, they could be disabled.
+The major difference between POP3 and IMAP would be that IMAP keeps messages on the server whereas with POP3, the client retrieves the messages and are then gone from the server. Having the messages kept on server allows for several clients to actively work with the same mailbox from different locations. The most basic example would be webmail and a desktop client, both accessing the same mailbox at the same time. Also in general, webmail clients strongly favor IMAP. The price this comes with of course, is primarily disk space and processing power on the mail server. With disk space being as cheap as it is these days, 32Gb set aside pure for e-mail offers a lot of space for mails, at hardly any cost. And if processing power is an issue, server-side based searches can be disabled to reduce the stress on the machine.
 
 This chapter will mainly focus on IMAP, but will include POP3 for completeness sake. Some research into the two protocols may be required if the choice is not so certain.
 
 == Installing Courier-IMAP ==
-{{Package|net-mail/courier-imap}} has a few useflags that need to be examined. {{Package|net-libs/courier-authlib}} is an important dependency as it is responsible for how users authenticate, so it's useflags are examined aswell.
+
+{{Package|net-mail/courier-imap}} has a few USE flags that need to be examined. {{Package|net-libs/courier-authlib}} is an important dependency as it is responsible for how users authenticate, so it's USE flags are examined aswell.
 
 {{USEflag|package=net-libs/courier-authlib
 |ldap++yes
@@ -14,67 +19,76 @@ This chapter will mainly focus on IMAP, but will include POP3 for completeness s
 |mysql++yes
 |vpopmail++no
 }}
+
 Only choose the desired database backends.
-{{Warning|libauth*sql.so may not be built if you do not enable -vpopmail and do not have vpopmail installed. Vpopmail and libauth*sql.so do not mix.}}
+
+{{Warning|libauth*sql.so may only be built if <code>-vpopmail</code> is set as USE flag and the system does not have vpopmail installed. Vpopmail and libauth*sql.so do not mix.}}
 
 {{USEflag
 |fam++yes
 |ipv6++yes
 }}
-{{Note|The ''fam'' USE flag is required for the IDLE (e.g. 'push') function to work.}}
 
-If the proper USE flags are set, emerging courier-imap should pull in courier-authlib.
+{{Note|The <code>fam</code> USE flag is required for the IDLE (e.g. 'push') function to work.}}
+
+If the proper USE flags are set, emerging courier-imap should pull in courier-authlib:
+
 {{Emerge|net-mail/courier-imap}}
 
 === Configuring courier-authlib ===
 
 ==== Postgres ====
+
 Courier-authlib runs as root, so access to the socket will be permitted by default.
-{{Note|Only fields that should be changed are listed here. There are two commented options. ''PGSQL_HOST'' obviously as mentioned before, unix sockets will be used. ''PGSQL_QUOTA_FIELD'' is commented for now, as quotas will be enabled at a later stage. The ''PGSQL-UID_FIELD'', ''PGSQL-GID_FIELD'' and ''PGSQL_HOME_FIELD'' (Note the trailing slash!) are set to static values, noticeable as they are quoted. Thus static values, not from a database are used.}}
+
+{{Note|Only fields that should be changed are listed here. There are two commented options. <code>PGSQL_HOST</code> obviously as mentioned before, unix sockets will be used. <code>PGSQL_QUOTA_FIELD</code> is commented for now, as quotas will be enabled at a later stage. The <code>PGSQL-UID_FIELD</code>, <code>PGSQL-GID_FIELD</code> and <code>PGSQL_HOME_FIELD</code> (Note the trailing slash!) are set to static values, noticeable as they are quoted. Thus static values, and not values from a database are used.}}
+
 {{FileBox|filename=/etc/courier/authlib/authpgsqlrc|title=Obtain access to the database|1=
 ##NAME: LOCATION:0
 # PGSQL_HOST		pgsql.example.com
 PGSQL_PORT		5432
 PGSQL_USERNAME		postfix
 PGSQL_PASSWORD		$password
-
+ 
 ##NAME: PGSQL_DATABASE:0
 PGSQL_DATABASE		postfix
-
+ 
 ##NAME: PGSQL_USER_TABLE:0
 PGSQL_USER_TABLE	mailbox
-
+ 
 ##NAME: PGSQL_CRYPT_PWFIELD:0
 PGSQL_CRYPT_PWFIELD	password
-
+ 
 ##NAME: PGSQL_UID_FIELD:0
 PGSQL_UID_FIELD		'5000'
-
+ 
 ##NAME: PGSQL_GID_FIELD:0
 PGSQL_GID_FIELD		'5000'
-
+ 
 ##NAME: PGSQL_LOGIN_FIELD:0
 PGSQL_LOGIN_FIELD	local_part
-
+ 
 ##NAME: PGSQL_HOME_FIELD:0
 PGSQL_HOME_FIELD	'/var/vmail/'
-
+ 
 ##NAME: PGSQL_NAME_FIELD:0
 PGSQL_NAME_FIELD	name
-
+ 
 ##NAME: PGSQL_MAILDIR_FIELD:0
 PGSQL_MAILDIR_FIELD	maildir
-
+ 
 ##NAME: PGSQL_QUOTA_FIELD:0
 # PGSQL_QUOTA_FIELD	quota
-
+ 
 ##NAME: PGSQL_WHERE_CLAUSE:0
 # Deal only with active mail accounts.
 PGSQL_WHERE_CLAUSE      active='1'
 }}
-If logins via ''user@domain.com'' instead of ''username'', the value of PGSQL_LOGIN_FIELD needs to be changed from '''local_part''' to '''username'''.
 
-To use more advanced authentication SQL statement the PGSQL_SELECT_CLAUSE can be used. Courier-authlib will ignore any of the previous set parameters for SELECT statements, but will use them for counting the number of accounts or for changing the password and thus when changing the password the username field is still used. If authentication is done against username remember that usernames need to be unique.
+If logins are used in the syntax of ''user@domain.com'' instead of ''username'', the value of <code>PGSQL_LOGIN_FIELD</code> needs to be changed from <code>local_part</code> to <code>username</code>.
+
+To use more advanced authentication SQL statements the <code>PGSQL_SELECT_CLAUSE</code> can be used. Courier-authlib will ignore any of the previous set parameters for <tt>SELECT</tt> statements, but will use them for counting the number of accounts or for changing the password and thus when changing the password the username field is still used. If authentication is done against username remember that usernames need to be unique.
+
 {{FileBox|filename=/etc/courier/authlib/authpgsqlrc|title=Obtain custom access to the database|1=
 PGSQL_SELECT_CLAUSE	SELECT local_part, password, '', '5000', '5000',	\
 			'/var/vmail/', maildir, quota, name, ''		 	\
@@ -83,10 +97,10 @@ PGSQL_SELECT_CLAUSE	SELECT local_part, password, '', '5000', '5000',	\
 }}
 
 ==== MySQL ====
-Next we'll reconfigure our authentication to use the mailsql database in courier-imap and postfix. In all of the following examples, replace <code>$password</code> with the password you set for the mailsql mysql user. 
 
-{{CodeBox|title=Configuring authentication|1=
-# nano -w /etc/courier/authlib/authmysqlrc
+Next reconfigure the authentication to use the mailsql database in courier-imap and postfix. In all of the following examples, replace <code>$password</code> with the password set for the mailsql mysql user. 
+
+{{FileBox|title=Configuring authentication|filename=/etc/courier/authlib/authmysqlrc|1=
 MYSQL_SERVER            localhost
 MYSQL_USERNAME       mailsql
 MYSQL_PASSWORD      $password
@@ -101,50 +115,58 @@ MYSQL_LOGIN_FIELD       email
 MYSQL_HOME_FIELD        homedir
 MYSQL_NAME_FIELD        name
 MYSQL_MAILDIR_FIELD     maildir
-
-# /etc/init.d/courier-authlib restart
-# /etc/init.d/saslauthd restart
 }}
 
+Reload the necessary services:
+
+{{RootCmd|rc-service courier-authlib restart
+|rc-service saslauthd restart}}
+
 === Configuring authdaemon ===
-Authdaemon is actually responsible for doing the authentication. Here it needs to be configured which database backend needs to be used. Portage actually does set the '''authmodulelist''' variable properly. Verify this in the configuration file. Also enable debugging here.
+
+Authdaemon is actually responsible for doing the authentication. Here authdaemon is configured to use the right database backend. Portage actually does set the <code>authmodulelist</code> variable properly. Verify this in the configuration file. Also enable debugging here as this will help with any potential issues later.
 
 ==== PostgreSQL ====
+
 {{FileBox|filename=/etc/courier/authlib/authdaemonrc|title=Verify authentication modules|1=
 ##NAME: authmodulelist:2
 authmodulelist="authpgsql "
-
+ 
 ##NAME: DEBUG_LOGIN:0
 DEBUG_LOGIN=1
 }}
 
-{{Note|Obviously if more or others authmodules are desired, these should be listed here also.}}
+{{Note|Obviously if more or others authmodules are desired, these should be listed here as well.}}
 
 ==== MySQL ====
 
 {{FileBox|filename=/etc/courier/authlib/authdaemonrc|title=Verify authentication modules|1=
 ##NAME: authmodulelist:2
 authmodulelist="authmysql authpam"
-
+ 
 ##NAME: DEBUG_LOGIN:0
 DEBUG_LOGIN=1
 }}
 
 === Access permissions ===
+
 Permissions must be set correctly, as the files can contain sensitive password information.
+
 {{RootCmd|chmod 660 /etc/courier/authlib/auth*rc|chown mail:mail /etc/courier/authlib/auth*rc}}
 
 === Testing courier-authlib ===
-Courier-authlib includes a simple testing utility. At its least it requires a valid username as parameter. Don't hesitate to
-{{Cmd|man authtest}}
-for details. The man page is short but concise. 
 
-To perform some basic tests start the authlib daemon with 
+Courier-authlib includes a simple testing utility. It requires a valid username as parameter. Don't hesitate to check out the <tt>authtest</tt> manual page for more information. It is short but concise. 
+
+To perform some basic tests start the authlib daemon:
+
 {{RootCmd|/etc/init.d/courier-authlib start}} 
-and run ''authtest'' on the your testuser.
+
+Run <tt>authtest</tt> with the testuser:
+
 {{RootCmd|authtest testuser|output=<pre>
 Authentication succeeded.
-
+ 
      Authenticated: testuser  (uid 5000, gid 5000)
     Home Directory: /var/vmail
            Maildir: example.com/testuser/
@@ -157,6 +179,7 @@ Cleartext Password: (none)
 == Configuring POP3/IMAP ==
 
 === POP3 ===
+
 POP3 requires little configuring to get working. It is however recommended to skip this section and not enable/use pop3 and thus leave this setting at '''NO'''. A user may be able to remove all messages that where supposed to be stored on the server for imap usage, then incorrectly configure his mail client and purge the server of his mailbox this way.
 {{FileBox|filename=/etc/courier-imap/pop3|title=Enable pop3|1=
 ##NAME: POP3DSTART:0
@@ -164,37 +187,44 @@ POP3DSTART=YES
 }}
 
 === IMAP ===
+
 IMAP has a few ''capabilities'' that can be enabled.
-* '''SORT''' to allow server side searching through messages.
-* '''IDLE''' to allow 'push' like connections.
+* <code>SORT</code> to allow server side searching through messages.
+* <code>IDLE</code> to allow 'push' like connections.
+
 {{FileBox|filename=/etc/courier-imap/imapd|title=Enable imapd and some options|1=
 ##NAME: IMAP_CAPABILITY:1
 IMAP_CAPABILITY="IMAP4rev1 UIDPLUS CHILDREN NAMESPACE THREAD=ORDEREDSUBJECT THREAD=REFERENCES SORT QUOTA IDLE"
-
+ 
 ##NAME: IMAP_CHECK_ALL_FOLDERS:0
 IMAP_CHECK_ALL_FOLDERS=1
-
+ 
 ##NAME: IMAP_ENHANCEDIDLE:0
 IMAP_ENHANCEDIDLE=1
-
+ 
 ##NAME: IMAP_EMPTYTRASH:0
 IMAP_EMPTYTRASH=Trash:40,Junk:7
-
+ 
 ##NAME: IMAPDSTART:0
 IMAPDSTART=YES
-
+ 
 ##NAME: MAILDIRPATH:0
 MAILDIR=.maildir
 MAILDIRPATH=.maildir
 }}
-{{Note|The ''MAILDIRPATH'' section contains some dupes, make sure it is properly set- and cleaned-up.}}
+
+{{Note|The <code>MAILDIRPATH</code> section contains some dupes, make sure it is properly set and cleaned up.}}
 
 == Testing IMAP/POP3 ==
 
 === POP3 ===
-Courier-pop3d should be started.
+
+Courier-pop3d should be started:
+
 {{RootCmd|/etc/init.d/courier-pop3d start}}
-Once started, telnet should be used to identify initial problems. Once logging in with telnet works, a mail client can be used.
+
+Once started, telnet could be used to identify initial problems. Once logging in with telnet works, a mail client can be used:
+
 {{Cmd|telnet foo.example.com 110|output=<pre>
 +OK Hello there.
 user testuser
@@ -202,14 +232,21 @@ user testuser
 Pass secret
 +OK logged in
 </pre>}}
+
 {{Note|This is the first time the password is used in plain text. It was previously only known as $1$16117118$ajxN3QRilmP5zLVHjTkE31.}}
-If testing works properly, add courier-pop3d to the default runlevel.
+
+If testing works properly, add courier-pop3d to the default runlevel:
+
 {{RootCmd|rc-update add courier-pop3d default}}
 
 === IMAP ===
-Courier-imapd should be started.
+
+Courier-imapd should be started:
+
 {{RootCmd|/etc/init.d/courier-imapd start}}
-Once started, telnet should be sed to identify initial problems. Once logging in with telnet works, a mail client can be used.
+
+Once started, telnet could be used to identify initial problems. Once logging in with telnet works, a mail client can be used:
+
 {{Cmd|telnet foo.example.com 143|output=<pre>
 Trying 127.0.0.1...
 Connected to foo.example.com.
@@ -223,14 +260,18 @@ Escape character is '^]'.
 Connection closed by foreign host.
 </pre>}}
 
-If testing works properly, add courier-imap to the default runlevel.
+If testing works properly, add courier-imap to the default runlevel:
+
 {{RootCmd|rc-update add courier-imapd default}}
 
 == Wrapping things up ==
+
 Turn off debugging if this stage works properly.
+
 {{FileBox|filename=/etc/courier/authlib/authdaemonrc|title=Disable debugging|1=
 ##NAME: DEBUG_LOGIN:0
 DEBUG_LOGIN=0
 }}
 
+</translate>
 [[Category:Mail Servers]]
