@@ -1,0 +1,204 @@
+This page explains setup and configuration of Canon CAPT Printers.
+
+== Introduction ==
+The '''Canon i-Sensys''' series of laser printers are supported under CUPS by Canon's proprietary Canon Advanced Printing Technology (CAPT) backend.
+
+Supported models are: LBP9100C, LBP7210Cdn, LBP7200C series, LBP7200Cdn (network mode), LBP7018C, LBP7010C, LBP6310dn, LBP6300, LBP6300n, LBP6200, LBP6020, LBP6018, LBP6000, LBP5300, LBP5100, LBP5050 series, LBP5000, LBP3500, LBP3310, LBP3300, LBP3250, LBP3210, LBP3200, LBP3150, LBP3108, LBP3100, LBP3050, LBP3018, LBP3010, LBP3000, LBP2900, LBP-1210, LBP-1120, LBP-810
+
+{{Note|Using word "''Supported''" makes previous sentence true, but their divers are not friendly nor nice. This printers do work but usually it is not as simple as this page describes, different problems may arise. Canon is providing updates, but their code is really bad (just check out ebuilds and patches included or try to compile them by hand). They are slow to update and catch up with new developments in Linux kernel and CUPS. If you have some of this printers use them, you can get them to work. But I would not recommend them.}}
+
+{{Note|This drivers are notorious for not providing ''any'' debug information.}} 
+
+{{Note|This drivers are containing binary blobs.}}
+ 
+== Prerequisites == <!--T:6-->
+
+=== cups === <!--T:7-->
+
+<!--T:8-->
+Make sure {{Package|net-print/cups}} is installed:
+
+<!--T:9-->
+{{Emerge|net-print/cups}}
+
+<!--T:10-->
+The cups service must be started before the driver(s) can be installed.
+
+===== OpenRC ===== <!--T:11-->
+
+<!--T:12-->
+If OpenRC is used, then the following command can be issued to start the ''cups'' service.
+
+<!--T:13-->
+{{RootCmd|/etc/init.d/cupsd start}}  
+
+<!--T:14-->
+To have it started automatically at boot time, use <tt>rc-update</tt>:
+
+<!--T:15-->
+{{RootCmd|rc-update add cupsd default}}
+
+
+== Installing the drivers == <!--T:21-->
+
+Drivers are located on Gentoo's Bugzilla:  
+https://bugs.gentoo.org/show_bug.cgi?id=130612
+
+Latest version being 2.60 in ebuilds inside archive: https://bugs.gentoo.org/attachment.cgi?id=404004
+For using it you would need to create Local overlay explained on page [[Overlay/Local overlay]].
+
+Follow instructions in '''Creating a local overlay''' section.
+
+Download archive [https://bugs.gentoo.org/attachment.cgi?id=404004 net-print-cndrvcups.tar.gz] and unpack it in created overlay.
+It contains two ebuilds: net-print/cndrvcups-capt and net-print/cndrvcups-common.
+
+If your local overlay location is: /usr/local/portage you should have directories:
+/usr/local/portage/net-print/cndrvcups-common
+/usr/local/portage/net-print/cndrvcups-capt
+
+In that case you will need to issue this commands to be able to emerge ebuilds:
+
+{{RootCmd
+| pushd /usr/local/portage/net-print/cndrvcups-common
+| repoman manifest
+| popd
+| pushd /usr/local/portage/net-print/cndrvcups-capt
+| repoman manifest
+| popd
+}}
+
+After that you will need to emerge them (net-print/cndrvcups-capt depends on net-print/cndrvcups-common): 
+
+{{Emerge|net-print/cndrvcups-capt}}
+
+If you are using USB printer you will need usblp kernel module which is by default blacklisted by net-print/cups, easiest way around this is recompiling cups with USE="-usb". usbplp module is creating /dev/usb/lp0 device used for communicating with printer.
+
+Currently only use flag is USE="-cngplp", disabled by default and is creating some GUI that is not really interesting and needed. And creates multiple issues with compiling this drivers.
+
+
+== Configuration ==
+=== CUPS ===
+First the printer needs to be registered with CUPS using lpadmin:
+
+{{RootCmd|lpadmin -p ''printer_model'' -m ''printer_driver_file'' -v ccp://localhost:59687 -E}}
+
+The printer driver file can be found in /usr/share/cups/model. For the printer model, use the ''ShortNickName'' found inside the PPD, or take it directly from the file name, for example CNCUPS'''LBP6310'''CAPTK.ppd
+
+Alternatively you could check the table provided on the [https://help.ubuntu.com/community/CanonCaptDrv190 Ubuntu help page], which matches each supported printer with its corresponding PPD.
+
+{{Note|<nowiki>Some models have multiple PPDs, where the last letter indicates the regional model (J = Japan, K = United Kingdom, S = United States)</nowiki>}}
+
+For example, for the Canon LBP6310dn (UK model) you would enter
+
+{{RootCmd| lpadmin -p LBP6310 -m CNCUPSLBP6310CAPTK.ppd -v ccp://localhost:59687 -E}}
+
+=== CAPT ===
+Next you'll need to register the printer with the CAPT driver itself via ccpdadmin:
+
+==== USB printers ====
+
+{{RootCmd| ccpdadmin -p ''printer_model'' -o ''usb_port''}}
+
+e.g.
+
+{{RootCmd|ccpdadmin -p LBP6310 -o /dev/usb/lp0}}
+
+==== network printers ====
+
+{{RootCmd| ccpdadmin -p ''printer_model'' -o net:''ip_address''}}
+
+e.g.
+
+{{RootCmd|ccpdadmin -p LBP6310 -o net:192.168.1.100}}
+
+
+==Starting service==
+
+After this you will need to start ccpd service:
+
+{{RootCmd| /etc/init.d/ccpd start}}
+
+
+{{Note|It is know that this service can freak out and use 100% of CPU, it usually means that it is started before cupsd.}}
+
+
+== Status Monitor ==
+The driver includes a status monitor which can be launched with
+
+{{Cmd|captstatusui -P ''printer_model''}}
+
+e.g.
+
+{{Cmd|captstatusui -P LBP6310}}
+
+If you only want the status monitor to pop up when a problem occurs, simply append the -e switch:
+
+{{Cmd|captstatusui -P LBP6310 -e}}
+
+You may want to add this to your startup folder/script
+
+{{Note|If you are connecting your printer to a central CUPS print server, you may want to run the status monitor remotely using X11 forwarding and an SSH key without passprase, restricted to running only this command}}
+
+
+
+==Alternatives==
+
+While searching for solutions of your problems with some of this printers you will get to this pages, eventualy:
+
+http://sourceforge.net/projects/foo2capt/
+
+http://www.boichat.ch/nicolas/capt/
+
+Those were really nice open source drivers, that were actually working at the time, but only had one release. It would be nice if someone would take over those projects and keep them alive. Until then, we will have to use official ones.
+
+
+==Troubleshooting==
+
+===100% CPU===
+This is known to happen. ''ccpd'' service must be started '''after''' ''cupsd'' and ''udevd''.
+
+=== module usblp ===
+If Status monitor reports error "Check the DevicePath of /etc/ccpd.conf", then you probably don't have usblp kernel module. Run the following command:
+
+lsmod | grep usblp
+
+If it outputs nothing, load the module and restart ccpd:
+{{RootCmd
+|modprobe usblp
+|ls -l /dev/usb/lp0
+|/etc/init.d/ccpd stop
+|/etc/init.d/ccpd start
+}}
+usblp has been deprecated by CUPS and might not be automatically loaded when you connect your USB printer.
+
+If the status monitor works but printing does not, make sure that /var/ccpd/fifo0 actually exists:
+
+{{Cmd|ls -l /var/ccpd}
+
+When missing, it can be added manually:
+{{RootCmd
+|mkdir /var/ccpd
+|mkfifo /var/ccpd/fifo0
+|chown -R lp:lp /var/ccpd
+}}
+
+===CUPS===
+Use cups web interface to detect problem http://localhost:631 it can help with different issues. Since Canon's this drivers are notorious for not providing ''any'' debug information. 
+
+===64-bit Systems===
+Proprietary part of this module is complied for 32-bit systems. This can cause problems mostly related to libc6 and libpopt0 libraries on which it depends. You can check that with:
+
+{{Cmd|ldd /usr/bin/captfilter}} 
+
+Additionally linked ebuilds are only tested for x86. 
+
+(I hope someone with amd64 will be able to provide support or more info.)
+
+===Bugs===
+Expect them. And please report bugs/problems you have with ebuilds to https://bugs.gentoo.org/show_bug.cgi?id=130612
+
+== Related Links/Additional Information ==
+[[https://help.ubuntu.com/community/CanonCaptDrv190 Setting up CAPT printers on Ubuntu]]
+[[https://wiki.archlinux.org/index.php/Canon_CAPT Setting up CAPT printers on Arch Linux]]
+
+[[Category:Printers]]
