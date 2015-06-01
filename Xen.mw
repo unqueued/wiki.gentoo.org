@@ -6,7 +6,7 @@ The [http://www.xen.org/ Xen] technology allows you to run multiple operating sy
 
 This guide will talk you through the configuration steps necessary to get Xen up and running on Gentoo Linux. We will not discuss Xen itself (the Xen project has [http://xen.org/support/documentation.html decent documentation] available) nor will we talk about specialized setups that might be very interesting for Xen setups but are not Xen-related (like exporting Portage through NFS, booting Linux using PXE, etc.) 
 
-== Preparing Domain0 (dom0) ==
+== Preparing Domain-0 (dom0) ==
 
 === Introduction ===
 
@@ -84,24 +84,6 @@ Device Drivers  --->
                <*> Xen virtual frame buffer support
 }}
 
-The remaining drivers flesh out memory management, domain-to-domain communication, and communication to Xen via sysfs interfaces:
-{{KernelBox|title=Xen Drivers|
-Device Drivers  --->
-     Xen driver support  --->
-          [*] Xen memory balloon driver
-          [*]   Scrub pages before returning them to system
-          <*> Xen /dev/xen/evtchn device
-          <*> Xen filesystem
-          [*]   Create compatibility mount point /proc/xen
-          [*] Create xen entries under /sys/hypervisor
-          <*> userspace grant access device driver
-          <*> User-space grant reference allocator driver
-          <*> Xen ACPI processor
-          [*] Xen platform mcelog
-}}
-
-In addition to the previous entries the dom0 kernel requires the following options.
-
 Xen dom0 support depends on APCI; without it dom0 related options will be hidden:
 {{KernelBox|title=APCI Support|
 Power management and ACPI options  --->
@@ -118,18 +100,29 @@ Typical network configurations depend on linux bridge functionality:
 	       [*]   Bridged IP/ARP packets filtering
 }}
 
-{{KernelBox|
-Device Drivers --->
+The remaining drivers flesh out memory management, domain-to-domain communication, and communication to Xen via sysfs interfaces:
+{{KernelBox|title=Xen Drivers|
+Device Drivers  --->
      [*] Block devices  --->
           <*>   Xen block-device backend driver
      [*] Network device support --->
           <*>   Xen backend network device
      Xen driver support  --->
-        [*] Backend driver support
-        <M> Xen PCI-device backend driver
+          [*] Xen memory balloon driver
+          [*]   Scrub pages before returning them to system
+          <*> Xen /dev/xen/evtchn device
+          [*] Backend driver support
+          <*> Xen filesystem
+          [*]   Create compatibility mount point /proc/xen
+          [*] Create xen entries under /sys/hypervisor
+          <*> userspace grant access device driver
+          <*> User-space grant reference allocator driver
+          <M> Xen PCI-device backend driver
+          <*> Xen ACPI processor
+          [*] Xen platform mcelog
 }}
 
-With all of the above configuration enabled the kernel image to boot both as a host as well as a guest. However, if you want to, you can slim down the guest image kernel considerably. Refer to the Xen documentation for more information.
+With all of the above configuration enabled, this kernel image should be able to boot as the dom0 host or as another domU guest. Note that the domU kernel can be slimmed down significantly if desired.
 
 === Bootloader ===
 
@@ -173,12 +166,58 @@ Go to the Xen-powered Linux kernel source and, if necessary, update the configur
 
 {{Note|On modern systems (e.g. xen-4.3.2, kernel-3.12) it is possible to use only one kernel for both: dom0 and domU. Just configure all options needed for a guest system in the main kernel. Don't forget to copy the modules {{Path|/lib/modules/<your kernel>}} to the guest system. }}
 
-{{KernelBox|title=Additional kernel config options for domU|
-Device Drivers --->
-    [*] Block devices (NEW) --->
-        <*>   Xen virtual block device support
-    [*] Network device support --->
-        <*>   Xen network device frontend driver
+If you'd like to trim down the domU kernel the following flags are necessary.
+
+Enable general Xen support:
+{{KernelBox|title=Xen Base|
+Processor type and features  --->
+     [*] Linux guest support  --->
+          [*]   Enable paravirtualization code
+          [*]     Xen guest support
+          [*]       Support for running as a PVH guest
+          [*]     Paravirtualization layer for spinlocks          
+}}
+
+Facilitates guest access to block and network devices via dom0:
+{{KernelBox|title=Disk and Network|
+Device Drivers  --->
+     [*] Block devices  --->
+          <*>   Xen virtual block device support
+     [*] Network device support  --->
+          <*>   Xen network device frontend driver
+}}
+
+In some configurations it can be desirable to provide a guest with direct access to a PCI device. This is known as [http://wiki.xenproject.org/wiki/XenPCIpassthrough Xen PCI Passthrough ]:
+{{KernelBox|title=Guest PCI Passthrough|
+Bus options (PCI etc.)  --->
+     [*] Xen PCI Frontend
+}}
+
+Keyboard, mouse, and display support via dom0 backend:
+{{KernelBox|title=Guest Human Interface|
+Device Drivers  --->
+     Input device support  --->
+          [*]   Miscellaneous devices  --->
+               <*>   Xen virtual keyboard and mouse support
+     Graphics support  --->
+          Frame buffer Devices  --->
+               <*> Xen virtual frame buffer support
+}}
+
+The remaining drivers flesh out memory management, domain-to-domain communication, and communication to Xen via sysfs interfaces:
+{{KernelBox|title=Xen Drivers|
+Device Drivers  --->
+     Xen driver support  --->
+          [*] Xen memory balloon driver
+          [*]   Scrub pages before returning them to system
+          <*> Xen /dev/xen/evtchn device
+          <*> Xen filesystem
+          [*]   Create compatibility mount point /proc/xen
+          [*] Create xen entries under /sys/hypervisor
+          <*> userspace grant access device driver
+          <*> User-space grant reference allocator driver
+          <*> Xen ACPI processor
+          [*] Xen platform mcelog
 }}
 
 === Creating the Domain Disks ===
