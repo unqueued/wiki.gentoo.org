@@ -60,7 +60,7 @@ LDAP can be used for various things. This document focuses on centralised user m
 The domain genfic.com is an example in this guide. You will of course want to change this. However, make sure that the top node is an official top level domain (net, com, cc, be, ...).
 
 
-Let's first emerge OpenLDAP. Ensure the USE flags ''berkdb, crypt, gnutls, ipv6, sasl, ssl, syslog'' and ''tcpd'' are used.
+Let's first emerge OpenLDAP. Ensure the USE flags ''berkdb, crypt, gnutls, ipv6, sasl, ssl, syslog, -minimal'' and ''tcpd'' are used.
 
 {{Emerge|openldap}}
 
@@ -81,7 +81,7 @@ Re-enter new password: my-password
 
 Now edit the LDAP Server configuration in {{Path|/etc/openldap/slapd.conf}}. The provided {{Path|slapd.conf}} is from the original openLDAP source. Below is a sample configuration file one can use to replace it with to get things started. 
 
-{{Code|/etc/openldap/slapd.conf|<pre>
+{{FileBox|filename=/etc/openldap/slapd.conf|1=
 include	/etc/openldap/schema/core.schema
 include /etc/openldap/schema/cosine.schema
 include /etc/openldap/schema/inetorgperson.schema
@@ -138,7 +138,6 @@ mirrormode TRUE
  
 overlay syncprov
 syncprov-checkpoint 100 10
-</pre>
 }}
 
 For a more detailed analysis of the configuration file, we suggest that you work through the OpenLDAP Administrator's Guide. 
@@ -179,9 +178,8 @@ For more instructions read the in-line comments of the generated files.
 
 The below line will enable the {{Path|slapd.d/}} configuration method. 
 
-{{Code|/etc/conf.d/slapd|<pre>
+{{FileBox|filename=/etc/conf.d/slapd|lang=bash|1=
 OPTS="-F /etc/openldap/slapd.d -h 'ldaps:// ldap:// ldapi://%2fvar%2frun%2fopenldap%2fslapd.sock'"
-</pre>
 }}
 
 Finally, create the {{Path|/var/lib/openldap-data}} structure: 
@@ -215,12 +213,11 @@ olcConfigDir: /etc/openldap/slapd.d
 
 To change the log level used by the OpenLDAP instance:
 
-{{Code|loglevel.ldif|<pre>
+{{FileBox|filename=loglevel.ldif|1=
 dn: cn=config
 changetype: modify
 replace: olcLogLevel
 olcLogLevel: stats sync
-</pre>
 }}
 
 In order to apply the changes, run the following command:
@@ -231,12 +228,11 @@ In order to apply the changes, run the following command:
 
 Edit the LDAP Client configuration file. This file is read by ldapsearch and other ldap command line tools.
 
-{{File|/etc/openldap/ldap.conf|以下を追加|<pre>
+{{FileBox|filename=/etc/openldap/ldap.conf|title=Add the following|1=
 BASE         dc=genfic, dc=com
 URI          ldap://ldap.genfic.com:389/ ldap://ldap1.genfic.com:389/ ldap://ldap2.genfic.com:389/
 TLS_REQCERT  allow
 TIMELIMIT    2
-</pre>
 }}
 
 You can test the running server with the following command: 
@@ -263,7 +259,7 @@ The first two are demonstrated below with the minimum necessary configuration op
 
 Here is the more direct method. The three files that are required to be edited are mentioned below. 
 
-{{File|/etc/sssd/sssd.conf||<pre>
+{{FileBox|filename=/etc/sssd/sssd.conf|lang=ini|1=
 [sssd]
 config_file_version = 2
 services = nss, pam
@@ -280,7 +276,7 @@ ldap_search_base = dc=genfic,dc=com
 ldap_tls_reqcert = never
 # primary and backup ldap servers below [first server and],[second server]
 ldap_uri = ldap://X.X.X.X,ldap://X.X.X.X
-</pre>}}
+}}
 
 
 Add sss to the end as shown below to enable the lookup to be handed to the sssd system service. Once you have finished editing start the sssd daemon.
@@ -336,31 +332,30 @@ First, we will configure PAM to allow LDAP authorization. Install {{Package|sys-
 
 The last file is the most critical. Open a few extra root terminals as a backup before editing this. The lines that end with <code>#</code> have been added to enable remote authentication.
 
-{{Code|/etc/pam.d/system-auth|<pre>
+{{FileBox|filename=/etc/pam.d/system-auth|1=
 #%PAM-1.0
  
 auth       required     pam_env.so
 auth       sufficient   pam_unix.so try_first_pass likeauth nullok
-'''auth       sufficient   pam_ldap.so use_first_pass'''
+auth       sufficient   pam_ldap.so use_first_pass                                                    #
 auth       required     pam_deny.so
  
-'''account    sufficient   pam_ldap.so'''
+account    sufficient   pam_ldap.so                                                                   #
 account    required     pam_unix.so
  
 password   required     pam_cracklib.so difok=2 minlen=8 dcredit=2 ocredit=2 try_first_pass retry=3
 password   sufficient   pam_unix.so try_first_pass use_authtok nullok md5 shadow
-'''password   sufficient   pam_ldap.so use_authtok use_first_pass'''
+password   sufficient   pam_ldap.so use_authtok use_first_pass                                        #
 password   required     pam_deny.so
  
 session    required     pam_limits.so
 session    required     pam_unix.so
-'''session    optional     pam_ldap.so'''
-</pre>
+session    optional     pam_ldap.so                                                                   #
 }}
 
 Now change {{Path|/etc/ldap.conf}} to read: 
 
-{{Code|/etc/ldap.conf|<pre>
+{{FileBox|filename=/etc/ldap.conf|1=
 ## #host 127.0.0.1
 ## #base dc=padl,dc=com
  
@@ -380,7 +375,6 @@ pam_password exop
 scope one
 timelimit 2
 uri ldap://ldap.genfic.com/ ldap://ldap1.genfic.com ldap://ldap2.genfic.com
-</pre>
 }}
 
 Next, copy over the (OpenLDAP) {{Path|ldap.conf}} file from the server to the client so the clients are aware of the LDAP environment: 
@@ -389,11 +383,10 @@ Next, copy over the (OpenLDAP) {{Path|ldap.conf}} file from the server to the cl
 
 Finally, configure your clients so that they check the LDAP for system accounts: 
 
-{{Code|/etc/nsswitch.conf|<pre>
+{{FileBox|filename=/etc/nsswitch.conf|1=
 passwd:         files ldap
 group:          files ldap
 shadow:         files ldap
-</pre>
 }}
 
 If you noticed one of the lines you pasted into your {{Path|/etc/ldap.conf}} was commented out (the <code>rootbinddn</code> line): you don't need it unless you want to change a user's password as superuser. In this case you need to echo the root password to {{Path|/etc/ldap.secret}} in plaintext. This is '''DANGEROUS''' and should be chmoded to 600. What you might want to do is keep that file blank and when you need to change someone's password that's both in the LDAP and {{Path|/etc/passwd}}, put the pass in there for 10 seconds while changing the users password and remove it when done.
@@ -492,7 +485,7 @@ Password: ## enter the administrative password
 
 If we take a look at {{Path|/etc/openldap/slapd.conf}} you'll see that you can specify the ACLs (permissions if you like) of what data users can read and/or write: 
 
-{{Code|/etc/openldap/slapd.conf|<pre>
+{{FileBox|filename=/etc/openldap/slapd.conf|1=
 access to attrs=userPassword,gecos,description,loginShell
   by self write
   
@@ -500,7 +493,6 @@ access to *
   by dn="uid=root,ou=People,dc=genfic,dc=com" write
   by users read
   by anonymous auth
-</pre>
 }}
 
 This gives you access to everything a user should be able to change. If it's your information, then you got write access to it; if it's another user their information then you can read it; anonymous people can send a login/pass to get logged in. There are four levels, ranking them from lowest to greatest: <code>auth search read write</code>. 
