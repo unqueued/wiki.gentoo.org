@@ -1,7 +1,7 @@
 <languages />
 
 
-{{Metadata|abstract=AIDE는 고급 침입 탐지 환경을 의미하며, 파일과 다른 자원을 검사하고, 이 파일에 대한 정보를 데이터베이스에 저장하는 프로그램입니다. 시스템을 다시 검사하면 (가능한한 원하지 않는) 수정사항을 인증하고 이러한 문제를 보고할 수 있습니다.}}
+{{Metadata|abstract=AIDE ('''''A'''dvanced '''I'''ntrusion '''D'''etection '''E'''nvironment'') is a host-based intrusion detection system. AIDE scans files and other resources and stores information about these files in a database. Stored information includes key file attributes such as file hash output, file size, ownership, modification time, creation time, and more. After the initial database has been created, AIDE then rescans the system and compares new scan results with previously stored values. If values differ then the file has been changed and the change will be reported. The idea behind using AIDE is to create a snapshot of a system then compare the snapshot to another created snapshot to find compromised files.}}
 
 AIDE ('''''A'''dvanced '''I'''ntrusion '''D'''etection '''E'''nvironment'') is a host-based intrusion detection system. AIDE scans files and other resources and stores information about these files in a database. Stored information includes key file attributes such as file hash output, file size, ownership, modification time, creation time, and more. After the initial database has been created, AIDE then rescans the system and compares new scan results with previously stored values. If values differ then the file has been changed and the change will be reported. The idea behind using AIDE is to create a snapshot of a system then compare the snapshot to another created snapshot to find compromised files.
 
@@ -13,15 +13,16 @@ __TOC__
 
 It is easy to install <tt>aide</tt> after setting the USE flags accordingly.
 {{USEflag|package=app-forensics/aide|desc=Optional USE flags for {{Package|app-forensics/aide}}:
-|acl
+|acl+yes
 |audit++yes
 |curl
 |mhash++yes
-|nls++yes
+|nls+yes
 |postgres
+|prelink
 |static
 |xattr++yes
-|zlib++yes
+|zlib+yes
 }}
 
 USE flag changes specific to a certain package should be defined in the {{Path|/etc/portage/package.use}} file, or a text file inside a directory called {{Path|/etc/portage/package.use}}. For example, when using a {{Path|/etc/portage/package.use}} ''file'':
@@ -38,11 +39,11 @@ After the USE flags have been set, install the software:
 
 == Configuration ==
 
-<tt>aide</tt> 프로그램에 대한 설정 파일은 처음에 보신 바와 같이 주눅들게 하지는 않습니다. 기본 파일은 {{Path|/etc/aide/aide.conf}}에 있지만 원할 경우 설정 파일을 따로 분리하여 여러개를 쉽게 만들 수 있습니다. 몇가지 변수에 따라, 설정 파일에는 파일의 어떤 특징을 검사할지(해시만 검사할지, inode 정보 등까지 검사할지)와 어떤 파일을 검사할지에 대한 간단한 표기내용이 들어있습니다.
+The configuration file for <tt>aide</tt> is not as daunting as it might seem at first sight. The default file is stored at {{Path|/etc/aide/aide.conf}} but administrators can easily create multiple configuration files if necessary. Besides a few variables, the configuration file contains short-hand notations for what aspects of files to scan for (only hashes, or also inode information, etc.) and which files to scan.
 
-일단 먼저 변수를 들여다보도록 하겠습니다.
+Take look at the database variables:
 
-{{FileBox|filename=aide.conf|title=변수|1=
+{{FileBox|filename=aide.conf|title=AIDE database configuration variables|1=
 database=file:/var/lib/aide/aide.db
 database_out=file:/var/lib/aide/aide.db.new
 }}
@@ -51,11 +52,11 @@ The first line in the example above (<code>database</code>) defines where the lo
 
 {{RootCmd|cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db}}
 
-이제, 이 변수값을 그대로 내버려두고, 나중에 다시 살펴보기로 하겠습니다.
+For now, leave the database variables as they are; they will be covered in more detail later in the article.
 
 The next file to consider is the {{Path|aide.conf}} file. The values of the variable are short-hand notations for what information to record in the database.
 
-{{FileBox|filename=aide.conf|title=간단한 표기|lang=ini|1=
+{{FileBox|filename=aide.conf|title=AIDE configuration using shorthand notation|lang=ini|1=
 Binlib = p+i+n+u+g+s+b+m+c+md5+sha1
 Logs = p+i+n+u+g+S
 ...
@@ -63,7 +64,7 @@ Logs = p+i+n+u+g+S
 
 {{Note|It should be obvious that <code>md5</code> and <code>sha1</code> mean that MD5 and SHA-1 checksums are taken (respectively).}}
 
-확인할 요소에 대한 간단한 표기법이 있습니다. 각 문자에 대해서는  기본 {{Path|aide.conf}} 파일에 설명되어 있지만, 다음 테이블을 통해 일반적으로 사용하는 방법을 간단히 살펴보도록 하겠습니다.
+The letters are described in the default {{Path|aide.conf}} file, but for convenience the following table provides an overview of the most common options:
 
 {| class="table"
 ! Short
@@ -99,23 +100,23 @@ Logs = p+i+n+u+g+S
 
 Next is an overview of which directories to scan, and what to scan for. In three line example to follow, AIDE is instructed to scan the {{Path|/bin}} and {{Path|/sbin}} directories via the measures identified in the <code>Binlib</code> short-hand notation variable. The {{Path|/var/log}} file will display the scan measures defined in the <code>Logs</code> variable defined above.
 
-{{FileBox|filename=aide.conf|title=검사 대상|1=
+{{FileBox|filename=aide.conf|title=Scan target options|1=
 /bin Binlib
 /sbin Binlib
 /var/log Logs
 ...
 }}
 
-AIDE에는 정규표현식을 지원하며 일치하는 요소를 "제거" 할 수 있습니다. 예를 들어, {{Path|/var/log}}를 검사하지만 {{Path|/var/log/portage}}를 검사하지 않으려면, 다음과 같이 제외 사항을 포함할 수 있습니다:
+AIDE supports regular expressions and users are allowed to "remove" matches. For instance, to scan {{Path|/var/log}} but not {{Path|/var/log/portage}} then make an exclusion set by using the <code>!</code> (exclamation point) before the excluded path(s):
 
-{{FileBox|filename=aide.conf|title=다른 검사 대상|1=
+{{FileBox|filename=aide.conf|title=Other scan targets|1=
 /var/log Logs
 !/var/log/portage
 }}
 
 === 초기화 및 잦은 검사 ===
 
-먼저 데이터베이스를 한번 초기화해야 합니다.
+For a basic AIDE setup, a database must be initialized. This is performed using the <code>--init</code> option. To make sure AIDE uses the configuration settings defined in the sections before, be sure to pass the <code>--config</code> option pointed to the correct configuration file:
 
 {{RootCmd|aide --init --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE, version 0.14.2
@@ -123,11 +124,11 @@ AIDE, version 0.14.2
 ### AIDE database at /var/lib/aide/aide.db.new initialized.
 </pre>}}
 
-초기화를 하고 나면, 데이터베이스 파일을 다른곳으로 복사할 수 있습니다.
+Once initialized, any pre-existing database files can be copied over:
 
 {{RootCmd|cd /var/lib/aide; cp aide.db.new aide.db}}
 
-이제 데이터베이스를 사용할 수 있으므로, 잠재적인 수정 사항을 다시 검사할 수 있습니다:
+With a new database available, the entries can be scanned again (now or at a later date) using the <code>--check</code> option. This will create another database containing any modifications that have made to the file system since the first database has been created. Be sure to use the <code>--config</code> option pointed to the same configuration file that the first database was created with:
 
 {{RootCmd|aide --check --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE, version 0.14.2
@@ -135,7 +136,7 @@ AIDE, version 0.14.2
 ### All files match AIDE database. Looks okay!
 </pre>}}
 
-파일 수정이 발생하면, 다음 알림을 내보냅니다:
+If file modification(s) occurred, a notification will be sent out:
 
 {{RootCmd|aide --check --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE found differences between database and filesystem!!
@@ -173,7 +174,7 @@ File: /etc/pam.d/run_init
   SHA1     : NrQtsUeOsXS4RHUq+ejYBne5V6E=     , 5A6ef6VJCcMiqEjKQ7e9xkBNZB8=
 </pre>}}
 
-== 모범 사례 ==
+== Best practices ==
 
 === Be clear on what to scan ===
 
@@ -198,7 +199,7 @@ File: /etc/pam.d/run_init
 
 === 데이터베이스를 오프라인 상태 및 읽기 전용으로 유지하십시오 ===
 
-두번째로 중요한 양상은, 필요하지 않을 때는 데이터베이스를 오프라인에 저장해야하며, 필요할 때는 읽기 전용 방식으로 사용하려 하는 점입니다. 이러한 방식을 통해 타협 숙주를 지니고 데이터베이스를 멋대로 수정하는 악의적인 사용자로부터 보호할 수 있습니다. 예를 들어 읽기 전용 NFS 마운트(서버) 또는 CD/DVD 또는 읽기 전용 USB같은 읽기 전용 매체(머신에 직접 접근할 수 있을 경우)를 통해 결과 데이터베이스를 제공할 수 있습니다.
+A second important aspect is that the result database should be stored offline when ''not'' needed and should be used in read-only mode when the database ''is'' needed. This gives some protection against a malicious user that might have compromised the machine to modify the results database. For instance, provide the result database on a read-only NFS mount (for servers) or read-only medium (when physical access to the machine is possible) such as a CD/DVD or a read-only USB drive.
 
 After storing the database on a read-only location, update the {{Path|aide.conf}} file to have <code>database=</code> point to this new location.
 
@@ -217,7 +218,7 @@ After storing the database on a read-only location, update the {{Path|aide.conf}
 |vgchange -an /dev/volgrpX
 |losetup -d /dev/loop0}}
 
-위의 접근 방식에서는 chroot를 사용했습니다. 실제 시스템에서 초기 파일 시스템을 검사할 경우에만 필요하며, 관리자는 오프라인 방식 검사를 원합니다. 초기 오프라인 검사가 끝나면, {{Path|aide.conf}}파일은 마운트 지점을 가리키며, 데이터베이스는 이 경로를 즉시 사용합니다. 따라서 chroot를 할 필요가 없습니다.
+The above approach uses <tt>chroot</tt>. This is only needed when the initial file system has been scanned from the live system and the administrator wants to perform an offline validation. If the initial scan was done offline, then the {{Path|aide.conf}} file will point to the mount point already and the database will use these paths immediately, so then there is no need for chrooting.
 
 == 추가 참조 ==
 
