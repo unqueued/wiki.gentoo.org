@@ -1,7 +1,7 @@
 <languages />
 
 
-{{Metadata|abstract=AIDE означает Advanced Intrusion Detection Environment (расширенная система обнаружения вторжений) и является приложением, которое сканирует файлы и другие источники и сохраняет информацию об этих файлах в базе данных. Повторное сканирование системы может затем обнаружить (возможно нежелательные) изменения и о них сообщить.}}
+{{Metadata|abstract=AIDE ('''''A'''dvanced '''I'''ntrusion '''D'''etection '''E'''nvironment'') is a host-based intrusion detection system. AIDE scans files and other resources and stores information about these files in a database. Stored information includes key file attributes such as file hash output, file size, ownership, modification time, creation time, and more. After the initial database has been created, AIDE then rescans the system and compares new scan results with previously stored values. If values differ then the file has been changed and the change will be reported. The idea behind using AIDE is to create a snapshot of a system then compare the snapshot to another created snapshot to find compromised files.}}
 
 AIDE ('''''A'''dvanced '''I'''ntrusion '''D'''etection '''E'''nvironment'') is a host-based intrusion detection system. AIDE scans files and other resources and stores information about these files in a database. Stored information includes key file attributes such as file hash output, file size, ownership, modification time, creation time, and more. After the initial database has been created, AIDE then rescans the system and compares new scan results with previously stored values. If values differ then the file has been changed and the change will be reported. The idea behind using AIDE is to create a snapshot of a system then compare the snapshot to another created snapshot to find compromised files.
 
@@ -13,15 +13,16 @@ __TOC__
 
 It is easy to install <tt>aide</tt> after setting the USE flags accordingly.
 {{USEflag|package=app-forensics/aide|desc=Optional USE flags for {{Package|app-forensics/aide}}:
-|acl
+|acl+yes
 |audit++yes
 |curl
 |mhash++yes
-|nls++yes
+|nls+yes
 |postgres
+|prelink
 |static
 |xattr++yes
-|zlib++yes
+|zlib+yes
 }}
 
 USE flag changes specific to a certain package should be defined in the {{Path|/etc/portage/package.use}} file, or a text file inside a directory called {{Path|/etc/portage/package.use}}. For example, when using a {{Path|/etc/portage/package.use}} ''file'':
@@ -38,24 +39,24 @@ After the USE flags have been set, install the software:
 
 == Configuration ==
 
-Файл настроек <tt>aide</tt> не настолько устрашающий, как это может показаться с первого взгляда. Файл по умолчанию хранится в {{Path|/etc/aide/aide.conf}}, но если это необходимо, администраторы легко могут создать множественные отдельные файлы настроек. Кроме нескольких переменных, файл настроек содержит несколько кратких обозначений для того, какие аспекты файлов нужно сканировать (только хэш-суммы, или также информацию об индексных дескрипторах (inodes), и т.д.) и затем, какие файлы нужно сканировать.
+The configuration file for <tt>aide</tt> is not as daunting as it might seem at first sight. The default file is stored at {{Path|/etc/aide/aide.conf}} but administrators can easily create multiple configuration files if necessary. Besides a few variables, the configuration file contains short-hand notations for what aspects of files to scan for (only hashes, or also inode information, etc.) and which files to scan.
 
-Давайте сначала рассмотрим переменные.
+Take look at the database variables:
 
-{{FileBox|filename=aide.conf|title=Переменные|1=
+{{FileBox|filename=aide.conf|title=AIDE database configuration variables|1=
 database=file:/var/lib/aide/aide.db
 database_out=file:/var/lib/aide/aide.db.new
 }}
 
-Эти параметры определяют где хранить базу данных, которая содержит уже известные значения (<code>database</code>), и где хранить новую базу данных при ее создании (<code>database_out</code>). В основном, рекомендуется, чтобы эти переменные не указывали на одно и то же. Вместо этого рекомендуется ручное копирование сгенерированной базы данных из одного места в другое.
+The first line in the example above (<code>database</code>) defines where the location of database that contains the known values. The second line (<code>database_out</code>) defines where to store new databases when another is generated. It is generally recommended against having these variables point to the same database (having the same paths for each variable). If one database is to overwrite another, the best method is to ''manually copy'' over the generated database from one location to the other. For example, to overwrite the first database with the second, this command could be used:
 
 {{RootCmd|cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db}}
 
-А сейчас, оставьте эти переменные как есть, мы вернемся к ним позже.
+For now, leave the database variables as they are; they will be covered in more detail later in the article.
 
 The next file to consider is the {{Path|aide.conf}} file. The values of the variable are short-hand notations for what information to record in the database.
 
-{{FileBox|filename=aide.conf|title=Сокращенные обозначения|lang=ini|1=
+{{FileBox|filename=aide.conf|title=AIDE configuration using shorthand notation|lang=ini|1=
 Binlib = p+i+n+u+g+s+b+m+c+md5+sha1
 Logs = p+i+n+u+g+S
 ...
@@ -63,7 +64,7 @@ Logs = p+i+n+u+g+S
 
 {{Note|It should be obvious that <code>md5</code> and <code>sha1</code> mean that MD5 and SHA-1 checksums are taken (respectively).}}
 
-Это краткие обозначения того, что нужно измерять. Эти буквы описаны в файле {{Path|aide.conf}} по умолчанию, но в следующей таблице дан обзор самых частоиспользуемых из них.
+The letters are described in the default {{Path|aide.conf}} file, but for convenience the following table provides an overview of the most common options:
 
 {| class="table"
 ! Short
@@ -99,23 +100,23 @@ Logs = p+i+n+u+g+S
 
 Next is an overview of which directories to scan, and what to scan for. In three line example to follow, AIDE is instructed to scan the {{Path|/bin}} and {{Path|/sbin}} directories via the measures identified in the <code>Binlib</code> short-hand notation variable. The {{Path|/var/log}} file will display the scan measures defined in the <code>Logs</code> variable defined above.
 
-{{FileBox|filename=aide.conf|title=Задачи сканирования|1=
+{{FileBox|filename=aide.conf|title=Scan target options|1=
 /bin Binlib
 /sbin Binlib
 /var/log Logs
 ...
 }}
 
-AIDE поддерживает регулярные выражения и пользователям разрешено ''удалять'' совпадения. Например, чтобы просканировать {{Path|/var/log}}, но не {{Path|/var/log/portage}}, включите набор исключений вроде такого:
+AIDE supports regular expressions and users are allowed to "remove" matches. For instance, to scan {{Path|/var/log}} but not {{Path|/var/log/portage}} then make an exclusion set by using the <code>!</code> (exclamation point) before the excluded path(s):
 
-{{FileBox|filename=aide.conf|title=Другие задачи сканирования|1=
+{{FileBox|filename=aide.conf|title=Other scan targets|1=
 /var/log Logs
 !/var/log/portage
 }}
 
 === Инициализация и частое сканирование ===
 
-Сначала нам нужно инициализировать базу данных один раз.
+For a basic AIDE setup, a database must be initialized. This is performed using the <code>--init</code> option. To make sure AIDE uses the configuration settings defined in the sections before, be sure to pass the <code>--config</code> option pointed to the correct configuration file:
 
 {{RootCmd|aide --init --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE, version 0.14.2
@@ -123,11 +124,11 @@ AIDE, version 0.14.2
 ### AIDE database at /var/lib/aide/aide.db.new initialized.
 </pre>}}
 
-Как только база данных инициализирована, мы можем скопировать файл базы данных.
+Once initialized, any pre-existing database files can be copied over:
 
 {{RootCmd|cd /var/lib/aide; cp aide.db.new aide.db}}
 
-Теперь, с доступной базой данных, мы можем просканировать записи снова для обнаружения потенциальных изменений:
+With a new database available, the entries can be scanned again (now or at a later date) using the <code>--check</code> option. This will create another database containing any modifications that have made to the file system since the first database has been created. Be sure to use the <code>--config</code> option pointed to the same configuration file that the first database was created with:
 
 {{RootCmd|aide --check --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE, version 0.14.2
@@ -135,7 +136,7 @@ AIDE, version 0.14.2
 ### All files match AIDE database. Looks okay!
 </pre>}}
 
-Когда произошло изменение файла, будет послано уведомление:
+If file modification(s) occurred, a notification will be sent out:
 
 {{RootCmd|aide --check --config{{=}}/etc/aide/aide.conf|output=<pre>
 AIDE found differences between database and filesystem!!
@@ -173,9 +174,9 @@ File: /etc/pam.d/run_init
   SHA1     : NrQtsUeOsXS4RHUq+ejYBne5V6E=     , 5A6ef6VJCcMiqEjKQ7e9xkBNZB8=
 </pre>}}
 
-== Лучшие Практики ==
+== Best practices ==
 
-=== Ясно определите что нужно сканировать ===
+=== Be clear on what to scan ===
 
 Файл конфигурации AIDE по умолчанию полезен, но требуется его тонкая настройка для соответствия требованиям пользователей. Важно знать какие файлы нужно сканировать и почему.
 
@@ -198,9 +199,9 @@ File: /etc/pam.d/run_init
 
 === Храните базу данных на внешнем носителе и в режиме только для чтения ===
 
-Вторым важным аспектом является то, что полученную в результате базу данных нужно хранить на внешнем носителе, когда она Вам не нужна, и использовать режим только для чтения, когда эта база данных понадобилась. Это дает некоторую защиту от злоумышленника, который уже мог скомпрометировать компьютер, чтобы модифицировать базу данных с результатами сканирования. Например, храните конечную базу данных на смонтированном каталоге NFS в режиме только для чтения (для серверов), или на носителе данных с доступом только для чтения (если возможен физический доступ к компьютеру), таком как CD/DVD или USB-флеш-накопитель с переключателем в режим "только чтение".
+A second important aspect is that the result database should be stored offline when ''not'' needed and should be used in read-only mode when the database ''is'' needed. This gives some protection against a malicious user that might have compromised the machine to modify the results database. For instance, provide the result database on a read-only NFS mount (for servers) or read-only medium (when physical access to the machine is possible) such as a CD/DVD or a read-only USB drive.
 
-После размещения базы данных в таком месторасположении, обновите файл {{Path|aide.conf}}, чтобы <code>database=</code> указывал на новое место.
+After storing the database on a read-only location, update the {{Path|aide.conf}} file to have <code>database=</code> point to this new location.
 
 === Делайте автономное сканирование ===
 
@@ -217,7 +218,7 @@ File: /etc/pam.d/run_init
 |vgchange -an /dev/volgrpX
 |losetup -d /dev/loop0}}
 
-Подход, представленный выше, использует chroot. Это требуется только тогда, когда исходная файловая система сканируется с работающей системы, и администратор хочет выполнить автономную проверку. Если первоначальное сканирование проводилось в автономном режиме, то файл {{Path|aide.conf}} уже будет указывать на точку монтирования и база данных сразу же будет пользоваться этими путями, поэтому в данном случае не требуется использование chroot.
+The above approach uses <tt>chroot</tt>. This is only needed when the initial file system has been scanned from the live system and the administrator wants to perform an offline validation. If the initial scan was done offline, then the {{Path|aide.conf}} file will point to the mount point already and the database will use these paths immediately, so then there is no need for chrooting.
 
 == Смотри также ==
 
