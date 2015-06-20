@@ -1,0 +1,242 @@
+This guide walks through the setup of a basic virtual server using Linux-VServer Technology.
+
+__TOC__
+
+== Introduction ==
+
+=== The Linux-VServer Concept ===
+
+The basic concept of the Linux-VServer solution is to separate the user-space environment into distinct units (sometimes called Virtual Private Servers) in such a way that each VPS looks and feels like a real server to the processes contained within.
+
+=== Terminology ===
+
+{| class="wikitable"
+|-
+! Term !! Description
+|-
+| Linux-VServer, VServer || Linux-VServer is the official name of the project and used in this Howto the same way
+|-
+| virtual server, vserver, guest system	|| All these are interchangable and refer to one instance of a server (i.e. one virtual server)
+|-
+| host system, host || The physical machine running your Gentoo Linux will host all virtual servers
+|-
+| util-vserver || The util-vserver package contains all programs necessary for maintaining your virtual servers
+|}
+
+== Installation ==
+
+=== Emerge ===
+
+Install a VServer kernel sources:
+
+{{Emerge|vserver-sources}}
+
+=== Kernel ===
+
+After the vserver-sources are installed it's time to configure them using make menuconfig. Below is a common configuration for 2.1.1 and above. If you are using 2.0.x some configuration options may not be present.
+
+{{KernelBox|title=Configure vserver-sources|1=
+Linux VServer --->
+(Do not enable the legacy options)
+  [ ] Enable Legacy Kernel API
+  [ ] Enable Legacy Networking Kernel API
+(Read help text)
+  [ ] Remap Source IP Address
+  [*] Enable COW Immutable Link Breaking
+  [ ] Enable Virtualized Guest Time
+  [*] Enable Proc Security
+  [*] Enable Hard CPU Limits
+  [*]   Avoid idle CPUs by skipping Time
+  [*]   Limit the IDLE task
+      Persistent Inode Tagging (UID24/GID24)  --->
+  [ ] Tag NFSD User Auth and Files
+  [*] Enable Inode Tag Propagation
+  [*] Honor Privacy Aspects of Guests
+  [ ] VServer Debugging Code
+}}
+
+{{Note|If you are using reiserfs as filesystem on the partition where guest images are stored, you will need to enable extended attributes for reiserfs in your kernel config and additionally add the attrs option in {{Path|/etc/fstab}}.}}
+
+{{KernelBox|title=Configure vserver-sources|1=
+File systems  --->
+  <*> Reiserfs support
+  [*]   ReiserFS extended attributes
+}}
+
+== Configuration ==
+
+=== fstab ===
+
+{{FileBox|filename=/etc/fstab|title=Fstab with extended attributes|1=
+/dev/hdb1 /vservers reiserfs noatime,attrs 0 0
+}}
+
+After you've built and installed the kernel, update your boot loader and finally reboot to see if the kernel boots correctly.
+
+=== Kernel ===
+
+Install the kernel:
+
+{{RootCmd
+|make
+|make modules_install
+|cp arch/<arch>/boot/bzImage /boot/kernel-<KERNELVERSION>-vserver-<VSERVERVERSION>
+|reboot
+}}
+
+=== Setup host environment ===
+
+To maintain your virtual servers you need the util-vserver package which contains all necessary programs and many useful features.
+
+Install util-vserver:
+
+{{Emerge|>{{=}}sys-cluster/util-vserver-0.30.212}}
+
+You have to run the vprocunhide command after every reboot in order to setup /proc permissions correctly for vserver guests. Two init scripts have been installed by util-vserver which run the <tt>vprocunhide</tt> command for you and take care of virtual servers during shutdown of the host.
+
+util-vserver init scripts:
+
+{{RootCmd
+|rc-update add vprocunhide default
+|/etc/init.d/vprocunhide start
+|rc-update add util-vserver default
+|/etc/init.d/util-vserver start
+}}
+
+== Guest creation ==
+
+=== Download a precompiled stage3 ===
+
+Since many hardware related commands are not available inside a virtual server, there has been a patched version of baselayout known as baselayout-vserver. However, since baselayout-2/openrc, all required changes have been integrated, eliminating the need for seperate vserver stages, profiles and baselayout. Stage tarballs can be downloaded from our mirrors.
+
+Since a stage3 contains a complete root filesystem you can use the template build method of util-vserver. However, this method only works reliable since util-vserver-0.30.213_rc5, so make sure you have the right version installed.
+
+You have to choose a context ID for your vserver (dynamic context IDs are discouraged) as well as the necessary network device information (In this example eth0 is configured with 192.168.1.253/24 and the context ID is equivalent to the last two parts of the virtual servers IP).
+
+{{Note|The context ID should be 1 < ID < 49152.}}
+
+=== Using the template build method ===
+
+For a long time now, plain init style was the only init style available for gentoo, i.e. a normal init process will be started inside the guest, just like on any common Unix system. However this approach has some drawbacks:
+
+* No possibility to see output of init/rc scripts
+* Wasted resources for idle init processes in each guest
+* Annoying conflicts for {{Path|/etc/inittab}}
+
+Therefore, many users have requested to re-implement the Gentoo init style, which has been abandoned since it was a very hacky implementation and more or less worked by accident due to other modifications done to base layout back then. However, as of util-vserver-0.30.212 the gentoo init style has been re-implemented in a concise manner and will become the default in the future.
+
+{{Note|If there is not a good reason for using an extra init process for each guest or if you don't know what to do here, you should stick with Gentoo init style.}}
+
+Start stage3 installation:
+
+{{RootCmd|vserver myguest build --context 1253 --hostname gentoo --interface eth0:192.168.1.253/24 --initstyle gentoo -m template -- -d gentoo -t /path/to/stage3-<arch>-<version>.tar.bz2}}
+
+{{Note|To reflect your network settings you should change /etc/conf.d/hostname, /etc/conf.d/domainname and /etc/hosts inside the guest to your needs. See chapter 8.b.1 and chapter 8.b.4. The rest of your virtual servers network setup will be done on the host.}}
+
+You should now be able to start and enter the vserver by using the commands below. Test the virtual server:
+
+{{RootCmd|vserver myguest start|output=<pre>
+
+OpenRC 0.4.3 is starting up Gentoo Linux (x86_64) [VSERVER]
+
+Press I to enter interactive boot mode
+
+* /proc is already mounted, skipping
+* Setting hostname to myguest...                     [ ok ]
+* Creating user login records...                     [ ok ]
+* Cleaning /var/run...                               [ ok ]
+* Wiping /tmp directory...                           [ ok ]
+* Updating /etc/mtab...                              [ ok ]
+* Initializing random number generator...            [ ok ]
+* Starting syslog-ng...                              [ ok ]
+* Starting fcron...                                  [ ok ]
+* Starting Name Service Cache Daemon...              [ ok ]
+* Starting local...                                  [ ok ]
+</pre>}}
+
+{{RootCmd|vserver-stat|output=<pre>
+CTX   PROC    VSZ    RSS  userTIME   sysTIME    UPTIME NAME
+0       90   1.4G 153.4K  14m00s11   6m45s17   2h59m59 root server
+1252     2     3M   286    0m00s45   0m00s42   0m02s91 myguest
+</pre>}}
+
+{{RootCmd|vserver myguest enter}}
+
+{{RootCmd|ps ax|output=<pre>
+  PID TTY      STAT   TIME COMMAND
+    1 ?        Ss     0:04 init [3]
+27637 ?        Ss     0:00 /usr/sbin/syslog-ng
+27656 ?        Ss     0:00 /usr/sbin/fcron -c /etc/fcron/fcron.conf
+27676 ?        Ssl    0:00 /usr/sbin/nscd
+27713 ?        S+     0:00 login
+27737 pts/15   Ss     0:00 /bin/bash
+27832 pts/15   R+     0:00 ps ax
+</pre>}}
+
+{{RootCmd|logout}}
+
+== Maintenance made easy ==
+
+=== Start guests on boot ===
+
+You can start certain guests during boot. Each guest can be assigned a MARK. Now everything you have to do is configure these MARKs in the guests configuration and add the appropriate init scripts to the default runlevel. Configure MARKs for each guest:
+
+{{RootCmd
+|mkdir -p /etc/vservers/myguest/apps/init
+|echo "default" > /etc/vservers/myguest/apps/init/mark
+}}
+
+Add init script to the default runlevel:
+
+{{RootCmd|rc-update add vservers.default default}}
+
+=== Keep Portage in sync ===
+
+The script vesync will help you to keep the metadata cache and overlays in sync. vemerge is a simple wrapper for emerge in guests:
+
+{{RootCmd
+|vesync myguest
+|vesync --all
+|vesync --all --overlay /usr/local/overlays/myoverlay --overlay-host rsync://rsync.myhost.com/myoverlay --overlay-only
+|vemerge myguest -- app-editors/vim -va
+}}
+
+=== Update guests ===
+
+Gentoo guests can share packages to save compilation time. In order to use shared packages, you have to create a central directory for packages on the host. We will use /var/cache/vpackages on the host and mount it to /usr/portage/packages in every guest.
+
+{{RootCmd|mkdir -p /var/cache/vpackages}}
+
+{{FileBox|filename=/etc/vservers/myguest/fstab|title=Add bind mount to guest configuration|1=
+/var/cache/vpackages /usr/portage/packages none bind,rw 0 0
+}}
+
+Now you can use vupdateworld to update every guest. The command is equivalent to something like <tt>emerge --deep --update --newuse world</tt> depending on command line options.
+
+Pretend update for 'myguest':
+
+{{RootCmd|vupdateworld myguest -- -vp}}
+
+Update 'myguest' using binary packages:
+
+{{RootCmd|vupdateworld myguest -- -k}}
+
+Update all guests using binary packages:
+
+{{RootCmd|vupdateworld --all -- -k}}
+
+{{Note|In order to get binary packages you can either use <code>PORTAGE_BINHOST</code> (see <tt>man make.conf</tt>) or set <code>FEATURES{{=}}"buildpkg"</code> in one or more guests.}}
+
+After a successful update you can easily update all configuration files with <tt>vdispatch-conf</tt>. It is a simple wrapper for <tt>dispatch-conf</tt> and behaves exactly the same.
+
+Update configuration files for 'myguest':
+
+{{RootCmd|vdispatch-conf myguest}}
+
+Update configuration files for all guests:
+
+{{RootCmd|vdispatch-conf --all}}
+
+=== Contact ===
+
+Please feel free to contact the author or file a bug on [http://bugs.gentoo.org/ Bugzilla] in case of any problems.
