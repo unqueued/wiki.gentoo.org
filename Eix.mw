@@ -14,21 +14,81 @@ Install {{Package|app-portage/eix}}:
 
 {{Emerge|app-portage/eix}}
 
-== Configuration ==
+== Managing the cache ==
 
-=== Updating the cache ===
+=== Updating the cache manually ===
 
 After the installation has finished, it is important to update the cache to index all packages on the system. Running following command will update the local <tt>eix</tt> cache:
 
 {{RootCmd|eix-update}}
 
-If [[Overlay|overlays]] are used, it is recommended to configure <tt>eix</tt> to synchronize them too:
+=== Updating the cache with each sync ===
 
-{{FileBox|filename=/etc/eix-sync.conf|1=
-*
+After each update of the portage tree the cache needs to be updated. Additionally, one may want to see a a diff of the changes in since the last sync: 
+
+{{RootCmd
+|emaint sync -a
+|cp -a /var/cache/eix/portage.eix /var/cache/eix/previous.eix
+|eix-update
+|eix-diff}}
+
+The following 2 methods are used to automatically update the cache with each sync. 
+{{Note|Method 1 is preferred, as it is able to work in combination with all possible <tt>emaint sync</tt>  commands (see [[Project:Portage/Sync|Portage plug-in sync system specification]]).}}
+
+==== Method 1: Using portages postsync hook ====
+
+After each sync all executable scripts in the directory <tt>/etc/portage/postsync.d/</tt> are called: 
+
+{{FileBox|filename=/etc/portage/postsync.d/eix|1=
+#!/bin/bash
+if [[ -e /var/cache/eix/portage.eix ]]; then cp -a /var/cache/eix/portage.eix /var/cache/eix/previous.eix; fi
+eix-update
+if [[ -e /var/cache/eix/previous.eix ]]; then eix-diff; fi
 }}
 
-To spare some typing work, run following command:
+If overlays are used, <tt>eix-update</tt> can become quite slow, as many of them do not provide pregenerated caches. To speed up the process of <tt>eix-update</tt>, one can hook portage to regenerate the cache for each repository after each sync. An example for this is given in the file <tt>/etc/portage/repo.postsync.d/example</tt>. We can copy this example to <tt>/etc/portage/repo.postsync.d/egencache</tt> and make it executable. 
+
+{{FileBox|filename=/etc/portage/repo.postsync.d/egencache|1=
+#!/bin/sh
+
+# The repository name.
+repository_name=${1}
+# The URI to which the repository was synced.
+sync_uri=${2}
+# The path to the repository.
+repository_path=${3}
+
+# Portage assumes that a hook succeeded if it exits with 0 code. If no
+# explicit exit is done, the exit code is the exit code of last spawned
+# command. Since our script is a bit more complex, we want to control
+# the exit code explicitly.
+ret=0
+
+if [ -n "${repository_name}" ]; then
+        # Repository name was provided, so we're in a post-repository hook.
+        echo "* In post-repository hook for ${repository_name}"
+        echo "** synced from remote repository ${sync_uri}"
+        echo "** synced into ${repository_path}"
+
+        # Gentoo comes with pregenerated cache but the other repositories
+        # usually don't. Generate them to improve performance.
+        if [ "${repository_name}" != "gentoo" ]; then
+                if ! egencache --update --repo="${repository_name}" --jobs=8
+                then
+                        echo "!!! egencache failed!"
+                        ret=1
+                fi
+        fi
+fi
+
+
+# Return explicit status.
+exit "${ret}"
+}}
+
+==== Method 2: Using eix-sync ====
+
+Alternatively, one can use <tt>eix-sync</tt> tool from eix itself:
 
 {{RootCmd|eix-sync}}
 
@@ -36,12 +96,27 @@ The above command is a shorthand way to running these commands sequentially:
 
 {{RootCmd
 |emerge --sync
+|cp -a /var/cache/eix/portage.eix /var/cache/eix/previous.eix
 |eix-update
 |eix-diff}}
 
-Check <tt>eix-sync</tt> with the <code>--dry-run</code> option for more information:
+If [[Overlay|overlays]] are used, it is recommended to configure <tt>eix</tt> to synchronize them too:
 
-{{RootCmd|eix-sync -nv}}
+{{FileBox|filename=/etc/eix-sync.conf|1=
+*
+}}
+
+To speed up eix-update in case of large overlay have a look at [[Overlay/eix-sync|this page]].
+
+=== Adding remote overlays to the cache ===
+
+To search not only in the portage tree but all the available overlays, add them to the cache with the command:
+
+{{RootCmd
+|eix-remote update
+}}
+
+{{Note|It is also possible to add this to the hook <tt>/etc/portage/postsync.d/eix</tt> to automatically run the remote update with each command}}
 
 === Using tmpfs cache ===
 
@@ -59,15 +134,6 @@ EIX_CACHEFILE=%{EPREFIX}/var/cache/eix-portage.eix
 # EIX_CACHEFILE=%{EPREFIX}/var/cache/eix/portage.eix</pre>}}
 
 One side effect is needing to run <tt>eix-update</tt> after reboot which will take a few seconds.
-
-=== Adding overlays to the cache ===
-
-To search not only in the portage tree but all the overlays, add overlays to the cache:
-
-{{RootCmd
-|eix-remote update
-|eix-sync
-}}
 
 == Usage ==
 
