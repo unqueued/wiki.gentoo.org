@@ -8,7 +8,7 @@ Ce document décrit comment utiliser les clés partagées SSH avec le programme 
 
 === Le problème à résoudre ===
 
-Ainsi vous disposez de cette merveilleuse machine Gentoo sur laquelle tourne <code>sshd</code>, mais c'est un peu fatigant pour vous de continuer à taper tous ces mots de passe de connexion, n'est pas ? Ou peut-être avez vous un script ou une tâche de cron qui nécessite un moyen efficace d'utiliser une connexion ssh. Dans un cas comme dans l'autre, il y a une solution au problème, et elle commence avec l'authentification par clé publique. 
+Having to type in login passwords on each and every system is inconvenient, especially if many systems are being managed. Some administrators might even have a need for a script or cron-job that needs a convenient way to use an ssh connection. Either way, there is a solution to this problem, and it begins with public key authentication. 
 
 === Comment fonctionne l'authentification par clé publique ? ===
 
@@ -18,7 +18,7 @@ Supposons qu'un client veuille se connecter à sshd sur un serveur. Le client co
 
 === Générer une paire de clés ===
 
-La première étape est de créer une paire de clés. Pour le faire, vous devez utiliser la commande <code>ssh-keygen</code>  comme suit : 
+The first step is to create a key pair. To do this, use the <tt>ssh-keygen</tt> command: 
 
 {{Cmd|ssh-keygen}}
 
@@ -26,41 +26,41 @@ Contentez-vous d'accepter les valeurs par défaut, et assurer vous d'entrer une 
 
 {{Warning/fr|Assurez-vous bien de choisir une phrase de passe solide, en particulier si cette clé va être utilisée pour des connexions en tant qu'utilisateur root !}}
 
-You should now have a private key in {{Path|~/.ssh/id_rsa}} and a public key in {{Path|~/.ssh/id_rsa.pub}} . We are ready to copy the public key over to the remote host.
+After the generation has ended a private key should be located at {{Path|~/.ssh/id_rsa}} and a public key in {{Path|~/.ssh/id_rsa.pub}}. The public key is now ready to be copied to the remote host.
 
 === Préparation du  serveur ===
 
-We will be copying the {{Path|~/.ssh/id_rsa.pub}} file over to the server that runs <tt>sshd</tt>. We will also be adding it to the {{Path|~/.ssh/authorized_keys}} file that belongs the connecting user on that server. Here's an example of how to do that if you already have ssh access to the server. 
+The {{Path|~/.ssh/id_rsa.pub}} file needs to be copied over to the server running <tt>sshd</tt>. It has to be added to the {{Path|~/.ssh/authorized_keys}} file that belongs the connecting user on the remote server. After <tt>ssh</tt> access to the server has been granted by infrastructure personnel, the following steps can be used to setup automatic login using a public key on the remote server:
 
 {{Cmd|scp ~/.ssh/id_rsa.pub server_user@server:~/myhost.pub
 |ssh server_user@server "cat ~/myhost.pub &gt;&gt; ~/.ssh/authorized_keys"
 |ssh server_user@server "cat ~/.ssh/authorized_keys"}}
 
-La sortie correspondant à la dernière ligne devrait vous montrer le contenu du fichier {{Path|~/.ssh/authorized_keys}}. Vérifiez bien qu'elle est correcte. 
+La sortie correspondant à la dernière ligne devrait vous montrer le contenu du fichier {{Path|~/.ssh/authorized_keys}}. Vérifiez bien qu'elle est correcte.
 
 === Tester la configuration ===
 
-En théorie, si tout c'est bien passé, et si le démon ssh sur le serveur le permet, vous devriez être en mesure d'avoir un accès ssh sur le serveur sans donner de mot de passe. Il est encore nécessaire de déchiffrer la clé privée sur le client avec la phrase de passe que vous avez définie précédemment, mais il ne faut pas confondre cela avec le mot de passe du compte utilisateur sur le serveur. 
+Theoretically, if all went well, and the <tt>sshd</tt> daemon on the server allows it (as this can be configured), <tt>ssh</tt> access without entering a password should now be possible on the server. The private key on the client will still need to be decrypted with the passphrase used previously, but this should not be confused with the password of the user account on the server.
 
 {{Cmd|ssh server_user@server}}
 
-Hopefully, it asked you for your passphrase for id_rsa, and you were able to gain ssh access as server_user on the server. If not, login as server_user, and verify the contents of {{Path|~/.ssh/authorized_keys}} to make sure each entry is on a single line. You might also want to check the sshd configuration to make sure that it prefers to use public key authorization when available. 
+It should have asked for a passphrase for {{Path|id_rsa}}, and then grant access via <tt>ssh</tt> as the user <code><server_user></code> on the server. If not, login as <code><server_user></code>, and verify that the contents of {{Path|~/.ssh/authorized_keys}} has each entry (which is a public key) on a single line. It is also a good idea to check the sshd configuration to make sure that it allows to use public key authorization when available.
 
-À ce stade, vous pensez probablement, ''De qui se moque-t-on ? J'ai simplement échangé un mot de passe contre un autre !'' Détendez-vous, la section suivante va vous expliquer comment utiliser tout ça de manière à économiser votre précieux temps. 
+À ce stade, vous pensez probablement, ''De qui se moque-t-on ? J'ai simplement échangé un mot de passe contre un autre !'' Détendez-vous, la section suivante va vous expliquer comment utiliser tout ça de manière à économiser votre précieux temps.
 
 == Rendre commode l'authentification par clé publique  ==
 
 === Gestion typique des clés avec un agent ssh ===
 
-Si vous avez suivi, vous pensez certainement que ce  serait merveilleux si vous pouviez déchiffrer votre clé privé une seule fois, et obtenir la possibilité de vous connecter en ssh librement, sans avoir à taper aucun mot de passe. Vous avez de la chance, c'est exactement ce que le programme  <code>ssh-agent</code>  va vous permettre de faire ! 
+The next step is to decrypt the private key(s) once, and gain the ability to ssh freely, without any passwords. That is exactly what the program <tt>ssh-agent</tt> is for. 
 
-Le programme <code>ssh-agent</code> est en général lancé au démarrage de votre session X, ou depuis un script de démarrage tel que {{Path|~/.bash_profile}}. Il fonctionne en créant un socket Unix, et en enregistrant les variables d'environnement appropriées de telle manière que les applications suivantes puissent utiliser ses services en se connectant à ce socket. Clairement, cela n'a de sens que si vous le démarrez dans le processus parent de votre session X si vous voulez utiliser le jeu de clés privées déchiffrées dans toutes les applications X qui suivent. 
+<tt>ssh-agent</tt> is usually started at the beginning of the X session, or from a shell startup script like {{Path|~/.bash_profile}}. It works by creating a unix-socket, and registering the appropriate environment variables so that all subsequent applications can take advantage of its services by connecting to that socket. Clearly, it only makes sense to start it in the parent process of an X session to use the set of decrypted private keys in all subsequent X applications. 
 
 {{Cmd|eval `ssh-agent`}}
 
-{{Note|Cet agent (ssh-agent) conserve les clés déchiffrées jusqu'à ce que vous le tuiez. Si vous voulez définir une durée de vie pour les clés, utilisez l'argument -t comme c'est expliqué dans la page  <code>man ssh-agent</code> .}}
+{{Note|This <tt>ssh-agent</tt> will keep keys decrypted until it is killed. To set a lifetime for the keys, use the <code>-t</code> argument as described in <tt>man ssh-agent</tt>.}}
 
-When you run <tt>ssh-agent</tt>, it should output the PID of the running ssh-agent, and also set a few environment variables, namely <code>SSH_AUTH_SOCK</code> and <code>SSH_AGENT_PID</code>. It should also automatically add {{Path|~/.ssh/id_rsa}} to it's collection and ask you for the corresponding passphrase. If you have other private keys you want to add to the running ssh-agent, you can use the <tt>ssh-add</tt> command as follows: 
+When running <tt>ssh-agent</tt>, it should output the PID of the running ssh-agent, and also set a few environment variables, namely <code>SSH_AUTH_SOCK</code> and <code>SSH_AGENT_PID</code>. It should also automatically add {{Path|~/.ssh/id_rsa}} to it's collection and ask the user for the corresponding passphrase. If other private keys exist which need to be added to the running ssh-agent, use the <tt>ssh-add</tt> command: 
 
 {{Cmd|ssh-add somekeyfile}}
 
@@ -68,17 +68,17 @@ Maintenant, la magie ! Comme vous devriez maintenant avoir vos clés privées 
 
 {{Cmd|ssh server}}
 
-Il serait bon de savoir comment interrompre l'agent ssh au cas où vous en auriez besoin. 
+Il serait bon de savoir comment interrompre l'agent ssh au cas où vous en auriez besoin.
 
 {{Cmd|ssh-agent -k}}
 
-{{Note|Si vous rencontrez des difficultés à mettre   ssh-agent en route, il se pourrait qu'il soit toujours en fonctionnement. Vous pouvez le tuer comme n'importe quel autre processus en exécutant  <code>killall ssh-agent</code> .}}
+{{Note|It is possible to have multiple <tt>ssh-agent</tt> processes running, especially when configuring it initially took some effort and trials. These processes can be killed like any other process by running <tt>killall ssh-agent</tt>.}}
 
 Si vous voulez encore plus de confort de l'agent ssh, lisez la section suivante sur l'utilisation de keychain. Assurez-vous de tuer l'agent ssh en fonctionnement, comme indiqué précédemment, si vous décidez de le faire.
 
 === Obtenir la dernière goutte de confort de ssh-agent ===
 
-Keychain va vous permettre de réutiliser un agent ssh entre sessions et, en option, vous demander les phrases de passe à chaque entrée dans la session. Avant d'avancer néanmoins, commencez par l'installer. 
+Keychain va vous permettre de réutiliser un agent ssh entre sessions et, en option, vous demander les phrases de passe à chaque entrée dans la session. Avant d'avancer néanmoins, commencez par l'installer.
 
 {{Emerge|keychain}}
 
@@ -91,15 +91,15 @@ keychain ~/.ssh/id_rsa
 </pre>
 }}
 
-{{Note|Vous pouvez ajouter plus de clés privées à la ligne de commande si vous le souhaitez. De plus, si vous voulez qu'il vous demande les phrases de passe à chaque fois que vous engendrez un shell, ajoutez l'option --clear.}}
+{{Note|More private keys can be added to the command line as desired. Also, to have it ask for passphrases each time a shell is spawned, add the <code>--clear</code> option.}}
 
-{{Note|Si vous n'utilisez pas bash, lisez la section  '''EXAMPLES''' de la page  <code>man keychain</code> pour des exemples d'utilisation avec d'autres shell. L'idée est que ces commandes soient lancées chaque fois que vous démarrez un shell.}}
+{{Note|When not using bash, check the '''EXAMPLES''' section of <tt>man keychain</tt> for examples of use in other shells. The idea is to get those commands to run each time a shell is used.}}
 
 Testez le maintenant. Tout d'abord, assurez-vous que l'agent ssh a été tué, puis démarrez un nouveau shell, ordinairement en vous connectant, ou en lançant un nouveau terminal. Il devrait vous inviter à entrer la phrase de passe pour chacune des clés que vous avez entrées sur la ligne de commande. Tous les shells ouverts  après ce point devraient réutiliser l'agent ssh, vous autorisant ainsi à vous connecter indéfiniment en ssh sans saisir de mot de passe. 
 
 === Utiliser keychain avec KDE ===
 
-Si vous utilisez KDE, au lieu d'utiliser {{Path|~/.bash_profile}}, vous pouvez confier à KDE le soin de gérer l'agent ssh pour vous. Pour cela, vous devez éditer {{Path|/etc/kde/startup/agent-startup.sh}}, qui est lu au démarrage de KDE, et {{Path|/etc/kde/shutdown/agent-shutdown.sh}}, qui est exécuté à l'arrêt de KDE. Voici ce que vous devriez y placer : 
+KDE users, instead of using {{Path|~/.bash_profile}}, can let KDE manage ssh-agent for them. In order to do so, edit {{Path|/etc/kde/startup/agent-startup.sh}}, which is read during KDE's startup, and {{Path|/etc/kde/shutdown/agent-shutdown.sh}}, which is executed during KDE's shutdown. Here is how one could edit those files: 
 
 {{CodeBox|title=Editing /etc/kde/startup/agent-startup.sh|1=
 if [ -x /usr/bin/ssh-agent ]; then
@@ -128,8 +128,8 @@ Bien-sûr, l'utilisation de ssh-agent peut ajouter une dose d'insécurité à vo
 
 La majeure partie de tout ceci devrait fonctionner sans problème, mais si vous rencontrez une difficulté, vous devriez certainement connaître quelques points utiles. 
 
-* If you are unable to connect without ssh-agent, consider using ssh with the arguments <code>-vvv</code> to find out what's happening. Sometimes the server is not configured to use public key authentication, sometimes it is configured to ask for local passwords anyway! If that is the case, you may want to also use the <code>-o</code> option with <tt>ssh</tt>, or change the server {{Path|sshd_config}}.
-* If you are having problems with ssh-agent or keychain, it may be that you are not using a shell that understands the commands they use. Consult the man pages for ssh-agent and keychain for details on working with other shells.
+* If connecting without <tt>ssh-agent</tt> does not seem to work, consider using ssh with the arguments <code>-vvv</code> to find out what's happening. Sometimes the server is not configured to use public key authentication, sometimes it is configured to ask for local passwords anyway! If that is the case, try using the <code>-o</code> option with <tt>ssh</tt>, or change the server's {{Path|sshd_config}}.
+* If connecting with <tt>ssh-agent</tt> or <tt>keychain</tt> does not seem to work, then it may be that the current shell does not understand the commands used.. Consult the man pages for ssh-agent and keychain for details on working with other shells.
 
 == External resources ==
 
