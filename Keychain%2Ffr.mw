@@ -12,17 +12,17 @@ Having to type in login passwords on each and every system is inconvenient, espe
 
 === Comment fonctionne l'authentification par clé publique ? ===
 
-Supposons qu'un client veuille se connecter à sshd sur un serveur. Le client commence par générer une paire de clés et donne la clé publique au serveur. Par la suite, à chaque fois que le client essaye de se connecter, le serveur lui soumet un challenge qui est chiffré avec cette clé publique. Dans ce cas, seul le détenteur de la clé privée correspondante (le client) est capable de le déchiffrer, et vous l'aurez deviné , seul ce détenteur est à même de pouvoir donner la bonne réponse et  réussir la connexion. 
+Assume that a client wants to connect to the ssh daemon on a server. The client first generates a key pair and gives the public key to the server. Afterwards, whenever the client attempts to connect, the server sends a challenge that is encrypted with that public key. Only the holder of the corresponding private key (the client) is able to decrypt it, so the correct response leads to successful authentication. 
 
 == Comment utiliser l'authentification par clé publique ? ==
 
-=== Générer une paire de clés ===
+=== Generating a key pair ===
 
 The first step is to create a key pair. To do this, use the <tt>ssh-keygen</tt> command: 
 
 {{Cmd|ssh-keygen}}
 
-Contentez-vous d'accepter les valeurs par défaut, et assurer vous d'entrer une phrase de passe solide.
+Accept the default values, and make sure to enter a strong passphrase.
 
 {{Warning/fr|Assurez-vous bien de choisir une phrase de passe solide, en particulier si cette clé va être utilisée pour des connexions en tant qu'utilisateur root !}}
 
@@ -36,17 +36,17 @@ The {{Path|~/.ssh/id_rsa.pub}} file needs to be copied over to the server runnin
 |ssh server_user@server "cat ~/myhost.pub &gt;&gt; ~/.ssh/authorized_keys"
 |ssh server_user@server "cat ~/.ssh/authorized_keys"}}
 
-La sortie correspondant à la dernière ligne devrait vous montrer le contenu du fichier {{Path|~/.ssh/authorized_keys}}. Vérifiez bien qu'elle est correcte.
+The output from that last line should show the contents of the {{Path|~/.ssh/authorized_keys}} file. Make sure the output looks correct.
 
 === Tester la configuration ===
 
 Theoretically, if all went well, and the <tt>sshd</tt> daemon on the server allows it (as this can be configured), <tt>ssh</tt> access without entering a password should now be possible on the server. The private key on the client will still need to be decrypted with the passphrase used previously, but this should not be confused with the password of the user account on the server.
 
-{{Cmd|ssh server_user@server}}
+{{Cmd|ssh <server_user>@<server>}}
 
 It should have asked for a passphrase for {{Path|id_rsa}}, and then grant access via <tt>ssh</tt> as the user <code><server_user></code> on the server. If not, login as <code><server_user></code>, and verify that the contents of {{Path|~/.ssh/authorized_keys}} has each entry (which is a public key) on a single line. It is also a good idea to check the sshd configuration to make sure that it allows to use public key authorization when available.
 
-À ce stade, vous pensez probablement, ''De qui se moque-t-on ? J'ai simplement échangé un mot de passe contre un autre !'' Détendez-vous, la section suivante va vous expliquer comment utiliser tout ça de manière à économiser votre précieux temps.
+At this point, readers might be thinking, "What's the point, I just replaced one password with another?!" Relax, the next section will show exactly how we can use this to only enter the passphrase once and re-use the (decrypted) key for multiple logins.
 
 == Rendre commode l'authentification par clé publique  ==
 
@@ -64,25 +64,25 @@ When running <tt>ssh-agent</tt>, it should output the PID of the running ssh-age
 
 {{Cmd|ssh-add somekeyfile}}
 
-Maintenant, la magie ! Comme vous devriez maintenant avoir vos clés privées déchiffrées et prêtes, vous devriez pouvoir vous connecter au serveur ssh sans entrer de mot de passe. 
+Now for the magic. With the decrypted private key ready, ssh into a (public key configured) server without entering any passwords: 
 
 {{Cmd|ssh server}}
 
-Il serait bon de savoir comment interrompre l'agent ssh au cas où vous en auriez besoin.
+In order to shut down ssh-agent (and as such require entry of the passphrase again later):
 
 {{Cmd|ssh-agent -k}}
 
 {{Note|It is possible to have multiple <tt>ssh-agent</tt> processes running, especially when configuring it initially took some effort and trials. These processes can be killed like any other process by running <tt>killall ssh-agent</tt>.}}
 
-Si vous voulez encore plus de confort de l'agent ssh, lisez la section suivante sur l'utilisation de keychain. Assurez-vous de tuer l'agent ssh en fonctionnement, comme indiqué précédemment, si vous décidez de le faire.
+To get even more convenience from ssh-agent, proceed to the next section on using keychain. Be sure to kill the running ssh-agent as keychain will handle the <tt>ssh-agent</tt> sessions itself.
 
 === Obtenir la dernière goutte de confort de ssh-agent ===
 
-Keychain va vous permettre de réutiliser un agent ssh entre sessions et, en option, vous demander les phrases de passe à chaque entrée dans la session. Avant d'avancer néanmoins, commencez par l'installer.
+Keychain will allow to reuse an ssh-agent between logins, and optionally prompt for passphrases each time the user logs in. Let's emerge it first:
 
 {{Emerge|keychain}}
 
-En supposant que l'installation a réussi, vous pouvez utiliser keychain librement. Ajoutez ce qui suit à vote {{Path|~/.bash_profile}}  pour l'activer. 
+Assuming that was successful, <tt>keychain</tt> can now be used. Add the following to the {{Path|~/.bash_profile}} file to enable it: 
 
 {{CodeBox|title=Enabling keychain in .bash_profile|<pre>
 keychain ~/.ssh/id_rsa
@@ -95,7 +95,7 @@ keychain ~/.ssh/id_rsa
 
 {{Note|When not using bash, check the '''EXAMPLES''' section of <tt>man keychain</tt> for examples of use in other shells. The idea is to get those commands to run each time a shell is used.}}
 
-Testez le maintenant. Tout d'abord, assurez-vous que l'agent ssh a été tué, puis démarrez un nouveau shell, ordinairement en vous connectant, ou en lançant un nouveau terminal. Il devrait vous inviter à entrer la phrase de passe pour chacune des clés que vous avez entrées sur la ligne de commande. Tous les shells ouverts  après ce point devraient réutiliser l'agent ssh, vous autorisant ainsi à vous connecter indéfiniment en ssh sans saisir de mot de passe. 
+Now test it. First make sure the ssh-agent processes from the previous section are killed, then start up a new shell, usually by just logging in, or spawning a new terminal. It should prompt for the password for each key specified on the command line. All shells opened after that point should reuse the ssh-agent, allowing to use passwordless ssh connections over and over. 
 
 === Utiliser keychain avec KDE ===
 
@@ -112,24 +112,24 @@ if [ -n "${SSH_AGENT_PID}" ]; then
   eval "$(ssh-agent -k)"
 fi}}
 
-Maintenant, tout ce qu'il vous reste à faire, c'est de lancer un terminal de votre choix, comme Konsole, et de charger les clés que vous voulez utiliser. Par exemple : 
+Now, all that has to be done is launch a terminal of choice, like Konsole, and load the right set of keys to use. For example: 
 
 {{Cmd|keychain ~/.ssh/id_rsa}}
 
-Vos clés seront mémorisées jusqu'à ce que vous mettiez fin à votre session KDE ou que vous tuiez l'agent ssh à la main.
+The keys will be remembered until the end of the KDE session (or until the ssh-agent process is killed manually).
 
 == Conclusion ==
 
 === Considération sur la sécurité ===
 
-Bien-sûr, l'utilisation de ssh-agent peut ajouter une dose d'insécurité à votre système. Si un autre utilisateur était à même d'utiliser votre shell alors que vous êtes à la machine à café, il pourrait se connecter à tous vos serveurs sans mot de passe. En conséquence, c'est un risque pour les serveurs auxquels vous vous connectez, et vous devriez consulter la politique locale de sécurité. Si vous l'utilisez, prenez les mesures appropriées pour garantir la sécurité de vos sessions. 
+Of course, the use of ssh-agent may add a bit of insecurity to the system. If another user would gain access to a running shell, he could login to all of the servers without passwords. As a result, it is a risk to the servers, and users should be sure to consult the local security policy (if any). Be sure to take the appropriate measures to ensure the security of all sessions. 
 
 === Dépannage ===
 
-La majeure partie de tout ceci devrait fonctionner sans problème, mais si vous rencontrez une difficulté, vous devriez certainement connaître quelques points utiles. 
+Most of this should work pretty well, but if problems do come up, then the following items might be of assistance. 
 
-* If connecting without <tt>ssh-agent</tt> does not seem to work, consider using ssh with the arguments <code>-vvv</code> to find out what's happening. Sometimes the server is not configured to use public key authentication, sometimes it is configured to ask for local passwords anyway! If that is the case, try using the <code>-o</code> option with <tt>ssh</tt>, or change the server's {{Path|sshd_config}}.
-* If connecting with <tt>ssh-agent</tt> or <tt>keychain</tt> does not seem to work, then it may be that the current shell does not understand the commands used.. Consult the man pages for ssh-agent and keychain for details on working with other shells.
+* If connecting without <tt>ssh-agent</tt> does not seem to work, consider using ssh with the <code>-vvv</code> options to find out what's happening. Sometimes the server is not configured to use public key authentication, sometimes it is configured to ask for local passwords anyway! If that is the case, try using the <code>-o</code> option with <tt>ssh</tt>, or change the server's {{Path|sshd_config}}.
+* If connecting with <tt>ssh-agent</tt> or <tt>keychain</tt> does not seem to work, then it may be that the current shell does not understand the commands used. Consult the man pages for ssh-agent and keychain for details on working with other shells.
 
 == External resources ==
 
