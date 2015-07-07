@@ -12,21 +12,21 @@ Having to type in login passwords on each and every system is inconvenient, espe
 
 === Как работает аутентификация с открытым ключом? ===
 
-Предположим, у нас есть клиент, который хочет соединиться с сервером через sshd. Клиент сначала генерирует пару ключей и пересылает открытый ключ на сервер. Затем, когда бы клиент ни пытался соединиться с сервером, сервер отправляет послание, которое зашифровано с помощью открытого ключа. Только обладатель соответствующего закрытого ключа (т.е. клиент) способен его расшифровать, так что, как Вы уже догадались, правильный ответ ведет к успешной аутентификации. 
+Assume that a client wants to connect to the ssh daemon on a server. The client first generates a key pair and gives the public key to the server. Afterwards, whenever the client attempts to connect, the server sends a challenge that is encrypted with that public key. Only the holder of the corresponding private key (the client) is able to decrypt it, so the correct response leads to successful authentication. 
 
 == Как использовать аутентификацию с открытым ключом ==
 
-=== Генерация ключевой пары ===
+=== Generating a key pair ===
 
 The first step is to create a key pair. To do this, use the <tt>ssh-keygen</tt> command: 
 
 {{Cmd|ssh-keygen}}
 
-Просто примите значения по умолчанию, и удостоверьтесь, что Вы ввели надежную парольную фразу.
+Accept the default values, and make sure to enter a strong passphrase.
 
 {{Warning/ru|Убедитесь, что Вы выбрали надежную парольную фразу, особенно если этот ключ используется для учетной записи администратора!}}
 
-Теперь у Вас должен быть закрытый ключ в {{Path|~/.ssh/id_rsa}} и открытый ключ в {{Path|~/.ssh/id_rsa.pub}} . Мы готовы скопировать открытый ключ на удаленный компьютер.
+After the generation has ended a private key should be located at {{Path|~/.ssh/id_rsa}} and a public key in {{Path|~/.ssh/id_rsa.pub}}. The public key is now ready to be copied to the remote host.
 
 === Подготовка сервера ===
 
@@ -36,17 +36,17 @@ The {{Path|~/.ssh/id_rsa.pub}} file needs to be copied over to the server runnin
 |ssh server_user@server "cat ~/myhost.pub &gt;&gt; ~/.ssh/authorized_keys"
 |ssh server_user@server "cat ~/.ssh/authorized_keys"}}
 
-Результат, показанный на последней строке, должен отобразить содержимое файла {{Path|~/.ssh/authorized_keys}}. Убедитесь, что он выглядит правильно.
+The output from that last line should show the contents of the {{Path|~/.ssh/authorized_keys}} file. Make sure the output looks correct.
 
 === Тестирование установки ===
 
 Theoretically, if all went well, and the <tt>sshd</tt> daemon on the server allows it (as this can be configured), <tt>ssh</tt> access without entering a password should now be possible on the server. The private key on the client will still need to be decrypted with the passphrase used previously, but this should not be confused with the password of the user account on the server.
 
-{{Cmd|ssh server_user@server}}
+{{Cmd|ssh <server_user>@<server>}}
 
-Надеемся, у Вас была запрошена парольная фраза для id_rsa, и Вы смогли получить доступ к серверу по ssh как server_user. Если это не так, войдите как server_user, и проверьте содержимое {{Path|~/.ssh/authorized_keys}} для того чтобы убедиться, кто каждая запись находится на отдельной строке. Вы также можете проверить конфигурацию sshd для того, чтобы убедиться что предпочитается использование авторизации с открытым ключом, когда это доступно.
+It should have asked for a passphrase for {{Path|id_rsa}}, and then grant access via <tt>ssh</tt> as the user <code><server_user></code> on the server. If not, login as <code><server_user></code>, and verify that the contents of {{Path|~/.ssh/authorized_keys}} has each entry (which is a public key) on a single line. It is also a good idea to check the sshd configuration to make sure that it allows to use public key authorization when available.
 
-В этом месте, Вы возможно подумаете: "Какая разница, я просто заменил один пароль другим?!" Успокойтесь, в следующем разделе Вам будет продемонстрировано точно, как мы можем это использовать, чтобы сохранить наше драгоценное время.
+At this point, readers might be thinking, "What's the point, I just replaced one password with another?!" Relax, the next section will show exactly how we can use this to only enter the passphrase once and re-use the (decrypted) key for multiple logins.
 
 == Как сделать аутентификацию с открытым ключом удобной ==
 
@@ -64,25 +64,25 @@ When running <tt>ssh-agent</tt>, it should output the PID of the running ssh-age
 
 {{Cmd|ssh-add somekeyfile}}
 
-А теперь начинается магия. Так как у Вас уже есть расшифрованный закрытый ключ, Вы можете получить доступ к серверу по ssh без ввода какого-либо пароля: 
+Now for the magic. With the decrypted private key ready, ssh into a (public key configured) server without entering any passwords: 
 
 {{Cmd|ssh server}}
 
-Было бы неплохо узнать как закрыть ssh-agent, в случае если вам это потребуется, правда?
+In order to shut down ssh-agent (and as such require entry of the passphrase again later):
 
 {{Cmd|ssh-agent -k}}
 
 {{Note|It is possible to have multiple <tt>ssh-agent</tt> processes running, especially when configuring it initially took some effort and trials. These processes can be killed like any other process by running <tt>killall ssh-agent</tt>.}}
 
-Если Вы хотите еще больше удобства в работе с ssh-agent, продолжайте читать следующую главу, описывающую использование keychain. Убедитесь, что Вы завершили работающий ssh-agent, как в примере выше, если Вы решили это сделать.
+To get even more convenience from ssh-agent, proceed to the next section on using keychain. Be sure to kill the running ssh-agent as keychain will handle the <tt>ssh-agent</tt> sessions itself.
 
 === Выжимание последней капли удобства из ssh-agent ===
 
-Программа keychain позволит Вам использовать ssh-agent заново между входами в систему, и, дополнительно, запрашивать парольные фразы каждый раз, когда входит пользователь. Перед тем, как опередить самих себя, давайте сначала ее установим.
+Keychain will allow to reuse an ssh-agent between logins, and optionally prompt for passphrases each time the user logs in. Let's emerge it first:
 
 {{Emerge|keychain}}
 
-Предполагая, что установка была успешной, мы теперь можем использовать программу keychain свободно. Добавьте следующее в Ваш {{Path|~/.bash_profile}}, для того, чтобы обеспечить к ней доступ: 
+Assuming that was successful, <tt>keychain</tt> can now be used. Add the following to the {{Path|~/.bash_profile}} file to enable it: 
 
 {{CodeBox|title=Обеспечение доступа к keychain в .bash_profile|<pre>
 keychain ~/.ssh/id_rsa
@@ -95,7 +95,7 @@ keychain ~/.ssh/id_rsa
 
 {{Note|When not using bash, check the '''EXAMPLES''' section of <tt>man keychain</tt> for examples of use in other shells. The idea is to get those commands to run each time a shell is used.}}
 
-Давайте это протестируем. Сперва, убедитесь, что мы завершили ssh-agent из предыдущего раздела, затем откройте новую оболочку, обычно простым входом, или открытием нового эмулятора терминала. У Вас должны быть запрошены парольные фразы для каждого ключа, который Вы указали в командной строке. Все оболочки открытые после этого, должны использовать ssh-agent заново, позволяя Вам открывать ssh-соединения без пароля снова и снова. 
+Now test it. First make sure the ssh-agent processes from the previous section are killed, then start up a new shell, usually by just logging in, or spawning a new terminal. It should prompt for the password for each key specified on the command line. All shells opened after that point should reuse the ssh-agent, allowing to use passwordless ssh connections over and over. 
 
 === Использование keychain с KDE ===
 
@@ -113,24 +113,24 @@ if [ -n "${SSH_AGENT_PID}" ]; then
 fi
 }}
 
-Теперь, все, что Вам необходимо сделать, это запустить эмулятор терминала по Вашему вкусу, например Konsole, и загрузить ключи, которые Вы бы хотели использовать. Например: 
+Now, all that has to be done is launch a terminal of choice, like Konsole, and load the right set of keys to use. For example: 
 
 {{Cmd|keychain ~/.ssh/id_rsa}}
 
-Ваши ключи будут запомнены до окончания Вашей KDE-сессии или закрытия ssh-agent вручную.
+The keys will be remembered until the end of the KDE session (or until the ssh-agent process is killed manually).
 
 == Завершающие примечания ==
 
 === Соображения безопасности ===
 
-Конечно же, использование ssh-agent может немного ухудшить безопасность Вашей системы. Если бы другой пользователь использовал Вашу оболочку пока Вы были в ванной, он смог бы войти на все ваши серверы без пароля. В результате, это является риском для серверов, к которым вы подсоединяетесь, и Вы должны быть уверены в том, что Вы проконсультировались с местной политикой безопасности. Если Вы этим пользуетесь, будьте уверены в том, что Вы приняли необходимые меры длы обеспечения безопасности Ваших сессий. 
+Of course, the use of ssh-agent may add a bit of insecurity to the system. If another user would gain access to a running shell, he could login to all of the servers without passwords. As a result, it is a risk to the servers, and users should be sure to consult the local security policy (if any). Be sure to take the appropriate measures to ensure the security of all sessions. 
 
 === Устранение проблем ===
 
-Большинство из описанного должно работать без проблем, но если Вы с ними столкнулись, Вы определенно захотите знать несколько полезных вещей. 
+Most of this should work pretty well, but if problems do come up, then the following items might be of assistance. 
 
-* If connecting without <tt>ssh-agent</tt> does not seem to work, consider using ssh with the arguments <code>-vvv</code> to find out what's happening. Sometimes the server is not configured to use public key authentication, sometimes it is configured to ask for local passwords anyway! If that is the case, try using the <code>-o</code> option with <tt>ssh</tt>, or change the server's {{Path|sshd_config}}.
-* If connecting with <tt>ssh-agent</tt> or <tt>keychain</tt> does not seem to work, then it may be that the current shell does not understand the commands used.. Consult the man pages for ssh-agent and keychain for details on working with other shells.
+* If connecting without <tt>ssh-agent</tt> does not seem to work, consider using ssh with the <code>-vvv</code> options to find out what's happening. Sometimes the server is not configured to use public key authentication, sometimes it is configured to ask for local passwords anyway! If that is the case, try using the <code>-o</code> option with <tt>ssh</tt>, or change the server's {{Path|sshd_config}}.
+* If connecting with <tt>ssh-agent</tt> or <tt>keychain</tt> does not seem to work, then it may be that the current shell does not understand the commands used. Consult the man pages for ssh-agent and keychain for details on working with other shells.
 
 == External resources ==
 
