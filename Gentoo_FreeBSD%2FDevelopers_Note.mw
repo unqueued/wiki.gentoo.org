@@ -1,0 +1,113 @@
+= Developers Note =
+== Howto to make new stages in catalyst ==
+The latest stage3 equivalent environment is required in order to set the source_subpath of catalyst. Let's ready to update the old stage3.
+
+Sample script is available. [[#create_forcestage3.sh]] and [[#stages_builder.sh]].
+
+=== Preparation ===
+Extract the old stage3, chrooting, update, and compress with tar.
+
+e.g.) Target version 10.1, amd64 architecture
+{{RootCmd|export WORKDIR{{=}}/10.1/amd64
+|mkdir -p "${WORKDIR}"}}
+
+==== Downloading stage3 tarball and unpack ====
+
+{{RootCmd|wget -P /tmp http://distfiles.gentoo.org/experimental/bsd/freebsd/stages/amd64-fbsd-9.1/stage3-amd64-freebsd-9.1.tar.bz2
+|tar xjpf /tmp/stage3-*.tar.bz2 -C "${WORKDIR}"}}
+
+==== Mount portage tree ====
+{{RootCmd|mkdir -p "${WORKDIR}"/usr/portage
+|mount -t nullfs /usr/portage "${WORKDIR}"/usr/portage}}
+
+==== Entering the new environment ====
+
+{{RootCmd|mount -t devfs devfs "${WORKDIR}"/dev
+|cp /etc/resolv.conf "${WORKDIR}"/etc/
+|chroot "${WORKDIR}" /bin/bash}}
+
+==== Update old stage3 ====
+
+{{RootCmd|[ -e /etc/make.conf ] && mv /etc/make.conf /etc/portage/make.conf
+|echo "MAKEOPTS{{=}}-j5" >> /etc/portage/make.conf
+|echo 'USE{{=}}"${USE} -fortran -build-kernel"' >> /etc/portage/make.conf
+|prompt=(chroot) root #}}
+
+{{RootCmd|wget -P /tmp https://gitweb.gentoo.org/proj/gentoo-bsd.git/plain/scripts/automatic_updater.sh
+|bash /tmp/automatic_updater.sh 10.1 kernel
+|bash /tmp/automatic_updater.sh 10.1 freebsd_userland
+|export EMERGE_DEFAULT_OPTS{{=}}"--keep-going{{=}}y"
+|bash /tmp/automatic_updater.sh 10.1 world
+|unset EMERGE_DEFAULT_OPTS
+|prompt=(chroot) root #}}
+
+
+{{RootCmd|exit|prompt=(chroot) root #}}
+
+==== Compress with tar ====
+{{RootCmd|kill -9 $(ps auxw {{!}} grep ebuild-helpers/ecompressdir {{!}} grep -v grep {{!}} awk '{ print $2 }' {{!}} xargs)
+|umount "${WORKDIR}"/usr/portage
+|umount "${WORKDIR}"/dev}}
+
+{{Note|Please include forcestage3 in the file name. It disables update_seed.}}
+{{RootCmd|mkdir -p /var/tmp/catalyst/builds/default
+|cd "${WORKDIR}"
+|tar cjpf /var/tmp/catalyst/builds/default/stage3-amd64-fbsd-10.1-forcestage3.tar.bz2 .}}
+
+=== Run stages_builder.sh script ===
+{{RootCmd|wget -P /tmp https://gitweb.gentoo.org/proj/gentoo-bsd.git/plain/scripts/mkstages/stages_builder.sh}}
+
+{{RootCmd|<pre>OLDVER=10.1 \
+TARGETVER=10.1 \
+FORCESTAGE3=stage3-amd64-fbsd-10.1-forcestage3 \
+NOOVERLAY=1 \
+/tmp/stages_builder.sh &> ~/amd64-fbsd-10.1.log</pre>}}
+
+== create_forcestage3.sh ==
+You can get the sample script for easy create forcestage3 tarball.
+
+https://gitweb.gentoo.org/proj/gentoo-bsd.git/plain/scripts/mkstages/create_forcestage3.sh
+
+On completion, it will be displayed FORCESTAGE3. Please set when you run stages_builder.sh.
+
+=== amd64-fbsd ===
+{{RootCmd|TARGETVER{{=}}10.1 bash create_forcestage3.sh}}
+
+=== amd64-fbsd/clang ===
+{{RootCmd|<pre>TARGETVER=10.1 \
+OLDSTAGE3=http://distfiles.gentoo.org/experimental/bsd/freebsd/stages/amd64-fbsd-9.1/clang/stage3-amd64-clangfbsd-9.1.tar.bz2 \
+CLANG=1 \
+bash create_forcestage3.sh</pre>}}
+
+=== x86-fbsd ===
+{{RootCmd|<pre>TARGETVER=10.1 \
+OLDSTAGE3=http://dev.gentoo.org/~aballier/fbsd9.0/x86/stage3-i686-freebsd-9.0.tar.bz2 \
+TARGETARCH=i686 \
+bash create_forcestage3.sh</pre>}}
+
+== stages_builder.sh ==
+You can get the sample script for easy create new stages.
+
+https://gitweb.gentoo.org/proj/gentoo-bsd.git/plain/scripts/mkstages/stages_builder.sh
+
+=== amd64-fbsd ===
+{{RootCmd|<pre>OLDVER=10.1 \
+TARGETVER=10.1 \
+FORCESTAGE3=stage3-amd64-fbsd-10.1-forcestage3 \
+NOOVERLAY=1 \
+/tmp/stages_builder.sh &> ~/amd64-fbsd-10.1.log</pre>}}
+
+=== amd64-fbsd/clang ===
+{{RootCmd|<pre>OLDVER=10.1 \
+TARGETVER=10.1 \
+FORCESTAGE3=stage3-amd64-fbsd-10.1-forcestage3-cl \
+CLANG=1 \
+NOOVERLAY=1 \
+/tmp/stages_builder.sh &> ~/amd64-fbsd-10.1-clang.log</pre>}}
+
+=== x86-fbsd ===
+{{RootCmd|<pre>OLDVER=10.1 \
+TARGETVER=10.1 \
+FORCESTAGE3=stage3-i686-fbsd-10.1-forcestage3 \
+NOOVERLAY=1 \
+/tmp/stages_builder.sh &> ~/x86-fbsd-10.1.log</pre>}}
