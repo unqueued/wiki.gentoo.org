@@ -147,4 +147,54 @@ Also repeat this on each system for the right id.
 
 == Object store devices ==
 
+Get a UUID for the file system:
+
+{{RootCmd|uuidgen|output=<pre>
+e33dcfb0-31d5-4953-896d-007c7c295410
+</pre>}}
+
+Create a new OSD in the cluster:
+
+{{RootCmd|ceph osd create e33dcfb0-31d5-4953-896d-007c7c295410|output=<pre>
+0
+</pre>}}
+
+Create the mountpoint on which the data of the OSD will be stored. The ID to use is the output of the previous command:
+
+{{RootCmd|mkdir -p /var/lib/ceph/osd/ceph-0}}
+
+Mount the storage that will be used for the OSD. Then, create the OSD file system on it:
+
+{{RootCmd|ceph-osd -i 0 --mkfs --mkkey --osd-uuid e33dcfb0-31d5-4953-896d-007c7c295410}}
+
+Add the OSD keyring to the clusters' authentication database:
+
+{{RootCmd|ceph auth add osd.0 ods 'allow *' mon 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring}}
+
+Add the current host to the CRUSH map if it is the first OSD of this host that participates in the cluster:
+
+{{RootCmd|ceph osd crush add-bucket $(hostname) host
+|ceph osd crush move $(hostname) root{{=}}default}}
+
+Add the OSD to the map with a default weight value:
+
+{{RootCmd|ceph osd crush add osd.0 1.0 host{{=}}$(hostname)}}
+
+Update the OSD information in {{Path|/etc/ceph/ceph.conf}}:
+
+{{FileBox|filename=/etc/ceph/ceph.conf|title=OSD snippet|lang=ini|1=
+[osd]
+  # Global defaults for OSDs
+  osd journal size = 1024
+  # Needed for Ext4 file systems only
+  filestore xattr use omap = true
+
+[osd.0]
+  host = host1
+}}
+
+Create the init script for the OSD and have it start at boot:
+
+{{RootCmd|ln -s /etc/init.d/ceph /etc/init.d/ceph-osd.0|rc-update add ceph-osd.0 default}}
+
 == Metadata server ==
