@@ -121,6 +121,8 @@ In short, '''with the changes we need for Gentoo''':
 * When asked for the rootfs image, just terminate the script. We will not setup a rootfs image, we will install Gentoo ourselves.
 * If the script gives an error (missing rootfs image, for example) just ignore it, all you need is the kexec blob for the multiboot to be installed and the android kernel to be copied.
 
+'''WARNING:''' ''take your time to understand each step, carefully read the original guide on XDA and make double-sure of what you are doing, this is again a critical step which can lead to a bricked device and the need for the lifeline we created before.''
+
 (remember you are on Android here, not Linux, so things are different. For once, you must run shell script by invoking the shell itself and not by directly run the script, as the partition you have normally access to it's mounted as no-exec)
 
 Very well, at this point we should have the multiboot installed and the android kernel restored for the multi-boot. 
@@ -168,14 +170,14 @@ This is basically the standard Gentoo Handbook, so i will not bore you on the ba
 
 I assume you want to install on the first partition of your microSD card. If not, just follow these instructions but perform them on the media you want to use (loopback image, internal memory, SD card, whatever)
 
-These instructions will allow you to do everything from your tablet on Android, but if you prefer to make things easier, put the microSD into your linux PC and perform them there, then move the microSD to the tablet and skip to the reoot part.
+These instructions will allow you to do everything from your tablet on Android, but if you prefer to make things easier, put the microSD into your Linux PC and perform them there, then move the microSD to the tablet and skip to the reboot part.
 
-I assume your microSD has already been formatted and that the first partition is the gentoo root partition. If you have a more complex partitioning scheme, have fun adapting these instructions for your case.
+I assume your microSD has already been formatted and that the first partition is the Gentoo root partition. If you have a more complex partitioning scheme, have fun adapting these instructions for your case.
 
-We need to mount the EXT4 partition, so:
+We need to mount the partition, so:
 * From android, open your Android Terminal Emulator and become su: ''su bash''
 * create a temporary folder: '''mkdir tmpGentoo'''
-* mount the microSD: '''mount -t ext4 /dev/mmcblk1p0 tmpGentoo''' (mmcblk1 is the microSD)
+* mount the microSD: '''mount -t ext4 /dev/mmcblk1p0 tmpGentoo''' (mmcblk1 is the microSD, use the filesystem you used if not ext4)
 
 == Download stage3 for ARM-hf ==
 
@@ -185,21 +187,21 @@ Extracting it into the mounted partition can be hard depending on your busybox, 
 
 == Prepre your stage3 before first boot ==
 
-(make sure to do these steps from your tablet and not from the PC)
+(make sure to do these steps from your tablet and '''not''' from the PC)
 Follow the gentoo handbook to install it. In short, these are the steps:
 * cd into your gentoo mounted parttion: ''cd tmpGentoo''
 * remount with bind dev, proc, run, sys: ''for i in dev proc run sys; do mount -o bind /$i $i; done''
 * create your ''etc/resolv.conf'', put inside your DNS server (Android does not have one, so you must create it from scratch)
 * chroot: ''chroot ./ /bin/bash''
 * change the root password immediately: ''passwd''
-* DO NOT INSTALL A KERNEL: you must use the provided that10 kernel.
+* DO NOT INSTALL A KERNEL: you must use the provided "that" kernel.
 * DO NOT INSTALL GRUB OR ANY BOOTLOADER: you have multiboot already in place.
 * DO NOT INSTALL LOG MANAGERS: metalog, syslog-ng and the likes, will only slow down and add wear to your microSD.
 * Take a look at the Gentoo Handbook to see if you need something else which i clearly forgot here.
 * Don't forget to prepare your portage tree ('''emerge --sync''') and update it as needed.
 
 == Mask and unmask packages ==
-The provided tegra drivers works only with X up to 1.14 (which is not very stable) and since 1.13 has been masked due to security flaws, you must mask any xorg-server above or equal to 1.13. Also, many ebuilds are not yet classified as "stable" for ARM, but are nevertheless very much usable. You will need to unmask a lot of stuff, i am posting here my '''/etc/portage/packages.accept_keywords''' for you to copy:
+The provided Tegra drivers works only with X up to 1.14 (which is not very stable with the Tegra driver) and since 1.13 has been masked due to security flaws, you must mask any xorg-server above or equal to 1.13. Also, many ebuilds are not yet classified as "stable" for ARM, but are nevertheless very much usable. You will need to unmask a lot of stuff, i am posting here my '''/etc/portage/packages.accept_keywords''' for you to copy:
  # Firefox after v.32 do not compile on ARM
  <=www-client/firefox-32 ~arm 
  dev-libs/nss ~arm
@@ -238,24 +240,25 @@ This is my /etc/portage/make.conf:
  PORTDIR="/usr/portage"
  DISTDIR="${PORTDIR}/distfiles"
  PKGDIR="${PORTDIR}/packages"
- USE="alsa opengl mp3 aacs v4l x264 consolekit neon minizip sqlite bluetooth truetype networkmanager gudev bindist X policykit jpg jpeg tiff png dbus pdf cups udev samba lxpanel"
+ USE="alsa opengl neon mp3 aacs v4l x264 consolekit neon minizip sqlite bluetooth truetype networkmanager gudev bindist X policykit jpg jpeg tiff png dbus pdf cups udev samba lxpanel"
  MAKEOPTS="-j4"
  VIDEO_CARDS="v4l"
  INPUT_DEVICES="evdev keyboard"
  FEATURES="ccache -sandbox -usersandbox"
  XFCE_PLUGINS=""
 
-I have enabled ccache to speed up build times and help the microSD. Since we have a quad-core i have set the -j4 to speed up make. I had to disable sandbox because some packages will not build on ARM. The various useflags are just an example, adapt to your needs. Of course, you need to ''emerge ccache'' and enable it too. The "lxpanel" USE flag and the XFCE_PLUGINS="" line are needed if you plan to use LXDE like me and want to use the power manager plugin from XFCE.
+I have enabled ccache to speed up build times and help the microSD. Since we have a quad-core i have set the -j4 to speed up make. I had to disable sandbox because some packages will not build on ARM. The various useflags are just an example, adapt to your needs. Of course, you need to ''emerge ccache'' and enable it too. The "lxpanel" USE flag and the XFCE_PLUGINS="" line are needed if you plan to use LXDE like me and want to use the power manager plugin from XFCE. The "neon" USE flag will make use of the supposedly faster neon FPU available on this tablet.
 
 == Setup the kernel ==
 
-No, you cannot recompile any sources provided by Gentoo nor i had any luck whatsoever with the NVIDIA provided kernel sources, according to what the NVIDIA devs say we should get an updated kernel from Asus itself. So at the moment we are stuck with kernel 3.1.10 (see links at the bottom of the page) which is the latest provided by Asus. Since we already have a good working kernel ready, there is no need to add also this strain to the tablet, let's go with the provided one.
+No, you cannot recompile any sources provided by Gentoo nor i had any luck whatsoever with the NVIDIA provided kernel sources, according to what the NVIDIA devs say we should get an updated kernel from Asus itself. So at the moment we are stuck with kernel 3.1.10 (see links at the next sub-section) which is the latest provided by Asus. Since we already have a good working kernel ready, there is no need to add also this strain to the tablet, let's go with the provided one.
 
 What you have to do now is copy the same kernel your Android is using (or choose a kernel from the package which contains the multiboot loader) to the /boot folder of your Gentoo partition. I leave this as an exercise for you, you want to end up with these files:
  /boot/initrd.img
  /boot/zImage
 
 So copy both from your Android system partition.
+I suggest you use the latest "that" kernel from [http://forum.xda-developers.com/attachment.php?attachmentid=2940945&d=1410986629 here]   (mirrored [http://www.gardiol.org/tf700/kernel-that11.zip here]). The associated sources are [https://github.com/that1/android_kernel_asus_tf700t/releases/tag/release-that11 here on GITHUB].
 
 Since some packages needs the kernel sources to be built, we need to download the sources associated to your kernel: 
 * Fetch any one of the kernel sources listed below and put it under  '''/usr/src/linux'''.
@@ -293,13 +296,15 @@ When you need to disable it:
  swapoff /swap.img
 </pre>
 
+I strongly suggest you place it on an external USB hard-drive, it's faster and does not slug the tablet down while doing heavy swap access.
+
 == Install driver packages ==
 
-At this moment the only way to get X to start is using the NVIDIA provided binary blob. It sucks, albeit it works, but since i am not able to recompile any 3.1.10 kernel and try OpenTegra, there is no other way to go.
+At this moment the only way to get X to start is using the NVIDIA provided binary blob. It sucks, albeit it works, but since i am not able to recompile any newer kernel and try OpenTegra, there is no other way to go.
 
 Touch screen and trackpad works great but we need to download and install the proper drviers too.
 
-* Build Xorg, it will take some time, so you can sart building it while doing the rest of the steps: ''emerge xorg-server xorg-drivers''
+* Build Xorg, it will take some time, so you can start building it while doing the rest of the steps: ''emerge xorg-server xorg-drivers''
 * While it builds, download the NVIDIA package [http://developer.download.nvidia.com/mobile/tegra/l4t/r16.5.0/cardhu_release_armhf/Tegra30_Linux_R16.5_armhf.tbz2 from here]
 * then unpack it into your root user home folder in the gentoo partition (i suggest to keep it there in case you need some files later on)
 * Now doenload the trackpad drivers from [http://www.gardiol.org/tf700/xorg-x11-drv-mtev-0.1.13.tar.bz2 this] link (this is a patched version of the sources you can find [http://gitorious.org/xorg/xf86-input-mtev here], which will not compile)
@@ -312,7 +317,7 @@ Now wait for Xorg to be completely built and installed.
 * Decompress the archive nvidia_drivers.tbz2 found within ''/root/Linux_for_Tegra/nv_tegra'', it will create some folders like usr, etc and lib, DO NOT EXPAND IN YOUR ROOT FOLDER! For the following instructions i assume you will expand it into the nv_tegra folder where the archive is.
 * Copy the xorg driver from ''/root/Linux_for_Tegra/nv_tegra/usr/lib/xorg/modules/drivers'' to ''/usr/lib/xorg/modules/drivers''. Pick the right one (the ABI12 in our case) and copy to the destination folder and rename it to tegra_drv.so.
 * Copy MOST of the libraries from ''/root/Linux_for_Tegra/nv_tegra/usr/lib'' to ''/usr/lib'' but be VERY CAREFULL not to replace ''libjpeg.so'', you want to keep your copy of it.
-* Poke around the ''/root/Linux_for_Tegra/nv_tegra'' folder, check if there are more files you want to copy to your filesystem (probably not).
+* Poke around the ''/root/Linux_for_Tegra/nv_tegra'' folder, check if there are more files you want to copy to your file-system (probably not).
 
 == Configure the dock keyboard ==
 
