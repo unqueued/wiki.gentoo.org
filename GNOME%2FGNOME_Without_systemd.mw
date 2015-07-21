@@ -1,0 +1,282 @@
+[[File:GNOME_without_systemd.png|thumb|right|400px|GNOME 3.14 session, under OpenRC (not systemd!) init]]
+
+Brief instructions for using '''GNOME''' (3.14 or 3.16) under '''OpenRC''' (rather than systemd!) in Gentoo, via Dantrell B.'s [https://github.com/dantrell/gentoo-project-gnome-without-systemd patchset].
+
+== Introduction ==
+
+Users of GNOME 3 on Gentoo have, until recently, been required either to use [[systemd]] as their init system, or else to use a [https://github.com/sakaki-/funtoo-2-gentoo 'shim' overlay] to pull in Funtoo's patched version of GNOME (which supports OpenRC).
+
+Now, however, Dantrell B., the primary author of the Funtoo GNOME patchset, has [https://github.com/dantrell/gentoo-project-gnome-without-systemd made his work available] for Gentoo users directly.
+
+To be clear, this means that you can now enjoy the full GNOME experience (including session tracking and power management), even on a PC running 'stable branch' (<tt>amd64</tt>) Gentoo, without systemd.
+
+This brief guide leads you through the steps you need to take to get GNOME up and running under this patchset.
+
+{{Important|As with any third-party overlay, please be aware that:
+* you may find it more difficult to get support via the normal Gentoo channels (the forums etc.). when using an 'unofficial' patchset such as this one;
+* security fixes etc. may take longer to be released, and the overlays may themselves contain security holes;
+* the patchset's author (Dantrell B.) may cease support for this patchset in the future.
+
+Having said that:
+* the vast majority of the GNOME code is unaffected by the patches;
+* the patchset code itself is largely shared with Funtoo, who use it in their mainline distribution, so you will not be alone;
+* Dantrell B. [https://github.com/dantrell/gentoo-project-gnome-without-systemd#long-term-support has stated] his intention to support this patchset for Gentoo (at least until either a proper answer for the GNOME/systemd issue is arrived at, he ceases to use GNOME, or the complexity gets out of control).}}
+
+== Prerequisites ==
+
+It is assumed that:
+* having followed the vanilla [[Handbook:AMD64#Installing_Gentoo|"Installing Gentoo" process from the official Handbook]], you are currently running a stock <tt>amd64</tt> Gentoo system which has working internet access etc. (it is also fine to be on <tt>~amd64</tt>)
+* you have at least one 'regular' (non-root) user set up;
+* you have prepared your kernel and {{Path|/etc/portage/make.conf}} file for X-server installation (<tt>VIDEO_CARDS</tt> and <tt>INPUT_DEVICES</tt> variables set), as described [[Xorg/Guide#Installation|here]]. You do not have to have actually installed the X-server, however (although you can if you wish);{{Note|A minimal setup for test purposes, which should run on most systems, can be created by [[Handbook:AMD64/Installation/Kernel#Alternative:_Using_genkernel|building the kernel]] using <kbd>genkernel all</kbd>, and setting <code>VIDEO_CARDS{{=}}"vesa"</code> and <code>INPUT_DEVICES{{=}}"evdev synaptics"</code> in {{Path|/etc/portage/make.conf}}; for full functionality and higher screen resolution, you should of course specify the correct video driver and kernel options, per the [[Xorg/Guide#Installation|guide just cited]].}}
+* you have a UTF-8 locale selected (as described [[Handbook:AMD64/Installation/Base#Configure_locales|here]]).
+
+== Installation ==
+
+=== Setting Global USE Flags ===
+
+First, if you have the <tt>bindist</tt> USE flag set in your {{Path|/etc/portage/make.conf}} file, it is recommended to '''unset''' it now, to avoid issues with {{Package|dev-libs/openssl}}, {{Package|net-misc/openssh}} and dependencies later.
+
+Next, ensure everything is up-to-date on your current setup, before proceeding further:
+
+{{RootCmd
+|emerge --sync
+|emerge --deep --with-bdeps=y --newuse --update --ask --verbose @world
+}}
+
+=== Installing the Overlays ===
+
+You now have two options: either install Dantrell B.'s overlays under [[layman]], or add them directly (assuming you are using version >= 2.2.16 of {{Package|sys-apps/portage}}).
+
+==== Option 1: Installation under layman ====
+
+To install the overlays, first emerge and configure <tt>layman</tt>, as detailed [[layman|here]], with the <tt>git</tt> USE flag enabled (it is by default).
+
+Then, edit the <tt>overlays</tt> stanza of {{Path|/etc/layman/layman.cfg}} so it reads:
+{{FileBox||filename=/etc/layman/layman.cfg|title=Make dantrell overlays visible to layman|1=
+overlays  : http://www.gentoo.org/proj/en/overlays/repositories.xml
+            https://raw.githubusercontent.com/dantrell/gentoo-overlay-dantrell-gnome/master/repositories.xml
+}}
+
+Sync the overlay metadata, and add the 'generic' GNOME overlay:
+{{RootCmd
+|layman --sync-all
+|layman -a dantrell-gnome
+}}
+
+Next, add the desired GNOME 'version' overlay(s); if using the 'stable' (<tt>amd64</tt>) branch, you should use at least the one which matches the current stable {{Package|gnome-base/gnome}} in Gentoo (3.14 at the time of writing).
+
+{{Note|It's OK to select more than one (e.g., to select ''both'' version <tt>dantrell-gnome-3-14</tt> and <tt>dantrell-gnome-3-16</tt>) - your profile (which we will set [[#Setting_the_Profile.2C_and_Updating|below]]) will determine which takes precedence.}}
+
+For GNOME 3.14, issue:
+
+{{RootCmd
+|layman -a dantrell-gnome-3-14
+}}
+
+For GNOME 3.16, issue:
+
+{{RootCmd
+|layman -a dantrell-gnome-3-16
+}}
+
+==== Option 2: Direct Installation ====
+
+Under modern (>= 2.2.16) versions of <tt>portage</tt>, it isn't necessary to use [[layman]] - you can add the overlays directly if you like.
+
+{{Note| The following will assume you are using the 'subdirectory' approach for {{Path|/etc/portage/<...>}} settings files, as this is more convenient, and furthermore is what is now used on the Gentoo "minimal install" images).}}
+
+Begin by ensuring the that you have a {{Path|/etc/portage/repos.conf}} directory in place:
+
+{{RootCmd
+|mkdir -pv /etc/portage/repos.conf
+}}
+
+Check you have a {{Path|/etc/portage/repos.conf/gentoo}} file; if not, create it following the pattern below (adapt the <tt>sync-uri</tt> appropriately for your location):
+
+{{FileBox||filename=/etc/portage/repos.conf/gentoo|title=Configuration for the Gentoo repo|1=
+[DEFAULT]
+main-repo = gentoo
+
+[gentoo]
+location = /usr/portage
+sync-type = rsync
+auto-sync = yes
+
+sync-uri = rsync://rsync.uk.gentoo.org/gentoo-portage
+}}
+
+Next, we need to create configuration files for Dantrell B.'s external overlays. At the time of writing there are three overlays: a 'common' one, and one for each of GNOME 3.14, and 3.16. Create the following files for these:
+
+{{FileBox||filename=/etc/portage/repos.conf/dantrell-gnome.conf|title=Configuration for dantrell-gnome repo|1=
+[dantrell-gnome]
+
+# Dantrell B.'s Gentoo Overlay for GNOME (generic)
+# Maintainer: Dantrell B. (dantrell@mirthil.org)
+# Homepage: https://github.com/dantrell/gentoo-project-gnome-without-systemd
+
+location = /usr/local/portage/dantrell-gnome
+sync-type = git
+sync-uri = https://github.com/dantrell/gentoo-overlay-dantrell-gnome.git
+priority = 150
+auto-sync = yes
+}}
+
+{{FileBox||filename=/etc/portage/repos.conf/dantrell-gnome-3-14.conf|title=Configuration for dantrell-gnome-3-14 repo|1=
+[dantrell-gnome-3-14]
+
+# Dantrell B.'s Gentoo Overlay for GNOME (3.14)
+# Maintainer: Dantrell B. (dantrell@mirthil.org)
+# Homepage: https://github.com/dantrell/gentoo-project-gnome-without-systemd
+
+location = /usr/local/portage/dantrell-gnome-3-14
+sync-type = git
+sync-uri = https://github.com/dantrell/gentoo-overlay-dantrell-gnome-3-14.git
+priority = 100
+auto-sync = yes
+}}
+
+{{FileBox||filename=/etc/portage/repos.conf/dantrell-gnome-3-16.conf|title=Configuration for dantrell-gnome-3-16 repo|1=
+[dantrell-gnome-3-16]
+
+# Dantrell B.'s Gentoo Overlay for GNOME (3.16)
+# Maintainer: Dantrell B. (dantrell@mirthil.org)
+# Homepage: https://github.com/dantrell/gentoo-project-gnome-without-systemd
+
+location = /usr/local/portage/dantrell-gnome-3-16
+sync-type = git
+sync-uri = https://github.com/dantrell/gentoo-overlay-dantrell-gnome-3-16.git
+priority = 100
+auto-sync = yes
+}}
+
+Next, if you haven't already got it on your system, install [[git]]:
+{{RootCmd
+|emerge --ask --verbose --noreplace dev-vcs/git
+}}
+
+Then sync everything:
+{{RootCmd
+|emaint sync -a
+}}
+
+=== Setting the Profile, and Updating ===
+
+Dantrell's overlays provide a bundled set of [[Profile|profiles]]. By using one of these, you can conveniently set appropriate USE flags, masks etc., to ensure that installation proceeds smoothly.
+
+Select an appropriate profile now (at the time of writing, users on the "stable" (<tt>amd64</tt>) branch should use the 3.14 profile; <tt>~amd64</tt> users may use either:
+{{RootCmd
+|eselect profile list
+|output=
+<pre>
+  [1]   default/linux/amd64/13.0 *
+  [2]   default/linux/amd64/13.0/selinux
+  ... additional output suppressed ..
+  [22]  dantrell-gnome:default/amd64/3.14
+  [23]  dantrell-gnome:default/amd64/3.16
+</pre>
+}}
+(The numbering etc. on the list you see may well differ from the above.)
+{{RootCmd
+|eselect profile set "dantrell-gnome:default/amd64/3.14"
+|eselect profile show
+|output=
+<pre>
+Current /etc/portage/make.profile symlink:
+  dantrell-gnome:default/amd64/3.14
+</pre>
+}}
+
+With the profile set, re-emerge <tt>@world</tt>, to pick up the new USE flags, default packages etc.
+
+{{RootCmd
+|emerge --deep --with-bdeps{{=}}y --newuse --update --ask --verbose @world
+}}
+{{Important|Please do not skip this step - the subsequent GNOME <tt>emerge</tt> will probably fail if you do.}}
+
+Now we need to install some [https://github.com/dantrell/gentoo-project-gnome-without-systemd#prerequisites prerequisites] for GNOME without <tt>systemd</tt>. Two of these (dbus and consolekit) will have already been installed as part of the above @world update under the custom profile. However, we still need {{Package|sys-power/pm-utils}} and {{Package|sys-power/acpid}}, so <tt>emerge</tt> these now:
+{{RootCmd
+|emerge --ask --verbose sys-power/pm-utils sys-power/acpid
+}}
+
+Make sure the various services will come up on boot, and start them:
+{{RootCmd
+|rc-update add dbus default
+|rc-update add consolekit default
+|rc-update add acpid default
+|rc
+}}
+
+=== Preparing USE Flags Prior to GNOME Emerge ===
+
+If there are any additional applications you would like installed as part of the GNOME emerge, set their USE flags now. For example, to add the [[epiphany]] browser to the set of installed applications, do:
+{{RootCmd
+|mkdir -pv /etc/portage/package.use
+|echo "gnome-base/gnome-extra-apps epiphany" >> /etc/portage/package.use/gnome-extra-apps
+}}
+{{Note|The above assumes that {{Path|/etc/portage/package.use}} is a directory, which is now the default on the Gentoo minimal install image. If using a single file instead, simply append to {{Path|/etc/portage/package.use}} instead of {{Path|/etc/portage/package.use/gnome-extra-apps}} in the above.}}
+
+=== Emerging GNOME ===
+
+Right, we are now ready to <tt>emerge</tt> GNOME! To do so, issue:
+
+{{RootCmd
+|emerge --ask --verbose --keep-going gnome-base/gnome
+}}
+
+{{Important|If you are using any <tt>MAKEOPTS</tt> and/or <tt>EMERGE_DEFAULT_OPTS</tt> build parallelism, it is quite possible that one or more elements of this large <tt>emerge</tt> will fail. If that occurs, in the first instance, simply issue the {{RootCmd|emerge --ask --verbose --keep-going gnome-base/gnome}} again. You may need to repeat this step multiple times to get GNOME emerged successfully (I have found three or four iterations may be necessary). As long as the 'packages to be installed' count keeps falling, keep trying ^-^}}
+
+{{Note|If desired, you can <tt>emerge</tt> {{Package|gnome-base/gnome-light}} instead, and then add applications later.}}
+
+Assuming that completes successfully, '''you should still check that the necessary X11 drivers have been properly emerged''': often, they will not have been, particularly if you had to run the <tt>emerge</tt> step more than once (due to build parallelism errors). To make sure, issue:
+{{RootCmd
+|emerge --ask --verbose --oneshot x11-base/xorg-drivers
+}}
+
+{{Note|If you are using [[VirtualBox]], please note that [https://forums.gentoo.org/viewtopic-p-7719728.html#7719728 you may need to upgrade] your version of {{Package|sys-devel/gcc}} (to a 'non-stable' variant, possibly) in order to compile {{Package|x11-drivers/xf86-video-virtualbox}}. If the above <tt>emerge</tt> of {{Package|x11-base/xorg-drivers}} failed, give this a shot.<br>As suggested earlier, you can also try using <code>VIDEO_CARDS{{=}}"vesa"</code> just to get things going initially.}}
+
+== Configuring and Running GNOME ==
+
+Once GNOME is emerged, you need to change the <tt>DISPLAYMANGER</tt> value in the <tt>xdm</tt> configuration file ({{Path|/etc/conf.d/xdm}}), so that the [[GNOME/gdm|gdm]] display manager is used:
+
+{{FileBox||filename=/etc/conf.d/xdm|title=Specify the GNOME display manager, as follows|1=
+# What display manager do you use ?  [ xdm {{!}} gdm {{!}} kdm {{!}} gpe {{!}} entrance ]
+# NOTE: If this is set in /etc/rc.conf, that setting will override this one.
+DISPLAYMANAGER="gdm"
+}}
+
+Then set <tt>xdm</tt> and <tt>[[NetworkManager]]</tt> to come up on boot, and disable <tt>[[dhcpcd]]</tt> if you are using it:
+{{RootCmd
+|rc-update add xdm default
+|rc-update add NetworkManager default
+|rc-update del dhcpcd default
+}}
+
+Check if your machine has a plugdev group, and, if it does, add any regular users to it:
+{{RootCmd
+|getent group plugdev && gpasswd -a <yourusername> plugdev
+}}
+
+Start up GNOME!
+{{RootCmd
+|rc
+}}
+
+You should now have a GNOME login screen visible (and this will also come up automatically on boot). On some machines, you may need to move the mouse or press a key, for the login screen to appear. 
+
+Have fun!
+
+== Using GNOME ==
+
+For more information about the GNOME interface (which is generally self-explanatory), see https://gnome.org.
+Some additional useful setup tips about GNOME may also be found [[Sakaki's_EFI_Install_Guide/Using_Your_New_Gentoo_System#Miscellaneous_GNOME_Points|here]].
+
+== See also ==
+
+* [[Project:GNOME|Gentoo GNOME Project]]
+* [[GNOME/gdm|GNOME Display Manager]]
+
+== External resources ==
+
+* [https://github.com/dantrell/gentoo-project-gnome-without-systemd Dantrell B.'s project homepage on GitHub]
+
+[[category:GNOME]]
