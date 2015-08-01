@@ -1,0 +1,107 @@
+<languages />
+
+Chroot ('''Ch'''ange '''root''') is a Unix system utility used to change the apparent root directory to create a new environment logically separate from the main system's root directory. This new environment is known as a "chroot jail". A user operating inside the jail can not see or access files outside of the environment they have been locked into.
+
+One of the main uses for chrooting is to create a separate Linux system on top of a the current one for the purpose of testing or software compatibility. Chroot is often seen as a lightweight alternative to virtualization because it is able to run without the overhead of a hypervisor.
+
+== Setting up the environment ==
+
+When creating a new chroot setup, the first thing needed is a directory for the chroot to reside in. For example, a chroot could be created in {{Path|/mnt/mychroot}}:
+
+{{Cmd
+|mkdir /mnt/mychroot
+|cd /mnt/mychroot
+}}
+
+To mount an existing installation from a partition the following command can be ran. Be sure to replace the <code><DEVICE></code> string in the example below with the drive and partition of the existing installation:
+
+{{Cmd
+|mkdir /mnt/mychroot
+|mount /dev/<DEVICE> /mnt/mychroot
+}}
+
+If an installation has been previously created in a sub directory of the current root file system the above steps can be skipped.
+
+== Unpacking system files and the Portage tree (new installations) ==
+
+When building a new install, the next step is to download the stage3 and Portage tarballs and set them up in the chroot location. For more information on this process please see sections 5a and 5b in the [http://www.gentoo.org/doc/en/handbook/handbook-amd64.xml?part=1&chap=5 Gentoo Handbook].
+
+{{RootCmd
+|links http://distfiles.gentoo.org/releases/amd64/current-iso/
+|tar xvjpf stage3-*.tar.bz2 -C /mnt/mychroot
+|links http://distfiles.gentoo.org/snapshots/
+|tar xvjf portage-*.tar.bz2 -C /mnt/mychroot/usr
+}}
+
+== Configuration ==
+
+Before entering the chroot a number of directories need to be mounted:
+
+{{RootCmd
+|mount -o rbind /dev /mnt/mychroot/dev
+|mount -t proc none /mnt/mychroot/proc
+|mount -o bind /sys /mnt/mychroot/sys
+|mount -o bind /tmp /mnt/mychroot/tmp
+}}
+
+Some basic configuration files will need to be copied from the host, do not copy over {{Path|make.conf}} when using an existing installation:
+
+{{Cmd
+|cp /etc/portage/make.conf /mnt/mychroot/etc/portage # When using an existing installation, skip this command.
+|cp /etc/resolv.conf /mnt/mychroot/etc
+}}
+
+Once done enter the chroot environment by executing the following commands:
+
+{{RootCmd
+|chroot /mnt/mychroot /bin/bash
+|env-update
+|source /etc/profile
+|<nowiki>export PS1="(chroot) $PS1"</nowiki>
+}}
+
+When creating a new installation Portage should be synced to make sure everything is up to date.
+
+{{RootCmd|emerge --sync}}
+
+The system is now ready; feel free to install software, mess with settings, test experimental packages and configurations without having any effect on the main system. To leave the chroot simply type <kbd>exit</kbd> or press {{Key|Ctrl}}+{{Key|D}}. Doing so will return the console back to the normal environment. Do not forget to umount the directories that have been mounted.
+
+== Init scripts ==
+
+If setting up chroots is a task that is needed to be performed often, it is possible to speed up the mounting of the directories by using an init script:
+
+{{FileBox|filename=/etc/init.d/mychroot|lang=bash|1=
+#!/sbin/runscript
+ 
+depend() {
+   need localmount
+   need bootmisc
+}
+ 
+start() {
+     ebegin "Mounting chroot directories"
+     mount -o rbind /dev /mnt/mychroot/dev > /dev/null &
+     mount -t proc none /mnt/mychroot/proc > /dev/null &
+     mount -o bind /sys /mnt/mychroot/sys > /dev/null &
+     mount -o bind /tmp /mnt/mychroot/tmp > /dev/null &
+     eend $? "An error occurred while mounting chroot directories"
+}
+ 
+stop() {
+     ebegin "Unmounting chroot directories"
+     umount -f /mnt/mychroot/dev > /dev/null &
+     umount -f /mnt/mychroot/proc > /dev/null &
+     umount -f /mnt/mychroot/sys > /dev/null &
+     umount -f /mnt/mychroot/tmp > /dev/null &
+     eend $? "An error occurred while unmounting chroot directories"
+}
+}}
+
+When using a different directory or partition, add the necessary mounting commands in the <code>start()</code> function and change {{Path|/mnt/chroot}} to the appropriate name.
+
+== See also ==
+
+* [[Project:X86/Chroot Guide|Chroot Guide]]
+
+
+[[Category:Core system]]
