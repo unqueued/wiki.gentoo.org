@@ -31,6 +31,75 @@ If you prefer to do it manually:
 
 {{RootCmd|rc default}}
 
+==== Init Stage 1 ====
+This stage should take care of system initialization and be short and sane to avoid any possible system or comand hang because there is no safety net in this stage&mdash;holding the power button or unpluging the power cable would be the only workaround.
+
+{{FileBox|filename=/etc/runit/1|title=Stage-1|lang=bash|1=#!/bin/sh
+# System one time tasks initialization
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+RUNLEVEL=S rc sysinit
+
+touch /etc/runit/stopit
+chmod 0 /etc/runit/stopit
+}}
+
+==== Init Stage 2 ====
+Thisstage should ''exec'' into ''runsvdir'' (supervisor utility) in order to have PID 2 hold the supervised process tree.
+
+{{FileBox|filename=/etc/runit/2|title=Stage-2|lang=bash|1=
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/X11R6/bin:/usr/local/bin:/usr/local/sbin
+SV_SVCDIR=/etc/service
+SV_RUNDIR=/run/runsvdir
+
+RUNLEVEL=S rc boot
+if grep -q nonetwork /proc/cmdline; then
+   RUNLEVEL=2 rc nonetwork
+elif grep -q single /proc/cmdline; then
+   RUNLEVEL=1 rc single
+else
+   RUNLEVEL=3 rc default
+fi
+
+mkdir -p /run
+rm -fr "${SV_RUNDIR}"
+cp -ar "${SV_SVCDIR}" "${SV_RUNDIR}"
+
+exec env - PATH=$PATH \
+runsvdir "${SV_RUNDIR}" \
+'log: .........................................................................'
+}}
+
+See the forums thread to know the details about why boot and default run levels are included in stage 2 rather in stage 1.
+Simply put, ''CTRL-ALT-DEL'' signal is inactive on stage 1, so this will prevent to have to hold the power switch in case something goes wrong and hang when doing further system initialization&mdash;an extended boot run level.
+
+And lastly, copying ''/service/'' directory to a tmpfs based filesystem would prevent unecessary disk seeks related to runtime service supervision. And this is a sane default becasue many init systems&mdash;like OpenRC&mdash;does this as well.
+
+==== Init Stage 3 ====
+Stage should take care of system halt and reboot.
+
+{{FileBox|filename=/etc/runit/3|title=Stage-3|lang=bash|1=
+#!/bin/sh
+exec >/dev/console 2>&1
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+SV_RUNDIR=/run/runsvdir
+
+echo 'Waiting for getties to stop...'
+sv -w 10 force-shutdown ${SV_RUNDIR}/getty-*
+echo 'Waiting for services to stop...'
+sv -w 300 force-shutdown ${SV_RUNDIR}/*
+
+echo 'Shutdown...'
+if test -x /etc/runit/reboot; then
+   RUNLEVEL=6 rc reboot
+else
+   RUNLEVEL=0 rc shutdown
+fi
+}}
+
+See [[Runit#External Ressources]] for another OpenRC friendly implementation.
+
 ==== SysVinit Reboot and Shutdown Compatibility Service ====
 Runit isn't directly compatible with sysvinit's "telinit", "halt", "poweroff", "reboot" and "shutdown" commands, however many programs (e.g. desktop environments) expect to be able to call some of these. It's possible to emulate the interface they need [https://forums.gentoo.org/viewtopic-p-7610342.html#7610342 with a simple script].
 
