@@ -54,6 +54,8 @@ un interfaz genérico permitiendo que las aplicaciones se construyan contra libr
 Un ABI o ,[https://es.wikipedia.org/wiki/Interfaz_binaria_de_aplicaciones ''Interfaz Binaria para Aplicaciones''] (en inglés Application Binary Interface), es un conjunto de convenciones usadas por todas las herramientas que manejan representaciones binarias de los programas, incluyendo compiladores, ensambladores, enlazadores y soporte en tiempo de ejecución (fuente: [http://gcc.gnu.org/onlinedocs/gcc/Compatibility.html GCC Binary Compatibility]). Al cambiar el ABI usado para aplicaciones binarias y librerías, existirá el riesgo de obtener errores de
 enlazado o programas funcionando incorrectamente si no se reconstruyen todas las librerías que usen el código C++. Si, C++, ya que la mayoría de las incompatibilidades ocurren en el ABI de C++. Por esto usamos la orden <tt>revdep-rebuild</tt> contra la librería {{Path|libstdc++.so.5}}. 
 
+Yes, C++, since most incompatibilities occur within the C++ ABI. If you are upgrading to GCC 4.1, or GCC 5.1, you would probably encounter ABI issues. This is also why we use the <tt>revdep-rebuild</tt> command against the {{Path|libstdc++.so.5}} (from GCC 3 to GCC 4.1), or {{Path|libstdc++.so.6}} (from GCC 4 to GCC 5.1).
+
 {{RootCmd|revdep-rebuild --library libstdc++.so.5}}
 
 Asi que, ¿Por qué se requiere esto para GCC hasta la versión 3.4.0/4.1? A partir de estas versiones, GCC usa un ABI compatible a futuro, que elimina la necesidad de reconstruir las aplicaciones y librerías. Por supuesto que no se pueden dar garantía indefinidamente, pero cuando ocurra nuevamente una incompatibilidad, definitivamente la documentaremos aquí. En este caso la versión de la librería {{Path|libstdc++.so}} probablemente será superior.
@@ -82,13 +84,19 @@ Esto significa que está intentando construir un paquete con una versión de GCC
 
 Para reconstruir todos los paquetes que dependen de libstdc++ se puede lanzar el siguiente guión bash.
 
-{{CodeBox|title=Guión para reconstruir paquetes que dependen de libstdc++|lang=bash|1=
+{{CodeBox|title=Script to rebuild libstdc++ dependent packages|lang=bash|1=
 #!/bin/bash
-while read i ; do
-  [ -n "$(ldd -r $i {{!}} grep 'libstdc++')" ] && qfile "$i" >> rebuild.packages
-done <<< "$(find $(echo $PATH {{!}} tr ':' ' ') -type f -executable)"
-cut -d ' ' -f1 rebuild.packages {{!}} sort -u -o rebuild.packages
-emerge -1av $(cat rebuild.packages)
+ 
+IFS=: read -ra pathComponents <<<"$PATH"
+while IFS= read -rd '' x; do
+    ldd -r -- "$x" {{!}} grep -q libstdc++ && bins+=("$x")
+done < <(find "${pathComponents[@]}" -type f -executable -print0)
+ 
+typeset -A pkgs
+while read -r x; do
+    : ${x:+"${pkgs[=${x}]=}"}
+done < <(equery -q b "${bins[@]}")
+emerge -av1 "${!pkgs[@]}"
 }}
 
 === ¿Qué paquetes se sabe que deben reconstruirse? ===
