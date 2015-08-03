@@ -1,19 +1,20 @@
-The Hardened Gentoo project focuses on adding features to a Gentoo system that help resist security compromises. The approach is not always systematic, and many features that enhances security are added. Some of these complement one another (e.g. PIE from toolchain hardening and ASLR from PaX kernel hardening), and some are mutually exclusive (e.g. SELinux and Grsecurity's RSBAC kernel hardening).
+The [[Project:Hardened|Hardened Gentoo project]] focuses on adding features to a Gentoo system that help resist security compromises. The approach is not always systematic, and many features that enhances security have been added to the project. Some features complement one another (e.g. PIE from toolchain hardening and ASLR from PaX kernel hardening), and some are mutually exclusive (e.g. SELinux and Grsecurity's RSBAC kernel hardening).
 
-This document focuses on '''PaX''' which adds security enhancement to that area between both kernel and user land.
+This document focuses on '''PaX''' which adds security enhancement to the area between the kernel and user land.
 
 == What is PaX? ==
 
-PaX is a patch to the Linux kernel that provides hardening in three ways. 
+PaX is a patch to the Linux kernel that provides hardening in three ways:
+
 # Judicious enforcement of non-executable memory
 # Address Space Layout Randomization (ASLR)
 # Miscellaneous hardening on stack- and memory handling
 
-These hardening measures are explained in more detail next.
+These hardening measures are explained in more detail in the following sections.
 
 === Judicious enforcement of non-executable memory ===
 
-Judicious enforcement of non-executable memory prevents a common form of attack where executable code is inserted into the address space of a process by an attacker and then triggered, thus hijacking the process and possibly escalating privileges. The typical vector for the insertion is via user provided data that finds its way into executable memory. By ensuring that "data" only lives in memory which is non-executable, and that only "text" is found in memory which is executable, PaX pre-emptively protects against this class of attacks. 
+Judicious enforcement of non-executable memory prevents a common form of attack where executable code is inserted into the address space of a process by an attacker and then triggered, thus hijacking the process and possibly escalating privileges. The typical vector for the insertion is via user provided data that finds its way into executable memory. By ensuring that "data" only lives in memory which is non-executable, and that only "text" is found in memory which is executable, PaX preemptively protects against this class of attacks. 
 
 Try running the following with PaX's MPROTECT enforced and then not enforced to see this feature in action: 
 
@@ -48,7 +49,7 @@ int main() {
 }
 }}
 
-Similarly, try running the following with EMULTRAMP both enabled and disabled. This convoluted code forces gcc to set up a trampoline for the nested function f2(). The trampoline is executable code which lives on the stack and could allow the user to inject their own code via the variable i. 
+Similarly, try running the following with EMULTRAMP both enabled and disabled. This convoluted code forces gcc to set up a trampoline for the nested function <code>f2()</code>. The trampoline is executable code which lives on the stack and could allow the user to inject their own code via the variable <code>i</code>. 
 
 {{FileBox|filename=trampoline.c|title=Force gcc to generate a trampoline|lang=c|1=
 /*
@@ -88,7 +89,7 @@ int main () {
 
 === Address Space Layout Randomization (ASLR) ===
 
-With Address Space Layout Randomization (ASLR), a randomization of the memory map of a process (as reported, for example, by pmap) is provided and thus makes it harder for an attacker to find the exploitable code within that space. Each time a process is spawned from a particular ELF executable, its memory map is different. Thus exploitable code which may live at 0x00007fff5f281000 for one running instance of an executable may find itself at 0x00007f4246b5b000 for another. While the vanilla kernel does provide some ASLR, a PaX patched kernel increases that. Furthermore, when an application is built as a Position Independent Executable (<code>PIE</code>), even the base address is randomized. Try repeatedly running the following on both a vanilla and PaX kernel, with and without PIE: 
+With Address Space Layout Randomization (ASLR), a randomization of the memory map of a process (as reported, for example, by <tt>pmap</tt>) is provided and thus makes it harder for an attacker to find the exploitable code within that space. Each time a process is spawned from a particular ELF executable, its memory map is different. Thus exploitable code which may live at 0x00007fff5f281000 for one running instance of an executable may find itself at 0x00007f4246b5b000 for another. While the vanilla kernel does provide some ASLR, a PaX patched kernel increases the randomization. Furthermore, when an application is built as a Position Independent Executable (PIE), even the base address is randomized. Try repeatedly running the following on both a vanilla and PaX kernel, with and without PIE: 
 
 {{FileBox|filename=aslr-test.c|title=Randomize base addess for PIE|lang=c|1=
 /*
@@ -112,7 +113,7 @@ int main() {
 }
 }}
 
-For more information on PIE, see our documentation on the [[Hardened/Toolchain]].
+For more information on PIE, see our documentation on the [[Hardened/Toolchain|Hardened Toolchain]].
 
 === Miscellaneous hardening ===
 
@@ -122,35 +123,35 @@ More information on PaX can be found on its [http://pax.grsecurity.net official 
 
 == Understanding PaX ==
 
-The first step in working with PaX is to configure and boot a PaX patched kernel. Depending on whether or not you've configured PaX for SOFTMODE or non-SOFTMODE, the kernel will automatically start enforcing memory restrictions and address space randomization on all running processes. 
+The first step in working with PaX is to configure and boot a PaX patched kernel. Depending on whether or not one has configured PaX for SOFTMODE or non-SOFTMODE, the kernel will automatically start enforcing memory restrictions and address space randomization on all running processes.
 
-* With '''SOFTMODE''' enabled, PaX protection will not be enforced by default for those features which can be turned on or off at runtime, so this is the "permit by default" mode. In SOFTMODE, the user must explicitly mark executables to enforce PaX protections.
+* With '''SOFTMODE''' enabled, PaX protection will not be enforced by default for those features which can be turned on or off at runtime, so this is the "permit by default" mode. In SOFTMODE the user must explicitly mark executables to enforce PaX protections.
 * Without '''SOFTMODE''' (the '''non-SOFTMODE''' approach), PaX protections are immediately activate ("forbid by default"). The user must explicitly mark binaries to relax PaX protections selectively.
 
-Ideally you shouldn't have to do anything else; however, for problematic executables in non-SOFTMODE, a second step is required: you may have to relax certain PaX restrictions on a per ELF object basis. This is done by tweaking the PaX flags which are read by the kernel when the ELF is loaded into memory and execution begins. This second step is usually straight forward except when the ELF object that requires the relaxation is a library. In that case, the library's flags have to be back ported to the executable that links against it because when PaX enforces/relaxes its features, it does so on the basis of the executable's flags, not those of the libraries it links against. We will discuss both steps in detail below, but first we need an overview of PaX's features. We'll summarize these here, and for more details, we refer the reader to the official [http://pax.grsecurity.net/docs/index.html PaX documentation]. 
+Ideally it should not be necessary to do anything else; however, for problematic executables in non-SOFTMODE, a second step is required: relax certain PaX restrictions on a per ELF object basis. This is done by tweaking the PaX flags which are read by the kernel when the ELF is loaded into memory and execution begins. This second step is usually straight forward except when the ELF object that requires the relaxation is a library. In that case, the library's flags have to be back ported to the executable that links against it. When PaX enforces or relaxes a feature, it does so on the basis of the executable's flags, not those of the libraries it links against. Both steps will be discussed in detail below, but first an overview of PaX's features will be presented.
 
 === Enforce non-executable pages ===
 
-The first important feature of PaX is its ability to enforce non-executable pages.
+{{Note|The information in this section is a summary only. For more details, we refer the reader to the official [http://pax.grsecurity.net/docs/index.html PaX documentation].}}
 
-The following features are used to configure this behavior.
+The first important feature of PaX is its ability to enforce non-executable pages of memory. The following kernel features are used to configure this behavior:
 
-{| class="wikitable" style="text-align: left;" 
+{| class="table table-condensed table-striped" style="text-align: left;" 
 |- 
 | '''PAX_NOEXEC'''
 | This option enables the protection of allocated pages of memory as non-executable if they are not part of the text segment of the running process. It is needed for PAGEEXEC, SEGMEXEC and KERNEXEC.
 |-
 | '''PAGEEXEC'''
-| The kernel will protect non-executable pages based on the paging feature of the CPU. This is sometimes called "marking pages with the ''NX'' bit" in other OSes. This feature can be controlled on a per ELF object basis by the PaX <code>P</code> and <code>p</code> flags.
+| The kernel will protect non-executable pages based on the paging feature of the CPU. This is sometimes called "marking pages with the ''NX'' bit" in other OSes. This feature can be controlled on a per ELF object basis by the PaX <code>-P</code> and <code>-p</code> flags.
 |-
 | '''SEGMEXEC'''
-| This is like PAGEEXEC, but based on the segmentation feature of the CPU and it is controlled by the PaX <code>S</code> and <code>s</code> flags. Note that SEGMEXEC is only available on CPUs that support memory segmentation, namely x86.
+| This is like PAGEEXEC, but based on the segmentation feature of the CPU and it is controlled by the PaX <code>-S</code> and <code>-s</code> flags. Note that SEGMEXEC is only available on CPUs that support memory segmentation, namely {{Keyword|x86}}.
 |-
 | '''EMUTRAMP'''
-| The kernel will emulate trampolines (snippets of executable code written on the fly) for processes that need them, e.g. nested functions in C and some JIT compilers. Since trampolines try to execute code written by the process itself to memory marked as non-executable by PAGEEXEC or SEGMEXEC, the PaX kernel would kill any process that tries to make use of one. EMUTRAMP allows these processes to run without having to fully disable enforcement of non-executable memory. This feature can be controlled on a per ELF object basis by PaX <code>E</code> and <code>e</code> flag.
+| The kernel will emulate trampolines (snippets of executable code written on the fly) for processes that need them, e.g. nested functions in C and some JIT compilers. Since trampolines try to execute code written by the process itself to memory marked as non-executable by PAGEEXEC or SEGMEXEC, the PaX kernel would kill any process that tries to make use of one. EMUTRAMP allows these processes to run without having to fully disable enforcement of non-executable memory. This feature can be controlled on a per ELF object basis by PaX <code>-E</code> and <code>-e</code> flag.
 |-
 | '''MPROTECT'''
-| The kernel will prevent the introduction of new executable pages into the running process by various techniques: it will forbid the changing of the executable status of pages, or the creation of anonymous RWX mappings, or making RELRO data pages as writable again. It is controlled on a per ELF object basis by the PaX <code>M</code> and <code>m</code> flag.
+| The kernel will prevent the introduction of new executable pages into the running process by various techniques: it will forbid the changing of the executable status of pages, or the creation of anonymous RWX mappings, or making RELRO data pages as writable again. It is controlled on a per ELF object basis by the PaX <code>-M</code> and <code>-m</code> flag.
 |-
 | '''KERNEXEC'''
 | This is the kernel land equivalent of PAGEEXEC and MPROTECT. It cannot be disabled during while the kernel is running.
@@ -160,26 +161,26 @@ The following features are used to configure this behavior.
 
 The following features trigger the ASLR aspects of PaX:
 
-{| class="wikitable" style="text-align: left;" 
+{| class="table table-condensed table-striped" style="text-align: left;" 
 |- 
 | '''PAX_ASLR'''
 | The kernel will expand the number of randomized bits for the various section of the address space. This option is needed for RANDMMAP, RANDKSTACK and RANDUSTACK.
 |-
 | '''RANDMMAP'''
-| The kernel will use a randomized base address for mmap() requests that do not specify one via the MAP_FIXED flag. It is controlled by the PaX <code>R</code> and <code>r</code> flags.
+| The kernel will use a randomized base address for mmap() requests that do not specify one via the MAP_FIXED flag. It is controlled by the PaX <code>-R</code> and <code>-r</code> flags.
 |-
 | '''RANDKSTACK'''
 |  The kernel will randomize every task's kernel stack on all system calls. It cannot be disable while the kernel is running.
 |-
 | '''RANDUSTACK''' 
-| The kernel will randomize every task's userland stack. This feature can be controlled on a per ELF binary basis by the PaX <code>R</code> and <code>r</code> flags.
+| The kernel will randomize every task's userland stack. This feature can be controlled on a per ELF binary basis by the PaX <code>-R</code> and <code>-r</code> flags.
 |}
 
 ===  Miscellaneous Memory Protection ===
 
 None of the following features can be disabled while the kernel is running:
 
-{| class="wikitable" style="text-align: left;" 
+{| class="table table-condensed table-striped" style="text-align: left;" 
 |- 
 | '''STACKLEAK''' 
 | The kernel will erase its stack before it returns from a system call. This feature cannot be disabled while the kernel is running.
@@ -200,23 +201,33 @@ None of the following features can be disabled while the kernel is running:
 | The kernel will use early boot code to generate extra entropy, which is especially useful on embedded systems.
 |}
 
-As stated above, some PaX features can be enforced (in the case of SOFTMODE) or relaxed (in the case of non-SOFTMODE) on a "per ELF object" basis. These are PAGEEXEC, EMULTRAP, MPROTECT, RANDMMAP and SEGMEXEC and these are respectively controlled by the following flags: P, E, M, R, S and p, e, m, r, s. The upper case mean "enforce" in SOFTMODE and the lower case mean "relax" in non-SOFTMODE. A third possibility is that neither the enforce or relax flags are set, in which case the kernel simply uses the default for that particular protection. E.g. if neither P nor p is set on an ELF object, then the kernel will not enforce PAGEEXEC in SOFTMODE and will enforce it in non-SOFTMODE. 
+As stated above, some PaX features can be enforced (in the case of SOFTMODE) or relaxed (in the case of non-SOFTMODE) on a "per ELF object" basis. These are PAGEEXEC, EMULTRAP, MPROTECT, RANDMMAP and SEGMEXEC and these are respectively controlled by the following flags: <code>-P</code>, <code>-E</code>, <code>-M</code>, <code>-R</code>, <code>-S</code> and <code>-p</code>, <code>-e</code>, <code>-m</code>, <code>-r</code>, <code>-s</code>. The upper case mean "enforce" in SOFTMODE and the lower case mean "relax" in non-SOFTMODE. A third possibility is that neither the enforce or relax flags are set, in which case the kernel simply uses the default for that particular protection. If neither <code>-P</code> nor <code>-p</code> is set on an ELF object, then the kernel will not enforce PAGEEXEC in SOFTMODE and will enforce it in non-SOFTMODE. 
 
-Currently the PaX patches support three ways of doing PaX markings: EI_PAX, PT_PAX and XATTR_PAX. EI_PAX places the PaX flags in bytes 14 and 15 of the e_ident field of an ELF objects's header. But this is broken in recent versions of glibc and is no longer supported. (See {{Bug|365825}}) PT_PAX places the flags in an ELF objects's program header called PAX_FLAGS. This has the advantage that the flags are in the body of the object and will always be carried with it when copied; but, it has the disadvantage that the object must have the PAX_FLAGS program header to work. Most Linux distributions don't build their executables and libraries with this program header, and adding it is problematic. There may not be enough space in the ELF object to add it or converting a GNU_STACK program header, which is not used by the PaX kernel, might later cause problems under other kernels if the object is exported. In the worst case, changing the ELF binary will break self-checking executables which detect that they have been "tampered" with. (See {{Bug|100507}}). 
+== Marking for PaX ==
 
-While PT_PAX is still supported, the preferred approach is to use XATTR_PAX which places the PaX flags in a file system's extended attributes. This has the advantage that it does not modify the ELF object in any way, but the disadvantage that the filesystems which house these objects, and the utilities used to copy, move and archive, them, must support xattrs. In the case of Gentoo and portage, this means that tmpfs must support the user.pax.* xattr namespace in which the PaX flags are placed, not just the security.* and trusted.* namespaces. (Note: user.pax.* is the subspace of user.* which will be used for PaX related xattr information. We do not enable the entire user.* namespace in tmpfs to reduce the risk of attack vectors via that path.) 
+Currently the PaX patches support three ways of doing PaX markings: EI_PAX, PT_PAX and XATTR_PAX.
 
-One final caveat about the two supported methods of doing PaX markings: the PaX kernel allows you to enable both PT_PAX and XATTR_PAX, but if you do so, it will not impose the markings unless the same flags are found in both locations. For this reason, we do not recommend enabling both, even for migration which we describe below.
+EI_PAX places the PaX flags in bytes 14 and 15 of the e_ident field of an ELF objects's header. But this is broken in recent versions of glibc and is no longer supported. (See {{Bug|365825}} for more details.)
 
-== Building a PaX Kernel ==
+PT_PAX places the flags in an ELF objects' program header called PAX_FLAGS. This has the advantage that the flags are in the body of the object and will always be carried with it when copied; however it has the disadvantage that the object must have the PAX_FLAGS program header to work. Most Linux distributions don't build their executables and libraries with this program header, and adding it is problematic. There may not be enough space in the ELF object to add it or converting a GNU_STACK program header, which is not used by the PaX kernel, might later cause problems under other kernels if the object is exported. In the worst case, changing the ELF binary will break self-checking executables which detect that they have been "tampered" with. (See {{Bug|100507}} for more details.)
 
-The Hardened Gentoo team maintains and supports the {{Package|sys-kernel/hardened-sources}} package, which we will cover here. Other in tree kernel sources may have PaX, and much of what we say may apply, but you will have to work through the differences yourself. The hardened-sources come with the Grsecurity patches ([http://grsecurity.net/ http://grsecurity.net/]), which bundle the PaX patches. If you want only the PaX patches, these can be obtained in isolation from [http://www.grsecurity.net/~paxguy1/ http://www.grsecurity.net/~paxguy1/]. If you are interested in learning more about Grsecurity hardening in general, we cover that in our [[Hardened/Grsecurity2_Quickstart|Grsecurity Quickstart]]. 
+While PT_PAX is still supported, the preferred approach is to use XATTR_PAX which places the PaX flags in a file system's extended attributes. This has the advantage that it does not modify the ELF object in any way, but the disadvantage that the filesystems which house these objects, and the utilities used to copy, move and archive, them, must support xattrs. In the case of Gentoo and Portage, this means that tmpfs must support the user.pax.* xattr namespace in which the PaX flags are placed, not just the security.* and trusted.* namespaces. 
+
+{{Note: user.pax.* is the subspace of user.* which will be used for PaX related xattr information. We do not enable the entire user.* namespace in tmpfs to reduce the risk of attack vectors via that path.}}
+
+One final caveat about the two supported methods of doing PaX markings: the PaX kernel allows both PT_PAX and XATTR_PAX to be enabled, however if both features have been enabled PaX will not impose the markings unless the same flags are found in ''both'' locations. For this reason, the Hardened Project not recommend enabling both features at the same time, even for migration which is described below.
+
+== Building a PaX kernel ==
+
+{{Important|The Hardened team maintains and supports the {{Package|sys-kernel/hardened-sources}} package, which will be covered here. Other kernel sources found in the main Gentoo repository may have PaX, and much of what is said here may apply, but there may be unexpected differences. Proceed with caution when attempting to use an alternate kernel!}}
+
+The hardened-sources come with the Grsecurity patches ([http://grsecurity.net/ http://grsecurity.net/]), which bundle the PaX patches. If only the PaX patches are desired they can be obtained in isolation from [http://www.grsecurity.net/~paxguy1/ http://www.grsecurity.net/~paxguy1/]. Those interested in learning more about Grsecurity hardening in general should read the [[Hardened/Grsecurity2_Quickstart|Grsecurity Quickstart]] article.
 
 {{Emerge|sys-kernel/hardened-sources}}
 
-Emerging a {{Package|sys-kernel/hardened-sources}} kernel places the kernel source tree at {{Path|/usr/src/}}, but it does not configure it for you. It is now up to you to make sure PaX is configured so that it enforces or relaxes what you want. Below we will concentrate on recommended configurations, but feel free to deviate. The previous section should have given you some idea as to what each of the options provide so you can make intelligent choices. We recommend tarting off with as much hardening as possible and relaxing only when there is no other workaround. 
+Emerging a {{Package|sys-kernel/hardened-sources}} kernel places the kernel source tree in {{Path|/usr/src/}}, but it does not configure the kernel features themselves. It is now up to each reader to make sure PaX is configured so that it enforces or relaxes the necessary items. Below recommended configurations are suggested, but readers feel free to deviate. The previous section should have given you some idea as to what each of the options provide so you can make intelligent choices. We recommend tarting off with as much hardening as possible and relaxing only when there is no other workaround. 
 
-As stated, the PaX patches are bundled with Grsecurity, so the PaX configuration options are found under that menu.
+As stated, the PaX patches are bundled with Grsecurity, so the PaX configuration options are found under that menu:
 
 {{KernelBox|title=Location of the PaX configuration options|1=
 Security Options ->
@@ -279,9 +290,9 @@ Miscellaneous hardening features  --->
  [*] Generate some entropy during boot
 }}
 
-Please note that these are recommended settings and you can deviate from them, but be careful when doing so.  On a play box, you can and should try new features to see what they might do or break.  But on a production box, do not turn on or off some feature without knowing what you are doing.  This is particularly true for <code>EMUTRAMP</code> (Emulate trampolines) which is turn on by default, and turning it off can break python and therfore your system! The reason is that python and libffi write code on the fly, either by RWX mmap-ings which PaX's <code>MPROTECT</code> will kill, or by falling back on trying to write little code snippets to files which other features in Grsecurity will kill, like Trused Path Execution. (See [https://bugs.gentoo.org/show_bug.cgi?id=484472 bug #484472].)  In Gentoo, we've opted to patch python and libffi to use trampolines that can be safely handled by emulation in a PaX kernel. (See [https://bugs.gentoo.org/show_bug.cgi?id=329499 bug #329499].)  We then PaX mark the python executable with 'E' to enable emulation of trampolines.  Without EMUTRAMP on in the kernel, python will fail in trying to generate its RWX mmap-ings and die every time.  (As a ''temporary'' workaround if you get into this situaiton, you can disable MPROTECT on python with `paxctl -m` and then restore the original markings once you have booted back into a PaX kernel with EMUTRAMP.)
+Please note that these are recommended settings and you can deviate from them, but be careful when doing so. On a play box, you can and should try new features to see what they might do or break.  But on a production box, do not turn on or off some feature without knowing what you are doing.  This is particularly true for EMUTRAMP (Emulate trampolines) which is turn on by default, and turning it off can break python and therefore your system! The reason is that python and libffi write code on the fly, either by RWX mmap-ings which PaX's MPROTECT will kill, or by falling back on trying to write little code snippets to files which other features in Grsecurity will kill, like Trused Path Execution. (See {{Bug|484472}}.) In Gentoo, we've opted to patch python and libffi to use trampolines that can be safely handled by emulation in a PaX kernel. (See {{Bug|329499}}.) We then PaX mark the python executable with <code>-E</code> to enable emulation of trampolines.  Without EMUTRAMP on in the kernel, python will fail in trying to generate its RWX mmap-ings and die every time.  (As a ''temporary'' workaround if you get into this situation, you can disable MPROTECT on python with <tt>paxctl -m</tt> and then restore the original markings once you have booted back into a PaX kernel with EMUTRAMP.)
 
-Also, we should prefer <code>XATTR_PAX</code> flags over <code>PT_PAX</code>. In that case, all of the above can remain in place, but we would change the PaX Control configuration: 
+Also, we should prefer XATTR_PAX flags over PT_PAX. In that case, all of the above can remain in place, but we would change the PaX Control configuration: 
 
 {{KernelBox|title=Kernel configuration with XATTR_PAX flags|1=
 PaX Control ->
@@ -293,7 +304,7 @@ PaX Control ->
      MAC system integration (none)  --->
 }}
 
-Since the PaX flags will now live on the extended attributions of your filesystems, you would need to enable xattr on those filesystems, but the PaX team has already set up a dependency. E.g. for Ext4 we have 
+Since the PaX flags will now live on the extended attributions of your filesystems, you would need to enable xattr on those filesystems, but the PaX team has already set up a dependency. For example, [[ext4]] has: 
 
 {{KernelBox|title=Automatic selection of EXT4_FS_XATTR by XATTR_PAX_FLAGS|1=
 File systems  --->
@@ -310,11 +321,14 @@ If you decide on PaX marking method, you should adjust <code>PAX_MARKINGS</code>
 
 == Controlling PaX ==
 
-As we mentioned above, there are five PaX protections that can be enforced (in SOFTMODE) or relaxed (in non-SOFTMODE) on a per ELF object basis: '''PAGEEXEC''', '''EMULTRAP''', '''MPROTECT''', '''RANDMMAP''' and '''SEGMEXEC'''. The later, SEGMEXEC, is only available on x86 CPUs which support segmentation, unlike paging which is supported on all CPUs, even x86. Since some programs break for one reason or another under full PaX enforcement, we are faced with the choice of either fixing the code to work with PaX or relaxing one or more of these protections. In practice, "fixing the code" may be very difficult and we resort to the latter. The general approach should be to try full enforcement, and if something breaks, use dmesg to obtain a report from the kernel regarding why and then relax that particular protection. Even this is not generally needed on a Gentoo system because the ebuilds should set the correct flags for you via the pax-util.eclass. If you find that you have to set your own flags, we would ask that you file a bug report. 
+As we mentioned above, there are five PaX protections that can be enforced (in SOFTMODE) or relaxed (in non-SOFTMODE) on a per ELF object basis: '''PAGEEXEC''', '''EMULTRAP''', '''MPROTECT''', '''RANDMMAP''' and '''SEGMEXEC'''. The later, SEGMEXEC, is only available on {{Keyword|x86}} CPUs which support segmentation, unlike paging which is supported on all CPUs, even {{Keyword|x86}}. Since some programs break for one reason or another under full PaX enforcement, we are faced with the choice of either fixing the code to work with PaX or relaxing one or more of these protections. In practice, "fixing the code" may be very difficult and we resort to the latter. The general approach should be to try full enforcement, and if something breaks, use <tt>dmesg</tt> to obtain a report from the kernel regarding why and then relax that particular protection. Even this is not generally needed on a Gentoo system because the ebuilds should set the correct flags for you via the pax-util.eclass. If you find that you have to set your own flags, we would ask that you file a bug report. 
 
-Generally setting the PaX flags is straightforward, but the user should keep a few things in mind: 
-# One can set either PT_PAX and/or XATTR_PAX flags on the ELF object independently of one another. Similarly, the kernel can be configured to read either, both or neither fields. It is up to you to make sure that you set the flags in the field being used by the kernel to get the desired results. For example, if you have PT_PAX="Pe---" while XATTR_PAX missing on the object, but the kernel is configured only to use XATTR_PAX, you may not get the desired result! 
-# The recommended approach is to mark both PT_PAX and XATTR_PAX fields identically on the objects whenever possible, and set the kernel to read only XATTR_PAX. The "whenever possible" is where things get complicated and the two fields may not wind up containing the same flags. If the ELF does not contain a PAX_FLAGS program header, PT_PAX marking will fail. However, the absence of this program header will not affect XATTR_PAX markings. If the ELF is busy (i.e. there is a running process making use of the ELF's text), then one can read the PT_PAX flags but not set them. Again, this does not affect setting or getting XATTR_PAX flags. On the other hand, if you are using any file systems which do not support extended attributes, then XATTR_PAX marking will fail on those file systems while PT_PAX marking is uneffected, except as already stated. This can be fairly subtle because copying a file from a file system with xattrs to one without, and then back again will drop the XATTR_PAX flags. Or tarring with an older version of tar which does not preserve xattrs will again drop our flags. 
+Generally setting the PaX flags is straightforward, but the user should keep a few things in mind:
+
+# One can set either PT_PAX and/or XATTR_PAX flags on the ELF object independently of one another. Similarly, the kernel can be configured to read either, both or neither fields. It is up to you to make sure that you set the flags in the field being used by the kernel to get the desired results. For example, if you have PT_PAX="Pe---" while XATTR_PAX missing on the object, but the kernel is configured only to use XATTR_PAX, you may not get the desired result!
+
+# The recommended approach is to mark both PT_PAX and XATTR_PAX fields identically on the objects whenever possible, and set the kernel to read only XATTR_PAX. The "whenever possible" is where things get complicated and the two fields may not wind up containing the same flags. If the ELF does not contain a PAX_FLAGS program header, PT_PAX marking will fail. However, the absence of this program header will not affect XATTR_PAX markings. If the ELF is busy (i.e. there is a running process making use of the ELF's text), then one can read the PT_PAX flags but not set them. Again, this does not affect setting or getting XATTR_PAX flags. On the other hand, if you are using any file systems which do not support extended attributes, then XATTR_PAX marking will fail on those file systems while PT_PAX marking is uneffected, except as already stated. This can be fairly subtle because copying a file from a file system with xattrs to one without, and then back again will drop the XATTR_PAX flags. Or tarring with an older version of tar which does not preserve xattrs will again drop the flags.
+
 # The PaX flags are only enforced when a process is loaded from an ELF executable. This executable in turn usually links dynamically against shared objects in memory. Using <tt>cat /proc/<pid>/status | grep PaX</tt> gives you the resulting PaX enforcement on the running process with PID=<pid>. But since the executable and shared objects can have different flags, the question arises, which ones are used to determine the final running PaX enforcements? The answer is the executable for reasons of control and security. If the libraries were to set the runtime PaX enforcement, then which of the libraries would "win" if an executable linked against many? And one overly relaxed library could relax the privileges on many executables that link against it. E.g. Relaxing all PaX protection on glibc would effectively turn PaX off on one's system. Nonetheless, it may be the code in the library itself that needs the relaxation of some PaX enforcement. In that case, one has to "back port" the flags from the library to the executable that uses it. 
 
 Below we describe the utilities provided on a Gentoo system for working PaX markings. There are several since as PaX evolved, new features were needed. Each one emphasizes a different need with respect to the above caveats. 
@@ -484,7 +498,7 @@ Silently delete the XATTR_PAX field (<code>-d</code> but no </code>-v</code>):
 
 {{RootCmd|paxctl-ng -d /usr/bin/python3.2}}
 
-View both PT_PAX and XATTR_PAX fields (-v):
+View both PT_PAX and XATTR_PAX fields (<code>-v</code>):
 
 {{RootCmd|paxctl-ng -v /usr/bin/python3.2|output=<pre>
 /usr/bin/python3.2:
@@ -495,22 +509,26 @@ View both PT_PAX and XATTR_PAX fields (-v):
 
 === The pax.so Python module and the pypaxctl Python frontend ===
 
-We also provide bindings to python via a module, {{Path|pax.so}}, which is installed by emerging {{Package|dev-python/pypax}}. This package is a dependency of {{Package|sys-apps/elfix}} since the both revdep-pax and migrate-pax import it. It can be compiled with either PT_PAX and/or XATTR_PAX support, like paxctl-ng, but it is not as featureful since its scope is limited to just the needs of revdep-pax and migrate-pax. This may change in the future if there is a need to better integrate PaX marking with portage which is written in python. 
+We also provide bindings to python via a module, {{Path|pax.so}}, which is installed by emerging {{Package|dev-python/pypax}}. This package is a dependency of {{Package|sys-apps/elfix}} since the both revdep-pax and migrate-pax import it. It can be compiled with either PT_PAX and/or XATTR_PAX support, like paxctl-ng, but it is not as featureful since its scope is limited to just the needs of <tt>revdep-pax</tt> and <tt>migrate-pax</tt>. This may change in the future if there is a need to better integrate PaX marking with portage which is written in python. 
 
-Currently pax.so publicly exports the following: 
+Currently {{Path|pax.so}} publicly exports the following: 
 
 ; '''pax.setstrflags(str_flags):'''
 : This function will set both PT_PAX and XATTR_PAX flags to the same value, whenever possible. The flags are specified as a string of the following chars: PpEeMmRrSs. If both the enable and disable flags are given for a particular protection, then the default '-' is used.
+
 ; '''pax.setbinflags(bin_flags):'''
 : This function is the same as pax.setstrflags but it takes the flags as a bitwise OR of the binary representation of the flags. The PT_PAX field is stored as this way, while XATTR_PAX is stored as a string of chars PpEeMmRrSs.
+
 ; '''pax.getflags(elf):'''
 : This function returns the PaX flags as a tuple of both forms (str_flags, bin_flags), i.e., both as a string and its equivalent binary representation are returned. If both PT_PAX and XATTR_PAX are set, then the XATTR_PAX flags will override the PT_PAX flags.
+
 ; '''pax.deletextpax(elf):'''
 : This function will delete the XATTR_PAX field completely. It does not touch the PT_PAX field, which cannot be deleted (easily!).
+
 ; '''pax.PaxError:'''
 : This exception is thrown whenever getting or setting the flags fails, or when deleting the XATTR_PAX field fails.
 
-<tt>pypaxctl</tt> is a simple front end to pax.so which just gets and sets the PaX flags using the same logic. When getting the flags, if both PT_PAX and XATTR_PAX are present, the latter will override the former. When setting, it will set both fields whenever possible. Here it is in action: 
+<tt>pypaxctl</tt> is a simple front end to {{Path|pax.so}} which just gets and sets the PaX flags using the same logic. When getting the flags, if both PT_PAX and XATTR_PAX are present, the latter will override the former. When setting, it will set both fields whenever possible. Here it is in action: 
 
 Retrieve either PT_PAX or XATTR_PAX.  The latter has priority if it exists. The canonical order is PEMRS.
 
@@ -548,7 +566,7 @@ Set "me" on both PT_PAX and XATTR_PAX:
 	XT_PAX: Pem--
 </pre>}}
 
-But what if we want PAGEEXEC off?  Then set Pp for the default '-':
+But what if we want PAGEEXEC off?  Then set Pp for the default '<code>-</code>':
 
 {{RootCmd|pypaxctl -s Pp /usr/bin/python3.2
 |paxctl-ng -v /usr/bin/python3.2|output=<pre>
@@ -587,7 +605,7 @@ If the logic of XATTR_PAX taking precedence over PT_PAX is not what you want, it
 
 === revdep-pax ===
 
-This utility is used to map out the linkings between all the ELF objects on your system and their shared objects in both directions. It can then search for PaX flag markings that are mismatched between the shared objects than the executables; and optionally, allows the user to migrate the markings forwards or backwards on a per ELF object basis. Here's a synopsis of its usage: 
+This utility is used to map out the linkings between all the ELF objects on your system and their shared objects in both directions. It can then search for PaX flag markings that are mismatched between the shared objects than the executables; and optionally, allows the user to migrate the markings forwards or backwards on a per ELF object basis. Here is a synopsis of its usage: 
 
 {{Cmd|revdep-pax -h|output=<pre>
 Package Name : elfix
@@ -608,7 +626,7 @@ Usage        : revdep-pax -f [-v]             print out all forward mappings for
 </pre>
 }}
 
-Here's revdep-pax in action. Since the out is long, we've replaced some of it with ellipses: 
+Here's <tt>revdep-pax</tt> in action. Since the out is long, we've replaced some of it with ellipses: 
 
 Report all mismatching forward linkings:
 
@@ -657,7 +675,7 @@ libpython3.2.so.1.0	/usr/lib64/libpython3.2.so.1.0 ( -e--- )	< --- The format is
           .....										from the previous step.
 </pre>}}
 
-Let's migrate from the library's flags to the executable using the soname (-s). We could also have used /usr/lib64/libpython3.2.so.1.0 with the -l flag.
+Let's migrate from the library's flags to the executable using the soname (<code>-s</code>). We could also have used {{Path|/usr/lib64/libpython3.2.so.1.0}} with the <code>-l</code> flag.
 
 {{RootCmd|revdep-pax -m -s libpython3.2.so.1.0|output=<pre>
 libpython3.2.so.1.0	/usr/lib64/libpython3.2.so.1.0 (-e---)
@@ -680,7 +698,7 @@ libpython3.2.so.1.0	/usr/lib64/libpython3.2.so.1.0 (-e---)
 
 === migrate-pax ===
 
-At this point you're probably fed up with dealing with both PT_PAX and XATTR_PAX fields and their relationship to the kernel's configuration, and you just want to drop the older PT_PAX and get on with life! migrate-pax does only that ... it will go through all ELF objects on your system and migrate the PT_PAX field to XATTR_PAX. For more details on how to migrate, see our guide on [[Hardened/PaX_flag_migration_from_PT_PAX_to_XATTR_PAX|migrating PaX flags from PT_PAX to XATTR_PAX]]. 
+At this point one can be easily 'fed up' dealing with both PT_PAX and XATTR_PAX fields and their relationship to the kernel's configuration, and you just want to drop the older PT_PAX and get on with life! <tt>migrate-pax</tt> does only that: it will go through all ELF objects on the system and migrate the PT_PAX field to XATTR_PAX. For more details on how to migrate, see the article on [[Hardened/PaX_flag_migration_from_PT_PAX_to_XATTR_PAX|migrating PaX flags from PT_PAX to XATTR_PAX]]. 
 
 {{Cmd|migrate-pax -h|output=<pre>
 Package Name : elfix
