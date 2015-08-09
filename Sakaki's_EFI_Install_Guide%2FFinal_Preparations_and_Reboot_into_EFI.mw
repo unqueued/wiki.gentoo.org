@@ -1,15 +1,21 @@
 <!-- Page: Final_Preparations_and_Reboot_into_EFI -->
 
-<span id="final_prep_and_reboot">In this section</span>, we'll be following along with [[Handbook:AMD64/Installation/System|Chapter 8]] of the Gentoo handbook. However, we'll defer some of the configuration tasks until the next chapter, when you have rebooted (because configuring <tt>systemd</tt> is most easily done from within a system actually running <tt>systemd</tt>). The steps we'll be undertaking are:
+<span id="final_prep_and_reboot">In this section</span>, we'll be following along with [[Handbook:AMD64/Installation/System|Chapter 8]] of the Gentoo handbook. However, we'll defer some of the configuration tasks mentioned there until the next chapter, when you have rebooted (mainly to help out those users who [[../Building_the_Gentoo_Base_System_Minus_Kernel#choose_systemd_or_openrc|have chosen]] <tt>systemd</tt> as their target init, since <tt>systemd</tt> configuration is most easily done from within a system actually running <tt>systemd</tt>). The steps we'll be undertaking are:
 # Setting up the mountpoint tables {{Path|/etc/fstab}} and {{Path|/etc/mtab}};
 # Concluding preparations, viz.:
 ## Emerging some necessary packages (which it will be useful to have in place before a reboot);
 ## Taking note of networking information;
+## Configuring networking for use post-reboot (<tt>OpenRC</tt> users only)
 ## Setting up a root password for the new system; then
 # Cleanly dismounting the <tt>chroot</tt>, and restarting;
 # Before the OS boots, modifying the BIOS settings so that non-secure UEFI mode is used, then restarting again.
 
 Instructions are also provided at [[#if_things_go_wrong|the end of this chapter]] to recover back to a <tt>chroot</tt> environment, should things not go as planned.
+
+Please note that at the conclusion of this chapter there is a parting of the ways, depending on [[../Building_the_Gentoo_Base_System_Minus_Kernel#choose_systemd_or_openrc|your previous choice]] of init system:
+* users targeting <tt>systemd</tt> should continue following the regular guide Chapters 10-14; however
+* users targeting <tt>OpenRC</tt> should instead follow the 'alternative track' Chapters 10-14.
+The division point is clearly marked, at [[#next_steps|the end]] of this chapter.
 
 So let's get started!
 
@@ -92,7 +98,7 @@ If any of that bothers you, be sure to override with a subsequent option.
 | <tt>ro</tt> || Mount the filesystem read-only.
 |}
 
-<span id="symlink_etc_mtab">Per the Gentoo [[Systemd#/etc/mtab|wiki article on <tt>systemd</tt>]]</span>, the mounted file systems table ({{Path|/etc/mtab}}) must be a symlink to {{Path|/proc/self/mounts}}, so issue:
+<span id="symlink_etc_mtab">Per the Gentoo [[Systemd#/etc/mtab|wiki article on <tt>systemd</tt>]]</span>, the mounted file systems table ({{Path|/etc/mtab}}) must be a symlink to {{Path|/proc/self/mounts}} (this is now also required for <tt>OpenRC</tt><ref>Gentoo Linux GitWeb: [https://gitweb.gentoo.org/proj/openrc.git/commit/?id=a6391f44ee6c68d674ae8425983467b971710d5d "mtab: move toward requiring /etc/mtab to be a symbolic link" (commit 	a6391f44ee6c68d6)]</ref>), so issue:
 {{RootCmd
 |ln -vsf /proc/self/mounts /etc/mtab
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
@@ -112,7 +118,7 @@ Would you like to merge these packages? [Yes/No] <press y, then press Enter>
 </pre>
 }}
 
-Next, <span id="note_if_name">take note</span> of your current network interface name - this will be the same after a reboot, and knowing it will be useful during <tt>systemd</tt> configuration. Issue:
+Next, <span id="note_if_name">take note</span> of your current network interface name - this will be the same after a reboot, and knowing it will be useful during <tt>systemd</tt>/<tt>OpenRC</tt> configuration. Issue:
 {{RootCmd
 |ifconfig
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
@@ -134,6 +140,48 @@ passwd: password updated successfully
 }}
 
 {{Important|Be sure to write this password down somewhere safe! You will require it to log in shortly.}}
+
+=== <span id="setup_networking_openrc">Configure Networking for Post-Reboot Use (OpenRC Users Only)</span> ===
+
+{{Note|If you selected <tt>systemd</tt> [[../Building_the_Gentoo_Base_System_Minus_Kernel#choose_systemd_or_openrc{{!}}earlier]] as your target init system (the default), you should [[#exit_chroot_and_restart{{!}}click here]] to skip this section: the instructions contained herein are <tt>OpenRC</tt>-specific.}}
+
+To <span id="setup_dhcpcd_openrc">make sure you have your network interface available</span> after restart, be sure to add {{Package|net-misc/dhcpcd}} to the default runlevel. Issue:
+
+{{RootCmd
+|rc-update add dhcpcd default
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+}}
+
+{{Note|We will disable this service later, when {{Package|net-misc/networkmanager}} takes over (with GNOME). However, we leave it enabled-on-boot for now for convenience.}}
+
+You should also <span id="setup_sshd_openrc">ensure that the <tt>sshd</tt> service</span> will automatically start on boot, so you can log in remotely; issue:
+{{RootCmd
+|rc-update add sshd default
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+}}
+{{Warning|By default, <tt>sshd</tt> allows some rather insecure things, such as remote log-in as root. While this is useful at the moment (and relatively benign given the machine is on a subnet, presumably behind a firewall), do consider editing the {{Path|/etc/ssh/sshd_config}} file once all configuration is complete, to disallow this. You should also consider [http://www.thegeekstuff.com/2008/11/3-steps-to-perform-ssh-login-without-password-using-ssh-keygen-ssh-copy-id/ moving to public key authentication] for <tt>ssh</tt> login, once everything else is in place (at the end of the install).}} 
+
+Next, <span id="start_wpa_supplicant">if you are performing</span> this install over '''WiFi''', we need to ensure that <tt>wpa_supplicant</tt> can be started by <tt>dhcpcd</tt><ref>ArchLinux Wiki: [https://wiki.archlinux.org/index.php/Dhcpcd#10-wpa_supplicant "dhcpcd: Hooks: 10-wpa_supplicant"]</ref> (NB: if using '''wired Ethernet''' for the install, you should [[#networking_all_done|'''skip''']] these commands). Issue:
+{{RootCmd
+|mv -v /etc/wpa.conf /etc/wpa_supplicant/wpa_supplicant.conf
+|prompt=localhost <span style{{=}}"color:royalblue;">~ #</span>
+}}
+{{Note|The {{Path|/etc/wpa.conf}} file was created [[../Building_the_Gentoo_Base_System_Minus_Kernel#copy_wpa_conf{{!}}earlier]].}}
+Now, we also need to prepend one line to that configuration file, so that <tt>dhcpcd</tt> can invoke <tt>wpa_supplicant</tt> directly. Issue:
+{{RootCmd
+|nano -w /etc/wpa_supplicant/wpa_supplicant.conf
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+}}
+and ''prepend'' the following line to the file:
+{{FileBox|filename=/etc/wpa_supplicant/wpa_supplicant.conf|title=Prepend the following line, to allow dhcpcd invocation|1=
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=wheel
+}}
+Leave the rest of the file as-is. Save, and exit <tt>nano</tt>.
+{{Note|This is a deliberately minimal setup, as we'll only use it until {{Package|net-misc/networkmanager}} takes over (with GNOME); for more information on the <tt>ctrl_interface</tt> option, and others you may wish to set, see [https://wiki.archlinux.org/index.php/WPA_supplicant#Advanced_usage these notes].}}
+
+<span id="networking_all_done">Assuming you want</span> to use [[:Wikipedia:Dynamic_Host_Configuration_Protocol|DHCP]] on your interface (wired or wireless), that's all you need to do: ''pace'' the [[Handbook:AMD64/Installation/System#Configuring_the_network{{!}}Gentoo Handbook]], there's no need to add {{Path|/etc/init.d/net.<ifname>}} symbolic links, edit {{Path|/etc/conf.d/net}} etc.<ref>Gentoo Wiki: [[Network_management_using_DHCPCD#Migration_from_Gentoo_net..2A_scripts|"Network management using DHCPCD": Migration from Gentoo net.* scripts]]</ref>
+
+However, if you have more complex networking requirements (static IP, proxies etc.) ''should'' consult the relevant section of the [[Handbook:AMD64/Installation/System#Configuring_the_network|Handbook]]. Also, if you have more complex WiFi configuration requirements, you may also find [[Handbook:AMD64/Networking/Wireless|these notes]] useful.
 
 == <span id="exit_chroot_and_restart">Cleanly Dismounting the <tt>chroot</tt> and Restarting</span> ==
 
@@ -219,13 +267,13 @@ That's it! Now press {{Key|F10}} to restart (step 6), and confirm if prompted.
 
 If all that worked, your target system should restart, and boot the UEFI stub kernel off the boot USB key. After some initialization, you should be prompted for a passphrase to unlock the <tt>gpg</tt> keyfile for your LUKS partition (this is the passphrase you set up [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]). Type this in (directly at the target machine keyboard), and press {{Key|Enter}}. Shortly after, assuming that your passphrase is correct, you'll be presented with a login prompt. <span id="login_directly_to_new_system">Enter 'root' as the user</span> (again, directly at the keyboard, without quotes), and then type the root password you set up [[#setup_new_root_password|above]]. 
 
-If all goes well, you should now be logged in! If this is the case, congratulations, you have a encrypted system which boots from UEFI and uses <tt>systemd</tt>, and you can now [[../Configuring_systemd_and_Installing_Necessary_Tools|proceed]] to configure your <tt>systemd</tt> (and other) settings properly.
+If all goes well, you should now be logged in! If this is the case, congratulations, you have a encrypted system which boots from UEFI and uses (depending on your choice [[../Building_the_Gentoo_Base_System_Minus_Kernel#choose_systemd_or_openrc|earlier]]) <tt>systemd</tt> or <tt>OpenRC</tt>. You can now [[#next_steps|click here]] to complete the configuration of your init system (and other) settings.
 
-If, for some reason, you weren't able to boot, then read on.
+If however, for some reason you ''weren't'' able to boot, then read on.
 
 == <span id="if_things_go_wrong">How to Recover if Things Go Wrong</span> ==
 
-{{Note|If you managed to reboot your new system and log in successfully, then you should [[../Configuring_systemd_and_Installing_Necessary_Tools{{!}}skip this step]], it is only necessary for those attempting to recover back to a <tt>chroot</tt> system after a failed boot.}}
+{{Note|If you managed to reboot your new system and log in successfully, then you should [[#next_steps{{!}}skip this step]], it is only necessary for those attempting to recover back to a <tt>chroot</tt> system after a failed boot.}}
 
 The following are short-form instructions to get you back into a <tt>chroot</tt> environment again, so that you can attempt to fix whatever problem prevented you from booting under UEFI. I have included backlinks throughout, so you can hop up to where these steps were first taken, and read in more detail about what is involved - the style of what follows is rather telegraphic.
 
@@ -361,7 +409,7 @@ Next, unmount the USB boot key; issue (original instructions [[../Preparing_the_
 |prompt=livecd <span style{{=}}"color:royalblue;">~ #</span>
 }}
 
-Ensure the date and time is set correctly; issue (original instructions [[../Installing_the_Gentoo_Stage_3_Files#set_date_time|here]]):
+Ensure the date and time is set correctly; issue (original instructions [[../Creating_and_Booting_the_Minimal-Install_Image_on_USB#set_date_time|here]]):
 {{RootCmd
 |date MMDDhhmmYYYY
 |prompt=livecd <span style{{=}}"color:royalblue;">~ #</span>
@@ -443,18 +491,22 @@ and then:
 
 Once you have made your changes and are ready to have another go at rebooting, simply proceed from the section [[#exit_chroot_and_restart|"Cleanly Dismounting the <tt>chroot</tt> and Restarting"]] in the main text. Good luck!
 
-== <span id="next_steps">Next Steps</span> ==
+== <span id="next_steps">Next Steps (and Fork in the Road)</span> ==
 
-Now that you have successfully booted into Gentoo from UEFI, we can proceed to configure <tt>systemd</tt> and other settings properly! [[../Configuring_systemd_and_Installing_Necessary_Tools|Click here]] to go to the next chapter, "Configuring <tt>systemd</tt> and Installing Necessary Tools".
+Now that you have successfully booted into Gentoo from UEFI, we can proceed to configure your system. At this point, you need to follow one of two tracks for the final set of chapters (10-14), depending on your [[../Building_the_Gentoo_Base_System_Minus_Kernel#choose_systemd_or_openrc|earlier choice of init system]]:
+* users targeting '''<tt>systemd</tt>''' (the default) should [[../Configuring_systemd_and_Installing_Necessary_Tools|click here]] to go to the next chapter on the regular track, "Configuring <tt>systemd</tt> and Installing Necessary Tools"; whereas
+* users targeting '''<tt>OpenRC</tt>''' should instead [[../Completing_OpenRC_Configuration_and_Installing_Necessary_Tools|click here]] to go to the next chapter on the alternative track, "Completing <tt>OpenRC</tt> Configuration and Installing Necessary Tools".
 
 == <span id="notes">Notes</span> ==
 {{reflist}}
 
-{| style="margin: 1em auto 1em auto;"
+{| class="wikitable" style="margin: 1em auto 1em auto;"
 |-
-| [[../Configuring_and_Building_the_Kernel|<]]
-| [[../|Home]]
-| [[../Configuring_systemd_and_Installing_Necessary_Tools|>]]
+| rowspan=2|[[../Configuring_and_Building_the_Kernel|< Previous]]
+| rowspan=2|[[../|Home]]
+| [[../Configuring_systemd_and_Installing_Necessary_Tools|Next (<tt>systemd</tt>) >]]
+|-
+| [[../Completing_OpenRC_Configuration_and_Installing_Necessary_Tools|Next (<tt>OpenRC</tt>) >]]
 |}
 
 [[Category:Core system]]
