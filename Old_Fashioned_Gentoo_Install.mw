@@ -232,3 +232,103 @@ We can leave off the hair shirts. Unix98PTY support does work but the permission
 Genkernel users are on their own here.
 
 Provided your kernel can boot unaided, no initrd is required
+
+== Making the Initrd ==
+
+
+=== Preparing for usr/gen_init_cpio ===
+
+To make everything robust and independent of what filesystem gets attached to which/ dev node, we will use the filesystem UUIDs everywhere.
+
+
+{{Warning|The kernel cannot mount root by UUID unless you use the userspace mount command, which requires and initramfs}}
+There are several ways to make an initramfs, we will use the kernel provided usr/gen_init_cpio script.
+
+The script needs two things, a list of files to include in the initramfs and an init sctipt to execute. The use of usr/gen_init_cpio is well documented in the kernel.
+
+Make a directory to hold the two files. I like /root/initrd. The two files that follow go there.
+
+{{CodeBox|title=/root/initrd/initramfs_list|<pre>
+# directory structure
+dir /proc       755 0 0
+dir /usr        755 0 0
+dir /bin        755 0 0
+dir /sys        755 0 0
+dir /var        755 0 0
+#dir /lib        755 0 0
+dir /lib64      755 0 0
+dir /sbin       755 0 0
+dir /mnt        755 0 0
+dir /mnt/root   755 0 0
+dir /etc        755 0 0
+dir /root       700 0 0
+dir /dev        755 0 0
+dir /dev/mapper 755 0 0
+
+# we have a static /dev so we need all dev entries too
+# e.g. /dev/console below
+nod /dev/console        0600 0 0 c 5 1
+nod /dev/null           0666 0 0 c 1 5
+
+# dev/sda and partitions
+nod /dev/sda            0660 0 0 b 8 0
+nod /dev/sda1           0660 0 0 b 8 1
+nod /dev/sda2           0660 0 0 b 8 2
+nod /dev/sda4           0660 0 0 b 8 4
+nod /dev/sda5           0660 0 0 b 8 5
+nod /dev/sda6           0660 0 0 b 8 6
+
+# dev/sdb and partitions
+nod /dev/sdb            0660 0 0 b 8 16
+# ...
+# dev/sdc and partitions
+nod /dev/sdc            0660 0 0 b 8 32
+# ...
+
+# three raid nodes
+nod /dev/md125           0660 0 0 b 9 125
+nod /dev/md126           0660 0 0 b 9 126
+nod /dev/md127           0660 0 0 b 9 127
+
+# all the lvm nodes I need
+nod /dev/dm-0            0660 0 0 b 253 0
+nod /dev/dm-1            0660 0 0 b 253 1
+nod /dev/dm-2            0660 0 0 b 254 2
+# ...
+
+slink /dev/stderr                       /proc/self/fd/2                 777 0 0
+slink /dev/stdin                        /proc/self/fd/0                 777 0 0
+slink /dev/std/out                      /proc/self/fd/1                 777 0 0
+
+# busybox
+file /bin/busybox /bin/busybox  755 0 0
+
+# for raid on lvm
+file /sbin/mdadm                /sbin/mdadm              755 0 0
+file /sbin/mdadm                /sbin/mdadm              755 0 0
+file /sbin/lvm.static           /sbin/lvm.static         755 0 0
+
+# libraries required by /sbin/fsck.ext4 and /sbin/fsck
+
+slink   /lib                            /lib64                          777 0 0
+file    /lib64/ld-linux-x86-64.so.2     /lib64/ld-linux-x86-64.so.2     755 0 0
+file    /lib64/libext2fs.so.2           /lib64/libext2fs.so.2           755 0 0
+file    /lib64/libcom_err.so.2          /lib64/libcom_err.so.2          755 0 0
+file    /lib64/libpthread.so.0          /lib64/libpthread.so.0          755 0 0
+file    /lib64/libblkid.so.1            /lib64/libblkid.so.1            755 0 0
+file    /lib64/libuuid.so.1             /lib64/libuuid.so.1             755 0 0
+file    /lib64/libe2p.so.2              /lib64/libe2p.so.2              755 0 0
+file    /lib64/libc.so.6                /lib64/libc.so.6                755 0 0
+file    /lib64/libmount.so.1            /lib64/libmount.so.1            755 0 0
+
+file    /sbin/fsck              /sbin/fsck                      755 0 0
+file    /sbin/fsck.ext4         /sbin/fsck.ext4                 755 0 0
+
+# our init script
+file    /init                   /root/initrd/init               755 0 0
+</pre>
+}}
+
+I'm sure there is a sh one liner to feed to busybox mknod as a part of the init script, so I don't need the huge list of nod statements but I don't know it.
+
+If you use files systems other than extX on /usr and / or /var, which the initrd checks and mounts, you need your filesystem tools listed here. Feel free to add other things you find useful when booting fails too.
