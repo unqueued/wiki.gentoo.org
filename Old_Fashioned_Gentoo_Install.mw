@@ -332,3 +332,161 @@ file    /init                   /root/initrd/init               755 0 0
 I'm sure there is a sh one liner to feed to busybox mknod as a part of the init script, so I don't need the huge list of nod statements but I don't know it.
 
 If you use files systems other than extX on /usr and / or /var, which the initrd checks and mounts, you need your filesystem tools listed here. Feel free to add other things you find useful when booting fails too.
+
+
+{{CodeBox|title=/root/initrd/init|<pre>
+#!/bin/busybox sh
+
+rescue_shell() {
+    echo "$@"
+    echo "Something went wrong. Dropping you to a shell."
+    /bin/busybox --install -s
+    exec /bin/sh
+}
+
+# allow the use of UUIDs or filesystem lables
+uuidlabel_root() {
+    for cmd in $(cat /proc/cmdline) ; do
+        case $cmd in
+        root=*)
+            type=$(echo $cmd | cut -d= -f2)
+            echo "Mounting rootfs"
+            if [ $type == "LABEL" ] || [ $type == "UUID" ] ; then
+                uuid=$(echo $cmd | cut -d= -f3)
+                mount -o ro $(findfs "$type"="$uuid") /mnt/root
+            else
+                mount -o ro $(echo $cmd | cut -d= -f2) /mnt/root
+            fi
+            ;;
+        esac
+    done
+}
+
+check_filesystem() {
+    # most of code coming from /etc/init.d/fsck
+
+    local fsck_opts= check_extra= RC_UNAME=$(uname -s)
+
+    # FIXME : get_bootparam forcefsck
+    if [ -e /forcefsck ]; then
+        fsck_opts="$fsck_opts -f"
+        check_extra="(check forced)"
+    fi
+
+    echo "Checking local filesystem $check_extra : $1"
+
+    if [ "$RC_UNAME" = Linux ]; then
+        fsck_opts="$fsck_opts -C0 -T"
+    fi
+
+    trap : INT QUIT
+    # using our own fsck, not the builtin one from busybox
+    /sbin/fsck -p $fsck_opts $1
+
+    ret_val=$?
+    case $ret_val in
+        0)      return 0;;
+        1)      echo "Filesystem repaired"; return 0;;
+        2|3)    if [ "$RC_UNAME" = Linux ]; then
+                        echo "Filesystem repaired, but reboot needed"
+                        reboot -f
+                else
+                        rescue_shell "Filesystem still have errors; manual fsck required"
+                fi;;
+        4)      if [ "$RC_UNAME" = Linux ]; then
+                        rescue_shell "Fileystem errors left uncorrected, aborting"
+                else
+                        echo "Filesystem repaired, but reboot needed"
+                        reboot
+                fi;;
+        8)      echo "Operational error"; return 0;;
+        16)     echo "Use or Syntax Error"; return 16;;
+        32)     echo "fsck interrupted";;
+        127)    echo "Shared Library Error"; sleep 20; return 0;;
+        *)      echo $ret_val; echo "Some random fsck error - continuing anyway"; sleep 20; return 0;;
+    esac
+
+# rescue_shell can't find tty so its broken
+    rescue_shell
+}
+
+# start for real here
+
+# temporarily mount proc and sys
+mount -t proc none /proc
+mount -t sysfs none /sys
+
+# assemble the raid set(s) - they got renumbered from md1, md5 and md6
+
+# not needed on SSD but we may want to maintain it
+# /boot
+/sbin/mdadm --assemble /dev/md125 /dev/sda1 /dev/sdb1 /dev/sdc1 /dev/sdd1
+# don't care if /boot fails to assemble
+
+# not needed on SSD
+# /  (root)  I wimped out of root on lvm for this box
+/sbin/mdadm --assemble /dev/md126 /dev/sda5 /dev/sdb5 /dev/sdc5 /dev/sdd5 || rescue_shell
+# if root won't assemble, we are stuck
+
+# LVM for everything else
+# /home and everything portge related
+/sbin/mdadm --assemble /dev/md127 /dev/sda6 /dev/sdb6 /dev/sdc6 /dev/sdd6 || rescue_shell
+# and if the LVM space won't assemble there is no /usr or /var so we are really in a mess
+# TODO could auto cope with degraded raid operation
+
+# lvm runs as whatever its called as
+ln -s /sbin/lvm.static /sbin/vgchange
+
+# everything on the SDD
+/sbin/vgchange -ay ssd || rescue_shell
+
+# start the vg volume group - /home and everything for portage - need not die here
+/sbin/vgchange -ay vg || rescue_shell
+
+# get here with raid sets assembled and logical volumes available
+# mounting rootfs on /mnt/root
+uuidlabel_root || rescue_shell "Error with uuidlabel_root"
+
+# space separated list of mountpoints that ...
+mountpoints="/usr /var"
+
+# ... we want to find in /etc/fstab ...
+ln -s /mnt/root/etc/fstab /etc/fstab
+
+# ... to check filesystems and mount our devices.
+for m in $mountpoints ; do
+
+#echo $m
+
+    check_filesystem $m
+
+    echo "Mounting $m"
+    # mount the device and ...
+    mount $m || rescue_shell "Error while mounting $m"
+
+    # ... move the tree to its final location
+    mount --move $m "/mnt/root"$m || rescue_shell "Error while moving $m"
+done
+
+echo "All done. Switching to real root."
+
+# clean up. The init process will remount proc sys and dev later
+umount /proc
+umount /sys
+
+# switch to the real root and execute init
+exec switch_root /mnt/root /sbin/init
+</pre>
+}}
+
+Now to feed the /root/initrd/initramfs_list file to usr/gen_init_cpio. Make sure /boot is mounted
+
+
+
+{{CodeBox|title=Running  usr/gen_init_cpio|<pre>
+cd /usr/src/linux
+usr/gen_init_cpio /root/initrd/initramfs_list > /boot/initramfs_static
+</pre>
+}}
+
+This what the kernel build system does if you choose to build the initramfs into the kernel binary but if you don't get it right first time, you can fix your kernel without rebuilding your initramfs and vice versa.
