@@ -176,7 +176,10 @@ Once the installation process completes {{Path|/boot/xen.gz}} should be present.
 
 === Bootloader ===
 
-In order for Xen to be the highest privilege process it must be the initial boot target, however, it must subsequently boot the dom0 kernel. For example, basic GRUB could be configured as follows:
+In order for Xen to be the highest privilege process it must be the initial boot target, however, it must also subsequently boot the dom0 kernel.
+
+==== Legacy GRUB ====
+The following configuration handles basic [[GRUB]] settings:
 
 {{FileBox|filename=/boot/grub/grub.conf|title=GRUB Configuration for Xen|1=
 title Xen Gentoo Linux 4.0
@@ -185,7 +188,11 @@ kernel /boot/xen.gz
 module /boot/kernel-4.0.x.y-xen0 root=/dev/sda3
 }}
 
-Alternatively by using GRUB2, which provides auto-configuration scripts through grub2-mkconfig, the appropriate settings will be generated based on your kernel {{Path|.config}}. If the scripts detect Xen Dom0 options in kernel config they will append Xen hypervisor boot lines to the grub menu. Note that for this to function correctly the kernel config file must be located in one of the following directories with a suffix matching the desired kernel:
+In the above configuration GRUB will load xen.gz as the kernel with the actual dom0 kernel provided as a module.
+
+==== GRUB2 ====
+
+[[GRUB2]] provides auto-configuration scripts through grub2-mkconfig which will generate the appropriate settings based on your kernel {{Path|.config}}. If the scripts detect Xen dom0 options they will append Xen hypervisor boot lines to the grub menu. Note that for this to function correctly the kernel config file must be located in one of the following directories with a suffix matching the desired kernel:
 
 {| class="table"
 ! Directory !! File Prefix !! Example
@@ -197,13 +204,41 @@ Alternatively by using GRUB2, which provides auto-configuration scripts through 
 
 The example column above assumes a kernel named /boot/kernel-4.0.5-gentoo.
 
-Alternatively, the following command should do the trick:
+GRUB2 support is also included in [[genkernel]] and can be triggered during the build process:
 
 {{RootCmd|genkernel --oldconfig --menuconfig --install --bootloader{{=}}grub --symlink --disklabel --lvm --mdadm --makeopts{{=}}-j9 all}}
 
-Now reboot your system into Xen and check if you can do whatever you normally do on your system. If this is the case, you can edit your bootloader configuration to always boot into Xen. 
+Once you are satisfied with your configuration reboot the system into Xen. If everything worked correctly Xen should transfer display control to the dom0 environment at the end of the boot process which should operate just like your original native system. At this point you may want to set Xen as the default boot option via updating {{path|/etc/default/grub}}.
 
-{{Note|If you wish to start guest domains automatically on boot add <code>xendomains</code> to the default runlevel as well and create a symlink in {{Path|/etc/xen/auto/}} to the Xen configuration files for the domains you wish to start.}}
+=== Runlevel ===
+
+In order for your new Xen environment to function correctly a number of daemons must be added to your default runlevel. 
+
+{| class="table"
+! Init Script !! Required !! Description
+|-
+| xencommons
+| yes
+| This daemon ensures all Xen related kernel modules are loaded in a dom0 system. Additionally, in dom0 and domU pv_ops systems it ensures /proc/xen is mounted as type xenfs.
+|-
+| xenconsoled
+| yes
+| Manages xl console sessions between dom0 and domU guests.
+|-
+| xendomains
+| no
+| Automatically starts all domU configuration files found in {{Path|/etc/xen/auto/}}.
+|-
+| xenstored
+| yes
+| Manages both disk and network I/O configuration and operations between the dom0 environment and other domU guests.
+|-
+| xen-watchdog
+| ?
+| Probably kills the dom0 environment or Xen in general if it becomes unresponsive for too long.
+|}
+
+{{Note|The xen-watchdog init script currently has not been migrated from sysvinit to the runscript/openRC format.}}
 
 == Creating an Unpriviledged Domain (domU) ==
 
