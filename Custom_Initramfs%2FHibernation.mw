@@ -11,19 +11,57 @@ Hibernation (''suspend to disk'') is a special case. If you intend to use it in 
 
 This article assumes you already have written your custom and fully operational {{Path|{{Highlight|color=darkgreen|'''/init'''}}}} and now wish to add Hibernation support to it. If you are not using a [[Custom Initramfs]], or for a less specific introduction to the topic, see [[Suspend and hibernate]] instead. 
 
-== Pitfalls ==
+== Theory ==
+
+In theory, the process is simple. To suspend to disk, you could do something like
+
+{{RootCmd|echo disk > /sys/power/state}}
+
+and the kernel will dump the entire memory state to your swap partition and power off the computer. When you turn it back on, your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}} might do something like
+
+{{RootCmd|echo /dev/SWAP > /sys/power/resume}}
+
+and the kernel will load the dump and continue where it left off.
+
+=== Pitfalls ===
+
+Of course, things are not that simple. When you suspend to disk and the computer powers off - the computer isn't powered off at all! ''It's still up and running!'' Or at least, that's what the software believes. The box may be off physically, but from a kernel/userspace point of view,
+
+<div style="margin-bottom: 0.5em">
+* the system is still up and running,
+* filesystems are still mounted read-write,
+* although you forgot to save your thesis it's still open in the editor,
+* your RAID is still in mid-reshape,
+* your LVM is working hard to get those extents relocated,
+* your database is still in the middle of a transaction,
+* the movie you shot at your last vacation is still in the middle of re-encoding,
+</div>
+
+and so on and so forth. As you can see the machine is doing quite a lot while consuming zero power. It powered off without shutting down.
+
+{{Note|After suspend to disk, your system is in ''Hibernation'' and your disks and filesystems are in an unclean state.}}
+{{Warning|While in ''Hibernation'', until you resume, you must avoid changes to those disks at any and all costs.}}
+
+Do you see the problem yet? You turn your machine back on. Your ''initramfs'' does what it always does: it starts RAID (which automatically continues the reshape), LVM (might resume block relocations), maybe it mounts something because it needs a file or key or program, and then you resume.
+
+The resume sets the state of memory back in time. It does not undo changes you made to disk, so ... suddenly the RAID reshapes already reshaped data (bye RAID), LVM relocates already relocated extents (bye LVM), the filesystem state is completely not what it's supposed to be (bye all your files), the machine crashes and your doctorate thesis is gone forever (use a typewriter next time, will you?).
+
+Before Hibernation, the goal of the ''initramfs'' was to reach the root partition.
+
+After Hibernation, the goal of the ''initramfs'' is to reach the swap partition while staying in hard read-only land.
 
 == Kernel configuration ==
 
 {{KernelBox|title=<nowiki>CONFIG_SWAP=y CONFIG_HIBERNATION=y</nowiki>|1=<pre>
 General setup  --->
-[*] Support for paging of anonymous memory (swap)
+    [*] Support for paging of anonymous memory (swap)
 
 Power management and ACPI options  --->
-[*] Hibernation (aka 'suspend to disk')
+    [*] Hibernation (aka 'suspend to disk')
 </pre>}}
 
 == Resume from ==
+=== regular partition ===
 === LVM ===
 === LUKS ===
 === Swapfile ===
