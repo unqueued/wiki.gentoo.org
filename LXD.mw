@@ -23,7 +23,7 @@ Key features of LXD include:
 
 It is a good idea to have most kernel flags required by {{Package|app-emulation/lxc}} and {{Package|sys-process/criu}}.
 
-{{RootCmd|ebuild /usr/portage/app-emulation/lxc/lxc-1.1.2.ebuild setup
+{{RootCmd|ebuild /usr/portage/app-emulation/lxc/lxc-1.1.2.ebuild setup|output=<pre>
 ...
  * Checking for suitable kernel configuration options...
  *   CONFIG_NETLINK_DIAG:  needed for lxc-checkpoint
@@ -36,7 +36,7 @@ It is a good idea to have most kernel flags required by {{Package|app-emulation/
  * Failure to do so may cause unexpected problems.
 |ebuild /usr/portage/sys-process/criu/criu-1.6.1.ebuild setup
 ...
-}}
+</pre>}}
 
 ==== Emerge ====
 
@@ -48,7 +48,29 @@ Since LXD is not yet stable, the {{Keyword|~amd64}} keyword may need to be unmas
 
 {{RootCmd|usermod --append --groups lxd erik}}
 
-This will allow a non-root user to interact with the control socket which is owned by the lxd Unix group. For the group change to take effect, users may need to log out and log back in again.
+This will allow a non-root user to interact with the control socket which is owned by the lxd unix group. For the group change to take effect, users may need to log out and log back in again.
+
+==== Configure a bridge ====
+
+LXD's default profile looks for a Linux bridge named lxcbr0. The ebuild has created lxcbr0 but no real interface has been added to the bridge.
+
+{{RootCmd|brctl addif lxcbr0 eth0|brctl show}}
+
+Also, note that lxcbr0 wasn't configured to be persistent across a reboot. Edit the {{Path|/etc/conf.d/net}} file for the bridge to be automatically configured by netifrc.
+
+{{RootCmd|cat /etc/conf.d/net|output=<pre>
+bridge_lxcbr0="eth0"
+config_lxcbr0="dhcp"
+</pre>}}
+
+==== Configure subuid/subgid ====
+
+{{RootCmd
+|echo root:1000000:65536 >>/etc/subuid
+|echo root:1000000:65536 >>/etc/subgid
+}}
+
+In this setup, the user 0-65535 on the container will actually be seen on the host system as user 1000000+uid and 1000000+gid. This protects the host system, since if any container managed to break out of its sandboxed namespace, it could interact with the host system only as a process with an unknown, very high UID/GID.
 
 ==== Start the daemon ====
 
@@ -60,32 +82,68 @@ A systemd unit file has also been installed.
 
 /etc/conf.d/lxd has a few available options related to debug output, but the defaults are adequate for this quick start.
 
-==== Configure a bridge ====
+=== Launch a container ===
 
-LXD's default profile looks for a Linux bridge named lxcbr0. The ebuild has created lxcbr0 but no real interface has been added to the bridge.
+Add add an image repository at a remote called "images":
+{{Cmd|lxc remote add images https://images.linuxcontainers.org}}
 
-{{RootCmd|brctl addif lxcbr0 eth0|brctl show}}
+This is an untrusted remote, which can be a source of images that have been published with the --public flag.  Trusted remotes are also possible, and are used as container hosts and also to serve private images.  This specific remote is not special to LXD; organizations may host their own images.
 
-Also, note that lxcbr0 wasn't configured to be persistent across a reboot. Edit the {{Path|/etc/conf.d/net}} file for the bridge to be automatically configured by netifrc.
+{{Cmd|lxc image list images:|output=<pre>
++--------------------------------+--------------+--------+-------------------------+---------+-------------------------------+
+|             ALIAS              | FINGERPRINT  | PUBLIC |       DESCRIPTION       |  ARCH   |          UPLOAD DATE          |
++--------------------------------+--------------+--------+-------------------------+---------+-------------------------------+
+|                                | 3ae185265c53 | yes    | Centos 6 (amd64)        | x86_64  | Aug 29, 2015 at 10:17pm (CDT) |
+|                                | 369ac13f390e | yes    | Centos 6 (amd64)        | x86_64  | Sep 3, 2015 at 12:17pm (CDT)  |
+| centos/6/amd64 (1 more)        | 8e54c679f1c2 | yes    | Centos 6 (amd64)        | x86_64  | Sep 3, 2015 at 10:17pm (CDT)  |
+|                                | 755542362bbb | yes    | Centos 6 (i386)         | i686    | Aug 29, 2015 at 10:19pm (CDT) |
+|                                | b4d26dbc6567 | yes    | Centos 6 (i386)         | i686    | Sep 3, 2015 at 12:20pm (CDT)  |
+| centos/6/i386 (1 more)         | 21eeba48a2d4 | yes    | Centos 6 (i386)         | i686    | Sep 3, 2015 at 10:19pm (CDT)  |
+|                                | 9fe7ffdbc0ae | yes    | Centos 7 (amd64)        | x86_64  | Aug 29, 2015 at 10:22pm (CDT) |
+|                                | d750b910e62d | yes    | Centos 7 (amd64)        | x86_64  | Sep 3, 2015 at 12:23pm (CDT)  |
+| centos/7/amd64 (1 more)        | 06c4e5c21707 | yes    | Centos 7 (amd64)        | x86_64  | Sep 3, 2015 at 10:22pm (CDT)  |
+|                                | ee229d68be51 | yes    | Debian jessie (amd64)   | x86_64  | Aug 29, 2015 at 6:29pm (CDT)  |
+|                                | 69e457e1f4ab | yes    | Debian jessie (amd64)   | x86_64  | Sep 2, 2015 at 6:34pm (CDT)   |
+| debian/jessie/amd64 (1 more)   | 2ddd14ff9422 | yes    | Debian jessie (amd64)   | x86_64  | Sep 3, 2015 at 6:30pm (CDT)   |
+|                                | 9fac01d1e773 | yes    | Debian jessie (armel)   | armv7l  | Aug 31, 2015 at 7:24pm (CDT)  |
+|                                | 67f4fedafd2f | yes    | Debian jessie (armel)   | armv7l  | Sep 1, 2015 at 7:24pm (CDT)   |
+...
+</pre>}}
 
-{{RootCmd
-|cat /etc/conf.d/net
-bridge_lxcbr0{{=}}"eth0"
-config_lxcbr0{{=}}"dhcp"
-}}
+There are Gentoo images in the list, although they are not maintained by the Gentoo project.  LXC users may recognize these images as the same ones available using the "download" template.
 
-==== Configure subuid/subgid ====
+{{Cmd|lxc launch images:centos/6/amd64 mycentos6|output=<pre>
+Creating mycentos6 done.
+Starting mycentos6 done.
+</pre>}}
 
-{{RootCmd
-|echo root:1000000:65536 >>/etc/subuid
-|echo root:1000000:65536 >>/etc/subgid
-}}
+{{Cmd|lxc list|output=<pre>
++-----------+---------+----------------+------+-----------+-----------+
+|   NAME    |  STATE  |      IPV4      | IPV6 | EPHEMERAL | SNAPSHOTS |
++-----------+---------+----------------+------+-----------+-----------+
+| mycentos6 | RUNNING | 192.168.43.240 |      | NO        | 0         |
++-----------+---------+----------------+------+-----------+-----------+
+</pre>}}
 
-In this setup, the user 0-65535 on the container will actually be seen on the host system as user 1000000+uid and 1000000+gid. This protects the host system, since if any container managed to break out of its sandboxed filesystem, it could interact with the host system only through the very high UID/GID.
+A shell can be run in the container's context.
 
-=== Run an LXD container ===
+{{Cmd|lxc exec mycentos6 /bin/bash|output=<pre>
+[root@mycentos6 ~]# ps
+  PID TTY          TIME CMD
+  428 ?        00:00:00 bash
+  438 ?        00:00:00 ps
+[root@mycentos6 ~]# ps faux
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root       428  0.0  0.0  11500  2648 ?        Ss   16:13   0:00 /bin/bash
+root       440  0.0  0.0  13380  1888 ?        R+   16:13   0:00  \_ ps faux
+root         1  0.0  0.0  19292  2432 ?        Ss   16:03   0:00 /sbin/init
+root       188  0.0  0.0   4124  1316 console  Ss+  16:03   0:00 /sbin/mingetty --nohangup console
+root       228  0.0  0.0   9180  1392 ?        Ss   16:03   0:00 /sbin/dhclient -H mycentos6 -1 -q -lf /var/lib/dhclient/dhclient-eth0.leases -pf /var/run/dhc
+root       278  0.0  0.0 171372  2544 ?        Sl   16:03   0:00 /sbin/rsyslogd -i /var/run/syslogd.pid -c 5
+root       439  0.0  0.0   4120  1472 ?        Ss   16:13   0:00 /sbin/mingetty --nohangup /dev/tty[1-6]
+</pre>}}
 
-TODO
+While the container sees its processes as running as the root user, running <code>ps</code> on the host shows the processes running as UID 1000000.  This is the advantage of unprivileged containers: root is only root in the container, and is nobody special in the host.  It is possible to manipulate the subuid/subgid maps to allow containers access to host resources (for example, write to the X socket) but this must be explicitly allowed.
 
 == Configuration ==
 
