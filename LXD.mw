@@ -2,16 +2,16 @@
 |{{InfoBox homepage|https://linuxcontainers.org/lxd/introduction/|header=true}}
 }}
 
-'''LXD''' is the Linux Containers Daemon, and the successor to LXC. Though both are developed concurrently by Stéphane Graber (and Canonical), LXD is still under active development and is currently suitable for evaluation use only.
+'''LXD''' is the Linux Containers Daemon, and the successor to [[LXC]]. Though both are developed concurrently by Stéphane Graber (and Canonical), LXD is still under active development and is currently suitable for evaluation use only.
 
 For those new to container technology, it would be good to first read the "Virtualization Concepts" section of the [[LXC]] article.
 
 Key features of LXD include:
 
-* Prefers to launch unprivileged containers (secure by default).
+* A preference to launch unprivileged containers (secure by default).
 * A command-line client (lxc) interacts with a daemon (lxd).
 * Configuration is made easier through cascading profiles.
-* Configuration changes are performed with the lxc command (no more config files).
+* Configuration changes are performed with the lxc command (not config files).
 * Multiple hosts can be federated together (with a certificate-based trust system).
 * A federated setup means that containers can be launched on remote machines and live-migrated between hosts (using CRIU technology).
 
@@ -138,13 +138,71 @@ root       278  0.0  0.0 171372  2544 ?        Sl   16:03   0:00 /sbin/rsyslogd 
 root       439  0.0  0.0   4120  1472 ?        Ss   16:13   0:00 /sbin/mingetty --nohangup /dev/tty[1-6]
 </pre>}}
 
-While the container sees its processes as running as the root user, running <code>ps</code> on the host shows the processes running as UID 1000000.  This is the advantage of unprivileged containers: root is only root in the container, and is nobody special in the host.  It is possible to manipulate the subuid/subgid maps to allow containers access to host resources (for example, write to the X socket) but this must be explicitly allowed.
+While the container sees its processes as running as the root user, running <code>ps</code> on the host shows the processes running as UID 1000000.  This is the advantage of unprivileged containers: root is only root in the container, and is nobody special in the host.  It is possible to manipulate the subuid/subgid maps to allow containers access to host resources (for example, write to the host's X socket) but this must be explicitly allowed.
 
 == Configuration ==
 
-TODO
+Configuration of containers is managed with the <code>lxc config</code> and <code>lxc profile</code> commands.  The two commands provide largely the same capabilities, but <code>lxc config</code> acts on single containers while <code>lxc profile</code> configures a profile which can be used across multiple containers.
 
-== Multi-host Setup ==
+Importantly, containers can be launched with multiple profiles.  The profiles have a cascading effect so that a profile specified later in the list can add, remove, and override configuration values that were specified in a earlier profile.   This can allow for complex setups where groups of containers can be specified which share some properties but not others.
+
+{{Cmd|lxc profile list|output=<pre>default
+migratable</pre>}}
+{{Cmd|lxc profile show default|output=<pre>name: default
+config: {}
+devices:
+  eth0:
+    nictype: bridged
+    parent: lxcbr0
+    type: nic</pre>}}
+
+The default profile is applied if no profile is specified on the command line.  In the quick start, the <code>lxc launch</code> omitted the profile, and so was equivalent to:
+
+{{Cmd|lxc launch images:centos/6/amd64 mycentos6 --profile default}}
+
+Notice that that the default profile only specifies that a container should have a single NIC which is bridged onto an existing bridge lxcbr0.  So, having a bridge with that name is not a hard requirement, it just happens to be named in the default profile.
+
+Available configuration includes limits on memory and CPU cores, and also devices including NICs, bind mounts, and block/character device nodes. 
+
+Configuration is documented in {{Path|/usr/share/doc/lxd-0.16/specs/configuration.md}} (substitute the correct version of course).
+
+{{Important|All documented configuration options are not yet implemented, and only by inspecting source code can a user know which devices might be expected to work.  For example, at the time of this writing:
+* The only legal nictype for an interface is "bridged"
+* The "disk" device type can only perform bind mounts, and only on a directory.
+* Setting limits.memory seems not to work, although limits.cpus does
+}}
+
+=== Example ===
+
+Here a container is launched with the default profile and also a "cpusandbox" profile which imposes a limit of one CPU core.  A directory on the host is also bind-mounted into the container using the container-specific <code>lxc config</code> command.
+
+First, prepare a reusable profile.
+{{Cmd|lxc profile create cpusandbox|output=<pre>Profile cpusandbox created</pre>}}
+{{Cmd|lxc profile set cpusandbox limits.cpus 1}}
+
+<code>lxc config</code> requires a container name, so a container is initialized.
+
+{{Cmd|lxc init 8e54c679f1c2 confexample --profile default --profile cpusandbox|output=<pre>Creating confexample done.</pre>}}
+
+{{Note|The 8e54c679f1c2 argument represents an image fingerprint obtained with <code>lxc image list</code>.  It's possible to give friendly aliases to images.}}
+
+{{Note|In the quick start above the <code>lxc launch</code> was invoked, which is a shorthand to <code>lxc init</code> followed by <code>lxc start</code>.  The latter is used in this example so that <code>lxc config</code> can be invoked before the container is first started.}}
+
+In this example a host directory {{Path|/tmp/shared}} is bind-mounted into the container at {{Path|/tmp}}.  While this could be configured in a profile, instead it will be considered an exclusive feature for that container.
+
+{{Cmd|mkdir /tmp/shared}}
+{{Cmd|touch /tmp/shared/hello.txt}}
+Set the directory to be owned by the container's root user (really UID 1000000 in the host).
+{{Cmd|sudo chown -R 1000000:1000000 /tmp/shared}}
+
+{{Cmd|lxc config device add confexample sharedtmp disk path{{=}}/tmp source{{=}}/tmp/shared|output=<pre>
+Device sharedtmp added to confexample
+</pre>}}
+
+{{Cmd|lxc start confexample}}
+{{Cmd|lxc exec confexample ls /tmp|output=<pre>hello.txt</pre>}}
+
+== Multi-host setup ==
 
 TODO
 
@@ -207,6 +265,10 @@ ID 332 gen 4584 top level 5 path var/lib/lxd/snapshots/mycentos6/firstsnap
         Snapshot(s):
                                 var/lib/lxd/snapshots/mycentos6/firstsnap
 </pre>}}
+
+=== /dev/lxd/sock ===
+
+A socket is bind-mounted into the container at {{Path|/dev/lxd/sock}}.  It serves no critical purpose, but is available to users as a means to query configuration information about the container.  
 
 == See also ==
 
