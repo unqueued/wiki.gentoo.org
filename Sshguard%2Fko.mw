@@ -7,27 +7,27 @@
 
 {{Metadata|abstract=sshguard is an intrusion prevention system that parses server logs, determines malicious activity, and uses the system firewall to block the IP addresses of malicious connections.}}
 
-'''sshguard'''는 침투 예방 시스템입니다. sshguard는 서버 로그를 해석하고 침입 활동을 판단하며, 방화벽 규칙을 사용하여 침입 사용자를 쫒아냅니다. sshguard는 C로 작성했기 때문에 해석기를 거치지 않습니다.
+'''sshguard''' is an intrusion prevention system that parses server logs, determines malicious activity, and uses the system firewall to block the IP addresses of malicious connections. sshguard is written in C so it does not tax an interpretor.
 
 == 동작 원리 ==
 
-{{Package|app-admin/sshguard}} 꾸러미는 하나 이상의 로그 파일을 연속적으로 추적하는 간단한 데몬입니다. 로그인 시도에 실패했을 경우에 데본에서 전달하는 로그 이벤트를 분석하며, 시스템 방화벽을 업데이트하여 로그인에 여러번 실패한 사용자를 막아버립니다.
+sshguard is a simple daemon that continuously tracks one or more log files. It parses the log events that daemons send out in case of failed login attempts and then blocks any further attempts from those connections by updating the system's firewall.
 
 이름에서 암시하는 의미와는 달리 sshguard는 SSH 로그만 해석하지 않습니다. 메일 시스템과 FTP 로그에 대해서도 지원합니다. 지원 서비스 전체 목록은 [http://www.sshguard.net sshguard.net 웹 사이트]에 있습니다.
 
-== 설정 ==
+== Installation ==
 
-=== 프로그램 ===
+=== Emerge ===
 
 {{Package|app-admin/sshguard}}를 설치하십시오:
 
 {{Emerge|app-admin/sshguard}}
 
-{{Package|net-firewall/iptables}}를 설치했고 시스템 방화벽으로 사용중인지 확인하십시오. 이 글을 쓰는 시점에서는 아직 {{Package|net-firewall/nftables}}를 지원하지 않습니다.
+Also make sure that {{Package|net-firewall/iptables}} is installed and used as the system firewall. At the time of writing, sshguard does not yet support {{Package|net-firewall/nftables}}.
 
 {{Emerge|net-firewall/iptables}}
 
-더 많은 [[Iptables|iptables]]<sup style="color:#ff0077">en</sup>사용법 및 설정법은 젠투위키에서 찾아보실 수 있습니다.
+More information about using and configuring IPtables can also be found on the [[Iptables|IPtables article]].
 
 == Configuration ==
 
@@ -46,13 +46,13 @@ sshguard의 바탕 개념은 관리자가 프로그램에게 옵션으로 감시
 
 젠투에서는 {{Path|/etc/conf.d/sshguard}} 파일에서 옵션을 잘 설정할 수 있습니다:
 
-{{FileBox|filename=/etc/conf.d/sshguard|title=/var/log/messages를 읽도록 sshguard 설정|lang=bash|1=
+{{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to read /var/log/messages|lang=bash|1=
 PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
 WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
 THRESHOLD="10"    # How many problematic attempts trigger a block
   
 LOGFILES="-l /var/log/messages"                      # Watch this file...
-LOGFILES="${SSHGUARD_LOGFILES} -l /var/log/auth.log" # And this one
+LOGFILES="${LOGFILES} -l /var/log/auth.log"          # And this one
   
 SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
 }}
@@ -65,6 +65,35 @@ sshguard 를 사용하는 실행 시간 사용자가 로그 파일에 접근할 
 
 {{RootCmd|rc-update add sshguard default
 |rc-service sshguard start}}
+
+
+== Troubleshooting ==
+
+=== File '/var/log/auth.log' vanished while adding! ===
+
+When starting up, sshguard reports the following error:
+
+{{CodeBox|title=Error message when trying to add a monitor for /var/log/auth.log|1=
+Sep 23 03:39:11 foo.bar.com sshguard[64933]: File '/var/log/auth.log' vanished while adding!
+}}
+
+Such an error (the file path itself can be different) occurs when the target file is not available on the system. Make sure that it is created, or update the sshguard configuration to not add it for monitoring.
+
+On a syslog-ng system with OpenRC, the following addition to {{Path|syslog-ng.conf}} can suffice:
+
+{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|title=creating auth.log file|lang=bash|1=
+log { source(src); destination(messages); };
+log { source(src); destination(console_all); };
+ 
+destination authlog {file("/var/log/auth.log"); };
+filter f_auth { facility(auth); };
+filter f_authpriv { facility(auth, authpriv); };
+log { source(src);  filter(f_authpriv);  destination(authlog);  };
+}}
+
+Reload the configuration for the changes to take effect:
+
+{{RootCmd|rc-service syslog-ng reload}}
 
 == 추가 참조 ==
 
