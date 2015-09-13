@@ -1,0 +1,229 @@
+When running programs of questionable security/privacy, it is highly
+advised to sandbox/jail them. There are many sandboxing methods (todo
+list them). This article describes the oldest, simplest, and very
+widely used sandboxing method, namely running a program as a special
+sandbox user.
+
+In Gentoo, this method is used by many packages, e.g. the Apache web
+server is running as the apache user.
+
+This method relies solely on the unix user and group permissions. It
+requires no kernel tweeking and little extra software (app-admin/sudo
+and x11-apps/xhost). It is also possible to avoid sudo and use plain
+old su, but then a password needs to be entered each time we run a
+sandboxed program.
+
+As a minimum, you should use a sandbox for software which:
+* has a known security/privacy issue
+* has a history of security/privacy issues
+* is distributed in binary form (e.g. many games)
+* has huge codebase (e.g. libreoffice)
+* is no longer maintained
+* is very young (brand new project)
+* is unstable
+* accesses network (email, web, torrent, etc.)
+
+We assume (without loss of generality):
+
+* 'www-client/firefox' is the package we want to sandbox,
+* 'bob' is our own everyday user
+* 'Mallet' is an attacker
+* 'ff' is the sandbox user used only to run Firefox
+
+Sandboxing Firefox is mandatory, as it matches multiple patterns on
+our list. Like all big graphical browsers, it has a history of
+vulnerabilities. In recent releases, it is distributed partially in
+binary form (includes binary Adobe DRM and installs binary Cisco
+codecs). It also has huge codebase and accesses network.
+
+We assume Mallet can exploit a vulnerability in Firefox to access
+bob's files (emails, SSH keys, Bitcoin wallet, etc.). However, if bob
+runs Firefox as ff, then Mallet has only access to the resources
+available to ff, and would need a further exploit of priviledge
+escallation to access bob's data. This obviously assumes tight
+permissions set on bob's files. This sandboxing method is not the most
+restrictive, Mallet could still learn a lot about our system, start
+new processes as ff, use the network, and do anything a user can. But
+it is also possible to configure the permissions on our system so that
+Mallet can do very little as ff (such configuration is not explained
+here).
+
+== Create sandbox user. ==
+
+root creates the 'ff' sandbox user:
+
+<pre># useradd --home=/home/ff --create-home --shell /bin/false --user-group ff</pre>
+
+If you prefer su to sudo, use /bin/bash instead of /bin/false.
+
+== Install and configure sudo. ==
+
+<pre># emerge -av app-admin/sudo</pre>
+
+Allow bob to run firefox as user ff, without need for password:
+
+<pre># echo 'bob ALL=(ff) NOPASSWD: /usr/bin/firefox' > /etc/sudoers.d/ff</pre>
+
+Since we regard ff as a kind of subuser of bob, it is convenient to
+allow bob to run any command as ff. This is not necessary for
+Firefox, but could be useful for packages with many executables:
+
+<pre># echo 'bob ALL=(ff) NOPASSWD: ALL > /etc/sudoers.d/ff</pre>
+
+If you prefer su to sudo, then instead set a password for ff:
+
+<pre># passwd ff</pre>
+
+== Configure X server access control (optional). ==
+
+This step is only needed if the package is graphical and your X's
+access control is enabled.
+
+In order to run Firefox as ff, we could of course start a new
+desktop session as user ff (login using our display manager), but that
+would be inconvenient. Instead, we would like to work as bob, but
+open a Firefox window as ff. For that, root installs xhost:
+
+<pre># emerge -av x11-apps/xhost</pre>
+
+And bob allows ff to connect to bob's X server (to create windows):
+
+<pre>$ xhost si:localuser:ff</pre>
+
+== bob runs firefox as sandbox user ff. ==
+
+<pre>$ sudo -u ff firefox</pre>
+
+If you prefer su:
+
+<pre>$ su -c firefox ff -</pre>
+
+If all went well, Firefox is now running in a window on bob's
+desktop. The window title says 'Mozilla Firefox (as ff)', to indicate
+that this window is run by ff.
+
+== Migrate config files (optional). ==
+
+ff will have his own home directory, for storing the Firefox profile,
+i.e. all browsing settings. That's all the files Firefox needs access
+to. The precise configuration migration manual is very
+package-dependent and is beyond the scope of this article. However,
+assuming Firefox is the only Mozilla software bob has used, root can
+migrate bob's settings:
+
+<pre>
+# mv ~bob/.mozilla ~ff/
+# chown -R ff:ff ~ff/.mozilla
+</pre>
+
+== Adding shortcut icons. ==
+
+Now bob can create icons or add firefox to startup applications in
+his desktop environment. However, sometimes such graphical tools only
+allow to enter one command to be executed. We can conjoin xhost and
+sudo into one command by using sh:
+
+sh -c 'xhost si:localuser:ff && sudo -u ff firefox'
+
+Alternatively, john could invoke xhost already when X session starts.
+
+== Allow bob to access ff's home. ==
+
+We don't want ff to access bob's files, but it is useful for bob to
+access ff's files:
+
+<pre>
+# chgrp bob /home/ff
+# chmod 770 /home/ff
+</pre>
+
+For instance, when running Firefox as ff, downloaded files can only be
+saved in /home/ff or in /tmp.
+
+== Multiple humans. ==
+
+This method suffices if bob is the only person using this
+computer. Otherwise, we need to create a separate sandbox user for
+each real user in order to have separate sandboxed home directories
+for config files, e.g. ff_bob sandbox user for bob, ff_alice for alice,
+etc.
+
+== Disallow bob to run Firefox without sandbox (optional). ==
+
+One problem is: bob can forget to run Firefox using sudo, and can run
+it directly as himself, e.g. by clicking the Firefox icon. For extra
+security, we tighten permissions of package files, so that only the
+sandbox user can run Firefox.
+
+Disallow the owning user (root):
+<pre># qlist firefox | xargs chmod u-x</pre>
+
+Disallow all other users (e.g. bob):
+<pre># qlist firefox | xargs chmod o-o</pre>
+
+Let us set the group to ff, so ff user (the only one in ff group) can get access:
+<pre># qlist firefox | xargs chown root:ff</pre>
+
+However, ff should not modify any package files:
+<pre># qlist firefox | xargs chmod g-w</pre>
+
+Let's have a look at the results:
+<pre># qlist firefox | xargs ls -l</pre>
+
+<pre>
+-rw-r-x--- 1 root ff ... /usr/lib64/firefox/firefox
+</pre>
+
+Great, now only ff can run (but not modify) Firefox.
+
+These permissions would be lost on any package reinstall or
+upgrade. We create Portage hook that sets them after every
+installation:
+
+<pre># mkdir -p /etc/portage/env/www-client/</pre>
+
+<pre># echo 'post_src_install() {
+  chown -R root:ff ${D}
+  chmod -R u-x,g-w,o-o ${D}
+}' > /etc/portage/env/www-client/firefox</pre>
+
+== Repeat for other packages. ==
+
+The script below can be used to quickly set up sandbox for any package.
+
+<pre>
+#!/bin/bash
+
+[ $# -ne 4 ] && echo "Usage: $0 cat/package sandbox_user sandbox_user_home user" && exit 1
+
+pkg=$1
+sbuser=$2
+home=$3
+user=$4
+
+useradd --home=$home --create-home --shell /bin/false --user-group $sbuser
+chgrp $user $home
+chmod 770 $home
+
+echo "$user ALL=($sbuser) NOPASSWD: ALL" > /etc/sudoers.d/$sbuser
+
+qlist "$pkg" | xargs chown root:$sbuser
+qlist "$pkg" | xargs chmod u-x,g-w,o-o
+
+bashrc="/etc/portage/env/$pkg"
+
+mkdir -p $(dirname $bashrc)
+
+echo "post_src_install() {
+  chown -R root:$sbuser \${D}
+  chmod -R u-x,g-w,o-o \${D}
+}" > $bashrc
+</pre>
+
+This script can be called like:
+
+<pre># ./sandbox_user.sh www-client/firefox ff /home/ff bob</pre>
+
+== Further work. ==
+
+todo: when john clicks on links in other programs, can they open in ff's Firefox window?
