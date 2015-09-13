@@ -6,6 +6,7 @@ I assume the raid members to be <code>/dev/sda</code> and <code>/dev/sdb</code> 
 
 The whole procedure is straight forward but you have to double check a few things i'll mention later. Please carefully read the whole post and pay extra attention to grub2 and dracut.
 
+
 == Required packages ==
 First add the required use flags for the packages.
 As i'm a lazy person :) i'll use genkernel-next to do the work even if i'll replace the initramfs with the dracut one.
@@ -33,6 +34,14 @@ install the required packages
 
 If this installs newer kernel sources, please change the symlink either using <code>eselect kernel</code> or do it manually.
 
+
+== Preparing for encryption ==
+As we'll use a keyfile to unlock the partitions we'll now create one (paranoid settings).
+
+{{RootCmd|dd if{{=}}/dev/random of{{=}}/root/secretkey bs{{=}}1 count{{=}}4096}}
+{{RootCmd|chmod 0400 /root/secretkey}}
+
+
 == Preparing the first disk ==
 
 === Dealing with the software raid ===
@@ -53,3 +62,99 @@ We create a bios boot partition and use the remaining space for the root partiti
 Number  Start (sector)    End (sector)  Size       Code  Name
    1            2048            8191   3.0 MiB     EF02  BIOS boot partition
    2            8192       250069679   119.2 GiB   8300  Linux filesystem</pre>}}
+
+
+=== Encrypt partitions ===
+
+First we'll format the partitions
+
+{{RootCmd|cryptsetup luksFormat -s 512 -c twofish-xts-plain64  /dev/sda1}}
+{{RootCmd|cryptsetup luksFormat -s 512 -c twofish-xts-plain64  /dev/sda2}}
+
+
+Next we add the keyfile to the root partition
+{{RootCmd|cryptsetup luksAddKey /dev/sda2 /root/secretkey}}
+
+
+Finally we open the root partition
+{{RootCmd|cryptsetup open -d /root/secretkey /dev/sda2 luks-1}}
+
+
+=== Create filesystem, mountpoints and subvolumes ===
+
+Now we format the mapped partition.
+{{RootCmd|mkfs.btrfs -L BTROOT /dev/mapper/luks-1}}
+
+
+Next we create the mountpoints
+{{RootCmd|mkdir /mnt/btrfsmirror}}
+{{RootCmd|mkdir /mnt/newroot}}
+{{RootCmd|mkdir /mnt/newroot/home}}
+{{RootCmd|mkdir /mnt/newroot/boot}}
+
+
+Now the subvolumes
+{{RootCmd|btrfs subvol create /mnt/btrfsmirror/activeroot}}
+{{RootCmd|btrfs subvol create /mnt/btrfsmirror/home}}
+{{RootCmd|btrfs subvol create /mnt/btrfsmirror/boot}}
+
+And finally we mount the whole stuff
+{{RootCmd|mount -t btrfs -o defaults,noatime,compress{{=}}lzo,autodefrag /dev/mapper/luks-1 /mnt/btrfsmirror}}
+{{RootCmd|mount -t btrfs -o defaults,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}activeroot /dev/mapper/luks-1 /mnt/newroot}}
+{{RootCmd|mount -t btrfs -o defaults,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}home /dev/mapper/luks-1 /mnt/newroot/home}}
+{{RootCmd|mount -t btrfs -o defaults,noatime,subvol{{=}}boot /dev/mapper/luks-1 /mnt/newroot/boot}}
+
+
+== Hot copy ==
+
+We'll now mount our running system onto <code>/mnt/rawroot</code> and copy everything over.
+{{RootCmd|mkdir /mnt/rawroot}}
+{{RootCmd|mount --bind / /mnt/rawroot}}
+{{RootCmd|cd /mnt/rawroot}}
+{{RootCmd|tar cvpf - . {{!}} (cd /mnt/newroot; tar xpf -)}}
+
+
+== Chroot ==
+
+=== Enter the chroot ===
+
+We now need to chroot into <code>/mnt/newroot</code> and do the usual chroot stuff.
+
+{{RootCmd|cp -L /etc/resolv.conf /mnt/newroot/etc/}}
+{{RootCmd|mount -t proc proc /mnt/newroot/proc}}
+{{RootCmd|mount --rbind /sys /mnt/newroot/sys}}
+{{RootCmd|mount --rbind /dev /mnt/newroot/dev}}
+{{RootCmd|mount --make-rslave /mnt/newroot/sys}}
+{{RootCmd|mount --make-rslave /mnt/newroot/dev}}
+{{RootCmd|chroot /mnt/newroot /bin/bash}}
+{{RootCmd|env-update && source /etc/profile}}
+{{RootCmd|export PS1{{=}}"(chroot) $PS1"}}
+
+=== mtab/fstab ===
+
+Check that <code>/etc/mtab</code> contains the following lines and if not, add it:
+
+{{FileBox|filename=/etc/mtab|1=
+/dev/mapper/luks-1 / btrfs rw,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}activeroot 0 0
+/dev/mapper/luks-1 /home btrfs rw,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}home 0 0
+/dev/mapper/luks-1 /boot btrfs rw,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}boot 0 0
+}}
+
+
+Next change <code>/etc/fstab</code> to this:
+
+{{FileBox|filename=/etc/mtab|1=
+LABEL{{=}}BTROOT    /mnt/btrfsmirror    btrfs    defaults,noatime,compress{{=}}lzo,autodefrag    0 0
+LABEL{{=}}BTROOT    /                   btrfs    defaults,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}activeroot    0 0
+LABEL{{=}}BTROOT    /home               btrfs    defaults,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}home    0 0
+LABEL{{=}}BTROOT    /boot               btrfs    defaults,noatime,subvol{{=}}boot    0 0
+}}
+
+
+=== Remove md array configuration ===
+
+Next edit <code>/etc/mdadm.conf</code> and remove your array from it.
+
+
+=== TODO ===
+I'll finish this post tomorrow. Please be patient, it's late ;)
