@@ -260,7 +260,8 @@ You'll be asked for the password to unlock the boot partition and after that it 
 
 == Preparing second disk ==
 
-== MD array ==
+== Dealing with the software raid - Part 2 ==
+
 We'll now completely stop and destroy the MD array.
  
 {{RootCmd|mdadm --stop /dev/md1}}
@@ -268,55 +269,47 @@ We'll now completely stop and destroy the MD array.
 {{RootCmd|mdadm --zero-superblock /dev/sdb}}
 
 
-=== TODO ===
+=== Partition the drive ===
+
+We create a bios boot partition and use the remaining space for the root partition.
+
+{{RootCmd|gdisk /dev/sdb|output=<pre>
+
+Number  Start (sector)    End (sector)  Size       Code  Name
+   1            2048            8191   3.0 MiB     EF02  BIOS boot partition
+   2            8192       250069679   119.2 GiB   8300  Linux filesystem</pre>}}
+
+
+=== Encrypt partitions ===
+
+First we'll format the partitions
+
+{{RootCmd|cryptsetup luksFormat -s 512 -c aes-xts-plain64  /dev/sdb1}}
+{{RootCmd|cryptsetup luksFormat -s 512 -c aes-xts-plain64  /dev/sdb2}}
+
+
+Next we add the keyfile to the root partition
+{{RootCmd|cryptsetup luksAddKey /dev/sdb2 /root/secretkey}}
+
+
+Finally we open the root partition
+{{RootCmd|cryptsetup open -d /root/secretkey /dev/sdb2 luks-2}}
+
+
+== BTRFS Raid 1 ==
+
+Now we add the second disk to the btrfs filesystem and convert it to raid1.
+
+{{RootCmd|btrfs device add /dev/mapper/luks-2 /mnt/btrfsmirror}}
+
+{{RootCmd|btrfs balance start -dconvert=raid1 -mconvert=raid1 /mnt/btrfsmirror}}
+
+
+== TODO ===
 I'll finish this post tomorrow. Please be patient, it's late ;)
 
 Here are the plain instructions for those who cannot wait.
 
-
-----------------
-
-After reboot
-
-mdadm --stop /dev/md1
-
-mdadm --zero-superblock /dev/sdb
-
-----------------
-
-Partition the drive
-
-gdisk /dev/sdb
-
-Number  Start (sector)    End (sector)  Size       Code  Name
-   1            2048            8191   3.0 MiB     EF02  grub2biosboot
-   2         	8192       250069679   119,2G      8300  root
-
-----------------
-
-Encrypt partitions
-
-cryptsetup luksFormat -s 512 -c twofish-xts-plain64  /dev/sdb1
-
-cryptsetup luksFormat -s 512 -c twofish-xts-plain64  /dev/sdb2
-
-Add keyfile
-
-cryptsetup luksAddKey /dev/sdb2 /root/secretkey
-
-----------------
-
-Open the partition
-
-cryptsetup open -d /root/secretkey /dev/sdb2 luks-2
-
-----------------
-
-Add device and convert to raid1
-
-btrfs device add /dev/mapper/luks-2 /mnt/btrfsmirror
-
-btrfs balance start -dconvert=raid1 -mconvert=raid1 /mnt/btrfsmirror
 
 ----------------
 
