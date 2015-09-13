@@ -158,3 +158,82 @@ Next edit <code>/etc/mdadm.conf</code> and remove your array from it.
 
 === TODO ===
 I'll finish this post tomorrow. Please be patient, it's late ;)
+
+Here are the plain instructions for those who cannot wait.
+
+Activate suggested kernel config (see link on top) and 
+genkernel --luks --btrfs --menuconfig all
+----------------
+Edit /etc/default/grub
+Add GRUB_ENABLE_CRYPTODISK=y
+Add "rd.luks=1 rd.luks.key=/root/secretkey rd.luks.uuid=luks-<UUID>"" (UUID of the "encrypted"!! partition ex. /dev/sda2) to GRUB_CMDLINE_LUNUX
+----------------
+Install grub into MBR
+
+grub2-install /dev/sda
+----------------
+Add luks device uuids (UUIDs of the "encrypted"!! partition ex. /dev/sda2) to /etc/crypttab
+ex.: 
+luks-sda2 UUID=e57c4e30-7b2e-457a-af9b-3270d085aae2 /root/secretkey luks
+----------------
+Install dracut
+Generate new intitramfs
+dracut -f -I /etc/crypttab -I /root/secretkey
+Move generate initramfs to the genkernel one
+----------------
+Generate grub.cfg
+grub2-mkconfig -o /boot/grub/grub.cfg
+Fix newline problems
+----------------
+Leave chroot and unmount everything
+reboot and cross fingers
+----------------
+After reboot
+mdadm --stop /dev/mdX
+mdadm --zero-superblock /dev/sdb
+----------------
+Partition the drive
+
+gdisk /dev/sdb
+
+Number  Start (sector)    End (sector)  Size       Code  Name
+   1            2048            8191   3.0 MiB     EF02  grub2biosboot
+   2         	8192       250069679   119,2G      8300  root
+
+----------------
+Encrypt partitions
+cryptsetup luksFormat -s 512 -c twofish-xts-plain64  /dev/sdb1
+cryptsetup luksFormat -s 512 -c twofish-xts-plain64  /dev/sdb2
+
+Add keyfile
+cryptsetup luksAddKey /dev/sdb2 /root/secretkey
+----------------
+Open the partition
+cryptsetup open -d /root/secretkey /dev/sdb2 luks-2
+----------------
+Add device and convert to raid1
+btrfs device add /dev/mapper/luks-2 /mnt/btrfsmirror
+btrfs balance start -dconvert=raid1 -mconvert=raid1 /mnt/btrfsmirror
+----------------
+Add rd.luks.uuid to /etc/default/grub
+----------------
+Add to crypttab
+luks-sdb2 UUID=e57c4e30-7b2e-457a-af9b-3270d085aae2 /root/secretkey luks
+----------------
+Recreate initramfs with dracut
+dracut -f -I /etc/crypttab -I /root/secretkey
+Move generate initramfs to the genkernel one
+----------------
+Recreate grub.cfg
+grub2-mkconfig -o /boot/grub/grub.cfg
+Fix newline problems
+DOUBLE CHECK THE UUIDS IN grub.cfg !!!
+----------------
+Install grub into MBR
+
+grub2-install /dev/sdb
+----------------
+rm -rf /mnt/newroot
+rm -rf /mnt/rawroot
+----------------
+Reboot
