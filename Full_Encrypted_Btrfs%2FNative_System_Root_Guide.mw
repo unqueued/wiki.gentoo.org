@@ -230,16 +230,17 @@ GRUB_CMDLINE_LINUX_DEFAULT="real_init=/usr/lib/systemd/systemd rd.luks=1 rd.luks
 ...
 }}
 
-==== Install grub2 into MBR ====
-
-{{RootCmd|grub2-install /dev/sda}}
-
 
 ==== Generate grub.cfg ====
 
 We'll use <code>grub2-mkconfig</code> to generate the ''grub.cfg''
 
 {{RootCmd|grub2-mkconfig -o /boot/grub/grub.cfg}}
+
+
+==== Install grub2 into MBR ====
+
+{{RootCmd|grub2-install /dev/sda}}
 
 
 == Finishing first disk ==
@@ -304,52 +305,94 @@ Now we add the second disk to the btrfs filesystem and convert it to raid1.
 
 {{RootCmd|btrfs balance start -dconvert{{=}}raid1 -mconvert{{=}}raid1 /mnt/btrfsmirror}}
 
-== TODO ===
-I'll finish this post tomorrow. Please be patient, it's late ;)
 
-Here are the plain instructions for those who cannot wait.
+=== Crypttab ===
+
+Get the UUID of <code>/dev/sdb2</code> and add it to <code>/etc/crypttab</code>
+
+{{FileBox|filename=/etc/crypttab|1=
+luks-1 UUID=e57c4e30-7b2e-457a-af9b-3270d085aae2 /root/secretkey luks
+luks-2 UUID=26ab8aed-7c84-4993-bfe4-579c83c96b05 /root/secretkey luks
+}}
+
+=== Dracut ===
+
+Recreate the intitramfs with dracut and replace the old one.
+
+{{RootCmd|dracut -f -I /etc/crypttab -I /root/secretkey}}
+
+Again check that the included <code>/etc/crypttab</code> has the right content.
+
+{{RootCmd|lsinitrd /boot/<YOUR_INITRAMFS> -f /etc/crypttab}}
 
 
-----------------
+=== Grub2 ===
 
-Add rd.luks.uuid to /etc/default/grub
+==== Customize grub2 ====
 
-----------------
+Append ''rd.luks.uuid'' for <code>/dev/sdb2</code> to ''GRUB_CMDLINE_LINUX_DEFAULT'' in <code>/etc/default/grub</code>
 
-Add to crypttab
+{{FileBox|filename=/etc/default/grub|1=
+...
+GRUB_ENABLE_CRYPTODISK=y
+GRUB_CMDLINE_LINUX_DEFAULT="real_init=/usr/lib/systemd/systemd rd.luks=1 rd.luks.key=/root/secretkey rd.luks.uuid=luks-e57c4e30-7b2e-457a-af9b-3270d085aae2 rd.luks.uuid=luks-26ab8aed-7c84-4993-bfe4-579c83c96b05"
+...
+}}
 
-luks-2 UUID=e57c4e30-7b2e-457a-af9b-3270d085aae2 /root/secretkey luks
 
-----------------
+==== Generate grub.cfg ====
 
-Recreate initramfs with dracut
+Recreate the ''grub.cfg''
 
-dracut -f -I /etc/crypttab -I /root/secretkey
+{{RootCmd|grub2-mkconfig -o /boot/grub/grub.cfg}}
 
-Move generate initramfs to the genkernel one
+Attention!! The current ''grub2-mkconfig'' (time of writing) creates an invalid ''grub.cfg''. There is a bug which cannot handle multiple boot devices. 
 
-----------------
+''grub2-mkconfig'' will generate the following broken lines in different places:
 
-Recreate grub.cfg
+{{FileBox|filename=/boot/grub/grub.cfg|1=
+cryptomount -u 26ab8aed7c844993bfe4579c83c96b05
+a044adcaa23b400bad6ca256a9509c75
+set root='cryptouuid/26ab8aed7c844993bfe4579c83c96b05
+cryptouuid/a044adcaa23b400bad6ca256a9509c75'
+}}
 
-grub2-mkconfig -o /boot/grub/grub.cfg
+You've to search and fix them.
 
-Fix newline problems
+I'm not sure how they should look like, but this is how they look on my working system:
 
-DOUBLE CHECK THE UUIDS IN grub.cfg !!!
+{{FileBox|filename=/boot/grub/grub.cfg|1=
+cryptomount -u 26ab8aed7c844993bfe4579c83c96b05
+cryptomount -u a044adcaa23b400bad6ca256a9509c75
+set root='cryptouuid/26ab8aed7c844993bfe4579c83c96b05'
+set root='cryptouuid/a044adcaa23b400bad6ca256a9509c75'
+}}
 
-----------------
 
-Install grub into MBR
+Also check the UUIDs are correct!
 
-grub2-install /dev/sdb
 
-----------------
+==== Install grub2 into MBR ====
 
-rm -rf /mnt/newroot
+{{RootCmd|grub2-install /dev/sdb}}
 
-rm -rf /mnt/rawroot
 
-----------------
+== Finishing up ==
 
-Reboot
+=== Cleanup ===
+
+Remove obsolete mountpoints
+
+{{RootCmd|rm -rf /mnt/newroot /mnt/rawroot}}
+
+
+=== Reboot ===
+
+At this point you should have a full encrypted and working system.
+
+You should now reboot. Grub will ask you for the password twice as it needs to unlock both disks.
+
+After that you should not be prompted for password input anymore.
+
+
+That's it. Have fun with your encrypted system!
