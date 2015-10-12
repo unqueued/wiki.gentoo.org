@@ -1,42 +1,54 @@
 Because of various changes in [[udev]] (see {{Bug|364235}}), the need for a minimal [[initramfs]] that checks the {{Path|/usr}} filesystem and pre-mounts {{Path|/usr}} arose. This article will detail how build a custom [[initramfs]].
 
 In this article we'll be working with the following:
+
 * {{Package|sys-apps/busybox}}
 * An initramfs content list
-* The gen_init_cpio and gen_initramfs_list.sh utilities, provided by the kernel itself.
+* The {{c|gen_init_cpio}} and {{c|gen_initramfs_list.sh}} utilities, provided by the kernel itself.
 
 The initramfs also contains the required libraries and binaries to run an [[ext4]] fsck. Most of the code to run the fsck is coming from the {{Path|/etc/init.d/fsck}} script.
 
 If you are using any other [[filesystem]] than ext4, you will need to add the required binaries / libraries into the initramfs list.
 
-Basically, the init script is doing following actions :
-# Mounts the root partition on {{Path|/mnt/root}} as readonly.
+Basically, the init script is doing following actions:
+
+# Mounts the root partition on {{Path|/mnt/root}} as read-only.
 # Symlinks the [[fstab]] from the root partition to the initramfs environment.
 # Checks the filesystem of our {{Path|/usr}} device using the embedded {{Path|/sbin/fsck}} binary.
-# Mounts {{Path|/usr}}, then it to {{Path|/mnt/root/usr}} using the ''--move'' mount parameter.
-# Switchs to real root and executes init.
+# Mounts {{Path|/usr}}, then it to {{Path|/mnt/root/usr}} using the <code>--move</code> mount parameter.
+# Switches to real root and executes {{Path|init}}.
 
 The article also assumes we are working in {{Path|/usr/src/initramfs}}, so for the sake of ease, begin with creating this directory.
 
 == Requirements ==
-The most important package here is {{Package|sys-apps/busybox}} as it provides utilities suitable for a initramfs. It's also critical that you emerge it with ''static'' USE flag enabled:
-{{Emerge|busybox}}
-{{Note|Enabling the ''static'' USE flag will disable PAM support, regardless if its enabled or not.}}
 
-The [[kernel]] sources provide the '''gen_init_cpio''' and '''gen_initramfs_list.sh''' utilities. The '''gen_init_cpio''' utility does not come prepackaged and needs to be built:
+The most important package here is {{Package|sys-apps/busybox}} as it provides utilities suitable for a initramfs. It is also critical that you emerge it with <code>static</code> USE flag enabled:
+
+{{RootCmd|USE{{=}}"static" emerge --ask sys-apps/busybox}}
+
+{{Note|Enabling the <code>static</code> USE flag will disable PAM support, regardless if its enabled or not.}}
+
+The [[kernel]] sources provide the {{Path|gen_init_cpio}} and {{Path|gen_initramfs_list.sh}} utilities. The {{c|gen_init_cpio}} utility does not come prepackaged and needs to be built:
+
 {{RootCmd|make -C /usr/src/linux/usr/ gen_init_cpio}}
+
 Make sure that these two are executable:
-{{RootCmd|cd /usr/src/linux
-|chmod +x usr/gen_init_cpio scripts/gen_initramfs_list.sh}}
+
+{{RootCmd
+|cd /usr/src/linux
+|chmod +x usr/gen_init_cpio scripts/gen_initramfs_list.sh
+}}
 
 Make sure that your running kernel is built with the ''devtmpfs'' option enabled. It is required by the init script below and [[udev]]:
+
 {{KernelBox|<pre>
 Device Drivers  --->
     Generic Driver Options  --->
         [*] Maintain a devtmpfs filesystem to mount at /dev
 </pre>}}
 
-Next up is the {{Path|initramfs_list}} file which will tell '''gen_initramfs_list.sh''' how to construct the initramfs:
+Next up is the {{Path|initramfs_list}} file which will tell {{Path|gen_initramfs_list.sh}} how to construct the initramfs:
+
 {{FileBox|filename=/usr/src/initramfs/initramfs_list|1=
 # directory structure
 dir /proc       755 0 0
@@ -74,14 +86,16 @@ file    /sbin/fsck.ext4         /sbin/fsck.ext4                     755 0 0
 # our init script
 file    /init                   /usr/src/initramfs/init             755 0 0
 }}
-{{Note|Please note that if the computer under maintenance is running the amd64 version, it is necessary to do a bit of editing. You need to reference to lib64 rather than lib for the libraries required by /sbin/fsck.ext4 and /sbin/fsck. Additionally, the ld-linux library needs to explicitly point to the x86-64 version. For example, the first three lines of that section would now be:
+
+{{Note|Please note that if the computer under maintenance is running the {{Keyword|amd64}} version, it is necessary to do a bit of editing. You need to reference to lib64 rather than lib for the libraries required by {{Path|/sbin/fsck.ext4}} and {{Path|/sbin/fsck}}. Additionally, the ld-linux library needs to explicitly point to the x86-64 version. For example, the first three lines of that section would now be:
 
 {{FileBox|filename=/usr/src/initramfs/initramfs_list|1=
 # libraries required by /sbin/fsck.ext4 and /sbin/fsck
 file    /lib64/ld-linux-x86-64.so.2      /lib64/ld-linux-x86-64.so.2                  755 0 0
 file    /lib64/libext2fs.so.2   /lib64/libext2fs.so.2               755 0 0
 }}
-Once all the libraries are pointing to their 64bit counterparts it is also necessary to uncomment the lines under #directory structure. The script has now been adapted for amd64 usage.
+
+Once all the libraries are pointing to their 64bit counterparts it is also necessary to uncomment the lines under #directory structure. The script has now been adapted for {{Keyword|amd64}} usage.
 }}
 
 Copy and save the contents of the above to {{Path|/usr/src/initramfs/initramfs_list}} after adjusting for your architecutre. 
@@ -200,21 +214,30 @@ umount /dev
 # switch to the real root and execute init
 exec switch_root /mnt/root /sbin/init
 }}
+
 Copy and save the contents of the above to {{Path|/usr/src/initramfs/init}}.
 
 == Generating the Initramfs ==
-Run the '''gen_initramfs_list.sh''' script with the ''-o'' argument pointing to where we want the initramfs image to be placed followed by the path to our {{Path|initramfs_list}} file:
-{{RootCmd|cd /usr/src/linux
-|scripts/gen_initramfs_list.sh -o /boot/initrd.cpio.gz /usr/src/initramfs/initramfs_list}}
 
-== System Preparation ==
-In fstab, we must set the sixth field for the ''/usr'' entry to ''0'', this will prevent the [[OpenRC]] fsck init script to try to check the filesystem for the already mounted {{Path|/usr}}:
+Run the {{Path|gen_initramfs_list.sh}} script with the <code>-o</code> argument pointing to where we want the initramfs image to be placed followed by the path to our {{Path|initramfs_list}} file:
+
+{{RootCmd
+|cd /usr/src/linux
+|scripts/gen_initramfs_list.sh -o /boot/initrd.cpio.gz /usr/src/initramfs/initramfs_list
+}}
+
+== System preparation ==
+
+In fstab, we must set the sixth field for the <code>/usr</code> entry to <code>0</code>, this will prevent the [[OpenRC]] fsck init script to try to check the filesystem for the already mounted {{Path|/usr}}:
+
 {{FileBox|filename=/etc/fstab|1=
 /dev/sdb3   /usr    ext4   noatime  0 0
 }}
 
 == Configuring GRUB ==
-Add the ''initrd'' line to {{Path|grub.conf}}:
+
+Add the <code>initrd</code> line to {{Path|grub.conf}}:
+
 {{FileBox|filename=grub.conf|1=
 title Gentoo Linux
 root ...
@@ -223,7 +246,9 @@ initrd /boot/initrd.cpio.gz
 }}
 
 == Result ==
+
 When booting, the output looks like this:
+
 {{CodeBox|title=output of the initramfs when booting|1=
 Mounting rootfs
 Checking local filesystem :  /usr
@@ -240,6 +265,7 @@ Press I to enter interactive boot mode
 }}
 
 == External resources ==
+
 * http://jootamam.net/howto-initramfs-image.htm
 * http://whitehathouston.com/documentation/gentoo/initramfs_howto.htm
 * http://www.landley.net/writing/rootfs-howto.html
