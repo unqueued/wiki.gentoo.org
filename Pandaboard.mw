@@ -1,0 +1,203 @@
+ Daniel Díaz calculus Michael Majchrowicz This guide shows you how to install Gentoo on the Pandaboard and Pandaboard ES. 2013-03-30
+
+Installing Gentoo in the Pandaboard is pretty simple if you're already a Gentoo user. You need to use an SD card, at least of 2 GB of size. If you are familar with the Gentoo Linux installation process, there is not much different here.
+
+To be able to install Gentoo, you'll need the following:
+
+    An x86/amd64 based PC with Gentoo and an SD card reader on it
+    A Pandaboard
+    One SD card (2 GB is enough)
+    A network connection
+
+Before we start the installation process, we need to get/build a kernel and a bootloader for the Pandaboard.
+
+The Pandaboard doesn't have a NAND/flash device, so the bootloader (U-Boot) needs to be located on the SD card, along with the kernel.
+
+For building the stuff needed to boot our Pandaboard, we need the following tools emerged on the host system where we're going to build them.
+
+    sys-devel/crossdev - to create a crosscompiler
+    dev-embedded/u-boot-tools - to create a kernel image U-Boot can understand
+    sys-fs/dosfstools - to create FAT32 filesystems
+
+# emerge sys-devel/crossdev dev-embedded/u-boot-tools sys-fs/dosfstools
+
+# crossdev -S armv7a-hardfloat-linux-gnueabi
+
+# wget ftp://ftp.denx.de/pub/u-boot/u-boot-latest.tar.bz2
+
+(Extract and change to the directory)
+# tar xjpf u-boot-latest.tar.bz2 && cd u-boot-*
+
+# make ARCH=arm CROSS_COMPILE=armv7a-hardfloat-linux-gnueabi- omap4_panda_config
+# make ARCH=arm CROSS_COMPILE=armv7a-hardfloat-linux-gnueabi-
+
+For booting the Pandaboard we need a kernel. The vanilla kernel.org isn't as tested as the one used on Ubuntu. TI has decided to provide support to Ubuntu, so we'll make sure we have all the fixes ubuntu gets by using their kernel.
+If the following link gives you a 404 not found error, download the latest .tar.gz file from the precise distribution here: https://launchpad.net/ubuntu/+source/linux-ti-omap4
+
+# wget 'https://launchpad.net/ubuntu/+archive/primary/+files/linux-ti-omap4_3.2.0-1412.16.tar.gz'
+
+(Extract and change to the directory)
+# tar zxvf linux-ti-omap4_3.2.0-1412.16.tar.gz && cd ubuntu-precise
+
+The default kernel config for this kernel version is really minimal, and doesn't have support for wifi or accelerated graphics drivers. So i've decided to provide a basic kernel config.
+
+(Download a minimal kconfig)
+# wget http://dev.gentoo.org/~armin76/arm/pandaboard/kconfig -O .config
+
+(You could run menuconfig after downloading my kconfig if you'd like)
+
+(Replace 9 with the number of cores you have on your computer)
+# make -j9 ARCH=arm CROSS_COMPILE=armv7a-hardfloat-linux-gnueabi- uImage
+
+Once it gets built we'll have a kernel image on arch/arm/boot/uImage.
+
+OMAP-based systems need a special setup of the SD card to boot from it. For more information please check this link.
+
+The following script will format your SD card accordingly, creating two partitions. The first partition size is based on the size of the SD card itself, and it's formatted in vfat. The second partition is the free space left on the card after the first partition, and it's formatted in ext4.
+
+# wget http://dev.gentoo.org/~armin76/arm/pandaboard/mkcard.sh
+
+(Replace mmcblk0 with the name of the device of your SD card)
+# bash mkcard.sh /dev/mmcblk0
+
+Now we'll mount the first partition on the card and copy the needed files (the ones that we built before) to boot our Pandaboard.
+
+(Make sure you're root)
+# mkdir /mnt/p1 ; mount /dev/mmcblk0p1 /mnt/p1
+
+
+# cp u-boot-*/MLO /mnt/p1
+# cp u-boot-*/u-boot.img /mnt/p1
+# cp ubuntu-precise/arch/arm/boot/uImage /mnt/p1
+
+The installation on this device is a bit different, and therefore easy, as we can't install Gentoo on it by booting an installation environment. For installing Gentoo (and any other distro, really) you need to put the SD card on your PC and prepare there the minimal installation.
+
+What we'll have to do to setup our installation is:
+
+    Extract stage3 to the 2nd partition of the SD card
+    Extract portage snapshot (required to emerge things and ntp(see below))
+    Setup fstab
+    Setup root password
+    Configure hostname and networking (optional, but recommended)
+    Enable SSH access (optional, but recommended)
+    Enable serial console access (optional, but recommended)
+
+Here's some information about the stages.
+
+    Architecture: arm
+    Subarchitecture: armv7a
+    CHOST: armv7a-hardfloat-linux-gnueabi
+    Profile: default/linux/arm/10.0
+
+We'll be using the new EABI, also called gnueabi. Also we'll use hardfloat. That is armhf on Debian.
+
+Therefore, we need an armv7a-hardfloat-linux-gnueabi stage3 for best performance, available under the releases/arm/autobuilds directory in your favorite mirror. You need to grab an armv7a_hardfp stage3.
+
+Optionally you can also grab a portage snapshot
+
+Mount the second partition of the SD card and extract the stage3 you downloaded.
+
+(Make sure you're root)
+# mkdir /mnt/p2
+# mount /dev/mmcblk0p2 /mnt/p2
+
+(Adjust the tarball name accordingly)
+(Extract the stage3, it may take a while)
+# tar xjpf stage3-armv7a_hardfp-20101118.tar.bz2 -C /mnt/p2
+
+(Extract the snapshot, it may take a while)
+# tar xjpf portage-latest.tar.bz2 -C /mnt/p2/usr
+
+Edit the /mnt/p2/etc/fstab file to look like this:
+
+(This is the important part)
+# NOTE: If your BOOT partition is ReiserFS, add the notail option to opts.
+/dev/mmcblk0p1		/boot		vfat		noauto,noatime	1 2
+/dev/mmcblk0p2		/		ext4		noatime		0 1
+
+(Remove the following lines as we don't have SWAP, cdrom, or floppy)
+/dev/SWAP		none		swap		sw		0 0
+/dev/cdrom		/mnt/cdrom	auto		noauto,ro	0 0
+#/dev/fd0		/mnt/floppy	auto		noauto		0 0
+
+This is the most important part of the installation. As without the root password we won't be able to login!
+
+For setting the password, we need to be able to run passwd. However that's not possible since our PC can't run ARM binaries. Therefore we need to modify the file that contains the passwords (/etc/shadow) inside the chroot, so we can set a default root password.
+
+(Generate a password)
+# openssl passwd -1
+
+# nano -w /mnt/p2/etc/shadow
+
+(Replace the first line with the following line)
+root:s3cr3t:14698:0:::::
+(Replace s3cr3t with the output the openssl command gave you)
+
+(For example, this line makes the password be gentoo)
+root:$6$I9Q9AyTL$Z76H7wD8mT9JAyrp/vaYyFwyA5wRVN0tze8pvM.MqScC7BBm2PU7pLL0h5nSxueqUpYAlZTox4Ag2Dp5vchjJ0:14698:0:::::
+
+Please read the network configuration chapter of the ARM handbook to configure the network.
+
+One of the problems the pandaboard has, is that it doesn't have a battery to save the clock time. To mitigate this, on Gentoo we have an option in our init system called swclock which sets the date of the system upon boot from a last modified date of a file.
+
+# ln -sf /etc/init.d/swclock /mnt/p2/etc/runlevels/boot
+
+We remove hwclock from the startup because it sets the date from the RTC, which is 2000-01-01 upon startup and overrides swclock's date.
+
+# rm /mnt/p2/etc/runlevels/boot/hwclock
+
+swclock uses the /lib/rc/cache/shutdowntime's modification time to set the date, therefore we update it to have the current date and time.
+
+# touch /mnt/p2/lib/rc/cache/shutdowntime
+
+Although this doesn't fix the issue, at least helps to set a sane date and time.
+Consider using NTP, documented on the next chapter
+
+We can add sshd to the startup of our system so we can access our Pandaboard using ssh.
+
+# ln -sf /etc/init.d/sshd /mnt/p2/etc/runlevels/default
+
+By default the ttyS0 port is configured at 9600 bps. However, almost all of the ARM devices run the serial port at 115200 bps. Also, in the case of the Pandaboard, the port is ttyO2 instead of the normal ttyS0. So this should be added to the /etc/inittab file:
+
+# nano -w /mnt/p2/etc/inittab
+
+(Replace 9600 with 115200 on the ttyS0 line, and replace ttyS0 with ttyO2)
+s0:12345:respawn:/sbin/agetty 115200 ttyO2 vt100
+
+Let's unmount the SD card
+
+(May take a while depending the speed of your SD card)
+# umount /mnt/p1 /mnt/p2
+
+This is pretty much all of the installation. I'd highly recommend that you read all the recommendations of the handbook.
+
+Once you have the card ready, put it into the Pandaboard... and you should be able to boot it.
+
+One of the problems of the Pandaboard is that it doesn't save the date because it doesn't have a battery for the clock.
+
+After logging into our new Gentoo on Pandaboard installation, I'd recommend setting a date and emerging net-misc/ntp to keep the clock up-to-date. Also it's recommended to put both ntp-client and ntpd to boot on startup, so you get a proper date setup.
+
+However, keep in mind that NTP requires a network connection and a NTP server being reachable, either on the local network or on the Internet.
+
+(Make sure you're root)
+
+# emerge net-misc/ntp
+
+(Put both ntp-client and ntpd to boot on startup)
+# rc-update add ntpd default
+# rc-update add ntp-client default
+
+(Start ntp-client and ntpd)
+# /etc/init.d/ntp-client start
+# /etc/init.d/ntpd start
+
+The Pandaboard has integrated hardware that needs either a driver, firmware or tools to work. Making work such hardware is documented on the following page
+
+You may find more documentation about the device itself and Linux-related at the following links:
+
+    pandaboard.org
+
+    pandaboard.org for providing me a Pandaboard to document and support Gentoo on it
+    My coworker Jordi Inglés, who gave me an 8 GB SDHC for this project
+    Siarhei Siamashka (ssvb) for giving helpful hints
+    Michael Majchrowicz for checking the doc in the Pandaboard ES
