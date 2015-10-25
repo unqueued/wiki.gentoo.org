@@ -9,16 +9,15 @@
 
 === Введение ===
 
-<code>distcc</code> — это инструмент, который позволяет распределить компиляцию программ по нескольким компьютерам в сети. Если соединенные по сети машины используют один toolchain и имеют одинаковую процессорную архитектуру, то для работы <code>distcc</code> никаких особенных настроек не потребуется. Но что делать, если нужно компилировать под разные архитектуры на разных компьютерах? Это руководство покажет, как настроить <code>distcc</code>, чтобы компилировать код для разных архитектур. 
+{{c|distcc}} is a tool that lets you share the burden of software compiling across several networked computers. As long as the networked boxes are all using the same toolchain built for the same processor architecture, no special {{c|distcc}} setup is required. 
 
-'''This guide will show you how to configure <code>distcc</code> to compile for different architectures.''' 
+'''This guide provides instructions on how to configure distcc to compile for different architectures.''' 
 
 === Устанавливаем необходимые утилиты ===
 
-Сперва нужно установить <code>crossdev</code> на всех машинах, которые будут вовлечены в процесс компиляции. <code>crossdev</code> — это инструмент, облегчающий сборку кросс-платформенных toolchain’ов. Изначально он был написан Joshua Kinard, затем переписан с нуля Mike Frysinger. Использовать его просто: <code>crossdev -t sparc</code> соберет полный cross-toolchain для архитектуры Sparc. Он включает binutils, gcc, glibc и linux-headers. Если вам понадобится справка, попробуйте запустить <code>crossdev --help</code>. Очевидно, что нужно установить подходящий cross-toolchain на все вспомогательные машины. 
+First, you will need to emerge {{c|crossdev}} on all the machines that will be involved in the compiling process. {{c|crossdev}} is a tool that makes building cross-architecture toolchains easy. Its usage is straightforward: {{c|crossdev -t sparc}} will build a full cross-toolchain targeting the Sparc architecture. This includes binutils, gcc, glibc, and linux-headers. 
 
-You will need to emerge the proper cross-toolchain on all the helper boxes.
-If you need more help, try running <code>crossdev --help</code>.
+You will need to emerge the proper cross-toolchain on all the helper boxes. If you need more help, try running {{c|crossdev --help}}.
 
 Если вы хотите произвести более точную настройку cross-toolchain’а, то вот скрипт, который генерирует команду с точными версиями toolchain-пакетов для сборки на вспомогательных машинах (скрипт нужно запускать на целевой машине).
 
@@ -33,12 +32,13 @@ echo "crossdev --b =$BINUTILS_VER --g =$GCC_VER --k =$KERNEL_VER --l =$LIBC_VER 
 
 Затем необходимо установить <code>distcc</code> на все машины, которые будут вовлечены в процесс. Это включает и машину, на которой будет запущен emerge, и машины с кросс-компиляторами. Посмотрите [[Distcc/ru|документацию Gentoo по Distcc]] для более подробной информации по настройке и использованию <code>distcc</code>.
 
-{{Note|Current versions of <tt>crossdev</tt> have a <code>-S (--stable)</code> flag for installing only stable versions of compiler tools.  (ie. <tt>crossdev -t i686-pc-linux-gnu --stable --ex-gcc --ex-gdb --portage --pretend</tt>). Without this option, <tt>crossdev</tt> installs the latest experimental compiler tools packages! 
+{{Note|Current versions of {{c|crossdev}} have a <code>-S</code> (<code>--stable</code>) flag for installing only stable versions of compiler tools.  (ie. {{c|crossdev -t i686-pc-linux-gnu --stable --ex-gcc --ex-gdb --portage --pretend}}). Without this option, {{c|crossdev}} installs the latest experimental compiler tools packages! 
+
 When using this option, the above script is no longer needed, unless specific versions of package tools and/or headers have been unmasked.}}
 
 === Специфичные для архитектур замечания ===
 
-{{Note|Obtain the architecture name by looking at the compile target's <code>CHOST</code> variable within {{Path|/etc/make.conf}}. When mangling the architecture name for the <tt>crossdev -t</tt> option, <tt>crossdev</tt> will merrily guess and install tools using the mangled architecture name for folder names within {{Path|/usr}} (ie. {{Path|/usr/i686-pc-linux-gnu/}}, {{Path|/usr/i686-linux-gnu/}}, ...). To resolve this, specify each mangled architecture/folder name to <tt>crossdev --clean</tt> for uninstalling, or manually remove the folders from the system.}}
+{{Note|Obtain the architecture name by looking at the compile target's <var>CHOST</var> variable within {{Path|/etc/make.conf}}. When mangling the architecture name for the {{c|crossdev -t}} option, {{c|crossdev}} will merrily guess and install tools using the mangled architecture name for folder names within {{Path|/usr}} (ie. {{Path|/usr/i686-pc-linux-gnu/}}, {{Path|/usr/i686-linux-gnu/}}, ...). To resolve this, specify each mangled architecture/folder name to {{c|crossdev --clean}} for uninstalling, or manually remove the folders from the system.}}
 
 ==== Подархитектуры Intel x86 ====
 
@@ -132,24 +132,46 @@ case ${CATEGORY}/${PN} in
 esac
 }}
 
+Then create this file:
+
+{{FileBox|filename=/usr/local/sbin/distcc-fix|lang=bash|1=
+#!/bin/bash	                
+ 
+sleep 20
+# change TUPLE to match your machine
+TUPLE="sparc-unknown-linux-gnu"
+cd /usr/lib/distcc/bin
+rm cc c++ gcc g++ ${TUPLE}-wrapper
+echo '#!/bin/bash' > ${TUPLE}-wrapper
+echo "exec ${TUPLE}-g\${0:\$[-2]}" "\"\$@\"" >> ${TUPLE}-wrapper
+chmod 755 ${TUPLE}-wrapper
+ln -s ${TUPLE}-wrapper cc
+ln -s ${TUPLE}-wrapper c++
+ln -s ${TUPLE}-wrapper gcc
+ln -s ${TUPLE}-wrapper g++
+}}
+
+Give it the proper permissions:
+
+{{RootCmd|chmod 755 /usr/local/sbin/distcc-fix}}
+
 Поздравляем! Теперь у вас (надеемся) есть работающая установка cross-distcc.
 
 === Как это работает ===
 
 При вызове <code>distcc</code> проверяет, как его вызвали (например, <code>i686-pc-linux-gnu-gcc</code>, <code>sparc-unknown-linux-gnu-g++</code>, и т. п.). Затем, когда distcc распределяет компиляцию на вспомогательную машину, он передает название, с которым был вызван. Далее, демон distcc на вспомогательной машине ищет исполняемый файл с подобным именем. Если он видит только <code>gcc</code>, то будет искать <code>gcc</code>, что, скорее всего, будет нативным компилятором вспомогательной машины. Это сработает только если на ней такая же архитектура, как и на компьютере, с которого запускался <code>emerge</code>. Когда отправляется ''полное'' имя компилятора, (например, <code>sparc-unknown-linux-gnu-gcc</code>), путаница исключена.
 
-
 === Troubleshooting ===
 
-This section covers a number of common problems when using <tt>distcc</tt> for cross-compiling.
+This section covers a number of common problems when using {{c|distcc}} for cross-compiling.
 
 ==== Remote host distccd COMPILE ERRORS ====
 
-When receiving the message <code>COMPILE ERRORS</code> within a remote host's {{Path|/var/log/distccd.log}} file, see the above notes concerning specifying the correct architecture name (ie. <tt>crossdev -t $TARGET</tt>).
+When receiving the message <code>COMPILE ERRORS</code> within a remote host's {{Path|/var/log/distccd.log}} file, see the above notes concerning specifying the correct architecture name (ie. {{c|crossdev -t $TARGET}}).
 
-Another solution is to uninstall and re-install <tt>crossdev</tt> compiler tools, using the <tt>crossdev --clean</tt> option, or ensuring {{Path|/usr/$TARGET}} no longer exists, and then completely reinstall the cross compiler.
+Another solution is to uninstall and re-install {{c|crossdev}} compiler tools, using the {{c|crossdev --clean}} option, or ensuring {{Path|/usr/$TARGET}} no longer exists, and then completely reinstall the cross compiler.
 
-It might also be wise to edit the remote host's {{Path|/usr/$TARGET/etc/portage/make.conf}}, and ensure the contents of the <code>CFLAGS</code> variable are similar on all computers or hosts performing compiler operations.
+It might also be wise to edit the remote host's {{Path|/usr/$TARGET/etc/portage/make.conf}}, and ensure the contents of the <var>CFLAGS</var> variable are similar on all computers or hosts performing compiler operations.
 
 ==== Failed to exec $TARGET-uknown-linux-gnu-gcc: No such file or directory ====
 
