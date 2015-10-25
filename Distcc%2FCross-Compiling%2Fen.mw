@@ -34,6 +34,8 @@ echo "crossdev --b =$BINUTILS_VER --g =$GCC_VER --k =$KERNEL_VER --l =$LIBC_VER 
 Next, you will need to emerge <code>distcc</code> on all the machines that will be involved in the process. This includes the box that will run emerge and the boxes with the cross-compilers. Please see the [[Distcc|Gentoo Distcc Documentation]] for more information on setting up and using <code>distcc</code>.
 
 {{Note|Current versions of <tt>crossdev</tt> have a <code>-S (--stable)</code> flag for installing only stable versions of compiler tools.  (ie. <tt>crossdev -t i686-pc-linux-gnu --stable --ex-gcc --ex-gdb --portage --pretend</tt>). Without this option, <tt>crossdev</tt> installs the latest experimental compiler tools packages! 
+When using this option, the above script is no longer needed, unless specific versions of package tools and/or headers have been unmasked.}} 
+
 When using this option, the above script is no longer needed, unless specific versions of package tools and/or headers have been unmasked.}}
 
 === Arch-specific notes ===
@@ -117,27 +119,42 @@ Next we want to make sure that these wrappers stay available after upgrading the
 
 {{FileBox|filename=/etc/portage/bashrc|lang=bash|1=
 case ${CATEGORY}/${PN} in
-	sys-devel/distcc)
-		# Hey man, how come that CONFIG PROTECT don't work?
-		if [ "${EBUILD_PHASE}" == "postinst" ] {{!}}{{!}} [ "${EBUILD_PHASE}" == "postrm" ];
-		then
-			cd /usr/lib/distcc/bin
-			rm cc c++ gcc g++
-			ln -s sparc-unknown-linux-gnu-wrapper cc
-			ln -s sparc-unknown-linux-gnu-wrapper c++
-			ln -s sparc-unknown-linux-gnu-wrapper gcc
-			ln -s sparc-unknown-linux-gnu-wrapper g++
-		fi
-	;;
+<pre>                 sys-devel/distcc | sys-devel/gcc)</pre>
+			if [ "${EBUILD_PHASE}" == "postinst" ]; then
+				/usr/local/sbin/distcc-fix &
+			fi
+		;;
 esac
 }}
+
+Then create this file:
+
+{{FileBox|filename=/usr/local/sbin/distcc-fix|lang=bash|1=
+#!/bin/bash	                
+ 
+sleep 20
+# change TUPLE to match your machine
+TUPLE="sparc-unknown-linux-gnu"
+cd /usr/lib/distcc/bin
+rm cc c++ gcc g++ ${TUPLE}-wrapper
+echo '#!/bin/bash' > ${TUPLE}-wrapper
+echo "exec ${TUPLE}-g\${0:\$[-2]}" "\"\$@\"" >> ${TUPLE}-wrapper
+chmod 755 ${TUPLE}-wrapper
+ln -s ${TUPLE}-wrapper cc
+ln -s ${TUPLE}-wrapper c++
+ln -s ${TUPLE}-wrapper gcc
+ln -s ${TUPLE}-wrapper g++
+}}
+
+Give it the proper permissions:
+
+{{RootCmd|chmod 755 /usr/local/sbin/distcc-fix}}
 
 Congratulations; you (hopefully) now have a working cross-distcc setup.
 
 === How this works ===
 
 When <code>distcc</code> is called, it checks to see what it was called as (e.g. <code>i686-pc-linux-gnu-gcc</code>, <code>sparc-unknown-linux-gnu-g++</code>, etc.) When distcc then distributes the compile to a helper box, it passes along the name it was called as. The distcc daemon on the other helper box then looks for a binary with that same name. If it sees just <code>gcc</code>, it will look for <code>gcc</code>, which is likely to be the native compiler on the helper box, if it is not the same architecture as the box running <code>emerge</code>. When the ''full'' name of the compiler is sent (e.g. <code>sparc-unknown-linux-gnu-gcc</code>), there is no confusion.
-
 
 === Troubleshooting ===
 
