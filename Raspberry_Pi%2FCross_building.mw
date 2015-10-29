@@ -1,40 +1,60 @@
-Building almost anything on the [[Raspberry Pi]] takes a very, very long time - especially when there are a lot of dependencies involved.
+Building almost anything on the [[Raspberry Pi]] takes a very, very long time - especially when a lot of dependencies are involved.
 
-Fortunately, you can offload much of the heavy lifting work to a more powerful system (such as your main Gentoo desktop/server) using distcc and crossdev (though this will only work for packages must compile C/C++). 
+Fortunately, it is possible to offload much of the heavy lifting to a more powerful system (such as your main Gentoo desktop/server) using {{c|distcc}} and {{c|crossdev}} (though this will only work for packages that are written in language that require compiling). 
 
 == distcc ==
+
 It is also suggested that the first package you build on the Raspberry Pi should be distcc, as it will dramatically speed up subsequent packages that require a lot of compilation.
 
-=== Raspberry Pi and Build servers ===
-On the Raspberry Pi and on all build servers install {{Package|sys-devel/distcc}}:
-{{Emerge|distcc}}
+=== Raspberry Pi and build server(s) ===
 
-Edit the distcc config file to ensure it is on the right subnet for your network configuration, for example:
+On the Raspberry Pi and on all build servers install {{Package|sys-devel/distcc}}:
+
+{{Emerge|sys-devel/distcc}}
+
+==== OpenRC ====
+
+Edit the distcc config file to ensure it is on the right subnet for the network configuration. For example:
+
 {{FileBox|filename=/etc/conf.d/distccd|1=
 DISTCCD_OPTS="${DISTCCD_OPTS} --allow 192.168.1.0/24"
 }}
-If you are using systemd, edit instead the config file for the systemd service:
+
+==== Systemd ====
+
+When using systemd edit the config file for the systemd service:
+
 {{FileBox|filename=/etc/systemd/system/distccd.service.d/00gentoo.conf|1=
 Environment="ALLOWED_SERVERS=192.168.1.0/24"
 }}.
 
 Then register and start the distcc daemon:
-{{RootCmd|rc-update add distccd default
-|rc-config start distccd}}
-or for systemd
-{{RootCmd|systemctl enable distccd
-|systemctl start distccd}}
+
+{{RootCmd
+|rc-update add distccd default
+|rc-config start distccd
+}}
+
+Or for systemd:
+
+{{RootCmd
+|systemctl enable distccd
+|systemctl start distccd
+}}
 
 === Raspberry Pi only ===
-Tell portage to use distcc:
+
+Tell Portage to use distcc:
+
 {{FileBox|filename=/etc/portage/make.conf|1=
 FEATURES="distcc"
 }}
 
-(Optional) Also add to FEATURES "buildpkg" to tell the Raspberry Pi to build package files for everything it builds (if you want to use the same setup on multiple Raspberry Pis without recompiling).
+(Optional) Also add <code>buildpkg</code> to the <var>FEATURES</var> variable to tell the Raspberry Pi to build package files for everything it builds (if you want to use the same setup on multiple Raspberry Pis without recompiling).
 
 
-Edit the distcc host file to tell your Raspberry Pi to submit compile jobs to your server:
+Edit the distcc host file to tell your Raspberry Pi to submit compile jobs to the server:
+
 {{FileBox|filename=/etc/distcc/hosts|1=
 # --- /etc/distcc/hosts -----------------------
 # See the "Hosts Specification" section of
@@ -45,6 +65,7 @@ Edit the distcc host file to tell your Raspberry Pi to submit compile jobs to yo
 }}
 
 Now you will need to tell distcc the specific compiler name to use instead of just "gcc":<ref>See [[Distcc/Cross-Compiling#Configuring_distcc_to_cross-compile_correctly|here]] for an explanation.</ref>
+
 {{RootCmd|cd /usr/lib/distcc/bin
 |ls -l|output=<pre>
 total 0
@@ -58,12 +79,14 @@ lrwxrwxrwx  1 root root 15 Dec 23 20:13 armv6j-hardfloat-linux-gnueabi-gcc -> /u
 </pre>}}
 
 We need to replace those symlinks with the following script: 
+
 {{FileBox|filename=/usr/lib/distcc/bin/armv6j-hardfloat-linux-gnueabi-wrapper|title=Distcc crossdev wrapper file|lang=bash|1=
 #!/bin/bash
 exec /usr/lib/distcc/bin/armv6j-hardfloat-linux-gnueabi-g${0:$[-2]} "$@"
 }}
 
-{{RootCmd|rm c++ g++ gcc cc
+{{RootCmd
+|rm c++ g++ gcc cc
 |chmod a+x /usr/lib/distcc/bin/armv6j-hardfloat-linux-gnueabi-wrapper
 |ln -s armv6j-hardfloat-linux-gnueabi-wrapper cc
 |ln -s armv6j-hardfloat-linux-gnueabi-wrapper gcc
@@ -72,6 +95,7 @@ exec /usr/lib/distcc/bin/armv6j-hardfloat-linux-gnueabi-g${0:$[-2]} "$@"
 }}
 
 Double check that you did things right:
+
 {{RootCmd|ls -l|output=<pre>
 total 4
 lrwxrwxrwx 1 root root 15 Dec  8 00:38 armv6j-hardfloat-linux-gnueabi-c++ -> /usr/bin/distcc
@@ -85,6 +109,7 @@ lrwxrwxrwx 1 root root 38 Dec  8 01:04 gcc -> armv6j-hardfloat-linux-gnueabi-wra
 </pre>}}
 
 You can now check what is being dispatched to your build machines while doing an emerge operation with this script:
+
 {{FileBox|filename=/usr/sbin/distcc-watch|title=Portage distcc monitor|lang=bash|1=
 #!/bin/bash
 # This script will only print non-blank results from distccmon-text
@@ -103,16 +128,21 @@ done
 }}
 
 Or simpler with:
+
 {{RootCmd|watch -n1 DISTCC_DIR{{=}}"/var/tmp/portage/.distcc/" distccmon-text}}
 
 == crossdev ==
+
 This will setup crossdev on your build servers so that they can compile binaries compatible with the Raspberry Pi. Note that you can have multiple compilation nodes - just add them to the list of hosts on the Raspberry Pi. Distcc will decide when to distribute the compilation though, so chances are you will never be able to fully load even a single modern build server with jobs from the Raspberry Pi.
 
 Install {{Package|sys-devel/crossdev}}:
-{{Emerge|crossdev}}
+
+{{Emerge|sys-devel/crossdev}}
 
 You will need to maintain separate portage profiles for the Raspberry Pi and your server's default, so you must convert your existing profile files to folders.
+
 Copy the following file to {{Path|~/convert-profile-to-files.sh}}, and then run it as root:
+
 {{FileBox|filename=~/convert-profile-to-files.sh|title=Convert profile files to folders|lang=bash|1=
 #!/bin/bash
 PROFILE_DIR="/etc/portage"
@@ -137,16 +167,24 @@ done
 echo "Completed!"
 }}
 
-Create a cross toolchain for ARM: (drop ''-S'' if you plan to run an unstable system):
+Create a cross toolchain for ARM: (drop the <code>-S</code> option from the command when planning to run an unstable system):
+
 {{RootCmd|crossdev -S -v -t armv6j-hardfloat-linux-gnueabi}}
 
 If the cross toolchain for ARM fail to build try this:
+
 {{RootCmd|CFLAGS{{=}}"-O2 -pipe" CXXFLAGS{{=}}"${CFLAGS}" crossdev -S -v -t armv6j-hardfloat-linux-gnueabi}}
 
 == See also ==
-* [http://www.gentoo.org/doc/en/cross-compiling-distcc.xml DistCC Cross-compiling Guide] about cross-compiling with DistCC
 
-==Footnotes==
+* [[distcc]]
+
+== External resources ==
+
+* [http://www.gentoo.org/doc/en/cross-compiling-distcc.xml DistCC Cross-compiling Guide] - Provides information about cross-compiling with DistCC
+
+== References ==
+
 <references/>
 
 [[Category:Cross building]]
