@@ -1,6 +1,3 @@
-{{WIP|author=Gavlee}}
-{{Stub}}
-
 {{InfoBox stack
 |{{InfoBox homepage|http://www.pandaboard.org/|header=true}}
 |{{InfoBox wikipedia|Pandaboard}}
@@ -23,7 +20,7 @@ To be able to install Gentoo, the following are required:
 * One SD card at least 2 GB, preferably 8 GB or larger
 * A network connection
 
-=== Kernel & Bootloader ===
+=== Bootloader & Kernel ===
 
 Before starting the installation process, a kernel and a bootloader for the Pandaboard need to be fetched and built.
 
@@ -31,12 +28,14 @@ The Pandaboard doesn't have a NAND/flash device, so the bootloader (U-Boot) need
 
 For building the required software needed to boot the Pandaboard, the following tools are emerged on the host system in preparation.
 
-* sys-devel/crossdev - For creating a crosscompiler to compile the kernel and U-Boot
-* dev-embedded/u-boot-tools - This includes mkimage which creates boot.scr and a kernel image that U-Boot can understand
-* sys-fs/dosfstools - The Pandaboard requires the first SD card partition to have a FAT based filesystem
+* {{Package|sys-devel/crossdev}} - For creating a crosscompiler to compile the kernel and U-Boot
+* {{Package|dev-embedded/u-boot-tools}} - This includes mkimage which creates boot.scr and kernel/ramdisk images that U-Boot can understand
+* {{Package|sys-fs/dosfstools}} - The Pandaboard requires the first SD card partition to have a FAT based filesystem
 
-{{Emerge|sys-devel/crossdev dev-embedded/u-boot-tools sys-fs/dosfstools}}
-{{RootCmd|crossdev -S armv7a-hardfloat-linux-gnueabi}}
+{{RootCmd
+|emerge --ask sys-devel/crossdev dev-embedded/u-boot-tools sys-fs/dosfstools
+|crossdev -S armv7a-hardfloat-linux-gnueabi
+}}
 {{Cmd
 |wget ftp://ftp.denx.de/pub/u-boot/u-boot-latest.tar.bz2
 |tar xjpf u-boot-latest.tar.bz2 && cd u-boot-*
@@ -44,28 +43,43 @@ For building the required software needed to boot the Pandaboard, the following 
 |make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi-
 }}
 
-TODO: Update the choice of kernels. 
-gentoo-sources-4.2.3 works after a quick test but mileage may vary.
+For booting the Pandaboard a kernel is needed. Originally the vanilla kernel.org wasn't as tested as the one used on Ubuntu. TI decided to provide support to Ubuntu, so it makes sense to have all the fixes Ubuntu have by using their kernel.
+The choice of kernel depends on which functionality is required of the Pandaboard. Using the mainline kernel may lack support for advanced features like for example hardware 3D and/or DSP acceleration.
+If the following link returns a 404 not found error, download the latest .tar.gz file from the precise distribution in the following link, the latest stable kernel version will be labeled "security, updates (main)".
+https://launchpad.net/ubuntu/+source/linux-ti-omap4
 
-For booting the Pandaboard a kernel is needed. The vanilla kernel.org isn't as tested as the one used on Ubuntu. TI has decided to provide support to Ubuntu, so it makes sense to have all the fixes Ubuntu gets by using their kernel.
-If the following link returns a 404 not found error, download the latest .tar.gz file from the precise distribution here: https://launchpad.net/ubuntu/+source/linux-ti-omap4
+Or if using the mainline (vanilla-sources) kernel
+https://www.kernel.org/pub/linux/kernel/
 
-{{Cmd|wget 'https://launchpad.net/ubuntu/+archive/primary/+files/linux-ti-omap4_3.2.0-1412.16.tar.gz'}}
+Linux Kernel for Pandaboard from Ubuntu precise distribution
+{{Cmd|wget 'https://launchpad.net/ubuntu/+archive/primary/+files/linux-ti-omap4_3.2.0-1472.93.tar.gz'}}
+Mainline kernel
+{{Cmd|wget 'https://www.kernel.org/pub/linux/kernel/v4.x/linux-4.2.5.tar.xz'}}
 
-(Extract and change to the directory)
-{{Cmd|tar zxvf linux-ti-omap4_3.2.0-1412.16.tar.gz && cd ubuntu-precise}}
+Extract the kernel source and change to the directory, the given example is for the Ubuntu kernel, change to suit
+{{Cmd|tar zxvf linux-ti-omap4_3.2.0-1472.93.tar.gz && cd ubuntu-precise}}
 
-The default kernel config for this kernel version is really minimal, and doesn't have support for wifi or accelerated graphics drivers. So i've decided to provide a basic kernel config.
+The default kernel config for this kernel version is really minimal, and doesn't have support for wifi or accelerated graphics drivers. Gentoo developer [[User:Armin76]] provided a basic kernel config along with the original Gentoo on Pandaboard documentation for reference.
 
-(Download a minimal kconfig)
 {{Cmd|wget http://dev.gentoo.org/~armin76/arm/pandaboard/kconfig -O .config}}
 
-(It is possible to run menuconfig after downloading the kconfig to customize it)
+After downloading the kconfig, update and customize it
+{{Cmd|make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- oldconfig menuconfig}}
 
-(Replace 9 with the number of cores you have on your computer)
+{{KernelBox|title=Kernel Options relevant for Pandaboard|1=
+
+}}
+
+==== uImage ====
+Replace 9 with the number of cores you have on your computer
 {{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- uImage}}
+If the command fails due to no <var>LOADADDR</var> being specified add the required parameter to the {{c|make}} command. This usually needs to be set when compiling a mainline kernel {{c|uImage}} target.
+{{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- LOADADDR{{=}}0x82000000 uImage}}
 
-Once the build is complete there will be a kernel image at arch/arm/boot/uImage
+Once the build is complete there will be a kernel image at {{path|arch/arm/boot/uImage}}
+
+==== zImage ====
+{{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- }}
 
 === SD Card Setup ===
 
@@ -170,8 +184,13 @@ root:$6$I9Q9AyTL$Z76H7wD8mT9JAyrp/vaYyFwyA5wRVN0tze8pvM.MqScC7BBm2PU7pLL0h5nSxue
 === Boot script ===
 TODO: explain preEnv.txt uEnv.txt
 
-To boot the Pandaboard, a boot script is needed along with the {{c|mkimage}} command to create the file boot.scr. This file is read by U-Boot in the boot process and can contain extra commands and environment configuration. It is possible to add any linux command line options here necessary for the boot process, such as a different location of the root filesystem.
+To boot the Pandaboard, a boot script is needed along with the {{c|mkimage}} command to create the file {{c|boot.scr}}. This file is read by U-Boot in the boot process and can contain extra commands and environment configuration. It is possible to add any linux command line options here necessary for the boot process, such as a different location of the root filesystem.
 
+Some examples of U-Boot boot.scr files 
+(delete as appropriate in future)
+ 
+Example for uImage and fdt without initramfs.
+For booting without an initramfs there needs to be a minus "-" as second argument to bootm or bootz commands, in place where the ramdisk address would usually be.
 {{RootCmd|$EDITOR /mnt/p1/boot.txt}}
 {{FileBox|filename=/mnt/p1/boot.txt|
 <pre>
@@ -182,8 +201,23 @@ bootm ${loadaddr} - ${fdtaddr}
 </pre>
 }}
 
+Example for zImage and fdt with ramdisk
+{{RootCmd|$EDITOR /mnt/p1/boot.txt}}
+{{FileBox|filename=/mnt/p1/boot.txt|
+<pre>
+fatload mmc 0:1 ${loadaddr} zImage
+fatload mmc 0:1 ${rdaddr} uInitrd                                           
+fatload mmc 0:1 ${fdtaddr} omap4-panda.dtb                                      
+setenv bootargs earlyprintk console=ttyO2,115200n8 root=/dev/mmcblk0p2 rootwait
+bootz ${loadaddr} ${rdaddr} ${fdtaddr}
+</pre>
+}}
+
 Create {{c|boot.scr}} with {{c|mkimage}} provided by u-boot-tools
 {{RootCmd|mkimage -A arm -T script -C none -n "Gentoo Pandaboard boot script" -d /mnt/p1/boot.txt /mnt/p1/boot.scr}}
+
+Create a ramdisk with mkimage (optional?)
+{{RootCmd|mkimage -A arm -T script -C none -n "Gentoo Pandaboard ramdisk" -d /mnt/p1/uInitrd /mnt/p1/theinitramfs}}
 
 === Network configuration ===
 
@@ -241,7 +275,7 @@ Once the card is ready, put it into the Pandaboard and it should be able to boot
 
 One of the problems of the Pandaboard is that it doesn't save the date because it doesn't have a battery for the clock.
 
-After logging into the new Gentoo on Pandaboard installation, is it recommended setting a date and emerging net-misc/ntp to keep the clock up-to-date. Also it's recommended to put both ntp-client and ntpd to boot on startup, so a proper date and time is set.
+After logging into the new Gentoo on Pandaboard installation, is it recommended setting a date and emerging net-misc/ntp to keep the clock up-to-date. Also it's recommended to put both {{c|ntp-client}} and {{c|ntpd}} to boot on startup, so a proper date and time is set.
 
 However, keep in mind that NTP requires a network connection and a NTP server being reachable, either on the local network or on the Internet.
 
