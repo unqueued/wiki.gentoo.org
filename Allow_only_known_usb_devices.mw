@@ -1,0 +1,214 @@
+In this article I'll describe how to protect you GNU/Linux box against alien USB devices. So we configure GNU/Linux to accept only known USB devices.
+
+=Kernel protection=
+
+In kernel "sys-kernel/hardened-sources" we have to options for Physical Protections:
+
+{{KernelBox|
+Deny new USB connections after toggle
+
+GRKERNSEC_DENYUSB
+Related sysctl variables:
+
+    kernel.grsecurity.deny_new_usb
+
+If you say Y here, a new sysctl option with name "deny_new_usb"
+will be created.  Setting its value to 1 will prevent any new
+USB devices from being recognized by the OS.  Any attempted USB
+device insertion will be logged.  This option is intended to be
+used against custom USB devices designed to exploit vulnerabilities
+in various USB device drivers.
+
+For greatest effectiveness, this sysctl should be set after any
+relevant init scripts.  This option is safe to enable in distros
+as each user can choose whether or not to toggle the sysctl.
+
+Reject all USB devices not connected at boot
+
+GRKERNSEC_DENYUSB_FORCE
+
+If you say Y here, a variant of GRKERNSEC_DENYUSB will be enabled
+that doesn't involve a sysctl entry.  This option should only be
+enabled if you're sure you want to deny all new USB connections
+at runtime and don't want to modify init scripts.  This should not
+be enabled by distros.  It forces the core USB code to be built
+into the kernel image so that all devices connected at boot time
+can be recognized and new USB device connections can be prevented
+prior to init running.
+}}
+
+It is very god choice for servers in datacenter and server's rooms. But at reboot it still vulnerable! Also it not give flexibility needed on workstation when we want connect USB devises during run time. So lets write eudev rules for allow only known USB devices in the system.
+
+=eudev=
+
+==Retrieve information about our USB devices==
+
+eudev allows us to create rules to configure devices as they are added or removed from a system, in our case we will allow or disallow USB devices based on their identifying strings. The first thing that needs to be done is to collect identifying strings that can be used to white list our USB devices.
+
+===lsusb===
+
+How to obtain more information about connected USB devices? Install package sys-apps/usbutils:
+{{Emerge|sys-apps/usbutils}}
+and run:
+{{RootCmd|lsusb|output=<pre>
+Bus 001 Device 005: ID 4444:4444 Example, USB Keyboard
+Bus 001 Device 004: ID 3333:3333 Example, USB Optical Mouse
+Bus 001 Device 003: ID 5555:5555 USB Hub
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 005 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
+Bus 004 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
+Bus 003 Device 002: ID 2222:2222 Example, USB Optical Mouse
+Bus 003 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
+Bus 002 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
+</pre>}}
+We can see USB mouse connected on bus 3 and listed as device 2. We will first need to find this device’s port number. To figere out port number run lsusb with -t options:
+{{RootCmd|lsusb –t|output=<pre>
+/:  Bus 05.Port 1: Dev 1, Class=root_hub, Driver=uhci_hcd/2p, 12M
+/:  Bus 04.Port 1: Dev 1, Class=root_hub, Driver=uhci_hcd/2p, 12M
+/:  Bus 03.Port 1: Dev 1, Class=root_hub, Driver=uhci_hcd/2p, 12M
+    |__ Port 1: Dev 2, If 0, Class=Human Interface Device, Driver=usbhid, 1.5M
+/:  Bus 02.Port 1: Dev 1, Class=root_hub, Driver=uhci_hcd/2p, 12M
+/:  Bus 01.Port 1: Dev 1, Class=root_hub, Driver=ehci-pci/8p, 480M
+    |__ Port 4: Dev 3, If 0, Class=Hub, Driver=hub/8p, 480M
+        |__ Port 1: Dev 4, If 0, Class=Human Interface Device, Driver=usbhid, 1.5M
+        |__ Port 5: Dev 5, If 0, Class=Human Interface Device, Driver=usbhid, 1.5M
+        |__ Port 5: Dev 5, If 1, Class=Human Interface Device, Driver=usbhid, 1.5M
+</pre>}}
+Also lsusb with -v options expand verbose output, but the format is not convenient for copying and pasting into eudev scripts.
+
+===Sysfs===
+
+Information about attached USB devices can be obtained through Sysfs:
+{{RootCmd|ls /sys/bus/usb/devices/|output=<pre>
+1-0:1.0  1-4  1-4.1  1-4:1.0  1-4.1:1.0  1-4.5  1-4.5:1.0  1-4.5:1.1  2-0:1.0  3-0:1.0  3-1  3-1:1.0  4-0:1.0  5-0:1.0  usb1  usb2  usb3  usb4  usb5
+</pre>}}
+The subdirectories we are interested to are in the format (bus number)-(port) or (bus number)-(port).(port). The second one is in case when hub is used the port section of the directory name may be a series of port numbers separated by periods. So pay attention only to follow dirs:
+{{RootCmd|ls /sys/bus/usb/devices/|output=<pre>
+1-4  1-4.1  1-4.5  3-1
+</pre>}}
+Sysfs, a virtual file system for give information and allow control of devices that the kernel exports. There are one specific settings: "authorized". All USB devices should have an "authorized" option which controls whether or not the device can communicate with the system!
+For example, if we wished to see if the device in port 1 of the 3 USB bus is active we could use the following command:
+{{RootCmd|cat /sys/bus/usb/devices/3-1/authorized|output=<pre>
+1
+</pre>}}
+The 1 in the output tells us the device is authorized, 0 would mean not authorized.
+
+===udevadm===
+
+To retrieve information like the serial number, vendor and product ID, manufacturer’s name for our device connected to port 1 on 3 USB bus, you can run the following command:
+{{RootCmd|udevadm info -a -p /sys/bus/usb/devices/3-1|output=<pre>
+
+Udevadm info starts with the device specified by the devpath and then
+walks up the chain of parent devices. It prints for every device
+found, all possible attributes in the udev rules key format.
+A rule to match, can be composed by the attributes of the device
+and the attributes from one single parent device.
+
+  looking at device '/devices/pci0000:00/0000:00:1d.1/usb3/3-1':
+    KERNEL=="3-1"
+    SUBSYSTEM=="usb"
+    DRIVER=="usb"
+    ATTR{bDeviceSubClass}=="00"
+    ATTR{bDeviceProtocol}=="00"
+    ATTR{devpath}=="1"
+    ATTR{idVendor}=="2222"
+    ATTR{speed}=="1.5"
+    ATTR{bNumInterfaces}==" 1"
+    ATTR{bConfigurationValue}=="1"
+    ATTR{bMaxPacketSize0}=="8"
+    ATTR{busnum}=="3"
+    ATTR{devnum}=="2"
+    ATTR{configuration}=="HID-compliant MOUSE"
+    ATTR{bMaxPower}=="100mA"
+    ATTR{authorized}=="1"
+    ATTR{bmAttributes}=="a0"
+    ATTR{bNumConfigurations}=="1"
+    ATTR{maxchild}=="0"
+    ATTR{bcdDevice}=="0100"
+    ATTR{avoid_reset_quirk}=="0"
+    ATTR{quirks}=="0x0"
+    ATTR{version}==" 1.10"
+    ATTR{urbnum}=="14"
+    ATTR{ltm_capable}=="no"
+    ATTR{manufacturer}=="Example"
+    ATTR{removable}=="unknown"
+    ATTR{idProduct}=="2222"
+    ATTR{bDeviceClass}=="00"
+    ATTR{product}=="USB Optical Mouse"
+..................................
+</pre>}}
+All of these "ATTR" attributed can be used in our UDEV rules! You need to add rules to /lib/udev/rules.d/ that will white list only the given devices, and blacklist all the rest.
+
+==Writing eudev rules==
+
+Now we can start writing eudev rules to enable/disable USB devices. Create file with rules in /lib/udev/rules.d/01-usb.rules to enshure that it is running in the beginning.
+Pay attention to add all USB hub in the beginning of you rules! All USB hub has ATTR{bDeviceClass}=="09". Also we add more information: ATTR{manufacturer} and ATTR{product} for human readable descriptions..
+
+{{FileBox|filename=/lib/udev/rules.d/01-usb.rules|title=eudev rules for enable only known USB devices|<pre>}
+# 20151002
+# GPL-3
+# Enable only known devices
+
+# Skeep not USB
+SUBSYSTEM!="usb", GOTO="usb_end"
+# Skeep remove actions
+ACTION=="remove", GOTO="usb_end"
+
+
+# Linux Foundation
+# 2.0 root hub
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{product}=="EHCI Host Controller", ATTR{serial}=="0000:00:1d.7", \
+  ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0002", ATTR{bDeviceClass}=="09", ATTR{authorized}="1", GOTO="usb_end"
+
+# 1.1 root hub
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{product}=="UHCI Host Controller", ATTR{serial}=="0000:00:1d.0", \
+  ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0001", ATTR{bDeviceClass}=="09", ATTR{authorized}="1", GOTO="usb_end"
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{product}=="UHCI Host Controller", ATTR{serial}=="0000:00:1d.1", \
+  ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0001", ATTR{bDeviceClass}=="09", ATTR{authorized}="1", GOTO="usb_end"
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{product}=="UHCI Host Controller", ATTR{serial}=="0000:00:1d.2", \
+  ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0001", ATTR{bDeviceClass}=="09", ATTR{authorized}="1", GOTO="usb_end"
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{product}=="UHCI Host Controller", ATTR{serial}=="0000:00:1d.3", \
+  ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0001", ATTR{bDeviceClass}=="09", ATTR{authorized}="1", GOTO="usb_end"
+
+# Hub
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{manufacturer}=="Example", ATTR{product}=="USB Hub", \
+  ATTR{idVendor}=="5555", ATTR{idProduct}=="5555", ATTR{bDeviceClass}=="09", ATTR{authorized}="1", GOTO="usb_end"
+
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{manufacturer}=="Example", ATTR{product}=="USB Keyboard", \
+  ATTR{idVendor}=="4444", ATTR{idProduct}=="4444", ATTR{authorized}="1", GOTO="usb_end"
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{manufacturer}=="Example", ATTR{product}=="USB Optical Mouse", \
+  ATTR{configuration}=="HID-compliant MOUSE", ATTR{idVendor}=="2222", ATTR{idProduct}=="2222", ATTR{authorized}="1", GOTO="usb_end"
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{manufacturer}=="Example", ATTR{product}=="USB Optical Mouse", \
+  ATTR{idVendor}=="3333", ATTR{idProduct}=="3333", ATTR{authorized}="1", GOTO="usb_end"
+
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{manufacturer}=="Example", ATTR{product}=="Storage Device 1", ATTR{serial}=="1111111111", \
+  ATTR{idVendor}=="1111", ATTR{idProduct}=="1111", ATTR{authorized}="1", GOTO="usb_end"
+
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{manufacturer}=="Example", ATTR{product}=="Storage Device 2", ATTR{serial}=="2222222222", \
+  ATTR{idVendor}=="1111", ATTR{idProduct}=="1111", ATTR{authorized}="1", GOTO="usb_end"
+
+
+# Disable all other USB devices
+SUBSYSTEMS=="usb", ACTION=="add", ATTR{authorized}="0"
+
+LABEL="usb_end"
+</pre>}}}
+
+==Test eudev rules==
+
+To test your script you can run the command:
+{{RootCmd|udevadm test /sys/bus/usb/devices/3-1}}
+It will not actually apply the changes, it only show which conditional statements are when a certain device is inserted.
+
+== See also ==
+
+[[USB/Guide|USB Guide]]
+
+[[Category:Hardware]]
