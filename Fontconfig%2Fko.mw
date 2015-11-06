@@ -1,0 +1,241 @@
+<languages />
+{{InfoBox stack
+|{{InfoBox wikipedia|header=true}}
+|{{InfoBox homepage|http://www.freedesktop.org/wiki/Software/fontconfig/}}
+}}
+
+The <tt>fontconfig</tt> library is intended to provide uniform font selection and configuration amongst all GUI applications. Even though it is common for various [[:Category:Desktop environment|desktop environments]] to provide their own font overrides and configuration, <tt>fontconfig</tt> is still the underlying library.
+
+== Configuration ==
+
+{{Note|Changes to <tt>fontconfig</tt> files will reflect only in applications started after the change!}}
+
+=== Generic ===
+
+<tt>fontconfig</tt> uses XML files in the {{Path|/etc/fonts/}} directory to generate its internal configuration. By default it parses {{Path|/etc/fonts/fonts.conf}} (users should not edit this file!) which sets some sane defaults and usually contains code to also parse {{Path|/etc/fonts/conf.d/}} content. In addition there is the {{Path|/etc/fonts/conf.avail/}} directory that contains various possible configuration files that each cover some aspect of <tt>fontconfig</tt>. It's customary to symlink necessary files to {{Path|/etc/fonts/conf.d/}}. These files are executed in order they are named; for this reason their names start with a two digit number with the first digit (tens) indicating what the file affects (called the class).
+
+=== Gentoo specific ===
+
+Gentoo ships an [[eselect]] module (<tt>eselect fontconfig</tt>) that does exactly what was described in generic way - it manages symlinks of files in {{Path|/etc/fonts/conf.avail/}} by adding or removing them from the {{Path|/etc/fonts/conf.d/}} directory. For obvious reasons changing system wide configuration requires appropriate permissions.
+
+The following subsections explain how to deal with the <tt>fontconfig</tt> eselect module.
+
+==== Listing available files ====
+
+The <tt>list</tt> command shows the available <tt>fontconfig</tt> files, and marks the enabled ones with an asterisk (<code>*</code>).
+
+{{RootCmd|eselect fontconfig list
+|output=<pre>
+Available fontconfig .conf files (* is enabled):
+  [1]   10-autohint.conf *
+  [2]   10-no-sub-pixel.conf
+  [3]   10-sub-pixel-bgr.conf
+  [4]   10-sub-pixel-rgb.conf
+  [5]   10-sub-pixel-vbgr.conf
+  [6]   10-sub-pixel-vrgb.conf
+  [7]   10-unhinted.conf
+  [8]   11-lcdfilter-default.conf
+  [9]   11-lcdfilter-legacy.conf
+  ...
+</pre>}}
+
+{{Warning|Different systems have different files in {{Path|fonts.avail}} so the output ''will'' be different. Never blindly use a list number from another source (such as blog posts or wiki articles).}}
+
+==== Enabling a file ====
+
+Files can be enabled either by filename or by the number in brackets. These two do the same thing:
+
+{{RootCmd
+|eselect fontconfig enable 10-sub-pixel-rgb.conf
+|eselect fontconfig enable 4
+}}
+
+==== Disabling a file ====
+
+Files can be disabled likewise:
+
+{{RootCmd
+|eselect fontconfig disable 10-sub-pixel-rgb.conf
+|eselect fontconfig disable 4
+}}
+
+=== Custom system wide configuration ===
+
+To create a custom, system-wide <tt>fontconfig</tt> file, enable {{Path|51-local.conf}} and create {{Path|/etc/fonts/local.conf}} (this is an XML file).
+
+{{FileBox|filename=/etc/fonts/local.conf|title=Example file that sets preferred font fallback order for sans-serif font|lang=xml|1=
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <alias>
+    <family>sans-serif</family>
+    <prefer>
+      <family>Ubuntu</family>
+      <family>TakaoPGothic</family>
+      <family>Droid Sans</family>
+    </prefer>
+    <default><family>DejaVu Sans</family></default>
+  </alias>
+</fontconfig>
+}}
+
+=== Per-user configuration ===
+
+To create per-user <tt>fontconfig</tt> files, enable {{Path|50-user.conf}} (which might be enabled by default), and have the end users use {{Path|~/.fonts.conf}} (which has the same XML format as {{Path|local.conf}}).
+
+{{Note|This is one way how a desktop environment might try to affect font rendering. It might be prudent to disable this to be sure that what's being shown is actually system wide configuration when customizing it. Disabling it also makes font rendering more uniform across user accounts.}}
+
+=== Checking configuration ===
+
+Check the default font replacement, for example for Arial, by typing:
+
+{{Cmd|fc-match Arial}}
+
+== Anti-aliasing, hinting and sub-pixel rendering ==
+
+Rendering aspects can be tuned as well. In the following sections the ''Anti-aliasing'', ''Hinting'' and ''Sub-pixel rendering'' features are tuned.
+
+{| class="table"
+|-
+! Feature
+! Description
+|-
+| Anti-aliasing
+| is enabled by default and makes fonts less blocky.
+|-
+| Hinting
+| is an attempt to cope with the low pixel count per unit of area of current displays. Correct hinting makes characters more crisp but since font metrics aren't changed (and arguably should not change) affects how overall the rendered text looks like.
+|-
+| Sub-pixel rendering
+| uses the fact that LCD matrix has three primaries to effectively triple the resolution of text but can make characters appear not entirely black. To combat that <tt>lcdfilter</tt> is to be used with sub-pixel rendering (available for newer <tt>fontconfig</tt>) but it can blur the characters too much. In the end this entirely depends on person how they like their text.
+|}
+
+=== Forcing hinting ===
+
+The default <tt>fontconfig</tt> behavior regarding hinting is rather undocumented, but it can be made deterministically sub-optimal by making a system wide default.
+
+# [[#Custom system wide configuration|First enable {{Path|/etc/fonts/local.conf}}]]
+# Edit the {{Path|local.conf}} file to include full hinting by default 
+
+This {{Path|local.conf}} snippet enables full hinting:
+
+{{FileBox|filename=/etc/fonts/local.conf|title=Setting hinting to full|lang=xml|1=
+<match target="font">
+  <edit mode="assign" name="hintstyle">
+    <const>hintfull</const>
+  </edit>
+</match>
+}}
+
+{{Note|Most fonts look best with full hinting but others need slight or more rarely some other other hinting option. Some fonts for one reason or another will always be ugly.}}
+
+=== Using sub-pixel rendering ===
+
+It's important to determine the sub-pixel layout of the LCD matrix. It's usually RGB ({{Path|10-sub-pixel-rgb.conf}}) but the only way to be sure is to either consult display specification or use this [http://www.lagom.nl/lcd-test/subpixel.php sub-pixel layout test] to determine it.
+
+Once determined, enable the appropriate {{Path|10-sub-pixel-''<matrix type>''.conf}} file.
+
+{{RootCmd|eselect fontconfig enable 10-sub-pixel-rgb.conf}}
+
+It's strongly advised that <tt>lcdfilter</tt>, if available, is used with sub-pixel rendering. It comes in different varieties but the default ({{Path|11-lcdfilter-default.conf}}) should be appropriate for all common fonts.
+
+{{RootCmd|eselect fontconfig enable 11-lcdfilter-default.conf}}
+
+{{Warning|The <code>bindist</code> USE flag in {{Package|media-libs/freetype}} disables sub-pixel rendering altogether due to potential patenting issues. Make sure to disable it for this package.}}
+
+=== Regarding autohinter ===
+
+Autohinter attempts to do automatic hinting disregarding any existing hinting information. Until recently it was the default because TrueType2 was covered by patents but now that they have expired there's very little reason to use it. From technical point of view it does better than broken or no hinting information but it will be strongly sub-optimal for fonts with good hinting information. Generally system fonts are of the second kind so autohinter should not be used.
+
+{{Warning|Autohinter is not compatible with sub-pixel rendering, do not use the two together!}}
+
+== Infinality ==
+
+Infinality is a (somewhat controversial) set of patches for FreeType and accompanying <tt>fontconfig</tt> files. The goal of Infinality is to provide higher quality font rendering including emulation of other OS font rendering styles.
+
+{{Note|As usual with software still in development it is prudent to always use only the latest version available unless there are known problems with it.}}
+
+=== Enabling Infinality ===
+
+Enable the 'infinality' USE flag by editing {{Path|make.conf}} either manually or by using euse tool.
+
+{{RootCmd|euse -E infinality}}
+
+{{Note|euse is part of {{Package|app-portage/gentoolkit}}.}}
+
+Next, rebuild the affected programs.
+
+{{Emerge|params+=-uvDU|@world}}
+
+Unless messages shown after rebuild tell otherwise, enable {{Path|52-infinality.conf}}.
+
+{{RootCmd|eselect fontconfig enable 52-infinality.conf}}
+
+=== Configuring Infinality ===
+
+Infinality can be configured in various ways including custom configurations, but easiest is to use pre-made profiles shipped in {{Package|media-libs/fontconfig-infinality}} that along with eselect modules should have been installed as dependencies of the <code>infinality</code> USE flag.
+
+==== Quick and reasonable config ====
+
+{{RootCmd|eselect infinality set infinality
+|eselect lcdfilter set infinality}}
+
+{{Note|As always, <tt>fontconfig</tt> changes affect only applications started after changes have been made.}}
+
+It's also recommended to disable all <tt>fontconfig</tt> settings except for {{Path|52-infinality.conf}} as they interfere with the rendering of infinality styles:
+
+{{RootCmd|eselect fontconfig disable <number>}}
+
+Certain <tt>fontconfig</tt> settings do not interfere with how the fonts are rendered, but rather determine the default fonts for font-types (such as Monospace, sans-serif, etc.). Such settings (for example the {{Path|62-croscore-*.conf}} configurations) can be left enabled.
+
+==== Explanation ====
+
+Infinality provides FreeType environment variables that can be used to configure features introduced with its patches as well as <tt>fontconfig</tt> files to be used with these changes. <tt>fontconfig</tt> file sets are administrated on Gentoo via <tt>eselect infinality</tt> while the FreeType behaviour is set using <tt>eselect lcdfilter</tt>.
+
+These eselect modules function as usual:
+
+* Listing available <tt>fontconfig</tt> file sets.
+: {{RootCmd|eselect infinality list}}
+* Listing available FreeType variable sets.
+: {{RootCmd|eselect lcdfilter list}}
+* Both sets should match of course except when there are multiple matches possible such as shown below.
+: {{RootCmd|eselect infinality set win7|eselect lcdfilter set windows-7-light}}
+
+== Picking fonts ==
+
+Choosing the right font can be trickier than deciding on the right hinting type. For one reason or another fonts will not be perfect but it's certainly doable to make that same fonts look better than, say, Windows 7 default font configuration. 
+
+{| class="table"
+|-
+!Font family
+!Good
+!Bad
+|-
+|Liberation ({{Package|media-fonts/liberation-fonts}}) || Metric compatible with MS TrueType corefonts, decent, modern look. Gentoo fonts team recommendation for default Latin fonts. || A few glyphs may have hinting trouble.
+|-
+|Noto ({{Package|media-fonts/noto}}) || Google's font family that aims to support all the world's languages. Goes well with Liberation or Droid. Includes Adobe's Source Han Sans fonts for CJK. Recommended as fallback for glyphs not covered by Liberation. || Big download.
+|-
+|DejaVu ({{Package|media-fonts/dejavu}}) || Many styles, covers a lot of code points || Exceptionally wide - even condensed is wider than same height monospace (not to mention average sans-serif font), overall second to Verdana (an MS font) in width.
+|-
+|Droid ({{Package|media-fonts/droid}}) || Covers a lot of code points and scripts || Very dry, wide yet thin glyphs is probably the most memorable aspect of Droid font family. Clearly designed with handheld devices and their small screens in mind.
+|-
+|Gentium Plus ({{Package|media-fonts/sil-gentium}}) || Fairly distinctive, might appeal to people who like narrow fonts || Only serif, as with other SIL fonts hinting is questionable.
+|-
+|Ubuntu ({{Package|media-fonts/ubuntu-font-family}}) || A distinctive font with style which might not appeal to everyone, overall looks good as well as covering a fair bit of code points. || Only default sans-serif is truly polished, narrow and monospaced versions are unfinished. No known serif font that would accompany it well.
+|-
+|URW ({{Package|media-fonts/urw-fonts}}) || Metric compatible with popular Adobe fonts (among others?) || Seem to require slight hinting.
+|-<!--Keep below open source fonts.-->
+|MS TrueType corefonts ({{Package|media-fonts/corefonts}}) || Includes most fonts used in documents or on web || MS does not distribute them nowadays so the available fonts are from many years ago and do not reflect the current state of them. Obviously lacks fonts introduced later. Require full hinting.
+|-<!--Always keep this entry at the bottom as the only reason it's included is to warn people against using it!-->
+|Unifont ({{Package|media-fonts/unifont}}) || Covers a lot of code points. || In addition to being ''ugly as sin'' it also fails basic requirements to be considered a typeface - is it sans-serif, is it serif? Please never use this.
+|}
+
+== External resources ==
+
+* In-depth articles from Arch Linux wiki on:
+** [https://wiki.archlinux.org/index.php/Font_configuration Font configuration]
+** [https://wiki.archlinux.org/index.php/Infinality Infinality]
+* [http://freedesktop.org/software/fontconfig/fontconfig-user.html Official <tt>fontconfig</tt> documentation for users]
+* [[Wikipedia:Hinting|Wikipedia article on font hinting]]
+
+[[Category:Desktop]]
