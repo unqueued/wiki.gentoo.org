@@ -9,7 +9,8 @@ A later model, the '''Pandaboard ES''' include an OMAP4460 clocked @ 1.2GHz.
 __TOC__
 
 == Installation ==
-Installing Gentoo a Pandaboard is quite simple for anyone with some experience installing Gentoo. An SD card is required with at least 2 GB size. If the goal is to have a self hosting Gentoo installation, a minimum of 8 GB is recommended. A Gentoo install on a Pandaboard with a base system and compiled kernel (as of 2015) can be around 4 GB. This can balloon very quickly so if a desktop enviroment installation is planned, a card with more capacity is highly recommended as the Pandaboard can accommodate SD cards up to 32 GB. Anyone familar with the Gentoo Linux installation process would find that it is not much different from a regular installation, however, if building on an amd64 or other PC there are extra steps required thereby having to cross compile the kernel and bootloader for the ARMv7 architecture. Also there is the issue of not being able to natively run some of the binaries necessary in a normal installation because of the differing architecture. There are some workarounds to this as described through the article.
+
+Installing Gentoo a Pandaboard is quite simple for anyone with some experience installing Gentoo. An SD card is required with at least 2 GB size. If the goal is to have a self hosting Gentoo installation, a minimum of 8 GB is recommended. A Gentoo install on a Pandaboard with a base system and compiled kernel (as of 2015) can be around 4 GB. This can balloon very quickly so if a desktop enviroment installation is planned, a card with more capacity is highly recommended as the Pandaboard can accommodate SD cards up to 32 GB. Anyone familiar with the Gentoo Linux installation process would find that it is not much different from a regular installation, however, if building on an amd64 or other PC there are extra steps required thereby having to cross compile the kernel and bootloader for the ARMv7 architecture. Also there is the issue of not being able to natively run some of the binaries necessary in a normal installation because of the differing architecture. There are some workarounds to this as described through the article.
 
 === Requirements ===
 
@@ -20,13 +21,93 @@ To be able to install Gentoo, the following are required:
 * One SD card at least 2 GB, preferably 8 GB or larger
 * A network connection
 
+=== Preparation ===
+
+The installation on this device is a bit different, and therefore maybe not so easy as a regular installation, as it is not possible to install Gentoo on it by booting an installation environment. For installing Gentoo (and any other distro, really) a host system is required to prepare a minimal installation on the SD card.
+
+The basic steps to set up the installation are:
+
+# Prepare the SD card
+# Extract stage3 to the 2nd partition of the SD card
+# Extract portage snapshot (required to emerge things and ntp(see below))
+# Cross compile and install the bootloader (U-boot) and kernel
+# Setup fstab
+# Setup root password
+# Configure hostname and networking (optional, but recommended)
+# Enable SSH access (optional, but recommended)
+# Enable serial console access (optional, but recommended)
+
+=== Hardware ===
+
+{{Important|As stated above, the hardware listed in the following commands might not match the hardware in each Pandaboard verbatim. Use the following information as a hardware reference guide.}}
+
+The Pandaboard has the following specifications:
+
+* OMAP4430 @ 1GHz
+* PowerVR SGX540 graphics
+* 1 GB LPDDR2 RAM
+* WiLink 6.0 Wireless (wl12xx Linux module)
+
+{{RootCmd|lsusb|output=<pre>
+Bus 001 Device 003: ID 0424:ec00 Standard Microsystems Corp. SMSC9512/9514 Fast Ethernet Adapter
+Bus 001 Device 002: ID 0424:9514 Standard Microsystems Corp. SMC9514 Hub
+</pre>
+}}
+
+=== SD Card Setup ===
+
+OMAP-based systems need a special setup of the SD card to boot from it. For more information please check this link.
+(TODO: Find the broken link..)
+
+The following script will format an SD card accordingly, creating two partitions. The first partition size is based on the size of the SD card itself, and it's formatted in vfat. The second partition is the free space left on the card after the first partition, and it's formatted in ext4.
+
+{{Cmd|wget http://dev.gentoo.org/~armin76/arm/pandaboard/mkcard.sh}}
+
+{{Warning|This will overwrite the contents of the /dev/mmcblk0 device. Make sure a backup has been performed of the card before continuing, if there is any valuable data on it}}
+
+(Replace mmcblk0 with the name of the device of the SD card)
+{{RootCmd|bash mkcard.sh /dev/mmcblk0}}
+
+Now mount the partitions on the card in preparation to install Gentoo to the Pandaboard.
+
+{{RootCmd
+|mkdir -p /mnt/gentoo
+|mount /dev/mmcblk0p2 /mnt/gentoo
+|mkdir /mnt/gentoo/boot
+|mount /dev/mmcblk0p1 /mnt/gentoo/boot
+}}
+
+=== Unpack stage3 and portage ===
+
+The unpacking of the stage3 and portage is much the same as a regular Gentoo installation.
+
+Here's some information about the stages.
+
+    Architecture: arm
+    Subarchitecture: armv7a
+    CHOST: armv7a-hardfloat-linux-gnueabi
+    Profile: default/linux/arm/13.0
+
+The new EABI is used, also called gnueabi along with hardfloat. That is armhf on Debian.
+
+Therefore, an {{c|armv7a-hardfloat-linux-gnueabi}} stage3 is needed for best performance, available under the {{Path|releases/arm/autobuilds}} directory in a preferred Gentoo mirror. The armv7a_hardfp stage3 is the required download.
+
+Optionally, also grab a portage snapshot
+
+Extract the stage3 and snapshot, this may take a while. (Adjust the tarball name accordingly)
+
+{{RootCmd
+|tar xjpf stage3-armv7a_hardfp-20101118.tar.bz2 -C /mnt/gentoo
+|tar xjpf portage-latest.tar.bz2 -C /mnt/gentoo/usr 
+}}
+
 === Bootloader & Kernel ===
 
-Before starting the installation process, a kernel and a bootloader for the Pandaboard need to be fetched and built.
+A kernel and a bootloader for the Pandaboard need to be fetched and built to boot the Pandaboard.
 
 The Pandaboard doesn't have a NAND/flash device, so the bootloader (U-Boot) needs to be located on the SD card, along with the kernel.
 
-For building the required software needed to boot the Pandaboard, the following tools are emerged on the host system in preparation.
+For building the required software needed to boot the Pandaboard, the following tools are emerged on the host system.
 
 * {{Package|sys-devel/crossdev}} - For creating a crosscompiler to compile the kernel and U-Boot
 * {{Package|dev-embedded/u-boot-tools}} - This includes mkimage which creates boot.scr and kernel/ramdisk images that U-Boot can understand
@@ -43,20 +124,16 @@ For building the required software needed to boot the Pandaboard, the following 
 |make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi-
 }}
 
-For booting the Pandaboard a kernel is needed. Originally the vanilla kernel.org wasn't as tested as the one used on Ubuntu. TI decided to provide support to Ubuntu, so it makes sense to have all the fixes Ubuntu have by using their kernel.
-The choice of kernel depends on which functionality is required of the Pandaboard. Using the mainline kernel may lack support for advanced features like for example hardware 3D and/or DSP acceleration.
+==== Using the Ubuntu kernel ====
+
+Originally the vanilla kernel.org wasn't as tested as the one used on Ubuntu. TI decided to provide support to Ubuntu, so it makes sense to have all the fixes Ubuntu have by using their kernel.
 If the following link returns a 404 not found error, download the latest .tar.gz file from the precise distribution in the following link, the latest stable kernel version will be labeled "security, updates (main)".
 https://launchpad.net/ubuntu/+source/linux-ti-omap4
 
-Or if using the mainline (vanilla-sources) kernel
-https://www.kernel.org/pub/linux/kernel/
-
-Linux Kernel for Pandaboard from Ubuntu precise distribution
+Fetch the Linux Kernel for the Pandaboard from Ubuntu precise distribution
 {{Cmd|wget 'https://launchpad.net/ubuntu/+archive/primary/+files/linux-ti-omap4_3.2.0-1472.93.tar.gz'}}
-Mainline kernel
-{{Cmd|wget 'https://www.kernel.org/pub/linux/kernel/v4.x/linux-4.2.5.tar.xz'}}
 
-Extract the kernel source and change to the directory, the given example is for the Ubuntu kernel, change to suit
+Extract the kernel sources and change to the directory, the given example is for the Ubuntu kernel, modify for the version being used.
 {{Cmd|tar zxvf linux-ti-omap4_3.2.0-1472.93.tar.gz && cd ubuntu-precise}}
 
 The default kernel config for this kernel version is really minimal, and doesn't have support for wifi or accelerated graphics drivers. Gentoo developer [[User:Armin76]] provided a basic kernel config along with the original Gentoo on Pandaboard documentation for reference.
@@ -66,87 +143,81 @@ The default kernel config for this kernel version is really minimal, and doesn't
 After downloading the kconfig, update and customize it
 {{Cmd|make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- oldconfig menuconfig}}
 
-{{KernelBox|title=Kernel Options relevant for Pandaboard|1=
+==== Using the Mainline kernel ====
 
+Another option is using the mainline kernel sources. Using the mainline kernel may have newer features but may also lack support for hardware 3D and/or DSP acceleration.
+The mainline (vanilla-sources) kernel can be found at https://www.kernel.org/pub/linux/kernel/
+
+Fetch the mainline kernel
+{{Cmd|wget 'https://www.kernel.org/pub/linux/kernel/v4.x/linux-4.2.5.tar.xz'}}
+
+Extract the kernel source and change to the directory, modify versions to suit.
+{{Cmd|tar zxvf linux-4.2.5.tar.xz && cd linux-4.2.5}}
+
+Create a default config and customize it
+{{RootCmd|make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- omap2plus_defconfig menuconfig}}
+
+==== kernel config ====
+
+{{KernelBox|title=Kernel Options relevant for Pandaboard|1=
+Device Drivers  --->
+  [*] Network device support  --->
+    <M>   USB Network Adapters  --->
+      <M>     SMSC LAN95XX based USB 2.0 10/100 ethernet devices
+    [*]   Wireless LAN  --->
+      [*]   TI Wireless LAN support  --->
+        <M>   TI wl12xx support
 }}
 
 ==== uImage ====
-Replace 9 with the number of cores you have on your computer
+
+This section describes cross-compiling a legacy u-boot uImage
+
+Replace 9 with the number of cores there are on the host computer
 {{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- uImage}}
+
 If the command fails due to no <var>LOADADDR</var> being specified add the required parameter to the {{c|make}} command. This usually needs to be set when compiling a mainline kernel {{c|uImage}} target.
+
 {{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- LOADADDR{{=}}0x82000000 uImage}}
 
 Once the build is complete there will be a kernel image at {{path|arch/arm/boot/uImage}}
 
 ==== zImage ====
-{{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- }}
 
-=== SD Card Setup ===
+This section describes cross-compiling a zImage, u-boot can now boot this.
 
-OMAP-based systems need a special setup of the SD card to boot from it. For more information please check this link.
-(TODO: Find the broken link..)
+{{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- zImage}}
 
-The following script will format an SD card accordingly, creating two partitions. The first partition size is based on the size of the SD card itself, and it's formatted in vfat. The second partition is the free space left on the card after the first partition, and it's formatted in ext4.
+Once the build is complete there will be a kernel image at {{path|arch/arm/boot/zImage}}
 
-{{Cmd|wget http://dev.gentoo.org/~armin76/arm/pandaboard/mkcard.sh}}
+==== Kernel modules ====
 
-(Replace mmcblk0 with the name of the device of the SD card)
-{{RootCmd|bash mkcard.sh /dev/mmcblk0}}
+Compile and install the kernel modules, installing to the mounted root on the SD card.
 
-Now mount the first partition on the card and copy the needed files (the ones that were built before) to boot the Pandaboard.
+{{Cmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- INSTALL_MOD_PATH{{=}}/mnt/gentoo modules modules_install}}
 
-{{RootCmd
-|mkdir /mnt/p1 ; mount /dev/mmcblk0p1 /mnt/p1
-|cp u-boot-*/MLO /mnt/p1
-|cp u-boot-*/u-boot.img /mnt/p1
-|cp ubuntu-precise/arch/arm/boot/uImage /mnt/p1
-|cp ubuntu-precise/arch/arm/boot/dts/omap4-panda.dtb /mnt/p1
-}}
+==== Install the bootloader & kernel ====
 
-=== Installing Gentoo ===
-The installation on this device is a bit different, and therefore not so easy as a regular installation, as it is not possible to install Gentoo on it by booting an installation environment. For installing Gentoo (and any other distro, really) a host system is required to prepare a minimal installation on the SD card.
-
-The basic steps to set up the installation are:
-
-# Extract stage3 to the 2nd partition of the SD card
-# Extract portage snapshot (required to emerge things and ntp(see below))
-# Setup fstab
-# Setup root password
-# Configure hostname and networking (optional, but recommended)
-# Enable SSH access (optional, but recommended)
-# Enable serial console access (optional, but recommended)
-
-Here's some information about the stages.
-
-    Architecture: arm
-    Subarchitecture: armv7a
-    CHOST: armv7a-hardfloat-linux-gnueabi
-    Profile: default/linux/arm/13.0
-
-The new EABI is used, also called gnueabi along with hardfloat. That is armhf on Debian.
-
-Therefore, an {{c|armv7a-hardfloat-linux-gnueabi}} stage3 is needed for best performance, available under the {{Path|releases/arm/autobuilds}} directory in a preferred Gentoo mirror. The armv7a_hardfp stage3 is the required download.
-
-Optionally, also grab a portage snapshot
-
-Mount the second partition of the SD card and extract the stage3 that was downloaded.
+Now copy the needed u-boot bootloader and Linux kernel files (the ones that were built before) to boot the Pandaboard.
 
 {{RootCmd
-|mkdir /mnt/p2
-|mount /dev/mmcblk0p2 /mnt/p2
+|cp u-boot-*/MLO /mnt/gentoo/boot
+|cp u-boot-*/u-boot.img /mnt/gentoo/boot
+|cp "$linux-source"/arch/arm/boot/uImage /mnt/gentoo/boot
+|cp "$linux-source"/arch/arm/boot/dts/omap4-panda.dtb /mnt/gentoo/boot
 }}
 
-(Adjust the tarball name accordingly)
-Extract the stage3 and snapshot, this may take a while.
+== Configuration ==
 
-{{RootCmd
-|tar xjpf stage3-armv7a_hardfp-20101118.tar.bz2 -C /mnt/p2
-|tar xjpf portage-latest.tar.bz2 -C /mnt/p2/usr
-}}
+=== fstab ===
 
-Edit the file to look like this:
+The file {{Path|/etc/fstab}} needs to be set up to configure the root filesystem, and optionally a mount point {{Path|/boot}} so it's possible to mount it and copy new boot files there in the future.
 
-{{FileBox|filename=/mnt/p2/etc/fstab|
+Edit the fstab similarly:
+
+{{RootCmd|$EDITOR /mnt/gentoo/etc/fstab}}
+
+{{FileBox|filename=/mnt/gentoo/etc/fstab|
 <pre>
 # This is the important part
 # NOTE: If the BOOT partition is ReiserFS, add the notail option to opts.
@@ -161,27 +232,27 @@ Edit the file to look like this:
 }}
 
 === Setting a password ===
-This is the most important part of the installation. As without the root password it will not be possible to login!
+
+This is one of the most important parts of the installation. As without the root password it will not be possible to login!
 
 For setting the password, the {{c|passwd}} command has to be executed. However that's not possible since an x86/amd64 or other architecture PC can't run ARM binaries. Therefore, another way has to be chosen to modify the file that contains the passwords ({{Path|/etc/shadow}}) inside the chroot, so it is possible to set a default root password.
 
 (Generate a password)
 {{Cmd|openssl passwd -1}}
 
-{{RootCmd|$EDITOR /mnt/p2/etc/shadow}}
+{{RootCmd|$EDITOR /mnt/gentoo/etc/shadow}}
 
 Replace the root user password similarly to the example given below.
 The secret is the second field which needs to be substituted with the output the {{c|openssl}} command returned.
 In these two examples, the last line sets the password to "gentoo".
-{{FileBox|filename=/mnt/p2/etc/shadow|
-<pre>
+{{FileBox|filename=/mnt/gentoo/etc/shadow|1=
 root:s3cr3t:14698:0:::::
 ---8<---
 root:$6$I9Q9AyTL$Z76H7wD8mT9JAyrp/vaYyFwyA5wRVN0tze8pvM.MqScC7BBm2PU7pLL0h5nSxueqUpYAlZTox4Ag2Dp5vchjJ0:14698:0:::::
-</pre>
 }}
 
 === Boot script ===
+
 TODO: explain preEnv.txt uEnv.txt
 
 To boot the Pandaboard, a boot script is needed along with the {{c|mkimage}} command to create the file {{c|boot.scr}}. This file is read by U-Boot in the boot process and can contain extra commands and environment configuration. It is possible to add any linux command line options here necessary for the boot process, such as a different location of the root filesystem.
@@ -191,8 +262,8 @@ Some examples of U-Boot boot.scr files
  
 Example for uImage and fdt without initramfs.
 For booting without an initramfs there needs to be a minus "-" as second argument to bootm or bootz commands, in place where the ramdisk address would usually be.
-{{RootCmd|$EDITOR /mnt/p1/boot.txt}}
-{{FileBox|filename=/mnt/p1/boot.txt|
+{{RootCmd|$EDITOR /mnt/gentoo/boot/boot.txt}}
+{{FileBox|filename=/mnt/gentoo/boot/boot.txt|
 <pre>
 fatload mmc 0:1 ${loadaddr} uImage                                              
 fatload mmc 0:1 ${fdtaddr} omap4-panda.dtb                                      
@@ -202,8 +273,8 @@ bootm ${loadaddr} - ${fdtaddr}
 }}
 
 Example for zImage and fdt with ramdisk
-{{RootCmd|$EDITOR /mnt/p1/boot.txt}}
-{{FileBox|filename=/mnt/p1/boot.txt|
+{{RootCmd|$EDITOR /mnt/gentoo/boot/boot.txt}}
+{{FileBox|filename=/mnt/gentoo/boot/boot.txt|
 <pre>
 fatload mmc 0:1 ${loadaddr} zImage
 fatload mmc 0:1 ${rdaddr} uInitrd                                           
@@ -214,10 +285,10 @@ bootz ${loadaddr} ${rdaddr} ${fdtaddr}
 }}
 
 Create {{c|boot.scr}} with {{c|mkimage}} provided by u-boot-tools
-{{RootCmd|mkimage -A arm -T script -C none -n "Gentoo Pandaboard boot script" -d /mnt/p1/boot.txt /mnt/p1/boot.scr}}
+{{RootCmd|mkimage -A arm -T script -C none -n "Gentoo Pandaboard boot script" -d /mnt/gentoo/boot/boot.txt /mnt/gentoo/boot/boot.scr}}
 
 Create a ramdisk with mkimage (optional?)
-{{RootCmd|mkimage -A arm -T script -C none -n "Gentoo Pandaboard ramdisk" -d /mnt/p1/uInitrd /mnt/p1/theinitramfs}}
+{{RootCmd|mkimage -A arm -T script -C none -n "Gentoo Pandaboard ramdisk" -d /mnt/gentoo/boot/uInitrd /mnt/gentoo/boot/theinitramfs}}
 
 === Network configuration ===
 
@@ -226,15 +297,15 @@ Please read the network configuration chapter of the ARM handbook to configure t
 === Clock & Time ===
 One of the problems the pandaboard has, is that it doesn't have a battery to save the clock time. To mitigate this, on Gentoo there is an option in the init system called {{c|swclock}} which sets the date of the system upon boot from a last modified date of a file.
 
-{{RootCmd|ln -sf /etc/init.d/swclock /mnt/p2/etc/runlevels/boot}}
+{{RootCmd|ln -sf /etc/init.d/swclock /mnt/gentoo/etc/runlevels/boot}}
 
 {{c|hwclock}} has to be removed from the startup because it sets the date from the RTC, which is 2000-01-01 upon startup and overrides swclock's date.
 
-{{RootCmd|rm /mnt/p2/etc/runlevels/boot/hwclock}}
+{{RootCmd|rm /mnt/gentoo/etc/runlevels/boot/hwclock}}
 
 {{c|swclock}} uses the {{Path|/lib/rc/cache/shutdowntime}}'s modification time to set the date, therefore update it to have the current date and time.
 
-{{RootCmd|touch /mnt/p2/lib/rc/cache/shutdowntime}}
+{{RootCmd|touch /mnt/gentoo/lib/rc/cache/shutdowntime}}
 
 Although this doesn't fix the issue, at least helps to set a sane date and time.
 Consider using NTP, documented on the next chapter
@@ -243,16 +314,16 @@ Consider using NTP, documented on the next chapter
 
 If SSH is required, add sshd to the startup of the system so it's possible to administrate the Pandaboard from over the network.
 
-{{RootCmd|ln -sf /etc/init.d/sshd /mnt/p2/etc/runlevels/default}}
+{{RootCmd|ln -sf /etc/init.d/sshd /mnt/gentoo/etc/runlevels/default}}
 
 === Serial terminal ===
 By default the ttyS0 port is configured at 9600 bps. However, almost all of the ARM devices run the serial port at 115200 bps. Also, in the case of the Pandaboard, the port is ttyO2 instead of the normal ttyS0. So this should be added to the {{Path|/etc/inittab}} file:
 
-{{RootCmd|nano -w /mnt/p2/etc/inittab}}
+{{RootCmd|nano -w /mnt/gentoo/etc/inittab}}
 
 Comment out or remove the lines containing ttyS* and add a new line replacing 9600 with 115200 and ttyS0 with ttyO2
 
-{{FileBox|filename=/mnt/p2/etc/inittab|
+{{FileBox|filename=/mnt/gentoo/etc/inittab|
 <pre>
 # SERIAL CONSOLES
 #s0:12345:respawn:/sbin/agetty -L 9600 ttyS0 vt100
@@ -265,7 +336,7 @@ s0:12345:respawn:/sbin/agetty 115200 ttyO2 vt100
 Unmount the SD card, when the contents have finished writing it is safe to remove.
 This may take a while depending the speed of the SD card.
 
-{{RootCmd|umount /mnt/p1 /mnt/p2}}
+{{RootCmd|umount /mnt/gentoo/boot /mnt/gentoo}}
 
 == Post Installation ==
 
@@ -292,7 +363,9 @@ Emerge ntp, start both ntp-client and ntpd and add them to the default runlevel 
 The Pandaboard has integrated hardware that needs either a driver, firmware or tools to work. Making work such hardware is documented on the following page
 TODO: (find links again..)
 
-== Links ==
+== See also ==
+
+== External resources ==
 
 == Thanks ==
 
@@ -306,3 +379,4 @@ TODO: (find links again..)
 * calculus for giving someone an urge to migrate the document to the wiki
 
 [[Category:Hardware]]
+[[Category:Embedded]]
