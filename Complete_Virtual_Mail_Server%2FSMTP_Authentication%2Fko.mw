@@ -1,0 +1,159 @@
+<languages/>
+
+== Introducing ==
+
+So far only localhost is allowed to send mail. Unfortunately postfix cannot work with courier-authlib directly. An intermediary solution exists however, {{Package|dev-libs/cyrus-sasl}}. There are three ways cyrus-sasl can get authentication information. Either directly from the database, locally or remotely. A setup using this approach would look like this.
+
+<pre>
+  courier-imap -> courier-authlib --\
+                                     +--> database 
+  postfix ------> cyrus-sasl -------/
+</pre>
+
+Making things only slightly more complex, cyrus-sasl can be used to communicate through courier-authlib and thus letting courier-authlib do the authentication.
+
+<pre>
+  courier-imap -----------\
+                           +-> courier-authlib -> database
+  postfix -> cyrus-sasl --/
+</pre>
+
+Ideally the last option would be the used solution, as one authentication back-end would be used, courier-authlib. The cyrus-sasl plugin to talk to courier-authlib however will only work via a unix socket and thus if courier-authlib is not running on the same host as cyrus-sasl this would not work. The first approach should thus only be used if courier-authlib can not be used.
+
+== Installing cyrus-sasl ==
+
+A key feature of cyrus-sasl that is required is the <code>crypt</code> USE flag. It needs to be enabled or crypted passwords from the database cannot be authenticated with. Cyrus-sasl with the correct USE flag should have been pulled in earlier whilst emerging postfix.  Note that the Gentoo patch to support crypted passwords directly from the database is not available for >cyrus-sasl-2.1.23, therefore go via courier-authlib when using such a version.
+
+{{USEflag|package=dev-libs/cyrus-sasl
+|authdaemond++yes
+|crypt++yes
+}}
+
+{{Note|Whatever database choice was made before, support for it will be built here as well. If for any reason, mostly security, the additional database code is not wanted, it is possible to emerge without any of the database useflags set.<br />
+The database USE flags should also be removed if going via courier-authlib rather than directly to the database, as cyrus-sasl will continually log errors when compiled with SQL support without being configured to use it.}}
+
+== Configuring postfix with cyrus-sasl ==
+
+Postfix needs a few options to tell it to use sasl in its {{Path|main.cf}}. These are not mentioned in the default config file so they should be added.
+
+{{FileBox|filename=/etc/postfix/main.cf|title=Add sasl support to postfix.|1=
+# Postifx to SASL authentication
+broken_sasl_auth_clients = no
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+smtpd_sasl_local_domain =
+smtpd_sasl_authenticated_header = yes
+smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination
+}}
+
+{{Warning|<code>smtpd_sasl_authenticated_header</code> prints the username used to authenticate with cyrus when sending mail into the mail header. Especially dangerous for mails that go to publicly archived mailing lists, this header will be seen world wide. For testing purposes it is enabled here.}}
+
+== Configuring cyrus-sasl ==
+
+=== With authdaemond ===
+
+Postfix queries the socket created by authdaemond which is protected by the <tt>mail</tt> user and group and thus postfix needs to be granted access.
+
+{{RootCmd|gpasswd -a postfix mail}}
+
+Next cyrus-sasl needs to be told to authenticate with authdaemond:
+
+{{FileBox|filename=/etc/sasl2/smtpd.conf|title=Authenticate with authdaemond|1=
+pwcheck_method: authdaemond
+mech_list: LOGIN PLAIN
+sql_select: dummy 
+authdaemond_path: /var/lib/courier/authdaemon/socket
+ 
+log_level: 5
+}}
+
+=== With postgresql ===
+
+{{FileBox|filename=/etc/sasl2/smtpd.conf|title=Direct database authentication|1=
+sasl_pwcheck_method: auxprop
+sasl_auxprop_plugin: pgsql
+password_format: crypt
+mech_list: LOGIN PLAIN
+ 
+sql_engine: pgsql
+#sql_hostnames: localhost
+sql_database: postfix
+sql_user: postfix
+sql_passwd: $password
+sql_select: SELECT password FROM mailbox WHERE local_part='%u' AND active='1'
+}}
+
+== Testing ==
+
+To verify sasl support telnet can be used to check for the <code>AUTH</code> statement:
+
+{{Cmd|telnet foo.example.com 25|output=<pre>
+220 foo.example.com ESMTP Postfix
+EHLO example.com
+250-foo.example.com
+250-PIPELINING
+250-SIZE 10240000
+250-VRFY
+250-ETRN
+250-AUTH LOGIN PLAIN
+250-ENHANCEDSTATUSCODES
+250-8BITMIME
+250 DSN
+quit
+221 2.0.0 Bye
+Connection closed by foreign host.
+</pre>}}
+
+{{Note|If a mail-client is being used that does not work properly, <code>broken_sasl_auth_clients {{=}} yes</code> can be used in postfix's {{Path|main.cf}} to get an additional entry here, <code>250-AUTH&#61;LOGIN PLAIN</code>.}}
+
+Next test is to use a remote host and try to login to send a test message.
+
+{{Warning|Although it is quite common to authenticate against mail servers (pop/imap/webmail/smtp) through plain text logins it is incredibly insecure (and can be protected against, which is described later in this guide). When sending plain text login data (it is base64 encoded data so very easy to decode) over the big bad Internet, only use a testuser or at least a test password.}}
+
+If perl with the base64 module is installed, it can be used to generate base64 encoded data. Otherwise [http://farhadi.ir/works/base64 base64 conversion] can be done online. Again, be very careful when using production data on untrusted sites.
+
+{{Cmd|perl -MMIME::Base64 -e 'print encode_base64("testuser");'|output=<pre>dGVzdHVzZXI=</pre>}}
+
+{{Cmd|telnet foo.example.com 25|output=<pre>
+Trying 1.2.3.4...
+Connected to foo.example.com.
+Escape character is '^]'.
+220 foo.example.com ESMTP Postfix
+HELO example.com
+250 foo.example.com
+AUTH LOGIN
+334 VXNlcm5hbWU6 (base64 decode: 'Username:')
+dGVzdHVzZXI= (base64 encoded from: 'testuser')
+334 UGFzc3dvcmQ6 (base64 decode: 'Password:')
+c2VjcmV0 (base64 encoded from: 'secret')
+235 2.7.0 Authentication successful
+mail from:me@you.com
+250 2.1.0 Ok
+rcpt to:<validuser>@<validexternaldomain>.<tld>
+250 2.1.5 Ok
+data
+354 End data with <CR><LF>.<CR><LF>
+Subject: Test message
+Test message to ensure Postfix is only relaying with smtp authorization.
+.
+250 2.0.0 Ok: queued as 82F97606
+quit
+221 2.0.0 Bye
+Connection closed by foreign host.
+</pre>}}
+
+== Wrapping it up ==
+
+Once everything is working as expected, debugging can be disabled (or the line can be removed entirely):
+
+{{FileBox|filename=/etc/sasl2/smtpd.conf|title=Disable debugging|1=
+log_level: 0
+}}
+
+Optionally <code>smtpd_sasl_authenticated_header</code> can be disabled again. It is very handy for tracking down mailing issues from users. It can however be potentially a security issue, as mentioned above, the users login name is written in the header. On the other hand, if the login name is the ''local_part'' of the e-mail address or even the e-mail address then the login name is already known anyway so no big harm there, right? Some caution is advised, but it shouldn't be a huge issue.
+
+{{FileBox|filename=/etc/postfix/main.cf|title=Add sasl support to postfix.|1=
+smtpd_sasl_authenticated_header = no
+}}
+
+[[Category:Mail Servers]]
