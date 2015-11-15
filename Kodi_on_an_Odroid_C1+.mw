@@ -12,15 +12,71 @@ At first you must install a linux image to sdcard to boot the odroid.
 I'm recommending the [http://archlinuxarm.org/platforms/armv7/amlogic/odroid-c1 ARM Image]. Follow the instructions on this site.
 I'm descriping how to install Gentoo on an USB hard disc.
 
-=== Installing Gentoo Linux ===
+I'm describing here the base steps. For more information see the [[Handbook:X86|Handbook]].
 
-For this follow the steps in the [[Handbook:X86|Handbook]].
+=== Preparing the disk ===
 
-As stage 3 archive use this one: http://distfiles.gentoo.org/releases/arm/autobuilds/current-stage3-armv7a_hardfp/
+At first you must prepare the USB disc at which we install gentoo.
+You need 2 partitions. A swap an a root partition.
+{{RootCmd|fdisk -l /dev/sda|output=<pre>
+Disk /dev/sda: 74.5 GiB, 80026361856 bytes, 156301488 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: dos
+Disk identifier: 0x702c75f2
 
-Follow the Handbook until you must install the kernel.
+Device     Boot   Start       End   Sectors  Size Id Type
+/dev/sda1          2048   4196351   4194304    2G 82 Linux swap / Solaris
+/dev/sda2       4196352 156301311 152104960 72.5G 83 Linux
+</pre>}}
 
-==== Add the overlays ====
+Now you need a filesystem.
+{{RootCmd
+|mkswap /dev/sda1
+|mkfs.ext4 /dev/sda2
+}}
+
+=== Mounting the USB disk and installing the stage archive ===
+
+{{RootCmd
+|mkdir /mnt/gentoo
+|mount /dev/sda2 /mnt/gentoo
+}}
+
+Now download the stage3 archive and extract it.
+
+{{RootCmd
+|cd /mnt/gentoo
+|wget http://distfiles.gentoo.org/releases/arm/autobuilds/current-stage3-armv7a_hardfp/stage3-armv7a_hardfp-20151025.tar.bz2
+|tar -xjpf stage3-armv7a_hardfp-20151025.tar.bz2
+}}
+
+=== Mounting the necessary filesystems ===
+
+{{RootCmd
+|mount -t proc proc /mnt/gentoo/proc
+|mount --rbind /sys /mnt/gentoo/sys
+|mount --rbind /dev /mnt/gentoo/dev
+|mount /dev/mmvblk0p1 /mnt/gentoo/boot
+}}
+
+=== Entering the new environment ===
+
+No we enter the new environment.
+
+{{RootCmd
+|chroot /mnt/gentoo /bin/bash
+|source /etc/profile
+|env-update
+}}
+
+=== Downloading the portage-tree and adding some overlays ===
+
+To download the portage-tree, type in:
+{RootCmd|emerge-webrsync}}
+
+Now we add 2 overlays which we need for our odroid c1+.
 
 The [https://github.com/tbe/odroidc1-overlay.git odroidc1 overlay] and the [https://github.com/dsiggi/dsiggis-gentoo-overlay.git dsiggi' Gentoo overlay] containing the necessary files.
 
@@ -45,61 +101,9 @@ Now create the directories for the overlays and sync them
 |emaint sync -a
 }}
 
-==== Installing the kernel sources and necessary packages ====
+=== Editing make.conf ===
+Here is my sample make.conf. This on should work for you but you can change it your choice.
 
-Now you can install the kernel, u-boot-tools and dracut.
-{{Emerge|odroidc1-sources::odroidc1-overlay}}
-{{Emerge|u-boot-tools-odroidc1}}
-{{Emerge|dracut}}
-
-==== Build the kernel ====
-
-Do the following:
-{{RootCmd
-|cd /usr/src/linux
-|make odroidc_defconfig
-}}
-
-Now you can configure the kernel as described in the Handbook.
-
-To build the kernel do the following:
-{{RootCmd
-|make uImage
-|make modules
-|make dtbs
-|make modules_install
-}}
-
-==== Install the kernel ====
-
-To install the kernel you must do the following.
-{{RootCmd
-|mount /dev/mmcblk0p1 /boot/
-|dracut --kver 3.10.75-odroidc1
-|mkimage -A arm -O linux -T ramdisk -C none -a 0 -e 0 -n "uInitrd 3.10.75-odroidc1" -d /boot/initramfs-3.10.75-odroidc1.img /boot/uInitrd-gentoo
-|cp /usr/src/linux/arch/arm/boot/uImage /boot/uImage-gentoo
-|cp /usr/src/linux/arch/arm/boot/dts/meson8b_odroidc.dtb /boot/
-}}
-
-No edit {{Path|/boot/boot.ini}} and change the variable "bootargs" to match to your root device.
-Then also change the 2 lines unter "# Booting" to match to your uImage and uImagerd.
-
-==== Finish installation ====
-
-At first you must install a small script to get and output on your screen.
-{{RootCmd
-|wget https://github.com/mdrjr/c1_bootini/blob/master/c1_init.sh -o /etc/local.d/c1_init.start
-|chmod +x /etc/local.d/c1_init.start
-}}
-To get the script to work you must install fbset:
-{{Emerge|fbset}}
-
-Now do all the remaining steps from the Handbook, eg install an cron daemon an editing the config files.
-Then you can reboot your system.
-
-==Configuring something==
-
-== Example Files ==
 {{FileBox|filename=/etc/portage/make.conf|title=Example of my make.conf|lang=bash|1=<pre>
 # These settings were set by the catalyst build script that automatically
 # built this stage.
@@ -113,14 +117,13 @@ CHOST="armv7a-hardfloat-linux-gnueabi"
 # These are the USE flags that were used in addition to what is provided by the
 # profile used for building.
 LDFLAGS="-Wl,-O1 -Wl,--as-needed"
-MAKEOPTS="-j9 -l4"
-FEATURES="distcc distcc-pump"
+MAKEOPTS="-j5"
+
+#MAKEOPTS="-j9 -l4" #With distcc and a 4 core server
+#FEATURES="distcc distcc-pump" #For distcc
 
 USE="bindist -X nls unicode -gles -gles1 -gles2 -egl -opengl"
 LINGUAS="de"
-
-INPUT_DEVICES="evdev"
-VIDEO_CARDS=""
 
 PORTDIR="/usr/portage"
 DISTDIR="${PORTDIR}/distfiles"
@@ -129,3 +132,173 @@ PORTDIR_OVERLAY="/usr/local/portage/odroidc1 /usr/local/portage/dsiggis-gentoo-o
 
 GENTOO_MIRRORS="http://ftp.uni-erlangen.de/pub/mirrors/gentoo"
 </pre>}}
+
+=== Installing the kernel sources and necessary packages ===
+
+Now you can install the kernel, u-boot-tools and dracut.
+{{Emerge|{{=}}odroidc1-sources-3.10.80-r20151008}}
+{{Emerge|u-boot-tools-odroidc1}}
+{{Emerge|dracut}}
+
+=== Build the kernel ===
+
+Do the following:
+{{RootCmd
+|cd /usr/src/linux
+|make odroidc_defconfig
+}}
+
+Now you have a standard config for your odroid c1+.
+If you wish you can configure the kernel like you want.
+
+To build the kernel do the following:
+{{RootCmd
+|make uImage
+|make modules
+|make dtbs
+|make modules_install
+}}
+
+=== Install the kernel ===
+
+To install the kernel you must do the following.
+{{RootCmd
+|dracut --kver 3.10.80-r20151008-odroidc1
+|mkimage -A arm -O linux -T ramdisk -C none -a 0 -e 0 -n "uInitrd 3.10.80-r20151008-odroidc1" -d /boot/initramfs-3.10.80-r20151008-odroidc1.img /boot/uInitrd-gentoo
+|cp /usr/src/linux/arch/arm/boot/uImage /boot/uImage-gentoo
+|cp /usr/src/linux/arch/arm/boot/dts/meson8b_odroidc.dtb /boot/
+}}
+
+No edit {{Path|/boot/boot.ini}} and change the variable "bootargs" to match to your root device.
+Then also change the 2 lines unter "# Booting" to match to your uImage and uImagerd.
+
+{{FileBox|filename=/boot/boot.ini|title=Example of my boot.ini|lang=bash|1=<pre>
+ODROIDC-UBOOT-CONFIG
+
+# Possible screen resolutions
+# Uncomment only a single Line! The line with setenv written.
+# At least one mode must be selected.
+
+# setenv m "vga"          	# 640x480
+# setenv m "480p"         	# 720x480
+# setenv m "576p"         	# 720x576
+# setenv m "800x480p60hz" 	# 800x480
+# setenv m "800x600p60hz" 	# 800x600
+# setenv m "1024x600p60hz"	# 1024x600
+# setenv m "1024x768p60hz"	# 1024x768
+# setenv m "1360x768p60hz" 	# 1360x768
+# setenv m "1440x900p60hz"	# 1440x900
+# setenv m "1600x900p60hz"	# 1600x900
+# setenv m "1680x1050p60hz"	# 1680x1050
+# setenv m "720p"         	# 720p 1280x720
+# setenv m "800p"         	# 1280x800
+# setenv m "sxga"         	# 1280x1024
+# setenv m "1080i50hz"          # 1080I@50Hz
+# setenv m "1080p24hz"          # 1080P@24Hz
+# setenv m "1080p50hz"          # 1080P@50Hz
+setenv m "1080p"                # 1080P@60Hz
+# setenv m "1920x1200"    	# 1920x1200
+
+# HDMI DVI Mode Configuration
+setenv vout_mode "hdmi"
+# setenv vout_mode "dvi"
+
+# HDMI BPP Mode
+setenv m_bpp "32"
+# setenv m_bpp "24"
+# setenv m_bpp "16"
+
+# HDMI Hotplug Force (HPD)
+# 1 = Enables HOTPlug Detection
+# 0 = Disables HOTPlug Detection and force the connected status
+setenv hpd "0"
+
+# CEC Enable/Disable (Requires Hardware Modification)
+# 1 = Enables HDMI CEC
+# 0 = Disables HDMI CEC
+setenv cec "0"
+
+# PCM5102 I2S Audio DAC
+# PCM5102 is an I2S Audio Dac Addon board for ODROID-C1+
+# Uncomment the line below to __ENABLE__ support for this Addon board.
+# setenv enabledac "enabledac"
+
+# UHS Card Configuration
+# Uncomment the line below to __DISABLE__ UHS-1 MicroSD support
+# This might break boot for some brand models of cards.
+setenv disableuhs "disableuhs"
+
+
+# Disable VPU (Video decoding engine, Saves RAM!!!)
+# 0 = disabled
+# 1 = enabled
+setenv vpu "1"
+
+# Disable HDMI Output (Again, saves ram!)
+# 0 = disabled
+# 1 = enabled
+setenv hdmioutput "1"
+
+# Default Console Device Setting
+# setenv condev "console=ttyS0,115200n8"        # on serial port
+# setenv condev "console=tty0"                    # on display (HDMI)
+setenv condev "console=ttyS0,115200n8 console=tty0"   # on both
+
+
+
+###########################################
+
+if test "${hpd}" = "0"; then setenv hdmi_hpd "disablehpd=true"; fi
+if test "${cec}" = "1"; then setenv hdmi_cec "hdmitx=cecf"; fi
+
+# Boot Arguments
+#ARCH
+#setenv bootargs "root=UUID=e139ce78-9841-40fe-8823-96a304a09859 rootwait ro ${condev} no_console_suspend vdaccfg=0xa000 logo=osd1,loaded,0x7900000,720p,full dmfc=3 cvbsmode=576cvbs hdmimode=${m} m_bpp=${m_bpp} vout=${vout_mode} ${disableuhs} ${hdmi_hpd} ${hdmi_cec} ${enabledac}"
+#Gentoo
+setenv bootargs "root=UUID=350cd0e3-6fab-4532-b64b-bdb6994263a5 rootwait ro ${condev} no_console_suspend vdaccfg=0xa000 logo=osd1,loaded,0x7900000,720p,full dmfc=3 cvbsmode=576cvbs hdmimode=${m} m_bpp=${m_bpp} vout=${vout_mode} ${disableuhs} ${hdmi_hpd} ${hdmi_cec} ${enabledac}"
+
+# Booting
+fatload mmc 0:1 0x21000000 uImage-gentoo
+fatload mmc 0:1 0x22000000 uInitrd-gentoo
+fatload mmc 0:1 0x21800000 meson8b_odroidc.dtb
+fdt addr 21800000
+
+if test "${vpu}" = "0"; then fdt rm /mesonstream; fdt rm /vdec; fdt rm /ppmgr; fi
+
+if test "${hdmioutput}" = "0"; then fdt rm /mesonfb; fi
+</pre>}}
+
+=== Finish installation ===
+
+At first you must install a small script to get and output on your screen.
+{{RootCmd
+|wget https://github.com/mdrjr/c1_bootini/blob/master/c1_init.sh -o /usr/bin/c1_init
+|chmod +x /usr/bin/c1_init
+}}
+To get the script to work you must install fbset:
+{{Emerge|fbset}}
+
+No we need an init.d-script for it:
+{{FileBox|filename=/etc/init.d/c1_init|title=c1_init.d-script|lang=bash|1=<pre>
+#!/sbin/runscript
+# Distributed under the terms of the GNU General Public License v2
+
+description="Setting up framebuffer"
+
+depend() {
+       need localmount
+}
+
+start() {
+        ebegin "Starting c1_init"
+        eval /usr/bin/c1_init
+        retval=$?
+        veend ${retval} "Execution of \"c1_init\" failed."
+}
+</pre>}}
+
+Activating the script:
+{{RootCmd|rc-update add c1_init boot}}
+
+Now do all the remaining steps from the Handbook, eg install an cron daemon an editing the config files.
+Then you can reboot your system.
