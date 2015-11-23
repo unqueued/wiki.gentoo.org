@@ -206,24 +206,17 @@ Or run:
 {{Cmd|df -h}}
 
 == Troubleshooting ==
-=== Shutdown process hangs when trying to unmount NFS shares ===
+
 <!-- If you make any changes to this section, please consider changing the appropriate section in [[CIFS]] as well. -->
 
-If the system shutdown hangs at 
-<div class="cmd-box"><div><code> <span style="color:#54ff54">*</span> Unmounting network filesystems ...</code></div></div>
-then users must make sure the NFS shares are unmounted properly before [[udev]] tries to stop. One way to work around this is to create [[local.d]] scripts to unmount the NFS filesystems:
+* The NFS client needs to unmount exported directories before [[udev]] attempts to stop, otherwise the system can become unresponsive when unmounting network filesystems during shutdown. To prevent this issue, a [[local.d]] script can be used to forcibly unmount the exported directories during shutdown.
+{{FileBox|filename=/etc/local.d/nfs.stop|1=
+/bin/umount -a -f -t nfs,nfs4
+}}
+{{RootCmd|chmod a+x /etc/local.d/nfs.stop}}
 
-{{RootCmd
-|echo "umount -a -t nfs4 -f" > /etc/local.d/nfs4.stop
-|chmod a+x /etc/local.d/nfs4.stop
-|echo "umount -a -t nfs -f" > /etc/local.d/nfs.stop
-|chmod a+x /etc/local.d/nfs.stop}}
-
-=== Additional troubleshooting tricks and tips ===
-Verifying NFS server is running and listening for connections:
-
-{{RootCmd|netstat -tupan {{!}} egrep 'rpc{{!}}Active{{!}}Proto'
-|output=<pre>
+* Verify that the NFS server is running and listening for connections:
+{{RootCmd|netstat -tupan {{!}} egrep 'rpc{{!}}Active{{!}}Proto'|output=<pre>
 Active Internet connections (servers and established)
 Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name
 tcp        0      0 0.0.0.0:34950           0.0.0.0:*               LISTEN      1891/rpc.statd
@@ -234,10 +227,15 @@ udp        0      0 0.0.0.0:774             0.0.0.0:*                           
 udp        0      0 0.0.0.0:795             0.0.0.0:*                           1891/rpc.statd
 </pre>}}
 
-Verifying which NFS specific daemons are running:
+* List the current open connections to the NFS server:
+{{RootCmd|netstat -tn {{!}} egrep '2049{{!}}Active{{!}}Proto'|output=<pre>
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State      
+tcp        0      0 192.168.0.1:2049       192.168.0.10:884        ESTABLISHED
+</pre>}}
 
-{{RootCmd|rpcinfo -p
-|output=<pre>
+* Verify which NFS daemons are running:
+{{RootCmd|rpcinfo -p|output=<pre>
    program vers proto   port  service
     100000    4   tcp    111  portmapper
     100000    3   tcp    111  portmapper
@@ -261,26 +259,14 @@ Verifying which NFS specific daemons are running:
     100021    4   tcp  44043  nlockmgr
 </pre>}}
 
-Showing exported NFS shares on the server side:
-
-{{RootCmd|exportfs -v
-|output=<pre>
+* List the exported directories from the NFS server:
+{{RootCmd|exportfs -v|output=<pre>
 /export         192.168.0.0/24(rw,wdelay,root_squash,no_subtree_check,fsid=0)
 /export/home    192.168.0.0/24(rw,wdelay,nohide,root_squash,no_subtree_check)
 /export/data    192.168.0.0/24(rw,wdelay,nohide,root_squash,no_subtree_check)
 </pre>}}
 
-Verifying current open connections to the NFS server:
-
-{{Cmd|netstat -tn {{!}} egrep '2049{{!}}Active{{!}}Proto'
-|output=<pre>
-Active Internet connections (w/o servers)
-Proto Recv-Q Send-Q Local Address           Foreign Address         State      
-tcp        0      0 192.168.0.1:2049       192.168.0.10:884        ESTABLISHED
-</pre>}}
-
 For more specific troubleshooting examples visit following links:
-
 * http://linux-nfs.org/wiki/index.php/General_troubleshooting_recommendations
 * http://nfs.sourceforge.net/nfs-howto/ar01s07.html
 
