@@ -1,23 +1,20 @@
 This guide details running X server under user account.
 
-It was only tested under nouveau, but all kms driver should work.
-
-{{Warning|Running Xorg as a non root user requires [[Systemd]] and [[D-Bus]]. See [http://hansdegoede.livejournal.com/14268.html Hansdegoede's blog entry on Xorg without root rights] for an explanation as to why.}}
+This has been successfully tested using Nouveau and Intel drivers
 
 == Additional prerequisities ==
-Some of this support is pretty fresh so one definitely needs to install unstable packages
+Some of this support is relatively recent, and it may be necessary to install unstable packages. If it fails to work with stable, keywording certain packages may be necessary.
 
 {{FileBox|filename=/etc/portage/package.keywords|1=
-x11-base/xorg-server **
-x11-base/xorg-drivers **
-x11-drivers/xf86-input-keyboard **
-x11-drivers/xf86-input-mouse **
-x11-drivers/xf86-input-evdev **
-x11-drivers/xf86-video-nouveau **
+x11-base/xorg-server
+x11-base/xorg-drivers
+x11-drivers/xf86-input-keyboard
+x11-drivers/xf86-input-mouse
+x11-drivers/xf86-input-evdev
+# Select from the following based on your video hardware, both may be needed for multi-GPU systems.
+x11-drivers/xf86-video-nouveau
+x11-drivers/xf86-video-intel
 }}
-
-Also depending on driver support there may be need to install development packages from x11 overlay.
-For example xf86-video-nouveau doesn't have any version with necessary changes so -9999 package is needed.
 
 == Rebuilding Xorg ==
 
@@ -31,24 +28,25 @@ Rebuild Xorg
 
 == Making necessary changes to system ==
 
-Now you can run X as user, however because none of login managers are capable yet of doing necessary permision handling it needs some workarounds.
-In particular, X run by user needs to be able to access /dev/input files and it needs to be started manually.
+Now you can run X as user, however because none of login managers are currently capable of doing necessary permission handling it needs some workarounds. In particular, X run by user needs to be able to access /dev/input files and it needs to be started directly as the user. Additionally, as with using direct rendering, the unprivileged user also needs access to the video hardware, typically achieved by adding them to the "video" group (though certain login managers, such as ConsoleKit or systemd-logind may handle this for you).
 
-To access /dev/input files it's easiest to add them to group and allow user to access them.
+To access /dev/input files it's easiest to add them to group and allow user to access them. (Note: The "input" group and udev rules may already exist on many Gentoo systems. If they exist for you, you may skip the steps before adding your user to the necessary groups.)
 
 {{RootCmd|groupadd input}}
-{{RootCmd|usermod -a -G input user}}
-
 Create udev rule to change /dev/input group on boot:
 {{FileBox|filename=/etc/udev/rules.d/99-dev-input-group.rules|1=
 SUBSYSTEM=="input", ACTION=="add", GROUP="input"
 }}
-
-Reload udev rules to get the new permissions (note that this may interfere with your input devices on the current vty)
+Reload udev rules to get the new permissions (note that this may interfere with your input devices on the current vty):
 {{RootCmd|/etc/init.d/udev reload}}
 
-If logged on tty1 use vt1, on tty2 use vt2, and so on
-
+And finally, add your user to the necessary groups:
+{{RootCmd|usermod -a -G input,video user}}
+Log out and log back in (for the permissions changes to take effect), and then start X by running:
 {{Cmd|startx -- vt1}}
+If logged on tty1 use vt1, on tty2 use vt2, and so on.
 
-X should now run as user.
+X should now be running as an unprivileged user.
+
+==Security concerns==
+Running X as a normal user is generally a positive step for security, with the exception of multiuser or, especially, multiseat systems. With the direct access to input devices by the user, it becomes trivially possible to snoop on the input of another active user or run a background job to snoop on the input of a future user of the system. For such systems, it's likely better to choose a solution other than running X as the logged-in user (such as using setuid with a dedicated, unprivileged user or using setgid for the "input" group).
