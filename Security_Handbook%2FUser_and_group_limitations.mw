@@ -1,0 +1,107 @@
+This section is about controlling the system's resource usage.
+
+== /etc/security/limits.conf ==
+
+Controlling resource usage can be very effective when trying to prevent a local Denial of Service or restricting the maximum allowed logins for a group or user. However, too strict settings will impede on your system's behavior and will result in program failures so make sure that you check each setting first.
+
+{{FileBox|filename=/etc/security/limits.conf|1=
+*    soft core 0
+*    hard core 0
+*    hard nproc 15
+*    hard rss 10000
+*    -    maxlogins 2
+@dev hard core 100000
+@dev soft nproc 20
+@dev hard nproc 35
+@dev -    maxlogins 10
+}}
+
+If you find yourself trying to set <var>nproc</var> or <var>maxlogins</var> to <code>0</code>, maybe you should delete the user instead. The example above sets the group dev settings for processes, core file and maxlogins. The rest is set to a default value.
+
+{{Note|{{Path|/etc/security/limits.conf}} is part of the PAM package and will only apply to packages that use PAM.}}
+
+== /etc/limits ==
+
+{{Path|/etc/limits}} is very similar to the limit file {{Path|/etc/security/limits.conf}}. The only difference is the format and that it only works on users or wild cards (not groups). Let's have a look at a sample configuration:
+
+{{FileBox|filename=/etc/limits|1=
+*   L2 C0 U15 R10000
+kn L10 C100000 U35
+}}
+
+Here we set the default settings and a specific setting for the user kn. Limits are part of the {{Package|sys-apps/shadow}} package. It is not necessary to set any limits in this file if you have enabled pam in {{Path|/etc/portage/make.conf}}.
+
+== Quotas ==
+
+{{Warning|Make sure the file systems you are working with support quotas. In order to use quotas on [[ReiserFS]], you must patch your kernel with patches available from Namesys. User tools are available from the [http://sourceforge.net/projects/linuxquota/ DiskQuota project]. While quotas do work with ReiserFS, you may encounter other issues while trying to use them--you have been warned!}}
+
+Putting quotas on a file system restricts disk usage on a per-user or per-group basis. Quotas are enabled in the kernel and added to a mount point in {{Path|/etc/fstab}}. The kernel option is enabled in the kernel configuration under {{Path|File systems &rarr; Quota support}} Apply the following settings, rebuild the kernel and reboot using the new kernel.
+
+Start by installing quotas with {{c|emerge sys-fs/quota}}. Then modify your {{Path|/etc/fstab}} and add <code>usrquota</code> and <code>grpquota</code> to the partitions that you want to restrict disk usage on, like in the example below:
+
+{{FileBox|filename=/etc/fstab|1=
+/dev/sda1 /boot ext2 noauto,noatime 1 1
+/dev/sda2 none swap sw 0 0
+/dev/sda3 / reiserfs notail,noatime 0 0
+/dev/sda4 /tmp ext3 noatime,nodev,nosuid,noexec,usrquota,grpquota 0 0
+/dev/sda5 /var ext3 noatime,nodev,usrquota,grpquota 0 0
+/dev/sda6 /home ext3 noatime,nodev,nosuid,usrquota,grpquota 0 0
+/dev/sda7 /usr reiserfs notail,noatime,nodev,ro 0 0
+/dev/cdroms/cdrom0 /mnt/cdrom iso9660 noauto,ro 0 0
+proc /proc proc defaults 0 0
+}}
+
+On every partition that you have enabled quotas, create the quota files (aquota.user and aquota.group) and place them in the root of the partition:
+
+{{RootCmd
+|touch /tmp/aquota.user
+|touch /tmp/aquota.group
+|chmod 600 /tmp/aquota.user
+|chmod 600 /tmp/aquota.group
+}}
+
+This step has to be done on every partition where quotas are enabled. After adding and configuring the quota files, we need to add the quota script to the boot run level.
+
+{{Important| XFS does all quota checks internally, and does not need the quota script added to the boot runlevel. There may be other filesystems not listed in this document with similar behavior, so please read the manpages for your filesystem to learn more about how it handles quota checks.}}
+
+Add quota to the boot runlevel:
+
+{{RootCmd|rc-update add quota boot}}
+
+We will now configure the system to check the quotas once a week by adding the following line to /etc/crontab:
+
+{{FileBox|filename=/etc/crontab|1=
+0 3 * * 0 /usr/sbin/quotacheck -avug.
+}}
+
+After rebooting the machine, it is time to setup the quotas for users and groups. {{c|edquota -u kn}} will start the editor defined in <var>$EDITOR</var> (default is {{c|nano}}) and let you edit the quotas of the user kn. {{c|edquota -g}} will do the same thing for groups.
+
+{{GenericCmd|edquota -u kn|output=
+Code Listing 3.5: Setting up quota's for user kn
+Quotas for user kn:
+/dev/sda4: blocks in use: 2594, limits (soft = 5000, hard = 6500)
+         inodes in use: 356, limits (soft = 1000, hard = 1500)
+}}
+
+For more detail read {{c|man edquota}} or the [http://www.tldp.org/HOWTO/Quota.html Quota mini howto].
+
+== /etc/login.defs ==
+
+If your security policy states that users should change their password every other week, change the value of <var>PASS_MAX_DAYS</var> to <code>14</code> and <var>PASS_WARN_AGE</var> to <code>7</code>. It is recommended that you use password aging since brute force methods can find any password, given enough time. We also encourage you to set <var>LOG_OK_LOGINS</var> to <code>yes</code>.
+
+== /etc/security/access.conf ==
+
+The access.conf file is also part of the {{Package|sys-libs/pam}} package, which provides a login access control table. This table is used to control who can and cannot login based on user name, group name or host name. By default, all users on the system are allowed to login, so the file consists only of comments and examples. Whether you are securing your server or workstation, we recommend that you setup this file so no one other than yourself (the admin) has access to the console.
+
+{{Note|These settings apply for root, as well.}}
+
+{{FileBox|filename=/etc/security/access.conf|1=
+-:ALL EXCEPT wheel sync:console
+-:wheel:ALL EXCEPT LOCAL .gentoo.org
+}}
+
+{{Important| Be careful when configuring these options, since mistakes will leave you with no access to the machine if you do not have root access.}}
+
+{{Note| These settings do not apply to SSH, since SSH does not execute {{Path|/bin/login}} per default. This can be enabled by setting <code>UseLogin yes</code> in {{Path|/etc/ssh/sshd_config}}.}}
+
+This will setup login access so members of the wheel group can login locally or from the gentoo.org domain. Maybe too paranoid, but better to be safe than sorry.
