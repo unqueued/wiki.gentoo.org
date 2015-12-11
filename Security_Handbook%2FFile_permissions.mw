@@ -1,0 +1,81 @@
+Securing system files.
+
+== World readable ==
+
+Normal users should not have access to configuration files or passwords. An attacker can steal passwords from databases or web sites and use them to deface-or even worse, delete-data. This is why it is important that your file permissions are correct. If you are sure that a file is only used by root, assign it with the permissions 0600 and assign the file to the correct user with {{c|chown}}.
+
+== World/Group writable ==
+
+Find world-writable files and directories:
+
+{{RootCmd
+|find / -type f \( -perm -2 -o -perm -20 \) -exec ls -lg {} \; 2>/dev/null >writable.txt
+|find / -type d \( -perm -2 -o -perm -20 \) -exec ls -ldg {} \; 2>/dev/null >>writable.txt
+}}
+
+This will create a huge file with permission of all files having either write permission set to the group or everybody. Check the permissions and eliminate world writable files to everyone, by executing {{c|/bin/chmod o-w}} on the files.
+
+== SUID/SGID files ==
+
+Files with the SUID or SGID bit set execute with privileges of the owning user or group and not the user executing the file. Normally these bits are used on files that must run as root in order to do what they do. These files can lead to local root compromises (if they contain security holes). This is dangerous and files with the SUID or SGID bits set should be avoided at any cost. If you do not use these files, use {{c|chmod 0}} on them or unmerge the package that they came from (check which package they belong to by using {{c|equery}}; if you do not already have it installed simply type {{emerge --ask app-portage/gentoolkit}}). Otherwise just turn the SUID bit off with {{c|chmod -s}}.
+
+Find setuid files:
+
+{{RootCmd|find / -type f \( -perm -004000 -o -perm -002000 \) -exec ls -lg {} \; 2>/dev/null >suidfiles.txt}}
+
+This will create a file containing a list of all the SUID/SGID files.
+
+List of setuid binaries:
+
+{{RootCmd|cat suidfiles.txt|output=
+/bin/su
+/bin/ping
+/bin/mount
+/bin/umount
+/var/qmail/bin/qmail-queue
+/usr/bin/chfn
+/usr/bin/chsh
+/usr/bin/crontab
+/usr/bin/chage
+/usr/bin/expiry
+/usr/bin/sperl5.6.1
+/usr/bin/newgrp
+/usr/bin/passwd
+/usr/bin/gpasswd
+/usr/bin/procmail
+/usr/bin/suidperl
+/usr/lib/misc/pt_chown
+/usr/sbin/unix_chkpwd
+/usr/sbin/traceroute
+/usr/sbin/pwdb_chkpwd
+}}
+
+By default Gentoo Linux does not have a lot of SUID files (though this depends on what you installed), but you might get a list like the one above. Most of the commands should not be used by normal users, only root. Switch off the SUID bit on {{c|ping, {{c|mount, {{c|umount}}, {{c|chfn}}, {{c|chsh}}, {{c|newgrp}}, {{c|suidperl}}, {{c|pt_chown}} and {{c|traceroute}} by executing {{c|chmod -s}} on every file. Don't remove the bit on {{c|su}}, {{c|qmail-queue}} or {{c|unix_chkpwd}}. Removing setuid from those files will prevent you from su'ing and receiving mail. By removing the bit (where it is safe to do so) you remove the possibility of a normal user (or an attacker) gaining root access through any of these files.
+
+The only SUID files that I have on my system are {{c|su}}, {{c|passwd}}, {{c|gpasswd}}, {{c|qmail-queue}}, {{c|unix_chkpwd}} and {{c|pwdb_chkpwd}}. But if you are running X, you might have some more, since X needs the elevated access afforded by SUID.
+
+== SUID/SGID binaries and Hard links ==
+
+A file is only considered deleted when there are no more links pointing to it. This might sound like a strange concept, but consider that a filename like {{Path|/usr/bin/perl}} is actually a link to the inode where the data is stored. Any number of links can point to the file, and until all of them are gone, the file still exists.
+
+If your users have access to a partition that isn't mounted with <code>nosuid</code> or <code>noexec</code> (for example, if {{Path|/tmp}}, {{Path|/home}}, or {{Path|/var/tmp}} are not separate partitions) you should take care to ensure your users don't create hard links to SUID or SGID binaries, so that after Portage updates they still have access to the old versions.
+
+{{Warning| if you have received a warning from portage about remaining hard links, and your users can write to a partition that allows executing SUID/SGID files, you should read this section carefully. One of your users may be attempting to circumvent your update by keeping an outdated version of a program. If your users cannot create their own SUID files, or can only execute programs using the dynamic loader (partitions mounted <code>noexec</code>), you do not have to worry.}}
+
+{{Note| Users do not need read access to a file to create a link to it, they only need read permission to the directory that contains it.}}
+
+To check how many links a file has, you can use the {{c|stat}} command.
+
+{{Cmd|stat /bin/su|output=<pre>
+  File: `/bin/su'
+  Size: 29350           Blocks: 64         IO Block: 131072 regular file
+Device: 900h/2304d      Inode: 2057419     Links: 1
+Access: (4711/-rws--x--x)  Uid: (    0/    root)   Gid: (    0/    root)
+Access: 2005-02-07 01:59:35.000000000 +0000
+Modify: 2004-11-04 01:46:17.000000000 +0000
+Change: 2004-11-04 01:46:17.000000000 +0000
+</pre>}}
+
+To find the SUID and SGID files with multiple links, use {{c|find}}:
+
+{{Cmd|find / -type f \( -perm -004000 -o -perm -002000 \) -links +1 -ls}}
