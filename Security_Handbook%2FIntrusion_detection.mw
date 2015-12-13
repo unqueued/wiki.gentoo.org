@@ -1,0 +1,193 @@
+Detect intruders.
+
+== AIDE ==
+AIDE is a Host-Based Intrusion Detection System (HIDS), a free alternative to Tripwire (if you already know Tripwire you should have no difficulties learning the configuration file for AIDE). HIDS are used to detect changes to important system configuration files and binaries, generally by making a unique cryptographic hash for the files to be checked and storing it in a secure place. On a regular basis (such as once a day), the stored "known-good" hash is compared to the one generated from the current copy of each file, to determine if that file has changed. HIDS are a great way to detect disallowed changes to your system, but they take a little work to implement properly and make good use of.
+
+The configuration file is based on regular expressions, macros and rules for files and directories. We have the following macros:
+
+{| class="table table-striped table-condensed"
+|-
+! Macro !! Description !! Syntax
+|-
+| ifdef || If defined || @@ifdef "name"
+|-
+| ifndef || If not defined || @@ifndef "name"
+|-
+| define || Define a variable || @@define "name" "value"
+|-
+| undef || Undefine a variable || @@undef "name"
+|-
+| ifhost || if "hostname" || @@ifhost "hostname"
+|-
+| ifnhost || if not "hostname" || @@ifnhost "hostname"
+|-
+| endif || Endif must be used after any of the above macros except define and undef || @@endif
+|}
+
+These macros become very handy if you have more than one Gentoo box and want to use AIDE on all of them. But not all machines run the same services or even have the same users.
+
+Next we have sets of flags to check for on files and directories. These are a combination of permissions, file properties and cryptographic hashes (i.e. checksums).
+
+{| class="table table-striped table-condensed"
+|-
+! Flag !! Description
+|-
+| p || permissions
+|-
+| i || inode
+|-
+| n || number of links
+|-
+| u || user
+|-
+| g || group
+|-
+| s || size
+|-
+| b || block count
+|-
+| m || mtime
+|-
+| a || atime
+|-
+| c || ctime
+|-
+| S || check for growing size
+|-
+| md5 || md5 checksum
+|-
+| sha1 || sha1 checksum
+|-
+| rmd160 || rmd160 checksum
+|-
+| tiger || tiger checksum
+|-
+| R || p+i+n+u+g+s+m+c+md5
+|-
+| L || p+i+n+u+g
+|-
+| E || Empty group
+|-
+| > || Growing logfile p+u+g+i+n+S
+|}
+
+And if AIDE is compiled with mhash support it supports a few other features:
+
+{| class="table table-striped table-condensed"
+|-
+! Flag !! Description
+|-
+| haval || haval checksum
+|-
+| gost || gost checksum
+|-
+| crc32 || crc32 checksum
+|}
+
+Now you can create you own rules based on the above flags by combining them like this:
+
+{{CodeBox|title=AIDE ruleset example|1=
+All=R+a+sha1+rmd160
+Norm=s+n+b+md5+sha1+rmd160
+}}
+
+The last thing we need to create our own configuration file is to see how to add a rule to a file or directory. To enter a rule, combine the file or directory name and the rule. AIDE will add all files recursively unless you specify an alternate rule.
+
+{| class="table table-striped table-condensed"
+|-
+! Flag !! Description
+|-
+| ! || Don't add this file or directory.
+|-
+| = || Add this directory, but not recursively.
+|}
+
+So lets watch a full blown example:
+
+{{FileBox|filename=/etc/aide/aide.conf|1=
+@@ifndef TOPDIR
+@@define TOPDIR /
+@@endif
+
+@@ifndef AIDEDIR
+@@define AIDEDIR /etc/aide
+@@endif
+
+@@ifhost smbserv
+@@define smbactive
+@@endif
+
+# The location of the database to be read.
+database=file:@@{AIDEDIR}/aide.db
+
+# The location of the database to be written.
+database_out=file:aide.db.new
+
+verbose=20
+report_url=stdout
+
+# Rule definition
+All=R+a+sha1+rmd160
+Norm=s+n+b+md5+sha1+rmd160
+
+@@{TOPDIR} Norm
+!@@{TOPDIR}etc/aide
+!@@{TOPDIR}dev
+!@@{TOPDIR}media
+!@@{TOPDIR}mnt
+!@@{TOPDIR}proc
+!@@{TOPDIR}root
+!@@{TOPDIR}sys
+!@@{TOPDIR}tmp
+!@@{TOPDIR}var/log
+!@@{TOPDIR}var/run
+!@@{TOPDIR}usr/portage
+@@ifdef smbactive
+!@@{TOPDIR}etc/smb/private/secrets.tdb
+@@endif
+=@@{TOPDIR}home Norm
+}}
+
+In the above example we specify with some macros where the topdir starts and where the AIDE directory is. AIDE checks the /etc/aide/aide.db file when checking for file integrity. But when updating or creating a new file it stores the information in /etc/aide/aide.db.new. This is done so it won't automatically overwrite the old db file. The option <var>report_URL</var> is not yet implemented, but the author's intention was that it should be able to e-mail or maybe even execute scripts.
+
+The AIDE ebuild now comes with a working default configuration file, a helper script and a crontab script. The helper script does a number of tasks for you and provides an interface that is a little more script friendly. To see all available options, try {{c|aide --help}}. To get started, all that needs to be done is {{c|aide -i}} and the crontab script should detect the database and send mails as appropriate every day. We recommend that you review the {{Path|/etc/aide/aide.conf}} file and ensure that the configuration accurately reflects what is in place on the machine.
+
+{{Note|Depending on your CPU, disk access speed, and the flags you have set on files, this can take some time.}}
+
+{{Note|Remember to set an alias so you get roots mail. Otherwise you will never know what AIDE reports.}}
+
+Now there is some risk inherent with storing the db files locally, since the attacker will (if they know that AIDE is installed) most certainly try to alter the db file, update the db file or modify {{Path|/usr/bin/aide}}. So you should create a CD or other media and put on it a copy of the {{Path|.db}} file and the AIDE binaries.
+
+One can find information at the [http://www.cs.tut.fi/~rammer/aide.html AIDE project page].
+
+== Snort ==
+
+Snort is a Network Intrusion Detection System (NIDS). To install and configure it use the following examples.
+
+{{FileBox|filename=/etc/conf.d/snort|lang=bash|1=
+SNORT_IFACE="eth0"
+PIDFILE=/run/snort_eth0.pid
+MODE="full"
+NETWORK="192.168.0.0/24"
+LOGDIR="/var/log/snort"
+SNORT_CONF=/etc/snort/snort.conf
+SNORT_OPTS="-q -D -u snort -d -l $LOGDIR -h $NETWORK -c $SNORT_CONF"
+}}
+
+Copy {{Path|/etc/snort/snort.conf.distrib}} to {{Path|/etc/snort/snort.conf}}.
+
+{{RootCmd|cd /etc/snort && cp snort.conf.distrib snort.conf}}
+
+You might need to comment out the blacklist and whitelist entries if no lists are created.
+
+More information is at the [https://www.snort.org/ Snort website].
+
+== Detecting malware with chkrootkit ==
+
+HIDS like AIDE are a great way to detect changes to your system, but it never hurts to have another line of defense. {{c|chkrootkit}} is a utility that scans common system files for the presence of rootkits-software designed to hide an intruder's actions and allow him to retain his access-and scans your system for likely traces of key loggers and other "malware". While {{c|chkrootkit}} (and alternatives like rkhunter) are useful tools, both for system maintenance and for tracking an intruder after an attack has occurred, they cannot guarantee your system is secure.
+
+The best way to use {{c|chkrootkit}} to detect an intrusion is to run it routinely from {{c|cron}}. To start, {{c|emerge app-forensics/chkrootkit}}. {{c|chkrootkit}} can be run from the command line by the command of the same name, or from {{c|cron}} with an entry such as this:
+
+{{CodeBox|1=
+0 3 * * * /usr/sbin/chkrootkit
+}}
