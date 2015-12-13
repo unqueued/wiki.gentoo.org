@@ -1,8 +1,8 @@
-In this article I'll describe how to protect you GNU/Linux box against alien USB devices. So we configure GNU/Linux to accept only known USB devices.
+In this article I'll describe how to protect your GNU/Linux box against alien USB devices. So we configure GNU/Linux to accept only known USB devices.
 
 =Kernel protection=
 
-In kernel "sys-kernel/hardened-sources" we have tow options for Physical Protections:
+In kernel "sys-kernel/hardened-sources" we have two options for Physical Protections:
 
 {{KernelBox|title=make menuconfig options|<pre>
 Security options  --->
@@ -43,11 +43,11 @@ can be recognized and new USB device connections can be prevented
 prior to init running.
 </pre>}}
 
-It is very god choice for servers in datacenter and server's rooms. But at reboot it still vulnerable! Also it not give flexibility needed on workstation when we want connect USB devises during run time. So lets write ''eudev'' rules for allow only known USB devices in the system.
+It is very good choice for servers in datacenter and server's rooms. But at reboot it is still vulnerable! Also it does not give the flexibility needed on workstations when we want to connect USB devices during run time. So let's write ''eudev'' rules to allow only known USB devices in the system.
 
 =eudev=
 
-'''''eudev''''' allows us to create rules to configure devices as they are added or removed from a system, in our case we will allow or disallow USB devices based on their identifying strings. 
+'''''eudev''''' allows us to create rules to configure devices as they are added or removed from a system, in our case we will allow and disallow USB devices based on their identifying strings.
 
 ==Retrieve information about our USB devices==
 
@@ -69,7 +69,7 @@ Bus 003 Device 002: ID 2222:2222 Example, USB Optical Mouse
 Bus 003 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
 Bus 002 Device 001: ID 1d6b:0001 Linux Foundation 1.1 root hub
 </pre>}}
-We can see ''USB Optical Mouse'' connected on bus 3 and listed as device 2. We will first need to find this device’s port number. To figere out port number run ''lsusb'' with ''-t'' options:
+We can see ''USB Optical Mouse'' connected on bus 3 and listed as device 2. We will first need to find this device’s port number. To figure out port numbers run ''lsusb'' with option ''-t'':
 {{RootCmd|lsusb –t|output=<pre>
 /:  Bus 05.Port 1: Dev 1, Class=root_hub, Driver=uhci_hcd/2p, 12M
 /:  Bus 04.Port 1: Dev 1, Class=root_hub, Driver=uhci_hcd/2p, 12M
@@ -83,7 +83,7 @@ We can see ''USB Optical Mouse'' connected on bus 3 and listed as device 2. We w
         |__ Port 5: Dev 5, If 1, Class=Human Interface Device, Driver=usbhid, 1.5M
 </pre>}}
 Now we can see that ''USB Optical Mouse'' connected on bus 3 and listed as device 2 really connected at '''port 1 of USB bus 3'''!
-Also ''lsusb'' with ''-v'' options expand verbose output, but the format is not convenient for copying and pasting into eudev rules.
+Also ''lsusb'' with option ''-v'' expand verbose output, but the format is not convenient for copying and pasting into eudev rules.
 
 ===Sysfs===
 
@@ -91,16 +91,16 @@ Information about attached USB devices can be obtained through Sysfs:
 {{RootCmd|ls /sys/bus/usb/devices/|output=<pre>
 1-0:1.0  1-4  1-4.1  1-4:1.0  1-4.1:1.0  1-4.5  1-4.5:1.0  1-4.5:1.1  2-0:1.0  3-0:1.0  3-1  3-1:1.0  4-0:1.0  5-0:1.0  usb1  usb2  usb3  usb4  usb5
 </pre>}}
-The subdirectories we are interested to are in the format '''''bus_number-port''''' or '''''bus_number-port.port'''''. The second one is in case when hub is used the port section of the directory name may be a series of port numbers separated by periods. So pay attention only to follow dirs:
+The subdirectories we are interested in are in the format '''''bus_number-port''''' or '''''bus_number-port.port'''''. The second one is in case hubs are used, then port section of the directory name may be a series of port numbers separated by periods. So pay attention only to follow dirs:
 {{RootCmd|ls /sys/bus/usb/devices/|output=<pre>
 1-4  1-4.1  1-4.5  3-1
 </pre>}}
-Sysfs, a virtual file system for give information and allow control of devices that the kernel exports. There is one specific settings: '''''authorized'''''. All USB devices should have an '''''authorized''''' option which controls whether or not the device can communicate with the system!
+Sysfs is a virtual file system that gives information and allows the control of devices which the kernel exports. There is one specific setting: '''''authorized'''''. All USB devices should have an '''''authorized''''' option which controls whether or not the device can communicate with the system.
 For example, if we wished to see if the device in port 1 of the 3 USB bus is active we could use the following command:
 {{RootCmd|cat /sys/bus/usb/devices/3-1/authorized|output=<pre>
 1
 </pre>}}
-The 1 in the output tells us the device is authorized, 0 would mean not authorized. So we can allow USB device by running:
+The 1 in the output tells us the device is authorized, 0 would mean not authorized. So we can allow USB devices by running:
 {{RootCmd|echo "1" /sys/bus/usb/devices/3-1/authorized}}
 And disallow:
 {{RootCmd|echo "0" > /sys/bus/usb/devices/3-1/authorized}}
@@ -108,13 +108,13 @@ But it is not convenient too.
 
 ===udevadm===
 
-To retrieve information like the serial number, vendor and product ID, manufacturer’s name for our device connected to ''port 1 on 3 USB bus'', you can run the following command:
+To retrieve information like the serial number, vendor and product ID and manufacturer’s name of our device connected to ''port 1 on 3 USB bus'', you can run the following command:
 {{RootCmd|udevadm info -a -p /sys/bus/usb/devices/3-1|output=<pre>
 
 Udevadm info starts with the device specified by the devpath and then
-walks up the chain of parent devices. It prints for every device
-found, all possible attributes in the udev rules key format.
-A rule to match, can be composed by the attributes of the device
+walks up the chain of parent devices. For every device
+found it prints all possible attributes in the udev rules key format.
+A rule to match, can be composed of the attributes of the device
 and the attributes from one single parent device.
 
   looking at device '/devices/pci0000:00/0000:00:1d.1/usb3/3-1':
@@ -134,14 +134,14 @@ and the attributes from one single parent device.
     ATTR{product}=="USB Optical Mouse"
 ..................................
 </pre>}}
-All of these "ATTR" attributes can be used in our eudev rules! You need to add rules to ''/lib/udev/rules.d/'' that will whitelist only the given devices, and blacklist all the rest.
+All of these "ATTR" attributes can be used in our eudev rules. You need to add rules to ''/lib/udev/rules.d/'' that will whitelist only the given devices, and blacklist all the rest.
 
 ==Writing eudev rules==
 
-Now we can start writing ''eudev'' rules to enable/disable USB devices. Create file with rules in ''/lib/udev/rules.d/01-usb.rules'' to enshure that it is running in the beginning.
-Pay attention to add all USB hub in the beginning of you rules! All USB hub has ''ATTR{bDeviceClass}=="09"''. Also we add more information: ''ATTR{manufacturer}'' and ''ATTR{product}'' for human readable descriptions..
+Now we can start writing ''eudev'' rules to enable/disable USB devices. Create a file with rules in ''/lib/udev/rules.d/01-usb.rules'' to ensure that it is running in the beginning.
+Pay attention to add all USB hubs at the start of your rules. All USB hubs have ''ATTR{bDeviceClass}=="09"''. Also we add more information: ''ATTR{manufacturer}'' and ''ATTR{product}'' for human readable descriptions.
 
-To authorize device set ''ATTR{authorized}="1"'', to block it set ''ATTR{authorized}="0"''
+To authorize the device set ''ATTR{authorized}="1"'', to block it, set ''ATTR{authorized}="0"''
 
 {{FileBox|filename=/lib/udev/rules.d/01-usb.rules|title=eudev rules for enable only known USB devices|<pre>
 # 20151002
@@ -202,9 +202,9 @@ LABEL="usb_end"
 
 ==Test eudev rules==
 
-To test your script you can run the command:
+To test your script run the following command:
 {{RootCmd|udevadm test /sys/bus/usb/devices/3-1}}
-It will not actually apply the changes, it only show which conditional statements are when a certain device is inserted.
+It will not actually apply the changes, it only shows which conditional statements are applied when a certain device is inserted.
 
 = See also =
 
