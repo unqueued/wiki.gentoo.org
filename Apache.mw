@@ -19,6 +19,7 @@ The '''Apache HTTP Server''' is an efficient, extensible [[:Category:Web Servers
 
 <!--T:4-->
 {{Note|When updating between Apache versions, check the [[Project:Apache/Upgrading|Upgrade guide]].}}
+{{Note|As of 2016-01-08, Apache 2.4 is marked as ''testing'', and unless you explicitly modify package.accept_keywords, you will obtain Apache 2.2. See the ''Emerge'' section below for more details}}
 
 === USE flags === <!--T:6-->
 
@@ -38,6 +39,29 @@ The '''Apache HTTP Server''' is an efficient, extensible [[:Category:Web Servers
 === Emerge === <!--T:111-->
 
 <!--T:112-->
+As of 2016-01-08, Apache 2.4 is marked as ''testing''. To install Apache 2.4, you'll need to make the following package.accept_keywords modifications.
+
+{{FileBox|filename=/etc/portage/package.accept_keywords|title|Allowing Apache 2.4|lang=bash|1=
+>=www-servers/apache-2.4.16 ~amd64
+>=app-admin/apache-tools-2.4.16 ~amd64
+}}
+
+If you want to use the Apache event MPM, then add the following to make.conf:
+{{FileBox|filename=/etc/portage/make.conf|title|Apache event MPM|lang=bash|1=
+APACHE2_MPMS="event"
+}}
+
+If you want to use the Apache event MPM, then add the following to make.conf:
+{{FileBox|filename=/etc/portage/make.conf|title|Apache event MPM|lang=bash|1=
+APACHE2_MPMS="worker"
+}}
+
+And, enable the Apache threads USE flag:
+{{FileBox|filename=/etc/portage/package.use|title|Apache threads support|lang=bash|1=
+www-servers/apache threads
+}}
+
+Then ''emerge'' Apache:
 {{Emerge|{{Package|www-servers/apache}}}}
 
 === Global support === <!--T:8-->
@@ -524,20 +548,45 @@ Finally restart Apache and check the <code>phpinfo()</code> site created earlier
 === Enabling PHP-FPM through mod_proxy_fcgi in Apache 2.4 === <!--T:102-->
 
 <!--T:103-->
-With PHP 5.3 and above, PHP supports an additional mode, FastCGI Process Manager, or FPM.
+The following pre-requisites must be satisfied to enable PHP-FPM through mod_proxy_fcgi:
+* >= PHP 5.3
+* >= Apache 2.4 (see Emerge section above for instructions on how to install Apache 2.4)
+
+Furthermore, there are a few restrictions on the availability of functionality within Apache 2.4:
+* >= Apache 2.4.9, if you want to [https://wiki.apache.org/httpd/PHP-FPM#Performance_and_Pitfalls communicate with PHP-FPM over UNIX sockets]
+* >= Apache 2.4.10, if you want to use [https://github.com/php/php-src/pull/694 SetHandler] instead of [https://wiki.apache.org/httpd/PHP-FPM#Example ProxyPassMatch].
 
 <!--T:104-->
-The following method relies on the <code>FilesMatch</code> directive and be placed within the main server config or <code>VirtualHosts</code>.  The location of the UNIX socket is determined by the <code>listen</code> directive in the {{Path|php-fpm.conf}}, allowing for specifying separate pools per site or function.
+The following configuration will only work with Apache 2.4.10 and newer. It relies on the <code>FilesMatch</code> directive and be placed within the main server config or <code>VirtualHosts</code>.  The location of the UNIX socket is determined by the <code>listen</code> directive in the {{Path|php-fpm.conf}}, allowing for specifying separate pools per site or function.
 
 <!--T:105-->
 In the following example, it is placed within the PHP module config file of Apache:
 
 <!--T:106-->
-{{FileBox|filename=/etc/apache2/modules.d/70_mod_php5.conf|title=Using PHP-FPM|lang=apache|1=
+{{FileBox|filename=/etc/apache2/modules.d/70_mod_php5.conf|title=Using PHP-FPM (recommended for Apache 2.4.10 and newer)|lang=apache|1=
  <IfDefine PHP5>
         <FilesMatch "\.php$">
-                SetHandler "proxy:unix:///var/run/php-fpm/www.sock{{!}}fcgi://localhost/"
+                SetHandler "proxy:unix:/var/run/php-fpm/www.sock{{!}}fcgi://localhost"
         </FilesMatch>
+  
+	# Set it to handle the files
+	<IfModule mod_mime.c>
+		AddHandler application/x-httpd-php .php .php5 .phtml
+		AddHandler application/x-httpd-php-source .phps
+	</IfModule>
+  
+	DirectoryIndex index.php index.phtml
+ </IfDefine>
+}}
+
+<!--T:107-->
+Or, you can use ProxPassMatch -- the only option if the Apache version is between 2.4.0 and 2.4.8, inclusive.
+
+<!--T:108-->
+{{FileBox|filename=/etc/apache2/modules.d/70_mod_php5.conf|title=Using PHP-FPM (recommended for Apache 2.4.8 and older)|lang=apache|1=
+ <IfDefine PHP5>
+        # Send all requested PHP files to PHP-FPM via fcgi://PHP_FPM_LISTEN_ADDRESS:PHP_FPM_LISTEN_PORT/DOCUMENT_ROOT/$1
+        ProxyPassMatch ^/(.*\.php)$ fcgi://127.0.0.1:9000/var/www/localhost/htdocs/$1
   
 	# Set it to handle the files
 	<IfModule mod_mime.c>
