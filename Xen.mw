@@ -7,9 +7,11 @@
 
 From it's inception Xen has focused on the [https://en.wikipedia.org/wiki/Paravirtualization para-virtualization] approach to hypervisor design. As a result, Xen guests or unprivileged domains (domU) are typically aware of the hypervisor and their status as guests. The base system, Domain-0, must have inherent Xen support, however, unmodified domU guests are supported on hardware which implements Intel (VT-x) or AMD (SVM) virtualization technology.
 
-== Installation (domain-0) ==
+== Host Configuration (domain-0) ==
 
-=== BIOS / UEFI Firmware ===
+=== Preparation ===
+
+==== BIOS / UEFI Firmware ====
 
 While paravirtualized (PV) guests can run on a host without any form of hardware accelerated virtualization extensions this severely restricts the set of available guests and prevents the use of new and exciting modes such as [http://wiki.xen.org/wiki/Xen_Project_Software_Overview#PVH PVH]. 
 
@@ -19,7 +21,7 @@ The following command should provide a highlighted row for each processor if the
 
 Unfortunately motherboard manufacturers often explicitly disable these virtualization extensions via BIOS or UEFI settings. If you don't see support listed check your BIOS/UEFI configuration for flags related to virtualization.
 
-=== Rebuilding the Gentoo Installation? ===
+==== Rebuilding the Gentoo Installation? ====
 
 A dramatic change that might be necessary on 32-bit systems is to rebuild the entire Gentoo installation with a different <code>CFLAGS</code> setting. Guest operating systems running under Xen might otherwise see major performance degradation. If you, however, are planning on checking out Xen rather than installing it for production use and are not terribly fond of rebuilding all programs, you can skip this step. In this case you will notice performance degradation but you will still be able to use Xen. 
 
@@ -35,7 +37,7 @@ CFLAGS="... -mno-tls-direct-seg-refs"
 
 If you boot your system using an initial ramdisk (initrd) you need to rebuild the initrd as well (which is best done by running all steps you would do when you rebuild your kernel). 
 
-=== Kernel ===
+==== Kernel ====
 
 Next we'll build the Linux kernel with Xen support. This kernel, whose sources are available at {{Path|/usr/src/linux}} , will be our main running kernel (i.e. the one running domain 0). In the <code>XEN</code> section you'll find drivers for all kinds of input/output, each driver having a ''backend'' and ''frontend'' implementation available. For the domain 0 kernel you need to select the ''backend'' implementation: these are used by the other domains (who use the ''frontend'' drivers) to communicate directly with the hardware. However, you should be able to configure the kernel to provide support for both frontend (guest) and backend (host) drivers. 
 
@@ -159,9 +161,11 @@ In addition to the core hypervisor Xen depends on a set of supporting libraries 
 In case 'equery uses xen-tools' does not list the 'hvm' flag at all, or when 'emerge -a xen-tools' shows this flag in brackets, the flag cannot be enabled (unless you figure out how to unmask it).  Simply selecting a multilib profile on hosts that do not have a multilib installation is likely to give you error messages like about a missing stub-32.h when the xen-tools package is compiled, and emerging the package fails.  You may need to re-install the host to a multilib installation then. (32bit support in the kernel is not required.)
 }}
 
-=== Emerge ===
+=== Installation ===
 
-Xen will automatically install it's boot files in /boot. If you have a separate boot file system ensure that it is mounted at this point.
+==== Emerge ====
+
+Xen will automatically deploy the compiled, boot-able hypervisor in /boot. If you have a separate boot file system ensure that it is mounted.
 
 {{RootCmd|mount /boot}}
 
@@ -171,58 +175,18 @@ After you have reviewed and updated the relevant USE flags, emerge xen and xen-t
 
 Once the installation process completes {{Path|/boot/xen.gz}} should be present.
 
-=== Bootloader ===
+==== Performance Tuning ====
+When configuring a host with a significant amount of memory it is beneficial to fix the allocated to dom0 and disable ballooning functionality. This ensures Xen and the dom0 operating system are able to build working structures based on the memory available at boot-time and have their assumptions hold throughout operation. Additionally, in the event that a large number of guests are created, dom0 is explicitly protected from external memory pressure.
 
-In order for Xen to be the highest privilege process it must be the initial boot target, however, it must also subsequently boot the dom0 kernel.
-
-==== Legacy GRUB ====
-The following configuration handles basic [[GRUB]] settings:
-
-{{FileBox|filename=/boot/grub/grub.conf|title=GRUB Configuration for Xen|1=
-title Xen Gentoo Linux 4.0
-root (hd0,0)
-kernel /boot/xen.gz
-module /boot/kernel-4.0.x.y-xen0 root=/dev/sda3
+In a GRUB2 environment the following directive assigns 1 GiB of memory to the dom0 guest.
+{{FileBox|filename=/etc/default/grub|title=GRUB2 Limit dom0 Memory|1=
+GRUB_CMDLINE_XEN_DEFAULT="dom0_mem=1024M,max:1024M"
 }}
 
-In the above configuration GRUB will load xen.gz as the kernel with the actual dom0 kernel provided as a module.
+Ballooning should also be disabled by setting autoballoon to either "off" or "auto" in {{Path|/etx/xen/xl.conf}}.
 
-==== GRUB2 ====
-
-[[GRUB2]] provides auto-configuration scripts through grub2-mkconfig which will generate the appropriate settings based on your kernel {{Path|.config}}. If the scripts detect Xen dom0 options they will append Xen hypervisor boot lines to the grub menu. Note that for this to function correctly the kernel config file must be located in one of the following directories with a suffix matching the desired kernel:
-
-{| class="table"
-! Directory !! File Prefix !! Example
-|-
-| /etc/kernels/ || kernel-config-* || /etc/kernels/kernel-config-4.0.5-gentoo
-|-
-| /boot || config-* || /boot/config-4.0.5-gentoo
-|}
-
-The example column above assumes a kernel named /boot/kernel-4.0.5-gentoo.
-
-The following variables in {{Path|/etc/default/grub}} are the most common ones to set to control how GRUB2 will function:
-
-{| class="table"
-! Variable
-! Explanation
-|-
-| <var>GRUB_CMDLINE_XEN</var>
-| Extra parameters to be passed on the Xen command line for all Xen menu entries. For instance, to have a timestamped Xen dmesg, users will need to add <code>GRUB_CMDLINE_XEN="console_timestamps=boot"</code>.
-|-
-| <var>GRUB_CMDLINE_XEN_DEFAULT</var>
-| Parameters to be passed on the Xen command line for non-recovery Xen menu entries.
-|}
-
-For a more complete list, please refer to the [[GRUB2/Config_Variables|GRUB2 configuration variables]] sub-page.
-
-GRUB2 support is also included in [[genkernel]] and can be triggered during the build process:
-
-{{RootCmd|genkernel --oldconfig --menuconfig --install --bootloader{{=}}grub --symlink --disklabel --lvm --mdadm --makeopts{{=}}-j9 all}}
-
-Once you are satisfied with your configuration reboot the system into Xen. If everything worked correctly Xen should transfer display control to the dom0 environment at the end of the boot process which should operate just like your original native system. At this point you may want to set Xen as the default boot option via updating {{path|/etc/default/grub}}.
-
-=== Runlevel ===
+Further detail on this topic and other related tuning suggestions can be found on the [http://wiki.xen.org/wiki/Tuning_Xen_for_Performance Tuning Xen for Performance] article on the Xen wiki.
+==== Runlevel ====
 
 In order for your new Xen environment to function correctly a number of daemons must be started. The following table provides a brief overview of each daemon and its function.
 
@@ -295,17 +259,74 @@ Once all of these steps have been completed add the following statement to the g
 GRUB_CMDLINE_LINUX_XEN_REPLACE_DEFAULT="softlevel=xen"
 }}
 
-=== Performance Tuning ===
-When configuring a host with a significant amount of memory it is beneficial to fix the allocated to dom0 and disable ballooning functionality. This ensures Xen and the dom0 operating system are able to build working structures based on the memory available at boot-time and have their assumptions hold throughout operation. Additionally, in the event that a large number of guests are created, dom0 is explicitly protected from external memory pressure.
+==== Bootloader ====
 
-In a GRUB2 environment the following directive assigns 1 GiB of memory to the dom0 guest.
-{{FileBox|filename=/etc/default/grub|title=GRUB2 Limit dom0 Memory|1=
-GRUB_CMDLINE_XEN_DEFAULT="dom0_mem=1024M,max:1024M"
+In order for Xen to be the highest privilege process it must be the initial boot target, however, it must also subsequently boot the dom0 kernel.
+
+===== Legacy GRUB =====
+The following configuration handles basic [[GRUB]] settings:
+
+{{FileBox|filename=/boot/grub/grub.cfg|title=GRUB Configuration for Xen|lang=bash|1=
+title Xen Gentoo Linux 4.0
+root (hd0,0)
+kernel /boot/xen.gz
+module /boot/kernel-4.0.x.y-xen0 root=/dev/sda3
 }}
 
-Ballooning should also be disabled by setting autoballoon to either "off" or "auto" in {{Path|/etx/xen/xl.conf}}.
+In the above configuration GRUB will load xen.gz as the kernel with the actual dom0 kernel provided as a module.
 
-Further detail on this topic and other related tuning suggestions can be found on the [http://wiki.xen.org/wiki/Tuning_Xen_for_Performance Tuning Xen for Performance] article on the Xen wiki.
+===== GRUB2 =====
+
+[[GRUB2]] provides auto-configuration scripts through grub2-mkconfig which will generate the appropriate settings based on your kernel {{Path|.config}}. If the scripts detect Xen dom0 options they will append Xen hypervisor boot lines to the grub menu. Note that for this to function correctly the kernel config file must be located in one of the following directories with a suffix matching the desired kernel:
+
+{| class="table"
+! Directory !! File Prefix !! Example
+|-
+| /etc/kernels/ || kernel-config-* || /etc/kernels/kernel-config-4.0.5-gentoo
+|-
+| /boot || config-* || /boot/config-4.0.5-gentoo
+|}
+
+The example column above assumes a kernel named /boot/kernel-4.0.5-gentoo.
+
+The following variables in {{Path|/etc/default/grub}} are the most common ones to set to control how GRUB2 will function:
+
+{| class="table"
+! Variable
+! Explanation
+|-
+| <var>GRUB_CMDLINE_XEN</var>
+| Extra parameters to be passed on the Xen command line for all Xen menu entries. For instance, to have a timestamped Xen dmesg, users will need to add <code>GRUB_CMDLINE_XEN="console_timestamps=boot"</code>.
+|-
+| <var>GRUB_CMDLINE_XEN_DEFAULT</var>
+| Parameters to be passed on the Xen command line for non-recovery Xen menu entries.
+|}
+
+For a more complete list, please refer to the [[GRUB2/Config_Variables|GRUB2 configuration variables]] sub-page.
+
+GRUB2 support is also included in [[genkernel]] and can be triggered during the build process:
+
+{{RootCmd|genkernel --oldconfig --menuconfig --install --bootloader{{=}}grub --symlink --disklabel --lvm --mdadm --makeopts{{=}}-j9 all}}
+
+==== Booting Xen ====
+
+Once you are satisfied with your configuration, reboot the system into Xen. Assuming everything worked correctly Xen should transfer display control to the dom0 environment, which will operate just like your original bare-metal system.
+
+To verify Xen executing xl list should result in output similar to the following:
+{{RootCmd|xl list
+<pre>Name                                        ID   Mem VCPUs      State   Time(s)
+Domain-0                                     0  1024    24     r-----      22.0</pre>
+}}
+
+At this point you may want to set Xen as the default boot option. If you are utilizing GRUB2, add the following lines to the grub defaults file:
+{{FileBox|filename=/etc/default/grub|title=Enabling Saved Defaults|lang=bash|1=
+# Default menu entry
+GRUB_DEFAULT="saved"
+GRUB_SAVEDEFAULT="true"
+}}
+
+Then, copy the name or ID of the Xen boot config and set it via grub2-set-default:
+{{RootCmd|grub2-set-default 'Gentoo GNU/Linux, with Xen hypervisor'}}
 
 == Creating an Unpriviledged Domain (domU) ==
 
