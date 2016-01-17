@@ -1,0 +1,128 @@
+<languages/>
+
+== Введение ==
+
+One heavily used function of E-mail, is webmail access.  Some users use it solely as their access, others use it as backup or when their own system is not available. There are several options available, with {{Package|mail-client/squirrelmail}} and {{Package|mail-client/roundcube}} being the most common ones. Squirrelmail can be used if bandwidth is a huge issue, roundcube is recommended otherwise and the focus of this article.
+
+== Installing roundcube ==
+
+Roundcube can store its configuration in a database. Things like local addressbook, identities etc. can be stored there as well.
+
+Here there are several options available. Use a local, per vhost based SQLite storage pool, use a postgres/mysql database per vhost or have all vhosts share the same database. There can be advantages for any of the above options. If webmail, for various domains, is on the same host as the imap server, then using one database for all domains is fine and can be an advantage. It could be desired that each domain, each vhost gets its own webmail interface (different skin and plugins) where all users could still log in. Meaning in the event of one of the vhosts webmail being broken, they can still access their e-mail normally using a different vhost. Whether the users settings 'live' in all vhosts or not, is based on the imap server. Roundcube bases its user id on the <code>mail_host</code> e.g. the imap server and thus when using localhost the user 'profile' is identical everywhere.
+
+{{USEflag
+|ldap+
+|mysql+yes
+|postgres+
+|spell+
+|sqlite
+|ssl+yes
+|vhosts+
+}}
+
+{{Note|Only postgres or mysql is required when not using SQLite.}}
+
+After choosing the appropiate USE flags, roundcube should be emerged:
+
+{{Emerge|mail-client/roundcube}}
+
+This only installs roundcube to the host, but not into the vhost.
+
+{{RootCmd|webapp-config -I -h webmail.example.com -d roundcube roundcube 1.0.5}}
+
+{{Note|If you get an error with webapp-config, try using this syntax instead:
+{{RootCmd|webapp-config -h webmail.example.com -d roundcube -I roundcube 1.0.6}}
+}}
+
+=== Using Postgres ===
+
+Unless there is some serious security concern, only one database user is required to access all databases used by roundcube:
+
+{{RootCmd|createuser -U postgres -D -P -R -S roundcube|output=<pre>
+Enter password for new role: $password
+Enter it again: $password
+</pre>}}
+
+Roundcube will also need a database. Different names will have to be chosen when using different databases per domain:
+
+{{RootCmd|createdb -U postgres roundcubemail -O roundcube}}
+
+{{Note|Having roundcube in a separate directory is incredibly useful. Installing (and testing) a second webmail client, for example, or migrating to a new one, can be so much easier having it on the same host. However, the standard URL, webmail.example.com won't open up roundcube anymore. To fix this, create the following file as index.php in the root of htdocs directory.
+{{FileBox|filename=index.php|1=<pre>
+<?php
+	header("Location: roundcube/");
+?>
+</pre>}}
+}}
+
+== Configuring Roundcube ==
+
+Configuring roundcube has become incredible easy. Just visit http://webmail.example.com/roundcube/installer/ and follow the on screen instructions, correcting any issues as they pop up.
+
+Below are the old instructions when manually creating the {{Path|config.inc.php}} file. The installer should still be used to create the database, which it has a button for.
+
+=== Configuring Roundcube (manually) ===
+
+Configuring roundcube is as simple as editing two configuration files in {{Path|/var/www/webmail.example.com/htdocs/roundcube/config/}}.
+
+To access the database only the following line needs to be changed. The user name chosen earlier is ''roundcube''.  Replace ''pass'' in this line with the password chosen earlier:
+
+{{FileBox|filename=/var/www/webmail.example.com/htdocs/roundcube/config/db.inc.php|title=Database access|lang=php|1=
+$rcmail_config['db_dsnw'] = 'pgsql://roundcube:pass@localhost/roundcubemail';
+}}
+
+Next listed are the essential changes required for roundcube operation. More can be done to personalize the setup:
+
+{{FileBox|filename=/var/www/webmail.example.com/htdocs/roundcube/config/main.inc.php|title=Roundcube configuration|lang=diff|1=
+-$rcmail_config['default_host'] = '';
++$rcmail_config['default_host'] = 'localhost';
+ 
+-$rcmail_config['smtp_server'] = '';
++$rcmail_config['smtp_server'] = 'localhost';
+ 
+ // SMTP username (if required) if you use %u as the username Roundcube
+ // will use the current username for login
++$rcmail_config['smtp_user'] = '';
+-$rcmail_config['smtp_user'] = '%u';
+ 
+ // SMTP password (if required) if you use %p as the password Roundcube
+ // will use the current user's password for login
+-$rcmail_config['smtp_pass'] = '';
++$rcmail_config['smtp_pass'] = '%p';
+ 
+ // this key is used to encrypt the users imap password which is stored
+ // in the session record (and the client cookie if remember password is enabled).
+ // please provide a string of exactly 24 chars.
+-$rcmail_config['des_key'] = 'rcmail-!24ByteDESkey*Str';
++$rcmail_config['des_key'] = '$supersecret24bytestring';
+}}
+
+Starting with Roundcube version 0.6, Roundcube needs to have the fully qualified names for the default storage folders, such as Trash, Drafts etc:
+
+{{FileBox|filename=/var/www/webmail.example.com/htdocs/roundcube/config/main.inc.php|title=Setup fully qualified folder names|lang=diff|1=
+// NOTE: Use folder names with namespace prefix (INBOX. on Courier-IMAP)
+-$rcmail_config['drafts_mbox'] = 'Drafts';
++$rcmail_config['drafts_mbox'] = 'INBOX.Drafts';
+ 
+// NOTE: Use folder names with namespace prefix (INBOX. on Courier-IMAP)
+-$rcmail_config['junk_mbox'] = 'Junk';
++$rcmail_config['junk_mbox'] = 'INBOX.Junk';
+ 
+// NOTE: Use folder names with namespace prefix (INBOX. on Courier-IMAP)
+-$rcmail_config['sent_mbox'] = 'Sent';
++$rcmail_config['sent_mbox'] = 'INBOX.Sent';
+ 
+// NOTE: Use folder names with namespace prefix (INBOX. on Courier-IMAP)
+-$rcmail_config['trash_mbox'] = 'Trash';
++$rcmail_config['trash_mbox'] = 'INBOX.Trash';
+ 
+// NOTE: Use folder names with namespace prefix (INBOX. on Courier-IMAP)
+-$rcmail_config['default_imap_folders'] = array('INBOX', 'Drafts', 'Sent', 'Junk', 'Trash');
++$rcmail_config['default_imap_folders'] = array('INBOX', 'INBOX.Drafts', 'INBOX.Sent', 'INBOX.Junk', 'INBOX.Trash');
+}}
+
+== Testing roundcube ==
+
+Log into webmail via http://webmail.example.com/ and the test mailbox should show. Also sending mail should be working correctly.
+
+[[Category:Mail Servers]]
