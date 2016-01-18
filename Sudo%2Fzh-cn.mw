@@ -1,0 +1,349 @@
+<languages />
+
+{{Metadata|abstract=The sudo command provides a simple and secure way to configure privilege escalation, e.g. letting normal users to execute certain (or all) commands as root or some different user, possibly without giving a password.}}
+
+{{Lowercase title}}
+{{InfoBox stack
+|{{InfoBox homepage|http://www.sudo.ws/|header=true}}
+|{{InfoBox wikipedia|sudo}}
+|{{InfoBox gitweb|http://www.sudo.ws/repos/sudo|raw=true}}
+}}
+
+The <tt>sudo</tt> command provides a simple and secure way to configure privilege escalation, e.g. letting normal users to execute certain (or all) commands as root or some different user, possibly without giving a password.
+
+When you want some people to perform certain administrative steps on your system without granting them total root access, using sudo is your best option. With sudo you can control who can do what. This guide offers you a small introduction to this wonderful tool.
+
+__TOC__
+
+This article is meant as a quick introduction. The {{Package|app-admin/sudo}} package is a lot more powerful than what is described here. It has special features for editing files as a different user (<tt>sudoedit</tt>), running from within a script (so it can background, read the password from standard in instead of the keyboard, ...), etc. 
+
+Please read the <tt>sudo</tt> and <tt>sudoers</tt> manual pages for more information.
+
+== Installation ==
+
+=== USE flags ===
+
+{{USEflag|package=app-admin/sudo
+|ldap
+|nls+Yes+Yes
+|pam+Yes+Yes
+|offensive
+|skey
+|selinux
+|sendmail+Yes+Yes
+}}
+
+=== Emerge === 
+
+{{Emerge|app-admin/sudo}}
+
+== Configuration == 
+
+=== Logging activity === 
+
+One additional advantage of <tt>sudo</tt> is that it can log any attempt (successful or not) to run an application. This is very useful if you want to track who made that one fatal mistake that took you 10 hours to fix :) 
+
+=== Granting permissions === 
+
+The {{Package|app-admin/sudo}} package allows the system administrator to grant permission to other users to execute one or more applications they would normally have no right to. Unlike using the <code>setuid</code> bit on these applications <tt>sudo</tt> gives a more fine-grained control on ''who'' can execute a certain command and ''when''. 
+
+With <tt>sudo</tt> you can make a clear list ''who'' can execute a certain application. If you would set the setuid bit, any user would be able to run this application (or any user of a certain group, depending on the permissions used). You can (and probably even should) require the user to provide a password when he wants to execute the application. 
+
+The <tt>sudo</tt> configuration is managed by the {{Path|/etc/sudoers}} file. This file should never be edited through <tt>nano /etc/sudoers</tt> or <tt>vim /etc/sudoers</tt> or any other editor you might like. When you want to alter this file, you should use <tt>visudo</tt>. 
+
+This tool makes sure that no two system administrators are editing this file at the same time, preserves the permissions on the file and performs some syntax checking to make sure you make no fatal mistakes in the file. 
+
+=== Basic syntax ===
+
+The most difficult part of <tt>sudo</tt> is the {{Path|/etc/sudoers}} syntax. The basic syntax is like so: 
+
+{{CodeBox|title=Basic /etc/sudoers syntax|1=
+user  host = commands
+}}
+
+This syntax tells <tt>sudo</tt> that the user, identified by <code>user</code> and logged in on the system <code>host</code> can execute any of the commands listed in <code>commands</code> as the root user. A more real-life example might make this more clear: allow the user ''larry'' to execute <tt>emerge</tt> if he is logged in on localhost: 
+
+{{CodeBox|title=Live /etc/sudoers examples|1=
+larry  localhost = /usr/bin/emerge
+}}
+
+{{Note|The hostname must match what the <tt>hostname</tt> command returns.}}
+
+{{Warning|Do not allow a user to run an application that can allow people to elevate privileges. For instance, allowing users to execute <tt>emerge</tt> as root can indeed grant them full root access to the system because <tt>emerge</tt> can be manipulated to change the live file system to the user's advantage. If you do not trust your <tt>sudo</tt> users, don't grant them any rights.}}
+
+The user name can also be substituted with a group name - in this case you should start the group name with a <code>%</code> sign. For instance, to allow any one in the <tt>wheel</tt> group to execute <tt>emerge</tt>: 
+
+{{CodeBox|title=Allowing the wheel group members to execute emerge|1=
+%wheel  localhost = /usr/bin/emerge
+}}
+
+You can extend the line to allow for several commands (instead of making a single entry for each command). For instance, to allow the same user to not only run <tt>emerge</tt> but also <tt>ebuild</tt> and <tt>emerge-webrsync</tt> as root: 
+
+{{CodeBox|title=Multiple commands|1=
+larry  localhost = /usr/bin/emerge, /usr/bin/ebuild, /usr/sbin/emerge-webrsync
+}}
+
+You can also specify a precise command and not only the tool itself. This is useful to restrict the use of a certain tool to a specified set of command options. The <tt>sudo</tt> tool allows shell-style wildcards (AKA meta or glob characters) to be used in path names as well as command-line arguments in the sudoers file. Note that these are ''not'' regular expressions. 
+
+Let us put this to the test: 
+
+{{Cmd|sudo emerge -uDN world|output=<pre>
+We trust you have received the usual lecture from the local System
+Administrator. It usually boils down to these three things:
+  
+    #1) Respect the privacy of others.
+    #2) Think before you type.
+    #3) With great power comes great responsibility.
+  
+Password: ## (Enter the user password, not root!)
+</pre>
+}}
+
+The password that <tt>sudo</tt> requires is the user's own password. This is to make sure that no terminal that you accidentally left open to others is abused for malicious purposes. 
+
+You should know that <tt>sudo</tt> does not alter the <code>${PATH}</code> variable: any command you place after <tt>sudo</tt> is treated from ''your'' environment. If you want the user to run a tool in for instance {{Path|/sbin}} he should provide the full path to <tt>sudo</tt>, like so: 
+
+{{Cmd|sudo /usr/sbin/emerge-webrsync}}
+
+=== Basic syntax with LDAP === 
+
+The following USE flags are needed for the LDAP support.
+{{USEflag|package=app-admin/sudo
+|ldap++yes
+|pam++Yes
+}}
+
+When using sudo with LDAP, sudo will read configuration from LDAP Server as well.
+So you will need to edit two files.
+
+{{FileBox|filename=/etc/ldap.conf.sudo|title=Please chmod 400 when done|1=
+# See ldap.conf(5) and README.LDAP for details
+# This file should only be readable by root
+  
+# supported directives: host, port, ssl, ldap_version
+# uri, binddn, bindpw, sudoers_base, sudoers_debug
+# tls_{checkpeer,cacertfile,cacertdir,randfile,ciphers,cert,key
+  
+host ldap.example.com
+port 389
+  
+base dc=example,dc=com
+  
+uri ldap://ldap.example.com/
+#uri ldapi://%2fvar%2frun%2fopenldap%2fslapd.sock
+  
+ldap_version 3
+#ssl start_tls
+  
+sudoers_base ou=SUDOers,dc=example,dc=com
+#sudoers_debug 2
+  
+bind_policy soft
+}}
+
+{{FileBox|filename=/etc/nsswitch.conf|title=Please add the sudoers line|1=
+sudoers:     ldap files
+}}
+
+Also you will need to add in the following LDAP Entry for Sudo.
+
+{{Note|It was design so that the Sudoers branch are on top of the tree for security reason. So you can have a different access right from ldap to read/write to this branch}}
+
+{{CodeBox|title=Ldap Entry for Sudo|lang=ldif|1=
+version: 1
+DN: ou=SUDOers,dc=example,dc=com
+objectClass: organizationalUnit
+objectClass: top
+objectClass: domainRelatedObject
+associatedDomain: example.com
+ou: SUDOers
+  
+DN: cn=defaults,ou=SUDOers,dc=example,dc=com
+objectClass: top
+objectClass: sudoRole
+cn: defaults
+description: Default sudoOption's go here
+sudoOption: env_reset
+  
+DN: cn=root,ou=SUDOers,dc=example,dc=com
+objectClass: top
+objectClass: sudoRole
+cn: root
+sudoCommand: ALL
+sudoHost: ALL
+sudoUser: root
+  
+DN: cn=%wheel,ou=SUDOers,dc=example,dc=com
+objectClass: top
+objectClass: sudoRole
+cn: %wheel
+sudoCommand: ALL
+sudoHost: ALL
+sudoOption: !authenticate
+sudoUser: %wheel
+}}
+
+{{CodeBox|title=Ldap Entry for wheel Group|lang=ldif|1=
+version: 1
+DN: cn=wheel,ou=Group,dc=example,dc=com
+objectClass: top
+objectClass: posixGroup
+cn: wheel
+description: Wheel Group
+gidNumber: 10
+memberUid: useradmin1
+memberUid: root
+}}
+
+The configuration on the sudoer on LDAP are similar to files with some different. Please read more about Sudo with LDAP on the link below.<ref name="test">[http://www.sudo.ws/sudo/sudoers.ldap.man.html]Sudoers LDAP man Page</ref>
+
+<references />
+
+=== Using aliases ===
+
+In larger environments having to enter all users over and over again (or hosts, or commands) can be a daunting task. To ease the administration of {{Path|/etc/sudoers}} you can define ''aliases''. The format to declare aliases is quite simple: 
+
+{{CodeBox|title=Declaring aliases in /etc/sudoers|1=
+Host_Alias hostalias = hostname1, hostname2, ...
+User_Alias useralias = user1, user2, ...
+Cmnd_Alias cmndalias = command1, command2, ...
+}}
+
+One alias that always works, for any position, is the <code>ALL</code> alias (to make a good distinction between aliases and non-aliases it is recommended to use capital letters for aliases). As you might undoubtedly have guessed, the <code>ALL</code> alias is an alias to all possible settings. 
+
+A sample use of the <code>ALL</code> alias to allow ''any'' user to execute the <tt>shutdown</tt> command if he is logged on locally is: 
+
+{{CodeBox|title=Allowing any user to execute shutdown|lang=bash|1=
+ALL  localhost = /sbin/shutdown
+}}
+
+Another example is to allow the user <tt>larry</tt> to execute the <tt>emerge</tt> command as root, regardless of where he is logged in from: 
+
+{{CodeBox|title=Allowing a user to run an application regardless of his location|1=
+larry   ALL = /usr/bin/emerge
+}}
+
+More interesting is to define a set of users who can run software administrative applications (such as <tt>emerge</tt> and <tt>ebuild</tt>) on the system and a group of administrators who can change the password of any user, except root! 
+
+{{CodeBox|title=Using aliases for users and commands|1=
+User_Alias  SOFTWAREMAINTAINERS = larry, john, danny
+User_Alias  PASSWORDMAINTAINERS = larry, sysop
+Cmnd_Alias  SOFTWARECOMMANDS    = /usr/bin/emerge, /usr/bin/ebuild
+Cmnd_Alias  PASSWORDCOMMANDS    = /usr/bin/passwd [a-zA-Z0-9_-]*, !/usr/bin/passwd root
+  
+SOFTWAREMAINTAINERS  localhost = SOFTWARECOMMANDS
+PASSWORDMAINTAINERS  localhost = PASSWORDCOMMANDS
+}}
+
+=== Non-root execution ===
+
+It is also possible to have a user run an application as a different, non-root user. This can be very interesting if you run applications as a different user (for instance <tt>apache</tt> for the web server) and want to allow certain users to perform administrative steps as that user (like killing zombie processes). 
+
+Inside {{Path|/etc/sudoers}} you list the user(s) in between <code>(</code> and <code>)</code> before the command listing: 
+
+{{CodeBox|title=Non-root execution syntax|1=
+users  hosts = (run-as) commands
+}}
+
+For instance, to allow <tt>larry</tt> to run the <tt>kill</tt> tool as the <tt>apache</tt> or <tt>gorg</tt> user: 
+
+{{CodeBox|title=Non-root execution example|1=
+Cmnd_Alias KILL = /bin/kill, /usr/bin/pkill
+  
+larry   ALL = (apache, gorg) KILL
+}}
+
+With this set, the user can run <tt>sudo -u</tt> to select the user he wants to run the application as: 
+
+{{Cmd|sudo -u apache pkill apache}}
+
+You can set an alias for the user to run an application as using the <code>Runas_Alias</code> directive. Its use is identical to the other <code>_Alias</code> directives we have seen before. 
+
+=== Passwords and default settings ===
+
+By default, <tt>sudo</tt> asks the user to identify himself using his own password. Once a password is entered, <tt>sudo</tt> remembers it for 5 minutes, allowing the user to focus on his tasks and not repeatedly re-entering his password. 
+
+Of course, this behavior can be changed: you can set the <code>Defaults:</code> directive in {{Path|/etc/sudoers}} to change the default behavior for a user. 
+
+For instance, to change the default 5 minutes to 0 (never remember): 
+
+{{CodeBox|title=Changing the timeout value|1=
+Defaults:larry  timestamp_timeout=0
+}}
+
+A setting of <code>-1</code> would remember the password indefinitely (until the system reboots). 
+
+A different setting would be to require the password of the user that the command should be run as and not the users' personal password. This is accomplished using <code>runaspw</code>. In the following example we also set the number of retries (how many times the user can re-enter a password before <tt>sudo</tt> fails) to <code>2</code> instead of the default 3: 
+
+{{CodeBox|title=Requiring the root password instead of the user's password|1=
+Defaults:john   runaspw, passwd_tries=2
+}}
+
+Another interesting feature is to keep the <code>DISPLAY</code> variable set so that you can execute graphical tools: 
+
+{{CodeBox|title=Keeping the DISPLAY variable alive|1=
+Defaults:john env_keep=DISPLAY
+}}
+
+You can change dozens of default settings using the <code>Defaults:</code> directive. Fire up the <tt>sudoers</tt> manual page and search for <code>Defaults</code>. 
+
+If you however want to allow a user to run a certain set of commands without providing any password whatsoever, you need to start the commands with <code>NOPASSWD:</code>, like so: 
+
+{{CodeBox|title=Allowing emerge to be ran as root without asking for a password|1=
+larry     localhost = NOPASSWD: /usr/bin/emerge
+}}
+
+=== Bash completion ===
+
+Users that want bash completion with sudo need to run this once.
+
+{{Cmd|sudo echo "complete -cf sudo" >> $HOME/.bashrc}}
+
+=== Zshell completion ===
+
+Users that want zsh completion for sudo can set the following in {{Path|.zprofile}} and {{Path|.zshrc}} respectively
+
+{{FileBox|filename=.zprofile|title=Adding zshell completion|lang=bash|1=
+if [[ $EUID != 0 ]]; then
+    typeset -xT SUDO_PATH sudo_path
+    typeset -U sudo_path 
+    sudo_path=({,/usr/local,/usr}/sbin(N-/))
+    alias sudo="sudo env PATH=\"SUDO_PATH:$PATH\""
+fi
+}}
+
+{{FileBox|filename=.zshrc|title=Adding zshell completion|lang=bash|1=
+zstyle ':completion:*:sudo:*' environ PATH="$SUDO_PATH:$PATH"
+}}
+
+With the above change, all commands in the {{Path|/sbin}}, {{Path|/usr/sbin}} and {{Path|/usr/local/sbin}} locations will be available to the shell for completion when the command is prefaced with 'sudo'.
+
+== Usage ==
+
+=== Listing privileges ===
+
+To inform yourself what your capabilities are, run <tt>sudo -l</tt> : 
+
+{{Cmd|sudo -l|output=<pre>
+User larry may run the following commands on this host:
+    (root)   /usr/libexec/xfsm-shutdown-helper
+    (root)   /usr/bin/emerge
+    (root)   /usr/bin/passwd [a-zA-Z0-9_-]*
+    (root)   !/usr/bin/passwd root
+    (apache) /usr/bin/pkill
+    (apache) /bin/kill
+</pre>
+}}
+
+If you have any command in {{Path|/etc/sudoers}} that does not require you to enter a password, it will not require a password to list the entries either. Otherwise you might be asked for your password if it isn't remembered. 
+
+=== Prolonging password timeout ===
+
+By default, if a user has entered their password to authenticate their self to <tt>sudo</tt>, it is remembered for 5 minutes. If the user wants to prolong this period, he can run <tt>sudo -v</tt> to reset the time stamp so that it will take another 5 minutes before <tt>sudo</tt> asks for the password again. 
+
+{{Cmd|sudo -v}}
+
+The inverse is to kill the time stamp using <tt>sudo -k</tt>. 
+
+
+[[Category:Software]]
