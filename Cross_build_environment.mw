@@ -31,12 +31,12 @@ USE="${ARCH} -pam -acl" #disable acl to build the base system (essential package
 ==Build the base system==
 It can be built from scratch or a stage3 tarball can be unpacked into /usr/<TARGET>. To build it from scratch:
 * Build the system packages {{RootCmd|<TARGET>-emerge -uva --keep-going @system}} for the raspberry-pi it would be {{RootCmd|armv6j-hardfloat-linux-gnueabi-emerge -uva --keep-going @system|prompt=example #|color=blue}} (Do not care about failed packages, this will be fixed later)
-* Build other essential packages {{RootCmd|<TARGET>-emerge -uva1 –keep-going $(egrep '^[a-z]+' /usr/portage/profiles/default/linux/packages.build)}}
-* To build the failed packages it is needed to compile them "natively", which means in this case, that the packes need to be compiled in the target chroot environment. If the target host has a different architecture a qemu-chroot is needed. For targets that the build host cpu can handle directly the following steps can be skipped and you can chroot directly into the target environment.
+* Build other essential packages {{RootCmd|<TARGET>-emerge -uva1 --keep-going $(egrep '^[a-z]+' /usr/portage/profiles/default/linux/packages.build)}}
+* To build the failed packages it is needed to compile them "natively", which means in this case, that the packages need to be compiled in the target chroot environment. If the target host has a different architecture a qemu-chroot is needed. For targets that the build host cpu can handle directly the following steps can be skipped and you can chroot directly into the target environment.
 ** prepare qemu (in this case for the arm architecture) {{RootCmd|1=QEMU_USER_TARGETS="arm" QEMU_SOFTMMU_TARGETS="arm" USE="static-user static-libs" emerge --ask --buildpkg --oneshot qemu}}
 ** install qemu to the build environment {{RootCmd|1=cd /usr/<TARGET> && ROOT=$PWD/ emerge --ask --usepkgonly --oneshot --nodeps qemu}}
 ** A first test: {{RootCmd|/etc/init.d/qemu-binfmt start && cd /usr/<TARGET> && chroot . /bin/bash --login}} If it works, leave the chroot and go on with the next steps.
-** Optional: This step is not necessary in most cases. To make the target environment emulation more complete, a wrapper can be used, that passes the the correct cpu option to qemu. The following would be an example for the raspberry-pi cpu option for qemu (-cpu arm1176). Please check if the command at the end (qemu-arm) is present on your build host. {{CodeBox|1=
+** Optional: This step is not necessary in most cases. To make the target environment emulation more complete, a wrapper can be used, that passes the correct cpu option to qemu. The following would be an example for the raspberry-pi cpu option for qemu (-cpu arm1176). Please check if the command at the end (qemu-arm) is present on your build host. {{CodeBox|1=
 #include <string.h>
 #include <unistd.h>
  
@@ -57,7 +57,7 @@ int main(int argc, char **argv, char **envp) {
 * Create a chroot script {{FileBox|title=Example for raspberry-pi|filename=/usr/local/bin/chroot-armv6j|1=
 /etc/init.d/qemu-binfmt start
 
-#next two line are optional. Activate if the the qemu-wrapper is used.
+#Next two lines are optional. Activate if the qemu-wrapper is used. Check that the wrapper location corresponds with the call at the end of line two
 #echo '-1' > /proc/sys/fs/binfmt_misc/arm #deregister wrong arm
 #echo ':arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\x00\xff\xfe\xff\xff\xff:/usr/local/bin/qemu-wrapper:' > /proc/sys/fs/binfmt_misc/register
 
@@ -89,10 +89,10 @@ umount proc|lang=bash}}
 ** Update /etc/locale.gen and /etc/env.d/02locale and run {{RootCmd|locale-gen}} after that.
 ** Check/Reload config {{RootCmd|gcc-config -l;ldconfig -v;env-update; source /etc/profile}}
 ** To run emerge inside the chroot it is needed to pass other config variables to portage, it can be done with an alias: {{RootCmd|<nowiki>echo 'alias emerge-chroot="ROOT=/ CBUILD=$(grep CHOST= /etc/portage/make.conf|cut -d= -f2) HOSTCC=$CBUILD emerge"' > /etc/bash/bashrc.d/emerge-chroot && source /etc/profile</nowiki>}}
-** Packages, that refused the cross compilation can now be build with: {{RootCmd|emerge-chroot --ask --update -v --keep-going @system}}
+** Packages, that refused the cross compilation can now be built with: {{RootCmd|emerge-chroot --ask --update -v --keep-going @system}}
 * After installation of the base system the target environment can be finished according to the installation handbook
 ==Known bugs and limitations==
 * On amd64 build hosts, some cross compiled packages end up in the target environment in /usr/lib64 even if it is not a 64bit target, so set a symlink {{RootCmd|1=cd /usr/<TARGET>/usr && cd /usr/<TARGET>/usr && ln -s lib lib64}}
-* Some packages, that create new system users fail to create them in the target environment and create them in build host instead (i.e. openssh). You need to create the user manually or emerge it in the chroot again.
-
+* Some packages, that create new system users fail to create them in the target environment and create them in build host instead (i.e. openssh). You need to create the user manually or emerge the package in the chroot again.
+* If the build host is no-multilib and target environment is multilib: Emerge of sys-apps/sandbox fails because of missing 32bit support of the cross compiler. To solve this remove temporarily the dependency to sys-apps/sandbox in sys-apps/portage. Emerge sys-devel/gcc after that in the chroot environment. Now it is possible to emerge sys-apps/sandbox in the chroot.  
 [[Category:Cross building]]
