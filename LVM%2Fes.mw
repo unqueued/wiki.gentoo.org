@@ -122,7 +122,7 @@ El paquete {{Package|sys-kernel/dracut}} se portó desde el proyecto RedHat y es
 
 {{RootCmd|dracut -a lvm}}
 
-El initrd requerirá parámetros para indicarle cómo iniciar lvm. Éstos se pasan igual que el resto de parámetros del núcleo. Por ejemplo:
+The initrd will require parameters to tell it how to start LVM, and they are supplied the same way as other kernel parameters. For example:
 
 {{FileBox|filename=/etc/default/grub|title=Añadir soporte para LVM a los parámetros de inicio del núcleo|lang=bash|1=
 GRUB_CMDLINE_LINUX="rd.lvm.vg=vol00"
@@ -384,7 +384,7 @@ Dentro de LVM, esta reserva delgada es un tipo especial de volumen lógico que p
 
 {{Note/es|Si se acaba el espacio de almacenamiento de la reserva delgada, cualquier proceso que pudiera causar que esta reserva intentará asignar más extensiones (que no están disponibles) pasaría al estado "dormido y terminable" ("killable sleep") hasta que se extienda la reserva delgada o el proceso reciba la señal SIGKILL.}}
 
-Cada reserva delgada tiene unos metadatos asociados que se añaden al tamaño de la reserva. LVM calculará el tamaño de los metadatos basándose en el tamaño de la reserva y como mínimo asignará <tt>pool_chunks * 64 bytes</tt> o 2MiB, el que sea mayor. El administrador puede seleccionar también un tamaño diferente para los metadatos.
+Each thin pool has metadata associated with it, which is added to the thin pool size. LVM will compute the size of the metadata based on the size of the thin pool as the minimum of ''pool_chunks * 64 bytes'' or 2MiB, whichever is larger. The administrator can select a different metadata size as well.
 
 Para crear una reserva delgada, añada las opciones <code>--type thin-pool --thinpool thin_pool</code> a <tt>lvcreate</tt>:
 
@@ -483,7 +483,7 @@ Mientras existan volúmenes lógicos tipo instantánea, los volúmenes lógicos 
 
 {{Note/es|Una instantánea delgada solo se puede tomar de una reserva delgada y para un volumen lógico delgado. El destino del mapeador de dispositivos delgado ofrece soporte para instantáneas delgadas de volúmenes lógicos solo lectura y que no sean delgados. Sin embargo, las herramientas de LVM2 no ofrecen soporte para esto. Es posible crear un volumen lógico tipo instantánea normal (no delgado) de un volumen lógico delgado.}}
 
-Para crear una instantánea delgada, se utiliza la orden <tt>lvcreate</tt> con la opción <code>-s</code>. No se necesita pasar declaraciones de tamaño:
+To create a thin snapshot, the {{c|lvcreate}} command is used with the <code>-s</code> option. No size declaration needs to be passed on:
 
 {{RootCmd|lvcreate -s -n 20140413_lvol1 /dev/vg0/lvol1}}
 
@@ -548,7 +548,7 @@ Para crear un volumen lógico con un espejo sencillo, pase el argumento  ''-m 1'
 
 {{RootCmd|lvcreate -m 1 --mirrorlog mirror -l 40%VG --nosync -n lvol1 vg0}}
 
-La opción ''-m 1'' le indica a LVM que cree un espejo (adicional) por lo que se requieren dos volúmenes físicos. La opción <code>--nosync</code> es una optimización, sin ella LVM intentará sincronizar el espejo copiando sectores vacíos de un volumen lógico al otro.tt
+The ''-m 1'' tells LVM to create one (additional) mirror, so requiring 2 physical volumes. The <code>--nosync</code> option is an optimization - without it LVM will try synchronize the mirror by copying empty sectors from one logical volume to another.
 
 Es posible crear un espejo de un volumen lógico ya existente:
 
@@ -566,7 +566,7 @@ Si alguna parte del espejo no está disponible (normalmente debido a que ha fall
 
 En la primera escritura, LVM detectará que el espejo está roto. La directriz por defecto ("eliminar") es reducir o romper automáticamente el espejo en el número de partes disponibles. Un espejo de tres vías con un volumen físico no disponible se reducirá a un volumen lineal normal. Si el fallo es transitorio y el volumen físico vuelve a estar disponible después de que LVM haya roto el espejo, el volumen lógico en espejo tendrá que ser creado de nuevo sobre éste. 
 
-Para recuperar el espejo, se debe eliminar el volumen físico del grupo de volumen y se necesita añadir un volumen físico de reemplazo (o si el grupo de volumen tiene un volumen físico disponible, se puede crear en él). A continuación se puede recrear el espejo con <tt>lvconvert</tt> y en este punto se puede eliminar el volumen físico antiguo del grupo de volumen:
+To recover the mirror, the failed physical volume needs to be removed from the volume group, and a replacement physical volume needs to be added (or if the volume group has a free physical volume, it can be created on that one). Then the mirror can be recreated with {{c|lvconvert}} at which point the old physical volume can be removed from the volume group:
 
 {{RootCmd|vgextend vg0 /dev/sdc1
 |lvconvert -b -m 1 --mirrorlog disk vg0/lvol1
@@ -608,9 +608,11 @@ No es posible seccionar un volumen ya existente ni redimensionar las secciones e
 
 ==== Espejos (RAID1) ====
 
-Al contrario que RAID0 que consiste en volúmenes seccionados, RAID1 los refleja, sin embargo se implementa de forma diferente a los espejos LVM originales. Bajo RAID1 las lecturas se reparten a través de los volúmenes físicos mejorando el rendimiento. Los fallos en los espejos RAID1 no causan bloqueo de E/S ya que LVM no necesita romperlo a la hora de la escritura.
+Unlike RAID0, which is striping, RAID1 is mirroring, but implemented differently than the original LVM mirror. Under RAID1, reads are spread out across physical volumes, improving performance. RAID1 mirror failures do not cause I/O to block because LVM does not need to break it on write.
 
 Cualquier lugar en el que se pueda utilizar un espejo LVM, se puede utilizar un espejo RAID1 en su lugar. Es posible hacer que LVM cree espejos RAID1 en lugar de espejos normales definiendo ''mirror_segtype_default'' a ''raid1'' en {{Path|lvm.conf}}.
+
+{{Warning|LVM RAID1 mirroring is not yet supported by GRUB. If you apply this to the LVM volume that holds your kernel/initramfs (your 'boot' volume), you will render your system unbootable. (A fix will appear in the next version of GRUB. See GRUB bug [http://savannah.gnu.org/bugs/?44534 #44534] for details.)}}
 
 Para crear un volumen lógico con un solo espejo:
 
@@ -622,7 +624,7 @@ Es posible convertir un volumen lógico existente a RAID1:
 
 {{RootCmd|lvconvert -m 1 --type raid1 -b vg0/lvol1}}
 
-Para eliminar un espejo RAID 1, defina el número de espejos a cero:
+To remove a RAID1 mirror, set the number of mirrors to 0:
 
 {{RootCmd|lvconvert -m0 vg0/lvm_raid1}}
 
@@ -630,7 +632,7 @@ Si alguna parte del RAID1 no está disponible (normalmente debido a que ha falla
 
 {{RootCmd|vgchange -ay --partial vg0}}
 
-Al contrario que en los espejos LVM, la escritura NO rompe el espejo. Si el fallo es solo transitorio y el volumen físico que falla vuelve a entrar en funcionamiento, LVM sincronizará de nuevo el espejo copiando los segmentos que están desactualizados en lugar del volumen lógico completo. Si el fallo es permanente, entonces se necesita eliminar del grupo de volumen el volumen físico que ha fallado y añadir un volumen físico de reemplazo (o si el grupo de volumen dispone de algún volumen físico libre, se puede crear en un volumen físico distinto). El espejo se puede reparar con <tt>lvconvert</tt>, y el antiguo volumen físico se puede eliminar del grupo de volumen:
+Unlike an LVM mirror, writing does NOT break the mirroring. If the failure is only transient, and the missing physical volume returns, LVM will resync the mirror by copying cover the out-of-date segments instead of the entire logical volume. If the failure is permanent, then the failed physical volume needs to be removed from the volume group, and a replacement physical volume needs to be added (or if the volume group has a free physical volume, it can be created on a different PV). The mirror can then be repaired with {{c|lvconvert}}, and the old physical volume can be removed from the volume group:
 
 {{RootCmd|vgextend vg0 /dev/sdc1
 |lvconvert --repair -b vg0/lvm_raid1
@@ -638,7 +640,7 @@ Al contrario que en los espejos LVM, la escritura NO rompe el espejo. Si el fall
 
 ==== RAID1 delgado ====
 
-No es posible (aún) crear una reserva delgada o un volumen delgado RAID1. Es posible crear una reserva delgada RAID1 creando en primer lugar un volumen lógico en espejo y a continuación convertirlo en una reserva delgada con <tt>lvconvert</tt>. Se necesitan dos volúmenes lógicos: una para la reserva delgada y otro para los metadatos delgados. El proceso de conversión los mezclará en un único volumen lógico.
+It is not (yet) possible to create a RAID1 thin pool or thin volume. It is possible to create a RAID1 thin pool by creating a normal mirrored logical volume and then converting the logical volume to a thin pool with {{c|lvconvert}}. 2 logical volumes are required: one for the thin pool and one for the thin metadata; the conversion process will then merge them into a single logical volume.
 
 {{Warning/es|Se necesita una versión de LVM igual o posterior a la 2.02.98 para que esto funcione. Las versiones anteriores no podrán funcionar o causarán un fallo de segmento y corromperán el grupo de volumen. Además, la conversión de RAID1 a una reserva delgada ¡'''Destruirá'' todos los datos del espejo!}}
 
@@ -650,9 +652,9 @@ No es posible (aún) crear una reserva delgada o un volumen delgado RAID1. Es po
 
 {{Note/es|El seccionado con paridad requiere al menos tres volúmenes físicos.}}
 
-RAID0 no es tolerante a fallos. Si cualquiera de los volúmenes físicos falla, entonces el volumen lógico es inutilizable. Al añadir una sección de paridad a RAID0 el volumen lógico puede seguir funcionando si algún volumen físico falta. Se puede añadir un nuevo volumen físico para restaurar la tolerancia a fallos.
+RAID0 is not fault-tolerant - if any of the physical volumes fail then the logical volume is unusable. By adding a parity stripe to RAID0 the logical volume can still function if a physical volume is missing. A new physical volume can then be added to restore fault tolerance.
 
-Los conjuntos seccionados con paridad se pueden implementar de dos formas: RAID4 y RAID5. En RAID4, todas las secciones que contienen la información de paridad se almacenan en lel mismo volumen físico. Esto puede dar lugar a un cuello de botella ya que todas las escrituras afectan también a ese volumen físico. Con RAID5 los datos de paridad se distribuyen homogéneamente por todos los volúmenes físicos de modo que ninguno de ellos es un cuello de botella. Debido a esto, RAID4 no es una implementación común y se considera obsoleta y anticuada. En la práctica todos los conjuntos seccionados con paridad son RAID5.
+Stripsets with parity come in 2 flavors: RAID4 and RAID5. Under RAID4, all the parity stripes are stored on the same physical volume. This can become a bottleneck because all writes hit that physical volume, and it gets worse the more physical volumes are in the array. With RAID5, the parity data is distributed evenly across the physical volumes so none of them become a bottleneck. For that reason, RAID4 is rare and is considered obsolete/historical. In practice, all stripesets with parity are RAID5.
 
 {{RootCmd|lvcreate --type raid5 -l 20%VG -i 2 -n lvm_raid5 vg0}}
 
