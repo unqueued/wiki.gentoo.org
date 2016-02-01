@@ -33,11 +33,34 @@
 
 {{Emerge|{{Package|www-servers/apache}}}}
 
+{{FileBox|filename=/etc/portage/package.accept_keywords|title=Allowing Apache 2.4|lang=bash|1=
+>=www-servers/apache-2.4.16 ~amd64
+>=app-admin/apache-tools-2.4.16 ~amd64
+}}
+
+If you want to use the Apache event MPM, then add the following to make.conf:
+{{FileBox|filename=/etc/portage/make.conf|title=Apache event MPM|lang=bash|1=
+APACHE2_MPMS="event"
+}}
+
+If you want to use the Apache worker MPM, then add the following to make.conf:
+{{FileBox|filename=/etc/portage/make.conf|title=Apache event MPM|lang=bash|1=
+APACHE2_MPMS="worker"
+}}
+
+And, enable the Apache threads USE flag:
+{{FileBox|filename=/etc/portage/package.use|title=Apache threads support|lang=bash|1=
+www-servers/apache threads
+}}
+
+Then ''emerge'' Apache:
+{{Emerge|{{Package|www-servers/apache}}}}
+
 === グローバルなサポート ===
 
 Enabling the <code>apache2</code> global USE flag provides support for Apache in other packages. This may cause {{Package|www-servers/apache}} to be installed automatically if a package depending on Apache has been emerged.
  		 
-{{FileBox|filename=/etc/portage/make.conf|title|Adding Apache to system USE flags|lang=bash|1=
+{{FileBox|filename=/etc/portage/make.conf|title=Adding Apache to system USE flags|lang=bash|1=
 USE="apache2"
 }}
 
@@ -463,6 +486,10 @@ APACHE2_OPTS="... -D FCGID"
 
 PHP の 5.3 以上では、FastCGI およびプロセスマネージャー、FPM のサポートが追加されています。
 
+Furthermore, there are a few restrictions on the availability of functionality within Apache 2.4:
+* >= Apache 2.4.9, if you want to [https://wiki.apache.org/httpd/PHP-FPM#Performance_and_Pitfalls communicate with PHP-FPM over UNIX sockets]
+* >= Apache 2.4.10, if you want to use [https://github.com/php/php-src/pull/694 SetHandler] instead of [https://wiki.apache.org/httpd/PHP-FPM#Example ProxyPassMatch].
+
 以下の手法は、<code>FilesMatch</code> ディレクティブに基づいており、メインのサーバー設定か <code>VirtualHost</code> の設定の中に記載します。UNIX ソケットの場所は、{{Path|php-fpm.conf}} 内の <code>listen</code> ディレクティブによって決まり、サイトや機能ごとに別々に定めることが可能です。
 
 以下の例では、Apache の PHP モジュールの設定ファイルを置いています:
@@ -472,6 +499,23 @@ PHP の 5.3 以上では、FastCGI およびプロセスマネージャー、FPM
         <FilesMatch "\.php$">
                 SetHandler "proxy:unix:///var/run/php-fpm/www.sock{{!}}fcgi://localhost/"
         </FilesMatch>
+  
+	# Set it to handle the files
+	<IfModule mod_mime.c>
+		AddHandler application/x-httpd-php .php .php5 .phtml
+		AddHandler application/x-httpd-php-source .phps
+	</IfModule>
+  
+	DirectoryIndex index.php index.phtml
+ </IfDefine>
+}}
+
+Or, you can use ProxPassMatch -- the only option if the Apache version is between 2.4.0 and 2.4.8, inclusive.
+
+{{FileBox|filename=/etc/apache2/modules.d/70_mod_php5.conf|title=Using PHP-FPM (recommended for Apache 2.4.8 and older)|lang=apache|1=
+ <IfDefine PHP5>
+        # Send all requested PHP files to PHP-FPM via fcgi://PHP_FPM_LISTEN_ADDRESS:PHP_FPM_LISTEN_PORT/DOCUMENT_ROOT/$1
+        ProxyPassMatch ^/(.*\.php)$ fcgi://127.0.0.1:9000/var/www/localhost/htdocs/$1
   
 	# Set it to handle the files
 	<IfModule mod_mime.c>
