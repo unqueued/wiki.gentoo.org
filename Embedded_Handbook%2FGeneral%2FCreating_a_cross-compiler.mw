@@ -1,4 +1,305 @@
 {{:{{ROOTPAGENAME}}/TOC}}
 
+The first thing you should know about building a toolchain is that some versions of toolchain components refuse to work together. Exactly which combinations are problematic is a matter that's constantly in flux as the Portage tree evolves. The only reliable way to determine what works is to run crossdev, adjusting individual component versions as necessary, until crossdev completes the toolchain build successfully. Even then, the cross toolchain may build binaries which break on the target system. Only through trial and error and patience will you arrive at a favorable combination of all factors.
+
+You do not have to worry about the cross-compiler interfering with your native build system. All of the toolchain packages are designed such that they are isolated from each other based on the target. This way you can install cross-compilers for whatever architecture you wish without breaking the rest of your system.
+
+== crossdev ==
+
+=== Intro === 
+
+Generating a cross-compiler by hand is a long and painful process. This is why it has been fully integrated into Gentoo! A frontend called crossdev will run {{c|emerge}} with all of the proper environment variables and install all the right packages to generate arbitrary cross-compilers based on your needs. First you'll need to install {{c|crossdev}}:
+
+{{Emerge|sys-devel/crossdev}}
+
+You'll probably want to install the ~arch keyworded version of crossdev to get all the latest fixes.
+
+{{Note|If you are upgrading from an older version of crossdev, and have {{c|crossdev-wrappers}} installed, be sure to uninstall crossdev-wrappers first. Your existing cross-toolchains will remain intact.}}
+
+We only cover the basic usage of crossdev here, but crossdev can customize the process fairly well for most needs. Run {{c|crossdev --help}} to get some ideas on how to use crossdev. Here are some common usage options:
+
+{{GenericCmd|crossdev --g [gcc version] --l [(g)libc version] --b [binutils version] --k [kernel headers version] -P -v -t [tuple]}}
+
+{{GenericCmd|crossdev -S -P -v -t [tuple]}}
+
+=== Installing ===
+
+The first step is to select the proper tuple for your target. Here we will assume you want to build a cross-compiler for the SH4 (SuperH) processor with glibc running on Linux. We will do this on a PowerPC machine. Generate a SH4 cross-compiler:
+
+{{RootCmd|crossdev --target sh4-unknown-linux-gnu|output=
+-----------------------------------------------------------------------------------------------------
+ * Host Portage ARCH:     ppc
+ * Target Portage ARCH:   sh
+ * Target System:         sh4-unknown-linux-gnu
+ * Stage:                 4 (C/C++ compiler)
+
+ * binutils:              binutils-[latest]
+ * gcc:                   gcc-[latest]
+ * headers:               linux-headers-[latest]
+ * libc:                  glibc-[latest]
+
+ * PORTDIR_OVERLAY:       /usr/local/portage
+ * PORT_LOGDIR:           /var/log/portage
+ * PKGDIR:                /usr/portage/packages/powerpc-unknown-linux-gnu/cross/sh4-unknown-linux-gnu
+ * PORTAGE_TMPDIR:        /var/tmp/cross/sh4-unknown-linux-gnu
+  _  -  ~  -  _  -  ~  -  _  -  ~  -  _  -  ~  -  _  -  ~  -  _  -  ~  -  _  -  ~  -  _  -  ~  -  _  
+ * Forcing the latest versions of {binutils,gcc}-config/gnuconfig ...                          [ ok ]
+ * Log: /var/log/portage/cross-sh4-unknown-linux-gnu-binutils.log
+ * Emerging cross-binutils ...                                                                 [ ok ]
+ * Log: /var/log/portage/cross-sh4-unknown-linux-gnu-gcc-stage1.log
+ * Emerging cross-gcc-stage1 ...                                                               [ ok ]
+ * Log: /var/log/portage/cross-sh4-unknown-linux-gnu-linux-headers.log
+ * Emerging cross-linux-headers ...                                                            [ ok ]
+ * Log: /var/log/portage/cross-sh4-unknown-linux-gnu-glibc.log
+ * Emerging cross-glibc ...                                                                    [ ok ]
+ * Log: /var/log/portage/cross-sh4-unknown-linux-gnu-gcc-stage2.log
+ * Emerging cross-gcc-stage2 ...                                                               [ ok ]
+}}
+
+{{Note|At the moment it's not possible to set <var>PORTAGE_CONFIGROOT</var> before calling {{c|crossdev}} to a folder set to the arch you're targetting. You have to use your own config. If you want to use arch specific use flags, like <code>altivec</code> in a non-powerpc architecture, you need to unmask the use flag in {{Path|/usr/portage/base/use.mask}}, or temporarily change your profile.}}
+
+=== Quick test ===
+
+If everything goes as planned, you should have a shiny new compiler on your machine. Give it a spin!
+
+Use the SH4 cross-compiler:
+
+{{Cmd|sh4-unknown-linux-gnu-gcc --version|output=
+sh4-unknown-linux-gnu-gcc (GCC) 4.2.0 (Gentoo 4.2.0 p1.4)
+Copyright (C) 2007 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+}}
+
+{{Cmd
+|echo 'int main(){return 0;}' > sh4-test.c
+|sh4-unknown-linux-gnu-gcc -Wall sh4-test.c -o sh4-test
+}}
+
+{{Cmd|file sh4-test|output=
+sh4-test: ELF 32-bit LSB executable, Renesas SH, version 1 (SYSV), for GNU/Linux 2.6.9, dynamically linked (uses shared libs), not stripped
+}}
+
+If the crossdev command failed, you have the log file which you can review to see if the problem is local. If you're unable to fix the issue, you're welcome to file a bug in our Bugzilla. See the [[{{ROOTPAGENAME}}/Beyond/Communication|Communication section]] for more information.
+
+== Uninstalling ==
+
+To uninstall a toolchain, simply use the <code>--clean</code> option. If you modified the sysroot by hand, you'll be prompted to delete things inside of it, so you may want to pipe {{c|yes {{!}} }} into the command.
+
+Uninstall the SH4 cross-compiler:
+
+{{RootCmd|crossdev --clean sh4-unknown-linux-gnu}}
+
+In case you didn't already notice, deleting any and all files in the {{Path|/usr/CTARGET/}} directory is completely safe.
+
+=== Options ===
+
+Obviously crossdev can do a lot more, so to find out more, simply run {{c|crossdev --help}}.
+
+== Cross-compiler internals ==
+
+{{Warning|This section is included for posterity and in the hopes that others will find it useful. The target audience is people who (for some stupid reason or another) really really want to create their own cross compiler with binutils/(glibc|uclibc)/gcc all by themselves. This section is not meant to cover/document/whatever the myriad of build failures you are likely to see along the way. If you need such help, see the [[{{ROOTPAGENAME}}/Beyond|Beyond section]] in the handbook for some pointers. You certainly should not bug me or anyone else in Gentoo.}}
+
+{{Warning|If you're still reading, you should really check out the crosstool project (again refer to the [[{{ROOTPAGENAME}}/Beyond|Beyond section]]) as that provides a distribution independent method for generating cross-compilers. While it does kind of stink, it is certainly the best (and really only) option out there for creating cross-compilers.}}
+
+=== Overview ===
+
+There are generally two ways to build up your cross-compiler. The "accepted" way, and the cheater's shortcut.
+
+The current "accepted" way is:
+
+# binutils
+# kernel headers
+# libc headers
+# gcc stage1 (c-only)
+# libc
+# gcc stage2 (c/c++/etc...)
+
+The cheater's shortcut is:
+
+# binutils
+# kernel headers
+# gcc stage1 (c-only)
+# libc
+# gcc stage2 (c/c++/etc...)
+
+The reason people are keen on the shortcut is that the libc headers step tends to take quite a while, especially on slower machines. It can also be kind of a pain to setup kernel/libc headers without a usuable cross compiler. Note though that if you seek help with cross-compilers, upstream projects will not want to help you if you took the shortcut.
+
+Also note that the shortcut requires the gcc stage1 to be "crippled". Since you're building without headers, you cannot enable the sysroot option nor can you build up proper gcc libs. This is OK if the only thing you use the stage1 is building the C library and a kernel, but beyond that you need a nice sysroot based compiler.
+
+Below I will describe the "accepted" way as the steps are pretty much the same. You just need some extra patches for gcc in order to take the shortcut.
+
+=== Sysroot ===
+
+We will be cross-compiling using the sysroot method. But does the sysroot do?
+
+The sysroot tells GCC to consider dir as the root of a tree that contains a (subset of) the root filesystem of the target operating system. Target system headers, libraries and run-time object files will be searched in there.
+
+The top level directory is commonly rooted in {{Path|/usr/$CTARGET}}
+
+{{CodeBox|title=A typical sysroot layout|1=<pre>
+|-- bin/
+|-- lib/            critical runtime libs (libc/ldso/etc...)
+`-- usr/
+    |-- include/    development headers
+    |   |-- linux/      like the linux kernel
+    |   `-- asm/        like the arch-specific
+    `-- lib/        non critical runtime libs / development libs
+</pre>}}
+
+As you can see, it's just like the directory setup in {{Path|/}} but in {{Path|/usr/$CTARGET}}. This setup is of course not an accident but designed on purpose so you can easily migrate applications/libraries out of {{Path|/usr/$CTARGET}} and into {{Path|/}} on your target board. If you wanted, you could even be lazy and use the {{Path|/usr/$CTARGET}} as a quick NFS root!
+
+{{Note|The old style of cross-compilers was to use <code>--prefix{{=}}/usr/$CTARGET</code>. If you are using versions of binutils/gcc that predate sysroot support, you may have to do just this. I will not document this because (1) you should not be using such old/crusty/busted versions and (2) it's quite a huge pain compared to sysroot.}}
+
+=== Binutils ===
+
+Grab the latest binutils tarball and unpack it.
+
+The <code>--disable-werror</code> option is to prevent binutils from aborting the compile due to warnings. Great feature for developers, but a pain for users. Configure and build binutils:
+
+{{Cmd
+|./configure --target{{=}}$CTARGET --prefix{{=}}/usr --with-sysroot=/usr/$CTARGET --disable-werror
+|make
+|make install DESTDIR{{=}}$PWD/install-root
+}}
+
+The reason we install into the localdir is so we can remove crap that doesn't belong. For example, a normal install will give us {{Path|/usr/lib/libiberty.a}} which doesn't belong in our host {{Path|/usr/lib}}. So clean out stuff first:
+
+{{Cmd|rm -rf install-root/usr/{info,lib,man,share} }}
+
+And install what's left:
+
+{{RootCmd|cp -a install-root/* /}}
+
+=== Kernel headers ===
+
+Grab the latest Linux tarball and unpack it. There are two ways of installing the kernel headers: sanitized and unsanitized. The former is clearly better (but requires a recent version of the Linux kernel), but we'll quickly cover both.
+
+{{Note|Clearly you'll have to replace <var>$ARCH</var> with a value that makes sense for your platform.}}
+
+Building and install the unsanitized headers:
+
+{{Cmd|yes "" {{!}} make ARCH{{=}}$ARCH oldconfig prepare}}
+
+{{RootCmd
+|mkdir -p /usr/$CTARGET/usr/include
+|cp -a include/linux include/asm-generic /usr/$CTARGET/usr/include/
+|cp -a include/asm-$ARCH /usr/$CTARGET/usr/include/asm
+}}
+
+Build and install the sanitized headers:
+
+{{RootCmd|make ARCH{{=}}$ARCH headers_install INSTALL_HDR_PATH{{=}}/usr/$CTARGET/usr}}
+
+=== System libc headers ===
+
+Grab the latest glibc tarball and unpack it. Glibc is picky, so you'll have to compile in a directory separate from the source code.  Build and install the glibc headers:
+
+{{Cmd
+|mkdir build
+|cd build
+|../configure --host{{=}}$CTARGET --prefix{{=}}/usr --with-headers{{=}}/usr/$CTARGET/usr/include --without-cvs --disable-sanity-checks
+}}
+
+{{RootCmd|make -k install-headers install_root{{=}}/usr/$CTARGET}}
+
+Glibc sucks at life so you have to do a few things by hand:
+
+{{RootCmd
+|mkdir -p /usr/$CTARGET/usr/include/gnu
+|touch /usr/$CTARGET/usr/include/gnu/stubs.h
+|cp bits/stdio_lim.h /usr/$CTARGET/usr/include/bits/
+}}
+
+=== GCC Stage 1 (C only) ===
+
+We first have to help gcc find the current libc headers:
+
+{{RootCmd|ln -s usr/include /usr/$CTARGET/sys-include}}
+
+Then grab the latest gcc tarball and unpack it:
+
+{{Cmd
+|mkdir build
+|cd build
+|../configure --target{{=}}$CTARGET --prefix{{=}}/usr --with-sysroot{{=}}/usr/$CTARGET --enable-languages=c --disable-shared --disable-checking --disable-werror --disable-libmudflap --disable-libssp --disable-libgomp
+|make
+|make install DESTDIR{{=}}$PWD/install-root
+}}
+
+Same as binutils, gcc leaves some stuff behind we don't want. Clean the gcc stage 1:
+
+{{Cmd|rm -rf install-root/usr/{info,include,lib/libiberty.a,man,share} }}
+
+=== System libc ===
+
+Remove the old glibc build directory and recreate it:
+
+{{Cmd
+|rm -rf build
+|mkdir build
+|cd build
+|../configure --host{{=}}$CTARGET --prefix{{=}}/usr --without-cvs
+|make
+}}
+
+{{RootCmd|make install install_root{{=}}/usr/$CTARGET}}
+
+=== GCC Stage 2 (All frontends) ===
+
+Build up a full GCC now. Select whichever compiler frontends you like; we'll just do C/C++ for simplicity. Build and install the gcc stage 2:
+
+{{Cmd
+|./configure --target{{=}}$CTARGET --prefix{{=}}/usr --with-sysroot{{=}}/usr/$CTARGET --enable-languages{{=}}c,c++ --enable-shared --disable-checking --disable-werror
+|make
+}}
+
+{{RootCmd|make install }}
+
+=== Core runtime files ===
+
+There are many random core runtime files that people wonder what they may be for. Let's explain:
+
+{| class="table table-striped table-condensed"
+|-
+! colspan="2" | Files provided by {{Package|sys-libs/glibc}}
+|-
+! File !! Purpose
+|-
+| {{Path|crt0.o}} || Older style of the initial runtime code. No one generates this anymore.
+|-
+| {{Path|crt1.o}} || Newer style of the initial runtime code. Contains the _start symbol which sets up the env with argc/argv/libc _init/libc _fini before jumping to the libc main. glibc calls this file 'start.S'.
+|-
+| {{Path|crti.o}} || Defines the function prolog; _init in the .init section and _fini in the .fini section. glibc calls this 'initfini.c'.
+|-
+| {{Path|crtn.o}} || Defines the function epilog. glibc calls this 'initfini.c'.
+|-
+| {{Path|Scrt1.o}} || Used in place of crt1.o when generating PIEs.
+|-
+| {{Path|gcrt1.o}} || Used in place of crt1.o when generating code with profiling information. Compile with -pg. Produces output suitable for the gprof util.
+|-
+| {{Path|Mcrt1.o}}  || Like gcrt1.o, but is used with the prof utility. glibc installs this as a dummy file as it's useless on linux systems.
+|}
+
+{| class="table table-striped table-condensed"
+|-
+! colspan="2" | Files provided by {{Package|sys-devel/gcc}}
+|-
+! File !! Purpose
+|-
+| {{Path|crtbegin.o}} || GCC uses this to find the start of the constructors.
+|-
+| {{Path|crtbeginS.o}} || Used in place of crtbegin.o when generating shared objects/PIEs.
+|-
+| {{Path|crtbeginT.o}} || Used in place of crtbegin.o when generating static executables.
+|-
+| {{Path|crtend.o}} || GCC uses this to find the start of the destructors.
+|-
+| {{Path|crtendS.o}} || Used in place of crtend.o when generating shared objects/PIEs.
+|}
+
+The general linking order:
+
+<code>crt1.o crti.o crtbegin.o [-L paths] [user objects] [gcc libs] [C libs] [gcc libs] crtend.o crtn.o</code>
 
 {{migrated|originalauthors=Mike Frysinger, Ned Ludd, Robin H. Johnson, Alex Tarkovsky, Alexey Shvetsov, Raúl Porcel, Joshua Saddler on April 28, 2013.}}
