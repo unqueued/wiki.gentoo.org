@@ -1,0 +1,188 @@
+{{Lowercase title}}
+{{InfoBox stack
+|{{InfoBox homepage|https://security.appspot.com/vsftpd.html|header=true}}
+|{{InfoBox wikipedia|vsftpd}}
+}}
+'''vsftpd''' ('''V'''ery '''S'''ecure '''FTP''' '''D'''aemon) is a major FTP server. <br />
+'''pam''' ('''P'''uggable '''A'''uthentication '''M'''odules for linux) is a system of libraries that handle the authentication tasks of applications (services) on the system.<br />
+'''winbind'''. Name Service Switch daemon for resolving names from NT servers
+
+== Installation ==
+=== Vsftpd ===
+==== Vsftpd USE Flags ====
+{{USEflag|package=net-ftp/vsftpd}}
+We should enable a '''pam''' '''tcpd''' '''caps''' and, optionally, '''ssl''' (for security reasons) use flags:
+{{RootCmd|echo "net-ftp/vsftpd pam tcpd caps ssl" > /etc/portage/package.use/vsftpd}}
+==== Install vsftpd ====
+Install {{Package|net-ftp/vsftpd}}:
+{{Emerge|net-ftp/vsftpd}}
+=== Samba ===
+==== Samba USE Flags ====
+{{USEflag|package=net-fs/samba}}
+We should enable a '''ads''' use flag
+{{RootCmd|echo "net-fs/samba ads" > /etc/portage/package.use/samba}}
+==== Install samba ====
+Install {{Package|net-fs/samba}}:
+{{Emerge|net-fs/samba}}
+== Configuration ==
+=== /etc/krb5.conf ===
+Note: parameters are case-sensitive
+{{FileBox|filename=/etc/krb5.conf|1=
+[libdefaults]
+default_realm = CORP.DOMAIN.COM
+dns_lookup_kdc = no
+dns_lookup_realm = no
+ticket_lifetime = 24
+default_tgs_enctypes = aes256-cts-hmac-sha1-96 rc4-hmac des-cbc-crc des-cbc-md5
+default_tkt_enctypes = aes256-cts-hmac-sha1-96 rc4-hmac des-cbc-crc des-cbc-md5
+permitted_enctypes = aes256-cts-hmac-sha1-96 rc4-hmac des-cbc-crc des-cbc-md5
+[realms]
+CORP.DOMAIN.COM = {
+kdc = dc1.corp.domain.com
+kdc = dc2.corp.domain.com
+admin_server = dc1.corp.domain.com
+default_domain = corp.domain.com
+}
+[domain_realm]
+.corp.domain.com = CORP.DOMAIN.COM
+corp.domain.com = CORP.DOMAIN.COM
+}}
+=== /etc/vsftpd/vsftpd.conf ===
+FTP-Server will authenticate users in Microsoft Active Directory via pam + winbind.
+{{FileBox|filename=/etc/vsftpd/vsftpd.conf|1=
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+local_umask=022
+dirmessage_enable=YES
+connect_from_port_20=YES
+idle_session_timeout=600
+data_connection_timeout=120
+ascii_upload_enable=YES
+ascii_download_enable=NO
+ftpd_banner=Welcome to FTP-server.
+chroot_local_user=YES
+listen=YES
+local_max_rate=0
+use_localtime=YES
+pam_service_name=ftp
+session_support=YES
+pasv_enable=YES
+}}
+==== Chroot to user's home directory ====
+Note: If you want to chroot all users to one fixed directory, just add the following to your /etc/vsftpd/vsftpd.conf:
+<pre>
+local_root=/var/ftp
+</pre>
+==== SECCOMP Filtering and 64-bit Kernels with =net-ftp/vsftpd-3.0.x ====
+Note: If running an amd64 kernel, you will need to add the following to your /etc/vsftpd/vsftpd.conf:
+<pre>
+seccomp_sandbox=NO
+</pre>
+If the above change is not added, the following error may occur on the client side: Fatal error:
+500 OOPS: priv_sock_get_cmd
+For further information, refer to https://bugzilla.redhat.com/show_bug.cgi?id=845980.
+=== /etc/samba/smb.conf ===
+Note: parameters in file are case-sensitive!
+{{FileBox|filename=/etc/samba/smb.conf|1=
+[global]
+   netbios name = FTPHOST
+   workgroup = CORP
+   realm = CORP.DOMAIN.COM
+   server string = FTPHOST
+   security = ads
+   encrypt passwords = true
+   dns proxy = no
+   domain master = no
+   local master = no
+   preferred master = no
+   os level = 0
+   domain logons = no
+   hosts allow = 192.168. 127. 10.
+   log file = /var/log/samba/log.%m
+   max log size = 50
+   interfaces = 127.0.0.1/8 10.1.1.1/24
+   display charset = UTF-8
+   unix charset = UTF-8
+   idmap cache time = 1
+   idmap negative cache time = 1
+   winbind use default domain = yes
+   winbind uid = 10000-80000
+   winbind gid = 10000-80000
+   winbind enum users = yes
+   winbind enum groups = yes
+   winbind refresh tickets = yes
+   winbind nss info = rfc2307
+   winbind offline logon = true
+   winbind cache time = 1
+   max protocol = smb2
+   oplocks = yes
+   level2 oplocks = yes
+   kernel oplocks = no
+   create mask = 0777
+}}
+==== Samba localization ====
+Note: If using samba in localized network, just add following to your /etc/samba/smb.conf (change codepage to yours):
+<pre>
+   dos charset = cp866
+</pre>
+==== pam configuration ====
+Users, who are not in FTP-ACCESS groip in Active Directory, will get "Password incorrect"
+{{FileBox|filename=/etc/pamd/ftp|1=
+auth     include   vsftpd-winbind
+account  include   vsftpd-winbind
+session  include   vsftpd-winbind
+}}
+{{FileBox|filename=/etc/pam.d/vsftpd-winbind|1=
+uth        required      pam_env.so debug
+auth        required      pam_winbind.so require_membership_of=FTP-ACCESS debug debug_state
+auth        sufficient    pam_winbind.so require_membership_of=FTP-ACCESS debug debug_state
+auth        required      pam_deny.so debug
+account     sufficient    pam_winbind.so require_membership_of=FTP-ACCESS debug debug_state
+account     required      pam_deny.so
+password    required      pam_cracklib.so retry=3
+password    sufficient    pam_unix.so nullok use_authtok md5 shadow
+password    required      pam_deny.so
+session     required      pam_mkhomedir.so skel=/etc/skel/ umask=0022
+session     required      pam_limits.so
+session     required      pam_unix.so
+}}
+
+{{warning|dangerous, do not do this unless behind a firewall and kept intranet only}}
+
+{{RootCmd|chown ftp /home/ftp}}
+
+{{FileBox|filename=/etc/vsftpd/vsftpd.conf|1=
+listen=YES
+local_enable=NO
+anonymous_enable=YES
+anon_upload_enable=YES
+write_enable=YES
+anon_mkdir_write_enable=YES
+anon_root=/home/ftp
+}}
+==== Winbind service ====
+Making winbindd daemon to start with samba service. Just change following string in /etc/conf.d/samba:
+<pre>
+daemon_list="smbd nmbd winbind"
+</pre>
+=== OpenRC ===
+{{RootCmd|rc-update add samba default
+|/etc/init.d/samba start
+|rc-update add vsftpd default
+|/etc/init.d/vsftpd start}}
+=== systemd ===
+{{RootCmd|systemctl enable smbd
+|systemctl start smbd
+|systemctl enable winbindd
+|systemctl start winbindd
+|systemctl enable vsftpd
+|systemctl start vsftpd
+}}
+== Joining samba to Windows Domain ==
+'''user@corp.domain.com''' should have permittions to join computers in Windows Domain
+{{RootCmd|net ads join user@corp.domain.com}}
+Enter password for user.
+
+All done!
+[[Category:Server]]
