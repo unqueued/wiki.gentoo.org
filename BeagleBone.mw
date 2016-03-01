@@ -1,0 +1,301 @@
+{{InfoBox stack
+|{{InfoBox homepage|http://beagleboard.org/bone|header=true}}
+}}
+
+Installing Gentoo in the BeagleBone is pretty simple if you're already a Gentoo user. You need to use an SD card, at least of 2 GB of size. If you are familiar with the Gentoo Linux installation process, there is not much different here.
+
+== Requirements ==
+
+To be able to install Gentoo, you'll need the following:
+
+* An x86/amd64 based PC with Gentoo and an SD card reader on it.
+* A BeagleBone.
+* One SD card (2 GB is enough).
+* A network connection.
+
+== Preparation ==
+
+=== Overview ===
+
+Before we start the installation process, we need to get/build a kernel, bootloader and X-Loader for the BeagleBone.
+
+The BeagleBone doesn't have a NAND/flash device, so the bootloader (U-Boot) needs to be located on the SD card, along with X-Loader and the kernel.
+
+=== Emerging needed tools ===
+
+For building the stuff needed to boot our BeagleBone, we need the following tools emerged on the host system where we're going to build them.
+
+* {{Package|dev-vcs/git}} - To download U-Boot, X-Loader and the kernel.
+* {{Package|sys-devel/crossdev}} - To create a crosscompiler.
+* {{Package|dev-embedded/u-boot-tools}} - To create a kernel image U-Boot can understand.
+* {{Package|sys-fs/dosfstools}} - To create FAT32 filesystems.
+
+{{Emerge|dev-vcs/git sys-devel/crossdev dev-embedded/u-boot-tools sys-fs/dosfstools}}
+
+=== Build a crosscompiler ===
+
+Build a crosscompiler:
+
+{{RootCmd|crossdev -S armv7a-hardfloat-linux-gnueabi}}
+
+=== Obtain and build U-Boot ===
+
+Obtain U-Boot:
+
+{{RootCmd
+|wget ftp://ftp.denx.de/pub/u-boot/u-boot-2012.10-rc3.tar.bz2
+|tar xjpf u-boot-2012.10-rc3.tar.bz2 && cd u-boot-*
+}}
+
+Compile U-Boot:
+
+{{RootCmd
+|make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- am335x_evm_config
+|make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi-
+}}
+
+=== Obtain and build a kernel ===
+
+For booting the BeagleBone we need a kernel. The vanilla kernel.org doesn't support the BeagleBone as of October 2012, for this reason we'll use a kernel provided by TI.
+
+Obtain the kernel:
+
+{{RootCmd
+|git clone git://arago-project.org/git/projects/linux-am33x.git
+|cd linux-am33x
+|git checkout -f v3.2-staging
+}}
+
+Obtain needed firmware:
+
+{{RootCmd|# wget "http://arago-project.org/git/projects/?p{{=}}am33x-cm3.git;a{{=}}blob_plain;f{{=}}bin/am335x-pm-firmware.bin;hb{{=}}HEAD" -O firmware/am335x-pm-firmware.bin}}
+
+Configure the kernel:
+
+{{RootCmd|make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- am335x_evm_defconfig}}
+
+Run menuconfig for enable ext4 support:
+
+{{RootCmd|make ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- menuconfig}}
+
+Enable ext4 as built-in:
+
+{{KernelBox|1=
+File systems --->
+   <*>The Extended 4 (ext4) filesystem
+}}
+
+The kernel includes CPU frequency scaling support, but by default is configured to use the userspace governor, that means that unless you have any CPU frequency scaling manager in the rootfs, the cpu will be stuck at 600MHz.
+
+You can change the governor anytime you want, but if you are like me and prefer the ondemand governor set by default, which makes a CPU frequency scaling manager redundant, or if you prefer the performance governor which is like disabling CPU frequency scaling, you can choose the default governor in the following kernel config menu.
+
+Set the default governor in menuconfig:
+
+{{KernelBox|1=
+
+Code Listing 3.8: Configuring the default governor in menuconfig
+CPU Power Management --->
+   CPU Frequency Scaling --->
+      Default CPUFreq governor (userspace)  --->
+}}
+
+Cross-compile the kernel (replace <code>9</code> in the command with an appropriate number of cores on the build computer):
+
+{{RootCmd|make -j9 ARCH{{=}}arm CROSS_COMPILE{{=}}armv7a-hardfloat-linux-gnueabi- uImage}}
+
+Once it gets built we'll have a kernel image on arch/arm/boot/uImage.
+
+== SD card setup ==
+
+=== Overview ===
+
+OMAP-based systems need a special setup of the SD card to boot from it. For more information please check [http://omappedia.org/wiki/Minimal-FS_SD_Configuration this link].
+
+=== Formatting the SD card ===
+
+The following script will format your SD card accordingly, creating two partitions. The first partition size is based on the size of the SD card itself, and it's formatted in vfat. The second partition is the free space left on the card after the first partition, and it's formatted in ext4.
+
+Format the SD card:
+
+{{RootCmd|wget http://dev.gentoo.org/~armin76/arm/beaglebone/mkcard.sh}}
+
+Replace <code>mmcblk0</code> in the command below with the name SD card device. When using a USB-based SD card reader, the card may show up as a {{Path|/dev/sd*}} device, for example {{Path|/dev/sdd}}.
+
+{{RootCmd|bash mkcard.sh /dev/mmcblk0}}
+
+=== Configure U-Boot ===
+
+The default configuration of U-Boot differs a bit from our setup, we fix that by creating a file called {{Path|uEnv.txt}} with the following contents:
+
+{{FileBox|filename=uEnv.txt|lang=text|1=
+bootfile=uImage
+loaduimage=run loaduimagefat; run mmcboot
+}}
+
+=== Copy U-Boot, MLO, and the kernel to the SD card ===
+
+Now we'll mount the first partition on the card and copy the needed files (the ones that we built before) to boot our BeagleBone.
+
+{{RootCmd
+|mkdir /mnt/p1 ; mount /dev/mmcblk0p1 /mnt/p1
+|cp uEnv.txt /mnt/p1
+|cp u-boot-2012.10-rc3/{MLO,u-boot.img} /mnt/p1
+|cp linux-am33x/arch/arm/boot/uImage /mnt/p1
+}}
+
+== Installing Gentoo ==
+
+=== Overview ===
+
+The installation on this device is a bit different, and therefore easy, as we can't install Gentoo on it by booting an installation environment. For installing Gentoo (and any other distro, really) you need to put the SD card on your PC and prepare there the minimal installation.
+
+What we'll have to do to setup our installation is:
+
+# Extract stage3 to the 2nd partition of the SD card
+# Extract portage snapshot (required to emerge things and ntp(see below))
+# Setup fstab
+# Setup root password
+# Configure hostname and networking (optional, but recommended)
+# Enable SSH access (optional, but recommended)
+# Enable serial console access (optional, but recommended)
+
+=== Stages information ===
+
+Here's some information about the stages.
+
+* Architecture: arm
+* Subarchitecture: armv7a_hardf
+* CHOST: armv7a-hardfloat-linux-gnueabi
+* Profile: default/linux/arm/10.0
+
+We'll be using the new EABI, also called gnueabi. That is armel on Debian.
+
+Therefore, we need an armv7a-hardfloat-linux-gnueabi stage3 for best performance, available under the releases/arm/autobuilds directory in your [https://gentoo.org/downloads/mirrors/ favorite mirror].
+
+Optionally grab a Portage snapshot.
+
+=== Extracting a stage3 ===
+
+Mount the second partition of the SD card and extract the stage3 you downloaded.
+
+Mount the partition and extracting the stage3:
+
+{{RootCmd
+|mkdir /mnt/p2
+|mount /dev/mmcblk0p2 /mnt/p2
+|tar xjpf stage3-armv7a_hardfp-20121006.tar.bz2 -C /mnt/p2
+}}
+
+=== Extract a Portage snapshot (optional) ===
+
+Extract the snapshot:
+
+{{RootCmd|tar xjpf portage-latest.tar.bz2 -C /mnt/p2/usr}}
+
+=== Setup fstab ===
+
+Edit the {{Path|/mnt/p2/etc/fstab}} file to look like this:
+
+{{FileBox|filename=/mnt/p2/etc/fstab|1=
+# NOTE: If your BOOT partition is ReiserFS, add the notail option to opts.
+/dev/mmcblk0p1		/boot		vfat		noauto,noatime	1 2
+/dev/mmcblk0p2		/		ext4		noatime		0 1
+}}
+
+If they exist, remove (or comment out) the following lines since this system does not have a swap partition, CD-ROM, or floppy:
+
+{{FileBox|filename=/mnt/p2/etc/fstab|1=
+/dev/SWAP		none		swap		sw		0 0
+/dev/cdrom		/mnt/cdrom	auto		noauto,ro	0 0
+#/dev/fd0		/mnt/floppy	auto		noauto		0 0
+}}
+
+=== Set the default root password ===
+
+This is the most important part of the installation. As without the root password we won't be able to login!
+
+For setting the password, we need to be able to run passwd. However that's not possible since our PC can't run ARM binaries. Therefore we need to modify the file that contains the passwords ({{Path|/etc/shadow}}) inside the chroot, so we can set a default root password.
+
+Generate a password:
+
+{{RootCmd|openssl passwd -1}}
+
+Open the shadow file:
+
+{{RootCmd|nano -w /mnt/p2/etc/shadow}}
+
+Replace the first line with the following line (where <code>password</code> is the output from the {{c|openssl}} command above):
+
+{{FileBox|filename=/mnt/p2/etc/shadow|1=
+root:password:14698:0:::::
+}}
+
+=== Setup hostname and networking ===
+
+Please read the network configuration chapter of the ARM handbook to configure the network.
+
+=== Enabling SSH access (optional) ===
+
+We can add {{c|sshd}} to the startup of our system so we can access our BeagleBone using {{c|ssh}}. Add {{c|sshd}} to the startup:
+
+{{RootCmd|ln -sf /etc/init.d/sshd /mnt/p2/etc/runlevels/default}}
+
+=== Enabling serial console access (optional) ===
+
+By default the ttyS0 port is configured at 9600 bps. However, almost all of the ARM devices run the serial port at 115200 bps. Also, in the case of the BeagleBone, the port is ttyO0(that is a t-t-y-capitalO-zero) instead of the normal ttyS0. So this should be added to the {{Path|/etc/inittab}} file. Replace <code>9600</code> with <code>115200</code> on the ttyS0 line, and replace <code>ttyS0</code> with <code>ttyO0</code>.
+
+{{RootCmd|nano -w /mnt/p2/etc/inittab}}
+
+{{FileBox|filename=/etc/inittab|1=
+s0:12345:respawn:/sbin/agetty 115200 ttyO0 vt100
+}}
+
+=== Finishing the installation ===
+
+Let's unmount the SD card:
+
+{{RootCmd|umount /mnt/p1 /mnt/p2}}
+
+This is pretty much all of the installation. It is highly recommended readers of this guide read all the recommendations of the handbook.
+
+== Booting the system ==
+
+=== Accessing the console (optional) ===
+
+If you want to see the BeagleBone boot, connect an USB cable to the mini USB port (you should have it if you aren't powering it using an external PSU...) and load the <code>ftdi_sio</code> kernel module with the following command:
+
+{{RootCmd|modprobe ftdi_sio vendor{{=}}0x0403 product{{=}}0xa6d0}}
+
+New devices called ttyUSB0 and ttyUSB1 should show up on /dev. You should use ttyUSB1 with a terminal emulator like picocom or minicom configuring it with 115200bps 8N1
+
+Once you have the card ready, put it into the Beaglebone... and you should be able to boot it.
+
+== After booting ==
+
+=== Keeping the clock up to date ===
+
+One of the problems of the BeagleBone is that it doesn't save the date because it doesn't have a battery for the clock.
+
+After logging into our new Gentoo on Beaglebone installation, I'd recommend setting a date and emerging {{Package|net-misc/ntp}} to keep the clock up-to-date. Also it's recommended to put both {{c|ntp-client}} and {{c|ntpd}} to boot on startup, so you get a proper date setup.
+
+However, keep in mind that NTP requires a network connection and a NTP server being reachable, either on the local network or on the Internet.
+
+{{Emerge|net-misc/ntp}}
+
+{{RootCmd
+|rc-update add ntpd default
+|rc-update add ntp-client default
+}}
+
+{{RootCmd
+|service ntpd start
+|service ntp-client start
+}}
+
+== Special thanks ==
+
+* http://beagleboard.org/bone for providing me a Beaglebone to document and support Gentoo on it
+* Siarhei Siamashka (ssvb) for giving helpful hints
+
+
+{{Migrated|originalauthors=Raúl Porcel ({{User|armin76}})}}
