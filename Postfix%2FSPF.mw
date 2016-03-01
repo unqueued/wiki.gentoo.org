@@ -1,0 +1,48 @@
+==Introduction==
+Sender Policy Framework (SPF) allows domain owners to state in their DNS records which IP addressess should be allowed to send mails from their domain. This will prevent spammers from spoofing the <code>Return-Path</code>.
+
+{{Note|If your ISP blocks incoming traffic on port 25 and relays all mail to you through their own mail server, SPF will not work.}}
+
+==Setup==
+First, domain owners have to create a special <code>TXT</code> DNS record. Then an SPF-enabled MTA can read this and if the mail originates from a server that is not described in the SPF record the mail can be rejected. An example entry could look like this: 
+
+{{CodeBox|title=Example SPF record|1=
+domain.tld.  IN TXT  "v=spf1 a mx ptr -all"
+}}
+
+The <code>-all</code> means to reject all mail by default but allow mail from the <code>A</code>( <code>a</code> ), <code>MX</code>( <code>mx</code> ) and <code>PTR</code>( <code>ptr</code> ) DNS records. For more info consult further resources below. 
+
+{{Note|If you relay outgoing mail through your ISP you will have to add: <code>include:yourisp.com</code> .}}
+
+grab the {{Path|spf.pl}} with: 
+
+{{RootCmd|cp postfix-<version>/examples/smtpd-policy/spf.pl /usr/local/bin/}}
+
+{{Note|The {{Path|spf.pl}} coming with Postfix around v2.1 is slightly buggy so find and uncomment the following line: <code>push @HANDLERS, "sender_permitted_from"; use Mail::SPF::Query;</code> . Furthermore in about line 199 substitute <code>comemnt</code> with <code>comment</code> . Alternatively you can download a [http://spf.pobox.com/postfix-policyd.txt development version] .}}
+
+This Perl script also needs some Perl libraries that are not in portage but it is still quite simple to install them: 
+
+{{RootCmd|emerge Mail-SPF-Query Net-CIDR-Lite Sys-Hostname-Long}}
+
+Now that we have everything in place all we need is to configure Postfix to use this new policy. 
+
+{{FileBox|filename=master.cf|title=use SPF|1=
+policy-spf  unix  -       n       n       -       -       spawn
+   user=nobody argv=/usr/bin/perl /usr/local/bin/spf.pl
+}}
+
+Now add the SPF check in {{Path|main.cf}} . Properly configured SPF should do no harm so we could check SPF for all domains: 
+
+{{FileBox|filename=main.cf|title=use SPF|1=
+# (Under smtpd_recipient_restrictions add:)
+check_policy_service unix:private/policy-spf
+}}
+
+{{Note|If you're experiencing problems with SPF, e.g. when using <code>fetchmail</code> , you might want to enable SPF for certain domains only.}}
+
+==Testing==
+A restart or reload may be required to synchronize this new record to the secondary servers and propagated through the DNS system. Once the record is visible in the DNS system, it will begin to be used. Keep this in mind if testing fails, check the domains TXT record.
+
+{{Cmd|dig domain.tld txt}}
+
+[[Category:Mail Transfer Agents]]
