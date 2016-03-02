@@ -18,12 +18,42 @@ Next, emerge the package. This should not pull in the <code>milter</code> librar
 ===Client only (normal scenario)===
 The main binaries installed by the package are as follows:
 *<code>cdcc</code> (Control Distributed Checksum Clearinghouse)
-*<code>dccm</code> (Distributed Checksum Clearinghouse Milter Interface)
-**This is the best interface between postfix (or sendmail) and DCC
 *<code>dccifd</code> (Distributed Checksum Clearinghouse Interface Daemon)
-**This is an alternative (non-<code>milter</code>-based) interface between postfix (or sendmail) and DCC
+**This is the preferred interface between postfix and DCC
 *<code>dccproc</code> (Distributed Checksum Clearinghouse Procmail Interface)
 *<code>dccsight</code> (Distributed Checksum Clearinghouse Raw Checksum Interface)
+
+We want to add <code>dccifd</code> as a Before-Queue Content Filter.
+
+First, verify that <code>DCCIFD_ENABLE=on</code> in the <code>/etc/dcc/dcc_conf</code> file.
+
+{{FileBox|filename=/etc/dcc/dcc_conf|title=Ensure the interface daemon is enabled|1=
+DCCIFD_ENABLE=on
+}}
+
+Next, we explicitly specify socket names that the daemon will use to communicate. For more information on this, see <code>man dccifd</code>.
+
+{{FileBox|filename=/etc/dcc/dcc_conf|title=Specify port numbers|1=
+DCCIFD_ARGS="-p /var/run/dcc/dccifd.ascii-socket -o /var/run/dcc/dccifd.smtp-proxy-socket"
+}}
+
+Next, add the following values to <code>master.cf</code>.
+
+{{FileBox|filename=/etc/postfix/master.cf|title=Tell postfix to use DCC's interface daemon|1=
+    smtp      inet  n       -       n       -       -       smtpd
+        -o smtpd_proxy_filter=/var/run/dcc/dccifd.ascii-socket
+    /var/run/dcc/dccifd.smtp-proxy-socket inet n  -       n       -	-	smtpd
+        -o smtpd_authorized_xforward_hosts=127.0.0.0/8
+        -o smtpd_client_restrictions=
+        -o smtpd_helo_restrictions=
+        -o smtpd_sender_restrictions=
+        -o smtpd_recipient_restrictions=permit_mynetworks,reject
+        -o smtpd_data_restrictions=
+        -o mynetworks=127.0.0.0/8
+        -o receive_override_options=no_unknown_recipient_checks
+}}
+
+{{Note|Warnings in Postfix documentation about the costs of Before-Queue filters apply more to computationally expensive filters such as SpamAssassin (which, confusingly, can also be configured to use DCC) than <code>dccifd</code>.}}
 
 ===Server (only if you run a big mailserver)===
 Before continuing, see [http://www.dcc-servers.net/dcc/FAQ.html#need-server Do I need to run a server?] in the DCC FAQ. Probably not.
