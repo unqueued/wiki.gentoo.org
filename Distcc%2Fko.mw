@@ -95,6 +95,12 @@ Environment="ALLOWED_SERVERS=192.168.1.0/24"
 
 {{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1 192.168.0.2 192.168.0.3"}}
 
+Distcc also supports a ''pump'' mode, by invoking the {{c|pump}} command. This may significantly reduce build time when multiple files are compiled in parallel. It caches preprocessed headers on the server side and, as a result, gets rid of repeated uploading and preprocessing of these header files.
+
+To configure a host for pump mode, add the <code>,cpp,lzo</code> suffix to the hosts definitions. Pump mode requires both <code>cpp</code> ''and'' <code>lzo</code> flags (regardless of the files being C or C++).
+
+{{RootCmd|/usr/bin/distcc-config --set-hosts "192.168.0.1,cpp,lzo 192.168.0.2,cpp,lzo 192.168.0.3,cpp,lzo"}}
+
 === 포티지와 distcc 사용 ===
 
 [[Portage|포티지]]<sup style="color:#ff0077">en</sup>가 {{c|distcc}}를 사용하도록 설정하는 건 쉽습니다. {{c|distcc}} 기능을 활성화하고 동시 빌드 작업 수의 값을 적절하게 설정(하여 {{c|distcc}} 빌드 자원을 증가)하면 됩니다.
@@ -112,6 +118,8 @@ Environment="ALLOWED_SERVERS=192.168.1.0/24"
 MAKEOPTS="-jN -lM"
 FEATURES="distcc distcc-pump"
 }}
+
+{{Note|Distcc’s pump mode may significantly reduce build time for big packages. Consider the [[#Specifying participating hosts|Specifying participating hosts]] section for more details.}}
 
 예컨대, {{c|distccd}}를 실행 중인 두 대의 쿼드코어 호스트 PC에 듀얼 코어 CPU를 붙인 로컬 PC를 연결했다면, <var>MAKEOPTS</var> 변수값을 다음과 같이 설정할 수 있습니다:
 
@@ -251,6 +259,35 @@ DISTCC_SSH="ssh"
 
 {{c|distcc}}가 SSH로 통신하면, 호스트에서 {{Path|distccd}} 초기화 스크립트를 실행할 필요가 없습니다.
 
+== Testing ==
+
+To test {{c|distcc}}, write a simple ''Hello distcc'' program and run {{c|distcc}} in verbose mode to see if it communicates properly.
+
+{{FileBox|filename=main.c|lang=c|1=
+#include <stdio.h>
+ 
+int main() {
+    printf("Hello distcc!\n");
+    return 0;
+}
+}}
+
+Next, turn on verbose mode, compile the program using {{c|distcc}} and link the generated object file into an executable:
+
+{{Cmd
+|export DISTCC_VERBOSE{{=}}1
+|distcc gcc -c main.c -o main.o # or 'pump distcc <...>'
+|gcc main.o -o main
+}}
+
+{{Note|Replace {{c|distcc}} command with {{c|pump distcc}} for use pump mode.}}
+
+There should be a bunch of output about {{c|distcc}} finding its configuration, selecting the host to connect to, starting to connect to it, and ultimately compile {{Path|main.c}}. If the output does not list the desired {{c|distcc}} hosts, check the configuration.
+
+Finally, ensure the compiled program works properly. To test each host, enumerate each compile host in the hosts file.
+
+{{Cmd|./main|output=<pre>Hello distcc!</pre>}}
+
 == 문제 해결 ==
 
 <!-- Consider moving this section to a separate subpage if it becomes too large -->
@@ -297,6 +334,8 @@ DISTCCD_OPTS="--port 3632 --log-level notice --log-file /var/log/distcc/distccd.
 
 {{Important/ko|이 설정 행위는 명백하게 포티지의 몇가지 동작을 재정의하는 것이며 나중에 이상한 결과가 나타날지도 모릅니다. 오로지 <var>CHOST</var> 값을 섞어써야 할 때에만 설정하십시오.}}
 
+{{Note|Having the right version of gcc as a slot on a server isn’t enough. Portage uses {{c|distcc}} as a replacement for the compiler referenced by the <var>CHOST</var> variable (i.e. <code>x86_64-pc-linux-gnu</code>) and {{c|distccd}} invokes it by exactly same name. The right version of gcc should be a default system’s compiler on all involved compilation hosts.}}
+
 === -march=native ===
 
 GCC 4.3.0부터, GCC가 동작하는 프로세서에서 CPU 자동 감지 및 최적화를 활성화하는 <code>-march=native</code> 스위치를 지원합니다. {{c|distcc}}를 사용할 때, 다른 프로세서에 대한 최적화 코드를 뒤섞는 일이 발생하므로 문제가 생길 수 있습니다. 예를 들어, AMD 애슬론 프로세서 시스템에서 {{c|distcc}}에 <code>-march=native</code> 옵션을 넣어 실행하고 인텔 펜티엄 프로세서가 붙은 ''다른'' 시스템에서 똑같이 실행하면 두 시스템에서 코드가 뒤섞입니다.
@@ -314,6 +353,26 @@ GCC를 <code>-march=native</code>로 호출할 때 사용하는 플래그를 알
   -mno-lzcnt -mno-rdrnd -mno-f16c -mno-fsgsbase --param l1-cache-size=32 \
   --param l1-cache-line-size=64 --param l2-cache-size=6144 -mtune=corei7-avx
 </pre>}}
+
+=== Get more output from emerge logs ===
+
+It is possible to obtain more logging by enabling verbose mode. This is accomplished by adding <var>DISTCC_VERBOSE</var> to {{Path|/etc/portage/bashrc}}:
+
+{{FileBox|title=Enabling verbose logging|filename=/etc/portage/bashrc|lang=bash|1=
+export DISTCC_VERBOSE=1
+}}
+
+The verbose logging can then be found in {{Path|/var/tmp/portage/$CATEGORY/$PF/temp/build.log}}.
+
+Keep in mind that the first {{c|distcc}} invocation visible in {{Path|build.log}} isn’t necessary the first {{c|distcc}} call during a build process. For example a build server can get a one-minute backoff period during the configuration stage when some checks are performed using a compiler ({{c|distcc}} sets a backoff period when compilation on a remote server failed, it doesn’t matter whether it failed on local machine or not).
+
+Dig into the {{Path|/var/tmp/portage/$CATEGORY/$PF/work/}} directory to investigate such situations. Find other logs, or call {{c|make}} explicitly from within the working directory.
+
+Another interesting variable to use is <var>DISTCC_SAVE_TEMPS</var>. When set, it saves the standard output/error from a remote compiler which, for Portage builds, results in files in the {{Path|/var/tmp/portage/$CATEGORY/$PF/temp/}} directory.
+
+{{FileBox|title=Saving temporary output|filename=/etc/portage/bashrc|lang=bash|1=
+export DISTCC_SAVE_TEMPS=1
+}}
 
 == 추가 참조 ==
 
