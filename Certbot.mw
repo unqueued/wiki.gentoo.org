@@ -1,33 +1,49 @@
 {{InfoBox stack
 |{{InfoBox homepage|https://letsencrypt.org/|header=true}}
-|{{InfoBox wikipedia|Let's_Encrypt}}
+|{{InfoBox wikipedia|Let's Encrypt}}
+|{{InfoBox github|letsencrypt/letsencrypt}}
+|{{InfoBox odoc|https://letsencrypt.readthedocs.org/en/latest/}}
+|{{InfoBox irc|letsencrypt}}
 }}
 
-{{Stub}}
+Let's Encrypt is a free, automated, and open certificate authority. 
 
-From the website: "Anyone who has gone through the trouble of setting up a secure website knows what a hassle getting and maintaining a certificate can be. Let’s Encrypt automates away the pain and lets site operators turn on and manage HTTPS with simple commands."
+From the official website: "Anyone who has gone through the trouble of setting up a secure website knows what a hassle getting and maintaining a certificate can be. Let’s Encrypt automates away the pain and lets site operators turn on and manage HTTPS with simple commands."
 
 There are several options.
 
 == Preliminary ==
-Point an external IP at http (port 80/tcp) and https (port 443/tcp) at a webserver and setup DNS for it.  This is important.  You have to prove you own the IP/domain.  You could use dynamic DNS if necessary.
 
-== app-crypt/letsencrypt ==
-This is the ebuild for the official client which can be tricky to set up:  Here are the official docs - https://letsencrypt.readthedocs.org/en/latest/intro.html
+Point an external IP at http (port 80/tcp) and https (port 443/tcp) at a web server and setup DNS for it.  This is important. You have to prove you own the IP/domain. You could use dynamic DNS if necessary.
 
-== acme-tiny ==
-acme-tiny is a short Python script which is useful for a quick way to get started
+== Installation ==
 
-Grab this: https://github.com/diafygi/acme-tiny/ via GIT and put the .py in /usr/local/bin or:
+{{Tip|The ebuild for the official client can be tricky to set up. It is helpful to read the [https://letsencrypt.readthedocs.org/en/latest/intro.html official documentation] ''before'' proceeding with this article.}}
 
-{{RootCmd|wget https://github.com/diafygi/acme-tiny/raw/master/acme_tiny.py
-|mv acme_tiny.py /usr/local/bin
-|chmod +x /usr/local/bin/acme_tiny.py}}
+=== Emerge ===
 
-* Make a directory for challenges to be created in
+{{Emerge|app-crypt/letsencrypt}}
+
+=== acme-tiny (manual installation) ===
+
+{{c|acme-tiny}} is a short Python script which is useful, quick way to get started.
+
+Either {{c|git clone}} the script from [https://github.com/diafygi/acme-tiny/ the acme-tiny repository] on GitHub or {{c|wget}} the raw script directly from GitHub:
+
+{{RootCmd
+|wget https://github.com/diafygi/acme-tiny/raw/master/acme_tiny.py
+|mv acme_tiny.py /tmp
+|chmod +x /tmp/acme_tiny.py
+}}
+
+{{RootCmd|python /tmp/acme_tiny.py}}
+
+Make a directory for challenges to be created in:
+
 {{RootCmd|mkdir /var/www/localhost/acme-challenge/}}
 
-* Add this to your Apache http vhost - ie port 80 vhost
+Add this to the Apache http vhos; IE port 80 vhost:
+
 {{FileBox|filename=/etc/apache2/vhosts.d/00_default_vhost.conf|title=Challenge alias in Apache|1=
 /alias /.well-known/acme-challenge/ /var/www/localhost/acme-challenge/ 
 
@@ -37,35 +53,45 @@ Grab this: https://github.com/diafygi/acme-tiny/ via GIT and put the .py in /usr
 </Directory>
 }}
 
-* Set these in your Apache https vhost - ie port 443 vhost
+Set these in the Apache https vhost; IE port 443 vhost:
+
 {{FileBox|filename=/etc/apache2/vhosts.d/00_default_ssl_vhost.conf|title=SSL certificate settings for Apache|1=
 SSLCertificateFile /var/lib/letsencrypt/chained.pem
 SSLCertificateKeyFile /var/lib/letsencrypt/domain.key
 }}
 
-* Make a directory to hold the various files related to LE
+Make a directory to hold the various files related to LE:
+
 {{RootCmd|mkdir /var/lib/letsencrypt
 |cd /var/lib/letsencrypt
 }}
 
-* Create an account key, domain key and a CSR (replace www.example.co.uk with your host name)
-{{RootCmd|openssl genrsa 4096 > account.key
+Create an account key, domain key and a CSR (replace www.example.co.uk with your host name):
+
+{{RootCmd
+|openssl genrsa 4096 > account.key
 |openssl genrsa 4096 > domain.key
 |openssl req -new -sha256 -key domain.key -subj "/CN=www.example.co.uk" > domain.csr
 }}
 
-* Register and create the various certificate files
-{{RootCmd|python acme_tiny.py --account-key ./account.key --csr ./domain.csr --acme-dir  /var/www/localhost/acme-challenge/ > ./signed.crt
+Register and create the various certificate files:
+
+{{RootCmd
+|python /tmp/acme_tiny.py --account-key ./account.key --csr ./domain.csr --acme-dir  /var/www/localhost/acme-challenge/ > ./signed.crt
 |wget -O - https://letsencrypt.org/certs/lets-encrypt-x1-cross-signed.pem > intermediate.pem
 |cat signed.crt intermediate.pem > chained.pem
 }}
 
-* Restart Apache (systemd)
+Restart Apache (systemd):
+
 {{RootCmd|systemctl restart apache2}}
-* Restart Apache (OpenRC)
+
+Restart Apache (OpenRC):
+
 {{RootCmd|/etc/init.d/apache2 restart}}
 
-* Renewal script
+Renewal script: 
+
 {{FileBox|filename=/usr/bin/local/renew-le-cert|title=LetsEncrypt Cert renew script|1=
 <pre>
 #!/bin/sh
@@ -76,13 +102,65 @@ systemctl restart apache2
 </pre>
 }}
 
-* Add a monthly cronjob
+Add a monthly cron job:
+
 {{FileBox|filename=CRONJOB|1=
 # Renew Lets Encrypt certificate
 0 0 1 * * /usr/local/bin/renew-le-cert.sh 2>> /var/log/acme_tiny.log
 }}
 
-== References ==
-* Website: https://letsencrypt.org/getting-started/
+== Usage ==
+
+=== Invocation ===
+
+{{RootCmd|letsencrypt --help|output=<pre>
+letsencrypt [SUBCOMMAND] [options] [-d domain] [-d domain] ...
+
+The Let's Encrypt agent can obtain and install HTTPS/TLS/SSL certificates.  By
+default, it will attempt to use a webserver both for obtaining and installing
+the cert. Major SUBCOMMANDS are:
+
+  (default) run        Obtain & install a cert in your current webserver
+  certonly             Obtain cert, but do not install it (aka "auth")
+  install              Install a previously obtained cert in a server
+  revoke               Revoke a previously obtained certificate
+  rollback             Rollback server configuration changes made during install
+  config_changes       Show changes made to server config during installation
+  plugins              Display information about installed plugins
+
+Choice of server plugins for obtaining and installing cert:
+
+  (the apache plugin is not installed)
+  --standalone      Run a standalone webserver for authentication
+  (nginx support is experimental, buggy, and not installed by default)
+  --webroot         Place files in a server's webroot folder for authentication
+
+OR use different plugins to obtain (authenticate) the cert and then install it:
+
+  --authenticator standalone --installer apache
+
+More detailed help:
+
+  -h, --help [topic]    print this message, or detailed help on a topic;
+                        the available topics are:
+
+   all, automation, paths, security, testing, or any of the subcommands or
+   plugins (certonly, install, nginx, apache, standalone, webroot, etc)
+</pre>}}
+
+== Removal ==
+
+=== Unmerge ===
+
+{{Emerge|params+=--unmerge|app-crypt/letsencrypt}}
+
+== See also ==
+
+* [[Apache]] - The most popular HTTP server used the Internet.
+* [[Nginx]] - A small, robust, and high-performance HTTP server and reverse proxy.
+
+== External resources ==
+
+* [https://letsencrypt.readthedocs.org/en/latest/using.html#installation Manual installation] - In the event manual installation is preferred. Note: Portage will not track the installation if the Let's Encrypt is manually installed; this is ''not'' recommended by Gentoo developers.
 
 [[Category:Software]]
