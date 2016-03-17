@@ -141,6 +141,31 @@ Run:
 |docker run -it --rm --name my-running-app my-php-app
 }}
 
+
+===Own images===
+There are two different ideas how a container should be built.
+* The minimal approach: According to the [https://docs.docker.com/engine/userguide/eng-image/dockerfile_best-practices/#run-only-one-process-per-container container philosophy] a container should only contain what is needed to serve one process. In this case ideally the container consists of one static binary.
+* The VM approach: A container can be treated like a full system virtualization environment. In this case the container includes a whole operating system.
+====Build environment for the image====
+The image can be created out of a live system or - preferably - out of a special build environment
+* To create a build environment for the image, follow the [[Cross_build_environment]] guide. There is no need to emerge a full @system. The build essentials are enough.
+** The toolchain tuple could look like <code>x86_64-docker-linux-gnu</code>
+** The build essentials can be build like this {{RootCmd|x86_64-docker-linux-gnu-emerge -uva1 --keep-going $(egrep '^[a-z]+' /usr/portage/profiles/default/linux/packages.build) portage openrc util-linux netifrc}}
+====The minimal approach: Statically linked binaries====
+There are some caveats with this. The [[Cross_build_environment#Cross_building_static_binaries_for_closed_systems|hints for statically linked binaries]] should be kept in mind for this.
+To build an nginx-image
+* Chroot into the build environment (e.g. <code>chroot-x86_64-docker</code>)
+* Build the desired package statically linked {{RootCmd|<nowiki>NGINX_MODULES_HTTP="gzip" CFLAGS="$(emerge --info|grep ^CFLAGS|grep -oP '(?<=").*(?=")') -static" CXXFLAGS=$CFLAGS LDFLAGS="$(emerge --info|grep LDFLAGS|grep -oP '(?<=").*(?=")') -static"  PKGDIR=/tmp/ emerge-chroot -va1 --buildpkgonly nginx:mainline</nowiki>}}
+* Extract the binary package to a tmp dir (e.g. <code>mkdir /tmp/nginx && cd /tmp/nginx && tar xjvf /tmp/www-servers/nginx-*.tbz2</code>)
+* Change the nginx configuration. At least add <code>daemon off;</code> and swap <code>listen 127.0.0.1</code> for <code>listen 0.0.0.0</code>.
+* Add <code>etc/passwd</code>,<code>etc/resolv.conf</code>,<code>etc/nsswitch.conf</code> and a appropriate <code>etc/ssl</code>directory. Make sure the <code>etc/nsswitch.conf</code> has [[Cross_build_environment#customized_glibc|"files" instead of "compat"]] and your <code>etc/passwd</code> has an "nginx" user entry.
+* Create the docker image out of the current directory {{RootCmd|<nowiki>tar --numeric-owner -cj --to-stdout . |docker import - nginx-image</nowiki>}}
+* Spawn a container and start nginx {{RootCmd|docker run -p 80:80 -p 443:443 --name nginx-test -ti --rm nginx-image nginx}}
+====The VM-like approach====
+* Create the image out of the full environment {{RootCmd|<nowiki>cd /usr/x86_64-docker-linux-gnu/ && tar --numeric-owner -cj --to-stdout . --exclude=./{proc,sys,tmp/portage} .|docker import - gentoo-image</nowiki>}}
+* Spawn a new gentoo container and start a shell: {{RootCmd|<nowiki>docker run -v /usr/portage:/usr/portage --name gentoo-test -ti gentoo-image /bin/bash</nowiki>}}
+* This image can used as a base image. To build a nginx image for example run emerge nginx inside the container and push it back as new image afterwards: {{RootCmd|<nowiki>docker commit --message "nginx-image" gentoo-test</nowiki>}}
+
 == See also ==
 
 * [[LXC]] - Linux containers.
