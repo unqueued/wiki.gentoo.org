@@ -105,6 +105,12 @@ LiveCD로 부팅하십시오. 터미널을 열고 <kbd>su -</kbd>를 실행하�
 
 페도라 같은 일부 기타 배포판에서는 라이브 또는 설치 CD에 필요한 부트스트랩 이미지를 배포하고 있지만, 젠투에서는 (1) 커널, 초기 램 디스크, [[SquashFS|squashfs]]를 라이브 CD에서 끄집어내어 압축을 풀고, (2) initrd 내용을 패치한 후 (3) squashfs를 initrd에 통합합니다. 라이브 시스템에서 이미지를 불러오고 부팅할 PXE 기반 부트 로더를 설정할 때만 가능합니다.
 
+# extract kernel, initrd and [[SquashFS|squashfs]] from the live CD, 
+# patch initrd contents, and 
+# merge squashfs into initrd.
+
+Only then can a PXE based boot loader be configured that will load the images and boot into a live system.
+
 다음 스크립트를 저장하고 <code>$PATH</code> 경로 또는 다음 과정에서 실행 가능한지 직접 확인하십시오.
 
 
@@ -135,24 +141,22 @@ mv "$tmp/gentoo" "$tmp/kernel"
 # patch initramfs and add squashfs to it
 xz -dc "$tmp/gentoo.igz" | ( cd "$initrd" && cpio -idv )
 patch -d "$initrd" -p0 <<'EOF'
---- init.orig	2012-05-21 16:14:35.000000000 +0400
-+++ init	2012-05-21 18:14:43.000000000 +0400
-@@ -368,10 +368,10 @@
- 		[ ! -e "${NEW_ROOT}/dev/tty1" ] && mknod "${NEW_ROOT}/dev/tty1" c 4 1
+--- init.orig	2016-01-02 00:00:00.000000000 +0100
++++ init	2016-01-02 00:00:00.000000000 +0100
+@@ -455,9 +455,9 @@
+ 		CHROOT=${NEW_ROOT}
  	fi
  
--	if [ "${REAL_ROOT}" != "/dev/nfs" ] && [ "${LOOPTYPE}" != "sgimips" ]
--	then
+-	if [ /dev/nfs != "$REAL_ROOT" ] && [ sgimips != "$LOOPTYPE" ] && [ 1 != "$aufs" ]; then
 -		bootstrapCD
 -	fi
-+#	if [ "${REAL_ROOT}" != "/dev/nfs" ] && [ "${LOOPTYPE}" != "sgimips" ]
-+#	then
++#	if [ /dev/nfs != "$REAL_ROOT" ] && [ sgimips != "$LOOPTYPE" ] && [ 1 != "$aufs" ]; then
 +#		bootstrapCD
 +#	fi
  
  	if [ "${REAL_ROOT}" = '' ]
  	then
-@@ -456,7 +456,7 @@
+@@ -591,7 +591,7 @@
  		else
  			bad_msg "Block device ${REAL_ROOT} is not a valid root device..."
  			REAL_ROOT=""
@@ -161,7 +165,7 @@ patch -d "$initrd" -p0 <<'EOF'
  		fi
  	done
  
-@@ -520,7 +520,7 @@
+@@ -670,7 +670,7 @@
  	[ -z "${LOOP}" ] && find_loop
  	[ -z "${LOOPTYPE}" ] && find_looptype
  
@@ -300,9 +304,11 @@ NFS 설정: NFS는 꽤 설정하기 쉽습니다. 유일하게 할 일은 {{Path
 
 === 서버에 시스템 만들기 ===
 
-기존 설치로부터 젠투 설치 과정을 알고 있다면 바로 다음 단계로 진행할 수 있다 하더라도 젠투 설치 CD로 서버를 재부팅하려 할 것입니다. [[Handbook:Main_Page/ko|젠투 핸드북]]에 언급한대로 표준 설치 절차를 따르겠지만 다음 차이점이 있습니다. 파일 시스템을 마운트할 때 ({{Path|/diskless}} 디렉터리를 만든 위치가 {{Path|sdaX}} 분할 공간) 다음 절차를 따르십시오. 모든 파일이 {{Path|/diskless/eta}} 디렉터리에 있으므로 다른 분할 공간에는 마운트할 필요가 없습니다. 
+기존 설치로부터 젠투 설치 과정을 알고 있다면 바로 다음 단계로 진행할 수 있다 하더라도 젠투 설치 CD로 서버를 재부팅하려 할 것입니다. [[Handbook:Main_Page/ko|젠투 핸드북]]에 언급한대로 표준 설치 절차를 따르겠지만 다음 차이점이 있습니다. 파일 시스템을 마운트할 때 ({{Path|/diskless}} 디렉터리를 만든 위치가 {{Path|sdaX}} 분할 공간) 다음 절차를 따르십시오. 모든 파일이 {{Path|/diskless/eta}} 디렉터리에 있으므로 다른 분할 공간에는 마운트할 필요가 없습니다.
 
 {{RootCmd|mount /dev/sdaX /mnt/gentoo}}
+
+Mounting any other partition is not needed as all of the files will reside in the {{Path|/diskless/eta}} directory. 
 
 스테이지 타르볼 및 루트 전환: 이 예제에서는 스테이지 3 타르볼을 다룹니다. {{Path|/proc}} 을 무 디스크 디렉터리에 마운트하고 해당 디렉터리로 루트 위치를 전환하여 설치를 계속 진행합니다. 이 과정이 끝나면 커널 설정 과정에 도달하기 전까지 설치 설명서를 따르십시오. 
 
@@ -366,7 +372,7 @@ File systems --->
 
 === 요구 사항 ===
 
-기존 리눅스 배포판에서 젠투를 설치하려면 chroot 명령을 설치하고 젠투 설치 타르볼 또는 설치하려는 ISO 이미지의 사본을 보유해야합니다. 타르볼이외에 더 많은 요소를 저장하려 한다면 네트워크 연결을 준비할 수 있습니다(헌데, 타르볼은 .tbz 또는 .tar.gz로 끝나는 파일입니다). 이제 과정을 시작하겠습니다! 
+기존 리눅스 배포판에서 젠투를 설치하려면 chroot 명령을 설치하고 젠투 설치 타르볼 또는 설치하려는 ISO 이미지의 사본을 보유해야합니다. 타르볼이외에 더 많은 요소를 저장하려 한다면 네트워크 연결을 준비할 수 있습니다(헌데, 타르볼은 .tbz 또는 .tar.gz로 끝나는 파일입니다). 이제 과정을 시작하겠습니다!
 
 === 간단히 살펴보기 ===
 
