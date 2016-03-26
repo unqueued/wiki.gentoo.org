@@ -14,11 +14,13 @@ The {{Package|x11-drivers/nvidia-drivers}} package supports a range of available
 
 If the card has been identified as a legacy card then mask the more recent releases of {{Package|nvidia-drivers}}, i.e
 
-{{FileBox|filename=/etc/portage/package.mask|Masking drivers with version higher than 174|1=
+{{FileBox|filename=/etc/portage/package.mask|title=Masking drivers with version higher than 174|1=
 >x11-drivers/nvidia-drivers-174
 }}
 
 Note that Gentoo does not provide the 71.86.xx versions. If the system has a card that needs these drivers then it is recommended to use the [[nouveau]] driver.
+
+== Installation ==
 
 === 内核 ===
 
@@ -31,8 +33,6 @@ Note that Gentoo does not provide the 71.86.xx versions. If the system has a car
 不时地，一个新的内核版本改变了内部ABI的驱动程序，这意味着所有使用这些ABI的驱动程序必须相应地改变。对于开源驱动，尤其是那些随内核，这些变化几乎是可以微不足道的修复，因为驱动程序与内核的其他部分之间的调用整个链条可以很容易地修正。对于专有的驱动程序nvidia.ko，这是行不通的。当内部的ABI改变，那么就不可能仅仅修复“glue”，因为没有人知道如何glue所使用的专有的那一部分是很忙。即使设法修补东西似乎很好地工作,用户仍然存在运行nvidia的风险。在新的，不支持的内核nvidia.ko运行会导致数据丢失，硬件故障。
 
 当一个新的，不兼容的内核版本发布时，它可能是最好坚持使用最新支持的内核了一段时间。 Nvidia公司通常需要几个星期的时间准备新的专有版本，他们认为适合用于一般用途。 耐心一点。如果绝对必要，那么就可以使用epatch_user命令和NVIDIA驱动的ebuild：这允许用户打补丁的NVIDIA驱动程序以某种方式适应了最新的，不支持的内核版本。请注意，即使是NVIDIA驱动维护者，也不NVIDIA将支持这一情况。硬件保修将最有可能是无效的，Gentoo的维护者不能解决问题，因为它是一个专有的驱动程序，只有NVIDIA官方能够正确调试，内核维护者（包括Gentoo和上游）肯定不会支持专有的驱动程序，或任何“污点“系统，当碰巧遇到麻烦时。
-
-=== 必要内核选项 ===
 
 如果 <tt>genkernel all</tt> 是用于配置内核,那么一切都准备好了。如果不是,仔细检查内核配置,启用以下支持:
 
@@ -47,24 +47,31 @@ Processor type and features --->
     [*] MTRR (Memory Type Range Register) support
 }}
 
-If the system has an AGP graphics card, then optionally enable <tt>agpgart</tt> support to the kernel, either compiled in or as a module. If the in-kernel <tt>agpgart</tt> module is not used, then the drivers will use its own <tt>agpgart</tt> implementation, called <tt>NvAGP</tt>.  On certain systems, this performs better than the in-kernel <tt>agpgart</tt>, and on others, it performs worse. Evaluate either choice on the system to get the best performance. When uncertain what to do, use the in-kernel <tt>agpgart</tt>:
+If the system has an AGP graphics card, then optionally enable agpgart support to the kernel, either compiled in or as a module. If the in-kernel agpgart module is not used, then the drivers will use its own agpgart implementation, called NvAGP.  On certain systems, this performs better than the in-kernel agpgart, and on others, it performs worse. Evaluate either choice on the system to get the best performance. When uncertain what to do, use the in-kernel agpgart:
 
-{{KernelBox|title=开启 agpgart 支持|1=
+{{KernelBox|title=Enable agpgart support|1=
 Device Drivers --->
-    Graphics support --->
-        -*- /dev/agpgart (AGP Support) --->
+   Graphics support --->
+      -*- /dev/agpgart (AGP Support) --->
 }}
 
 {{Note/zh-cn|在amd64平台上，IOMMU 控制agpgart的设置。}}
 
-{{Important/zh-cn|对于 x86 和 AMD64 处理器，内核驱动中的[[framebuffer]] 驱动与NVidia提供的二进制驱动程序冲突。当为这些CPU编译内核时，彻底删除内核中的驱动程序，如下所示：
-{{KernelBox|title=禁用对内核驱动程序的支持|1=
+{{Important|For x86 and AMD64 processors, the in-kernel [[framebuffer]] driver conflicts with the binary driver provided by nVidia. When compiling the kernel for these CPUs, completely remove support for the in-kernel driver as shown:
+{{KernelBox|title=Disable support for the in-kernel driver|1=
 Device Drivers --->
     Graphics support --->
         Frame buffer Devices --->
             <*> Support for frame buffer devices --->
             < >   nVidia Framebuffer Support
             < >   nVidia Riva support
+}}
+Now make sure the nouveau driver is disabled:
+{{KernelBox|
+Device Drivers  --->
+    Graphics support  --->
+        <*> Direct Rendering Manager (XFree86 4.1.0 and higher DRI support) --->
+            < > Nouveau (nVidia) cards
 }}
 }}
 
@@ -82,11 +89,13 @@ Available kernel symlink targets:
   [2]   linux-3.7.9-gentoo
 </pre>}}
 
-In the above output, notice that the <tt>linux-3.7.10-gentoo</tt> kernel is marked with an asterisk (<code>*</code>) to show that it is the symlinked kernel.
+In the above output, notice that the linux-3.7.10-gentoo kernel is marked with an asterisk (<code>*</code>) to show that it is the symlinked kernel.
 
 If the symlink is not pointing to the correct sources, update the link by selecting the number of the desired kernel sources, as in the example above.
 
 {{RootCmd|eselect kernel set 1}}
+
+== Configuration ==
 
 == 驱动 == 
 
@@ -108,7 +117,25 @@ To prevent from having to manually load the module on every bootup, have this do
 
 {{Important|If <code>agpgart</code> is compiled as a module, then add it to {{Path|/etc/conf.d/modules}} as well.}}
 
-===  X server ===
+=== Kernel module signing (optional) ===
+
+{{Note|The information in this section in unnecessary for systems that do not implement signed kernel modules. Feel free to skip it.}}
+
+If you are using secure boot kernel signing then you will need to sign the Nvidia kernel modules before they can be loaded.
+
+You do this by using the kernel provided <tt>perl</tt> script as follows.
+
+{{RootCmd|perl /usr/src/linux/scripts/sign-file sha512 /usr/src/linux/signing_key.priv /usr/src/linux/signing_key.x509 /lib/modules/Kernel-Version-modules-path/video/nvidia-uvm.ko}}
+
+{{RootCmd|perl /usr/src/linux/scripts/sign-file sha512 /usr/src/linux/signing_key.priv /usr/src/linux/signing_key.x509 /lib/modules/Kernel-Version-modules-path/video/nvidia.ko}}
+
+As of driver version 358.09 a new module has been made to handle monitor mode setting and for this driver version this module must also be signed.
+
+{{RootCmd|perl /usr/src/linux/scripts/sign-file sha512 /usr/src/linux/signing_key.priv /usr/src/linux/signing_key.x509 /lib/modules/Kernel-Version-modules-path/video/nvidia-modeset.ko}}
+
+Once you have signed these modules then the driver will load as expected on boot up. This module signing method can be used to sign other modules not only your nvidia-drivers. You would have to modify the path and corresponding module accordingly.
+
+=== The X server ===
 
 Once the appropriate drivers are installed, configure the X server to use the <tt>nvidia</tt> driver instead of the default <tt>nv</tt> driver.
 
@@ -118,9 +145,36 @@ Run <tt>eselect</tt> so that the X server uses the nVidia GLX libraries:
 
 {{RootCmd|eselect opengl set nvidia}}
 
-=== 权限许可 ===
+=== Permissions ===
 
 {{VIDEO_CARDS/Permissions|nvidia}}
+
+=== Enabling global nvidia support ===
+
+Some tools, such as {{Package|media-video/mplayer}} and {{Package|media-libs/xine-lib}}, use a local USE flag called <code>xvmc</code> which enables XvMCNVIDIA support, useful when watching high resolution movies. Add in <code>xvmc</code> in the USE variable in {{Path|/etc/portage/make.conf}} or add it as USE flag to {{Package|media-video/mplayer}} and/or {{Package|media-libs/xine-lib}} in {{Path|/etc/portage/package.use}}.
+
+GeForce 8 series and later GPUs do come with VDPAU support which superseded XvMCNVIDIA support. See the [[VDPAU]] article for enabling VDPAU support.
+
+There are also some applications that use the <code>nvidia</code> USE flag, so it might be a good idea to add it to {{Path|/etc/portage/make.conf}}.
+
+Then, run {{c|emerge -uD --newuse @world}} to rebuild the applications that benefit from the USE flag change.
+
+=== Using the nVidia settings tool ===
+
+nVidia also provides a settings tool. This tool allows the user to monitor and change graphical settings without restarting the X server and is available through Portage as {{Package|media-video/nvidia-settings}}. As mentioned earlier, it will be pulled in automatically when installing the drivers with the <code>gtk</code> USE flag set in {{Path|/etc/portage/make.conf}} or in {{Path|/etc/portage/package.use}}.
+
+===开启 OpenGL/OpenCL ===
+
+To enable OpenGL and OpenCL though the device, run:
+
+{{RootCmd
+|eselect opengl set nvidia
+|eselect opencl set nvidia
+}}
+
+Make sure that the Xorg server is not running during these changes.
+
+== Usage ==
 
 == 测试显卡 ==
 
@@ -131,29 +185,6 @@ direct rendering: Yes
 </pre>}}
 
 要监视 FPS值，运行 <tt>glxgears</tt>.
-
-==开启 nvidia 支持 ==
-
-Some tools, such as {{Package|media-video/mplayer}} and {{Package|media-libs/xine-lib}}, use a local USE flag called <code>xvmc</code> which enables XvMCNVIDIA support, useful when watching high resolution movies. Add in <code>xvmc</code> in the USE variable in {{Path|/etc/portage/make.conf}} or add it as USE flag to <code>media-video/mplayer</code> and/or <code>media-libs/xine-lib</code> in {{Path|/etc/portage/package.use}}.
-
-GeForce 8 series and later GPUs do come with VDPAU support which superseded XvMCNVIDIA support. See the [[VDPAU]] article for enabling VDPAU support.
-
-There are also some applications that use the <code>nvidia</code> USE flag, so it might be a good idea to add it to {{Path|/etc/portage/make.conf}}.
-
-Then, run <tt>emerge -uD --newuse @world</tt> to rebuild the applications that benefit from the USE flag change.
-
-=== 使用 NVidia 设置工具 ===
-
-nVidia also provides a settings tool. This tool allows the user to monitor and change graphical settings without restarting the X server and is available through Portage as {{Package|media-video/nvidia-settings}}. As mentioned earlier, it will be pulled in automatically when installing the drivers with the <code>gtk</code> USE flag set in {{Path|/etc/portage/make.conf}} or in {{Path|/etc/portage/package.use}}.
-
-===开启 OpenGL/OpenCL ===
-
-为了启用 OpenGL 和 OpenCL。
-
-{{RootCmd|eselect opengl set nvidia}}
-{{RootCmd|eselect opencl set nvidia}}
-
-确保Xorg server 在这些改变期间没有变化。
 
 == 故障解决 ==
 
@@ -258,6 +289,18 @@ Next, rebuild {{Package|x11-drivers/nvidia-drivers}} since the driver may have b
 最近似乎有一些重大的在播放某些类型的NVIDIA二进制驱动的视频，引起慢速视频播放或显著卡顿。这个问题似乎在英特尔 CPU 空闲更换为某些 CPU 而不是常见的 ACPI CPU 减速规造成的。
 
 Disable the Intel CPU idling method using <code>intel_idle.max_cstate=0</code> on the kernel command line boot method, which should cause the kernel to automatically fall back to the normal or older ACPI CPU idling method. Also, disabling the NVidia Powermizer feature, or setting Powermizer to maximum performance within <tt>nvidia-settings</tt> has been said to help. Although the Intel CPU idling method recently was introduced as the default CPU idling method for i5 and i7 CPUs (versus using ACPI CPU idling) is the root cause here. This idling method significantly solves the problem, however some minimal stuttering or slow video is encountered if deinterlacing was enabled; this is when the video is likely already deinterlaced (ie. alias <tt>mplayer-nodeint</tt> with something similar to <tt>mplayer -vo vdpau:deint=0:denoise=0:nochroma-deint:colorspace=0:hqscaling=1, video.mpg</tt> as a work around.)
+
+=== No vertical synchronization (no VSync, tearing) in OpenGL applications ===
+
+Adding the following option to the screen section prevents tearing on GTX 660, 660 Ti, and probably some other GPUs ([https://devtalk.nvidia.com/default/topic/543305/linux/screen-video-tearing-gtx6xx-7xx-kepler-9xx-maxwell-in-almost-all-applications-including-desktop/post/3958593/ reference]):
+
+{{FileBox|filename=/etc/X11/xorg.conf|lang=xorg_conf|1=
+Section "Section"
+     . . .
+    Option         "metamodes" "nvidia-auto-select +0+0 { ForceFullCompositionPipeline = On }"
+     . . .
+EndSection
+}}
 
 == 专家配置 ==
 
