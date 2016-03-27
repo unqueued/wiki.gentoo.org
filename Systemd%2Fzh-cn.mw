@@ -104,7 +104,7 @@ systemd包将自动创建{{Path|/run}} 本身的路径文件。然而， 请注�
 
 ==={{Path|/etc/mtab}}===
 
-上游仅支持 {{Path|/etc/mtab}}，它是一个链接文件，链接到{{Path|/proc/self/mounts}}。如果不建立这个链接文件，就会导致<tt>mount</tt>({{bug|434090}}) 和 <tt>df</tt> ({{bug|477240}})。在之前有一些系统工具会写入信息(比如写入{{Path|/etc/mtab}}里面的挂载选项)，因此它应该是一个普通文件。现在所有的软件应该避免这个问题。不过,在转换文件成为链接文件之前,请检查 {{bug|477498}}，来确保系统不受任何已知错误报告的影响。
+Upstream only supports the {{Path|/etc/mtab}} file being a symlink to {{Path|/proc/self/mounts}}. Not creating this symlink will also cause problems with {{c|mount}} ({{bug|434090}}) and {{c|df}} ({{bug|477240}}). In the past some utilities wrote information (like mount options) into {{Path|/etc/mtab}} and thus it was supposed to be a regular file. Nowadays all software is supposed to avoid this problem. Still, before switching the file to become a symbolic link, please check {{bug|477498}} to be sure that the system is not affected by any reported regressions.
 
 要创建链接文件，执行：
 
@@ -114,17 +114,40 @@ systemd包将自动创建{{Path|/run}} 本身的路径文件。然而， 请注�
 
 对于{Path|/usr}}拆分 {配置，在你使用systemd前，使用[[initramfs]] 来挂载{{Path|/usr}} 。请看说明： [[Initramfs/Guide|Gentoo Initramfs 指导]] 。
 
+{{Emerge|params+=--unmerge|sys-kernel/genkernel}}
+{{Emerge|sys-kernel/dracut}}
+{{Emerge|sys-kernel/genkernel-next}}
+
+When using dracut, enable the usrmount module if it is not automatically enabled to mount {{Path|/usr}} automatically.
+
+{{FileBox|filename=/etc/dracut/dracut.conf|lang=bash|1=
+# Dracut modules to add to the default
+add_dracutmodules+="usrmount"
+}}
+
+When genkernel-next is used, before rebuilding the kernel, be sure to set the <var>UDEV</var> variable in {{c|genkernel}}'s configuration file to <code>yes</code>. This will pull {{path|/usr}} into the initramfs:
+
+{{FileBox|filename=/etc/genkernel.conf|lang=bash|1=
+# Use udev instead of mdev as the default device manager for the initramfs.
+# If systemd and perhaps lvm is used, then this _must_ be turned on.
+UDEV="yes"
+}}
+
+{{RootCmd|genkernel --install all}}
+
+See the [[Initramfs/Guide|Initramfs guide]] for more alternatives.
+
 ===使用LVM2和initramfs===
 
 当使用 [[LVM|sys-fs/lvm2]]，且系统通过initramfs 启动时，必须使用{{Package|sys-kernel/genkernel-next}} 包来创建initramfs :
 
 {{RootCmd|genkernel --udev --lvm <target>}}
 
-这意味着创建一个initramfs genkernel target，使用<code><target></code> 或 <code>initramfs</code> 。更多有关信息，请查看<tt>genkernel --help</tt>的提示:
+<code><target></code> is either <code>initramfs</code> or one of the other genkernel targets which imply the creation of an initramfs. For more information, look at the output of {{c|genkernel --help}}:
 
 {{Cmd|genkernel --help}}
 
-当使用LVM时, 需要启动<tt>lvmetad</tt>守护进程。否则systemd将无法挂载LVM卷。<tt>lvmetad</tt>可以在{{Path|/etc/lvm/lvm.conf}}中启用:
+When LVM is used, the {{c|lvmetad}} daemon needs to be started as well. Otherwise systemd will be unable to mount LVM volumes. {{c|lvmetad}} can be enabled in {{Path|/etc/lvm/lvm.conf}}:
 
 {{FileBox|filename=/etc/lvm/lvm.conf|title=lvm.conf中需要更改的部分|lang=ini|1=
 # Set use_lvmetad to '1' for systemd
@@ -137,9 +160,14 @@ use_lvmetad {{=}} 1
 
 {{Package|sys-apps/systemd}}中包含 udev。一旦安装了{{Package|sys-apps/systemd}} ，那么就可以删除 {{Package|sys-fs/udev}}，因为systemd将会提供{{Package|virtual/udev}}。
 
-开启 <code>systemd</code> 在全局USE flag 中，({{Path|make.conf}}中)。<code>consolekit</code> USE flag 也应该被禁用，以防止与<tt>systemd-logind</tt>服务产生冲突。另外，也可以切换到一个systemd sub profile使用的较好的USE标记的默认值，在这种情况下，没有必要改变{{Path|make.conf}}:
+Enable the <code>systemd</code> USE flag globally (in {{Path|make.conf}}). The <code>consolekit</code> USE flag should also be disabled to prevent conflicts with the {{c|systemd-logind}} service. It is also possible to switch to a systemd subprofile to use saner USE flags defaults in which case it is not necessary to change {{Path|make.conf}}:
 
 {{RootCmd|eselect profile list}}
+
+{{Note|When no systemd profile is used, or there is no systemd profile available for the system architecture, add the following code to {{Path|/etc/portage/profiles/packages}} so that {{Package|sys-apps/openrc}} is not pulled in as a system dependency since OpenRC and systemd conflict.}}
+
+{{FileBox|filename=/etc/portage/profiles/packages|lang=text|1=# Remove OpenRC from the system profile when using systemd
+-*sys-apps/openrc}}
 
 最后，更新系统与Flags:
 
@@ -151,13 +179,13 @@ use_lvmetad {{=}} 1
 
 == 使用systemd引导启动 ==
 
-为了运行systemd,切换<tt>init</tt>可用内核 (或者 initramfs)使用。
+In order to run systemd, switch the {{c|init}} that the executable kernel (or the initramfs) uses.
 
 {{Warning/zh-cn|先前被设置的服务管理器服务不会自动启动。这是因为该系统切换到不同的服务管理器。为了获得像网络或登录管理器的这样功能,这些服务需要被重新启用。更多关于这个的信息，在之后本文后面部分的‘‘‘服务’’’章节。}}
 
 {{Note/zh-cn|如果在迁移启动引导器中发生了错误，它一般可以通过撤销该INIT变化这一步，来使用回默认的引导服务管理器（OpenRC）。这可以安全返回。本文的最后的故障排除章节，用来解决这些问题以便于可以安全的返回系统。}}
 
-接下来的部分文档指导你如何切换 <tt>init</tt> 启动管理器或内核。
+The following subsections document how to switch the {{c|init}} in one of the boot managers or the kernel.
 
 === Grub Legacy (0.x) ===
 
@@ -194,7 +222,7 @@ linux /vmlinuz-3.10.9 root=UUID=508868e4-54c6-4e6b-84b0-b3b28b1656b6 init=/usr/l
 
 === 内核配置 ===
 
-Init配置也可以在内核配置被固定。请看 "Processor type and features -> Built-in kernel command line". 注意：这个方法适用于<tt>grub</tt> 和 <tt>grub2</tt>.
+The init configuration can also be hard-coded in the kernel configuration. See {{Path|Processor type and features -> Built-in kernel command line}}. Note that this technique works for both {{c|grub}} and {{c|grub2}}.
 
 === 设置根（root）密码 ===
 
@@ -204,7 +232,7 @@ Init配置也可以在内核配置被固定。请看 "Processor type and feature
 
 systemd支持通过几个系统配置文件，来满足系统最基本的运行要求。
 
-{{Note/zh-cn|虽然一些系统配置参数可通过修改相应的配置文件而被更新，但大部分设定使用需要systemd才能被系统设置程序管理。在这种情况下，使用systemd重新引导计算机是安全的<tt>hostnamectl</tt>, <tt>localectl</tt> 和<tt>timedatectl</tt> 系统设置是必需的}}
+{{Note|While some system configuration parameters can be updated by modifying the appropriate configuration files, most settings are managed using utilities that require systemd to be running. In this case, it is safe to reboot the computer with systemd and use the {{c|hostnamectl}}, {{c|localectl}}, and {{c|timedatectl}} utilities as required.}}
 
 === 主机名称===
 
@@ -231,7 +259,7 @@ ICON_NAME="computer-laptop"
 LANG="en_US.utf8"
 }}
 
-如果你通过systemd启动，那么工具<tt>localectl</tt> 可以被使用来设置区域在控制台或X11键盘映射的地区设置。要更改系统区域设置，请运行下列命令：
+Once booted with systemd, the tool {{c|localectl}} is used to set locale and console or X11 keymaps. To change the system locale, run the following command:
 
 {{RootCmd|localectl set-locale LANG<nowiki>=</nowiki><LOCALE>}}
 
@@ -249,7 +277,7 @@ LANG="en_US.utf8"
 
 === 时间和日期 ===
 
-可以使用<tt>timedatectl</tt>来设置时间和日期。它也允许用户设置同步，而无需依赖{{Package|net-misc/ntp}} 或者其他的systemd自己的工具。
+Time and date can be set using the {{c|timedatectl}} utility. That will also allow users to set up synchronization without needing to rely on {{Package|net-misc/ntp}} or other providers than systemd's own implementation.
 
 To learn how to use {{c|timedatectl}} simply run:
 
@@ -257,7 +285,7 @@ To learn how to use {{c|timedatectl}} simply run:
 
 === 自动加载模块===
 
-自动加载模块配置在不同的文件中，或者更确切地说，在目录中的文件中。配置文件存储在{{Path|/etc/modules-load.d}}。在启动与模块列表的每个文件将被加载，文件格式是由换行符分隔模块的列表，并且可以使用任何名称，只要它的扩展名是{{Path|.conf}}。 加载模块可以由程序、服务或其他方式,取决于符合个人喜好。举个例子 <tt>virtualbox.conf</tt> ，如下表所示：
+Automatic module loading is configured in a different file, or rather directory of files. The configuration files are stored in {{Path|/etc/modules-load.d}}. On boot every file with a list of modules will be loaded. The file format is a list of modules separated by newlines and can have any name as long as it ends with {{Path|.conf}}. The module loading can be separated by program, service or whatever way that fits personal preference. An example {{Path|virtualbox.conf}} is listed below:
 
 {{FileBox|filename=/etc/modules-load.d/virtualbox.conf|title= virtualbox 模块示例文件|1=
 vboxdrv
@@ -296,7 +324,7 @@ DHCP=yes}}
 
 {{RootCmd|nm-connection-editor}}
 
-如果情况并非如此,网络需要从终端来配置，[https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Networking_Guide/sec-Using_the_NetworkManager_Command_Line_Tool_nmcli.html nmcli]值得试试， 或者遵循配置指导 <tt>nmtui</tt>：
+If that is not the case and the network needs to be configured from console, give [https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Networking_Guide/sec-Using_the_NetworkManager_Command_Line_Tool_nmcli.html nmcli] a try, or follow a guided configuration process through {{c|nmtui}}:
 
 {{RootCmd|nmtui}}
 
@@ -304,7 +332,7 @@ DHCP=yes}}
 
 === 处理日志文件 ===
 
-systemd 有自己的方式处理日志文件,而不需要依赖任何外部日志系统 (像 {{Package|app-admin/syslog-ng}} 或 {{Package|app-admin/rsyslog}})。日志信息可以通过 <tt>journalctl</tt>来读取。 但是无论如何，它仍然可以被配置为使用一个更优秀的外部工具来处理它们。 请打开终端输入<kbd>man journald.conf</kbd>来学习如何配置journald来满足你的个人的需求。
+systemd has its own way of handling log files without needing to rely on any external log system (like {{Package|app-admin/syslog-ng}} or {{Package|app-admin/rsyslog}}). Messages can now be read with {{c|journalctl}}. It can still be configured to use a preferred external tool for handling them. See {{c|man journald.conf}} to learn how to configure journald to suit personal needs.
 
 Some common {{c|journalctl}} options:
 
@@ -341,13 +369,13 @@ For more information and many more options, look at {{c|man journalctl}}.
 
 当迁移到systemd用户通常注意到差异引导过程的时间
 
-* 启动选项<code>quiet</code> 不仅影响了内核输出，也影响了systemd本身。 再就是，当你为你的系统设置systemd时，可以删除该选项来查看哪些是容易发生的错误。之后，将它添加到一个静默的（和更快的）启动。
-* 甚至通过 <code>quiet</code> 启动选项， systemd 仍然可以通过也传递配置以显示其状态<code>systemd.show_status=1</code>。
-* 当不使用 <code>quiet</code>这个选项时，一些日志信息可能会刷满控制台。这是由内核配置造成的(请参考 <kbd>man 5 proc</kbd> 并查找{{Path|/proc/sys/kernel/printk}})。要调整它通过<code>loglevel=5</code>的引导参数内核（以及根据喜好更新值，例如设置成像1的较低值）。
+* The boot option <code>quiet</code> not only influences the kernel output, but also that of systemd itself. Then, while setting up systemd for the machine, drop the option to see any errors could arise more easily. After that, add it back to get a quiet (and faster) boot.
+* Even passing the <code>quiet</code> boot option, systemd can still be configured to show its status by also passing <code>systemd.show_status=1</code>.
+* When not using the <code>quiet</code> boot option, some messages might be overwriting consoles. That is caused by the kernel configuration (see {{c|man 5 proc}} and look for {{Path|/proc/sys/kernel/printk}}). To tweak it pass the <code>loglevel=5</code> boot parameter to the kernel (and update the value according to preference, for instance set a lower value like 1).
 
 == 服务 ==
 
-在某一时刻，系统需要重新启动来让systemd运行（在system模式）。请务必仔细阅读本文，以确保在系统重新启动之前尽可能完整的配置systemd。注意<tt>journalctl</tt> 在systemd不运行时工作。但 <tt>systemctl</tt> 在systemd不运行时不会做任何工作。登录到正在运行的系统systemd后完成服务配置（启用和启动服务）。
+At some point the system will need to be rebooted in order to get systemd running (in system mode). Be sure to read all of this document to ensure systemd is configured as completely as possible before rebooting. Note that {{c|journalctl}} works with systemd not running, but that {{c|systemctl}} will not do anything useful without systemd running. Complete the service configuration (enabling and starting of services) after logging in to the system running systemd.
 
 === OpenRC 服务 ===
 
@@ -355,7 +383,7 @@ For more information and many more options, look at {{c|man journalctl}}.
 
 === 可用服务列表 ===
 
-所有可用的服务可使用这个命令列出 <code>list-units</code> <tt>systemctl</tt>:
+All available service units can be listed using the <code>list-units</code> argument of {{c|systemctl}}:
 
 {{RootCmd|systemctl list-units|output=<pre>
 UNIT                               LOAD   ACTIVE SUB       DESCRIPTION
@@ -380,7 +408,7 @@ proc-sys-fs-binfmt_misc.automount  loaded active waiting   Arbitrary Executable 
 | filesystem triggers for services (running services when files change etc.).
 |}
 
-作为选择 <tt>systemctl</tt> 工具可用于列出所有服务(包括隐藏的):
+Alternatively the {{c|systemctl}} tool can be used to list all services (including implicit ones):
 
 {{RootCmd|systemctl --all --full}}
 
@@ -410,7 +438,7 @@ proc-sys-fs-binfmt_misc.automount  loaded active waiting   Arbitrary Executable 
 
 === 安装自定义单元文件 ===
 
-可以放在自定义单元文件{{Path|/etc/systemd/system}},确认在那里他们将运行后，运行<tt>systemctl daemon-reload</tt>:
+Custom unit files can be placed in {{Path|/etc/systemd/system}}, where they will be recognized after running {{c|systemctl daemon-reload}}:
 
 {{RootCmd|systemctl daemon-reload}}
 
@@ -542,7 +570,7 @@ Gentoo的安装包已经有systemd组件文件。对于这些服务,这足以使
 |-
 | netctl@.service || net-misc/netctl is originally an Arch Linux tool.
 |-
-| NetworkManager.service || For &lt;networkmanager-0.9.8.4 : enable NetworkManager-dispatcher.service for dispatcher.d scripts to work. <br /> Enable NetworkManager-wait-online.service to detect that the system has a working internet connection.<br />Disable all other managers (e.g., wicd, dhcpcd) and wpa_supplicant.
+| NetworkManager.service || For &lt;networkmanager-0.9.8.4 : enable NetworkManager-dispatcher.service for dispatcher.d scripts to work. <br/> Enable NetworkManager-wait-online.service to detect that the system has a working internet connection.<br/>Disable all other managers (e.g., wicd, dhcpcd) and wpa_supplicant.
 |-
 | dhcpcd.service || Provided by net-misc/dhcpcd
 |-
@@ -557,9 +585,9 @@ Gentoo的安装包已经有systemd组件文件。对于这些服务,这足以使
 |-
 | sshd.socket || runs sshd on a inetd-like basis (for each incoming connection)
 |-
-! scope="row" rowspan="2" | {{Package|net-misc/wpa_supplicant}}
+! scope="row" rowspan="2" | {{Package|net-wireless/wpa_supplicant}}
 | scope="row" rowspan="2" | wpa-supplicant
-| wpa_supplicant.service || D-Bus controlled daemon (e.g. for NetworkManager)
+| wpa_supplicant.service || D-Bus controlled daemon (e.g. for [[NetworkManager#Systemd|NetworkManager]])
 |-
 | wpa_supplicant@.service || interface-specific wpa_supplicant (used like {{Path|wpa_supplicant@wlan0.service}})
 |-
@@ -585,22 +613,22 @@ Gentoo的安装包已经有systemd组件文件。对于这些服务,这足以使
 | irqbalance || irqbalance.service || supports daemon mode only
 |-
 ! scope="row" | {{Package|sys-apps/microcode-ctl}}
-| microcode_ctl ||  || Configure ''microcode'' as a '''module''' to let it load the microcode itself. Go to "Processor type and features" -> "CPU microcode loading support" and remember to add the option you need depending on you having intel or amd processor.
+| microcode_ctl ||  || Configure ''microcode'' as a '''module''' to let it load the microcode itself. Go to "Processor type and features" -> "CPU microcode loading support" and remember to add the right option based on the system having an intel or amd processor.
 |-
 ! scope="row" rowspan="4" | {{Package|sys-fs/udev}}
 | udev || udev.service || 
 |-
-| udev-mount || (builtin) || <tt>/dev</tt> is mounted as tmpfs
+| udev-mount || (builtin) || {{Path|/dev}} is mounted as tmpfs
 |-
 | udev-postmount || udev-trigger.service || 
 |-
 | || udev-settle.service || 
 |-
 ! scope="row" | {{Package|sys-power/acpid}}
-| acpid || acpid.service || Most of its functionality is done by systemd itself, then, maybe you could consider to stop enabling this
+| acpid || acpid.service || Most of its functionality is done by systemd itself, so consider disabling this
 |-
 ! scope="row" | {{Package|x11-apps/xdm}}
-| (xdm) || xdm.service || OpenRC uses common xdm init.d installed by {{Package|x11-base/xorg-server}}. With systemd you will need to enable corresponding unit file for each DM (gdm.service, kdm.service...)
+| (xdm) || xdm.service || OpenRC uses common xdm init.d installed by {{Package|x11-base/xorg-server}}. With systemd the corresponding unit file for each DM (gdm.service, kdm.service...) needs to be enabled.
 |-
 ! scope="row" rowspan="2" | {{Package|net-firewall/iptables}}
 | scope="row" rowspan="2" | iptables
@@ -699,11 +727,17 @@ ExecStart=/home/<user>/scripts/backup-work.sh
 * {{Bug|systemd|search=product|site=fdo}}
 * [http://freedesktop.org/wiki/Software/systemd/Debugging Upstream debugging guide]
 
+=== /dev/kmsg buffer overrun, some messages lost ===
+
+; Problem: When booting the system displays an infinite loop of <code>/dev/kmsg buffer overrun, some messages lost</code>. The login screen to console never appears since the system never gets to that point in the boot process.
+
+; Solution: Most of the time this issue is caused when <var>CONFIG_POWER_SUPPLY_DEBUG</var> is enabled in the kernel. The current workaround is to disable this option in the kernel, then recompile, install, and boot the new kernel. The solution can also be found in [https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-0.html this thread] on the Gentoo forums. According to one user one the forum, this issue was also seen when using I2C eeprom on an embedded system<ref>https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-25.html  Retrieved on March 12th, 2016</ref>. The solution in this case was to disable the <var>CONFIG_I2C_DEBUG_CORE</var> kernel option.
+
 === 在任何地方打开图形会话===
 
-默认情况下，当systemd被使用时，它只启动一个<tt>getty</tt> 进程，这会导致一些显示管理器（像GDM）使用剩余Tty来打开图形的会话，这会导致在控制台和图形会话无计划的放置，而这取决于它们的顺序使用。
+By default systemd only launches a {{c|getty}} process when it's going to be used. This causes some display managers (like GDM) to use the remaining TTYs for opening graphical sessions on demand, which can result in having consoles and graphical sessions placed randomly depending on the order they were used.
 
-保持更 "经典" 的行为 (i.e, 控制台将从{{Path|tty1}} 到{{Path|tty6}}，图形会话使用剩余的tty) 迫使他总是启动<tt>getty</tt> 关于那些：
+To stick with a more "classical" behavior (i.e, consoles placed from {{Path|tty1}} to {{Path|tty6}} and graphical sessions using the remaining TTYs) force it to always launch {{c|getty}} on those:
 
 {{RootCmd|systemctl enable getty@tty{2,3,4,5,6}.service}}
 
@@ -747,6 +781,18 @@ systemd creates {{Path|/dev/log}} as datagram socket <ref>Jose Pedro Oliveira. [
 unix-dgram('/dev/log');
 }}
 
+=== syslog-ng source for systemd ===
+
+There is ''no need'' to add <code>unix-dgram('/dev/log');</code> to the {{Path|/etc/syslog-ng/syslog-ng.conf}} config file. It will cause {{c|syslog-ng}} to fail (at least on version syslog-ng-3.7.2). Update the <code>source src { ...; };</code> line mentioned in the [https://wiki.gentoo.org/wiki/Syslog-ng#Sources Gentoo Syslog-ng Wiki Page] as follows:
+
+{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|1=
+# default config for openrc
+#source src { system(); internal(); };
+ 
+# systemd
+source src { systemd-journal(); internal(); };
+}}
+
 === sys-fs/cryptsetup配置 ===
 
 systemd似乎不遵守{{Path|/etc/conf.d/dmcrypt}} (参见{{bug|429966}})因此需要通过配置{{Path|/etc/crypttab}}文件：
@@ -786,7 +832,7 @@ LogLevel=debug
 
 {{CodeBox|title=systemd-networkd error|1=could not find udev device: Permission denied}}
 
-错误是因为 systemd-networkd 在非root用户环境下工作，对于这样的用户，使用 grsecurity 拒绝访问完成{{Path|/sys}}结构。要禁用这个选项，禁用内核选项<code>CONFIG_GRKERNSEC_SYSFS_RESTRICT</code>。
+The error raises due to systemd-networkd working under a non-root user with grsecurity refusing access to the complete {{Path|/sys}} structure for such users. To disable this option, disable the <var>CONFIG_GRKERNSEC_SYSFS_RESTRICT</var> kernel option.
 
 == 另请参阅 ==
 
