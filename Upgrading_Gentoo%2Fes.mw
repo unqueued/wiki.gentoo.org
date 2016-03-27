@@ -61,7 +61,7 @@ los desarrolladores de Gentoo no planean ofrecer soporte.
 Si decide migrar al nuevo perfil, tendrá que realizar la actualización
 de forma manual. El modo de actualizar puede variar significativamente entre una versión y otra, depende del nivel de importancia de las modificaciones introducidas en el nuevo perfil. 
 
-En el más simple de los casos, solo tendrá que cambiar el enlace simbólico {{Path|/etc/portage/make.profile}}. En el peor de los casos, puede que tenga que recompilar su sistema desde cero mientras hace un afinado baile vudú. La migración normalmente está cubierta en las notas de cada nueva versión. También puede encontrar en esta guía [[#Instrucciones_para_actualizar_el_perfil|instrucciones]] para actualizar el perfil.
+In the simplest case users only have to change the {{Path|/etc/portage/make.profile}} symlink, in the worst case they may have to recompile the entire system from scratch while doing a neat voodoo dance. Migration is usually covered in the release notes. The necessary [[#Profile_updating_instructions|instructions]] are explained further in this guide.
 
 === Perfiles soportados ===
 
@@ -101,7 +101,7 @@ En primer lugar, lance {{c|emerge eselect}}. La utilidad {{c|eselect}} le permit
 
 {{RootCmd|eselect profile list |eselect profile set <número>}}
 
-Si de todos modos prefiere cambiar el perfil manualmente, entonces simplemente haga lo siguiente: 
+Changing profiles manually is still supported though: 
 
 {{RootCmd|rm /etc/portage/make.profile
 |cd /etc/portage
@@ -122,13 +122,14 @@ Como alternativa, si no desea definir localizaciones, debería entonces especifi
 {{Path|/etc/rc.conf}} y volver a hacer
 emerge de {{Package|sys-apps/baselayout}} (o esperar hasta la próxima actualización de baselayout) con el ajuste USE <code>-unicode</code>. Puede definir <code>-unicode</code> solo para {{Package|sys-apps/baselayout}} o de modo global para todos los paquetes, añadiéndolo a su variable USE en {{Path|/etc/portage/make.conf}}.
 
-{{RootCmd|echo "sys-apps/baselayout -unicode" >> /etc/portage/package.use |emerge -a baselayout}}
 
-{{FileBox|filename=/etc/portage/make.conf|title=Deshabilitar el soporte para unicode globalmente|lang=bash|1=
-USE="-unicode"
-}}
+* setting <code>-unicode</code> just for {{Package|sys-apps/baselayout}}, like so:
+: {{RootCmd|echo "sys-apps/baselayout -unicode" >> /etc/portage/package.use}}
+: {{Emerge|sys-apps/baselayout}}
 
-{{Emerge|baselayout}}
+* or setting it globally for all packages by adding it to the USE variable in {{Path|/etc/portage/make.conf}}:
+: {{FileBox|filename=/etc/portage/make.conf|title=Disable unicode support globally|lang=bash|1=USE="-unicode"}}
+: {{Emerge|sys-apps/baselayout}}
 
 Si está actualizando a un perfil 2007.0 en la arquitectura Sparc, necesitará seguir la [[Upgrading_GCC/es|Guía de actualización de GCC]], puesto que <code>gcc-4</code> es el compilador
 predeterminado.
@@ -137,8 +138,7 @@ Por último, siga las instrucciones generales de para actualizar su perfil.
 
 === Actualizar a 2006.0 ===
 
-Para cambiar al perfil 2006.0, apunte el enlace simbólico {{Path|/etc/portage/make.profile}} a la nueva ubicación.
-Asegúrese de que Portage está actualizado antes de cambiar su perfil. 
+To switch to the 2006.0 profile, point the {{Path|/etc/portage/make.profile}} symlink to the new location. Make sure Portage is updated before changing the profile. 
 
 {{RootCmd|rm /etc/portage/make.profile
 |ln -s ../usr/portage/profiles/<perfil seleccionado> /etc/portage/make.profile}}
@@ -357,17 +357,45 @@ La nueva instalación necesita acceder a la red, por lo tanto, copie la informac
 
 {{RootCmd|cp -L /etc/resolv.conf /mnt/build/etc/}}
 
-Ahora entramos en la jaula chroot a la localización intermedia de construcción y comenzamos a actualizar paquetes capitales en el sistema vivo hasta que podamos continuar con la actualización del sistema vivo desde el propio sistema (en lugar de hacerlo a través de la jaula chroot intermedia de construcción). 
+Ahora entramos en la jaula chroot a la localización intermedia de construcción y comenzamos a actualizar paquetes capitales en el sistema vivo hasta que podamos continuar con la actualización del sistema vivo desde el propio sistema (en lugar de hacerlo a través de la jaula chroot intermedia de construcción).
 
 {{RootCmd|chroot /mnt/build
 |source /etc/profile
 |export PS1="(chroot) $PS1"
 |emerge --sync}}
 
+{{GenericCmd|prompt=(chroot) root #|color=red|emerge --sync}}
+
+<!-- The following section is being tested... do not uncomment (author: Maffblaster -->
+<!--Make sure the profile in the chroot matches the one inside the (old) live system. Run the following command in both environments to make sure profiles match:
+
+{{RootCmd|eselect profile list}}
+{{GenericCmd|prompt=(chroot) root #|color=red|eselect profile list}}
+
+Verify Portage's configuration files in the new chroot are the same as the ones set in the old system. The following command will recursively copy the profile from the (old) live system into the chroot 
+
+{{GenericCmd|prompt=(chroot) root #|color=red
+|cp -rv /mnt/host/etc/portage /etc
+|cp -rv /mnt/host/var/lib/portage /var/lib
+}}
+
+{{Note|Look at the output of the above commands to verify everything has copied correctly. There may be errors if some path names in the (old) live system were directories. For example, if {{Path|/etc/portage/package.use}} is a directory in the host, then it will probably not get copied correctly to the chroot system.}}
+-->
+
 Ahora se comienza a construir los paquetes en el sistema vivo
 
 {{RootCmd|ROOT{{=}}/mnt/host emerge -1v portage}}
 
 Mantenga abierta esta sesión enjaulada e intente actualizar el sistema vivo. Cuando obtenga fallos en la construcción, podrá utilizar esta sesión chroot para actualizar los paquetes utilizando las herramientas de construcción disponibles en la jaula intermedia de construcción (la cual incluye versiones recientes de {{Package|sys-libs/glibc}}, {{Package|sys-devel/gcc}}, etc.) ¡No olvide prefijar todas las órdenes {{c|emerge}} con <code>ROOT=/mnt/host</code> dentro del chroot!
+
+{{Important|Do not forget to add <code>--root{{=}}/mnt/host --config-root{{=}}/mnt/host</code> to all {{c|emerge}} commands executed within the chroot! Otherwise the chroot itself is updated rather than the (old) live system.}}
+
+For some installations it may be necessary to update configuration files in order to install new software. Make the changes in the chroot environment.
+
+To get the system fully up-to-date before exiting the root, build the <code>@world</code> set (all packages) into the (old) live system:
+
+{{GenericCmd|prompt=(chroot) root #|color=red|emerge --root{{=}}/mnt/host --config-root{{=}}/mnt/host --update --newuse --deep --ask @world}}
+
+Once finished the system should now be up to date!
 
 [[Category:Server and Security]] {{Migrated|originalauthors=Gregorio Guidi, Chris Gianelloni, Joshua Saddler}}
