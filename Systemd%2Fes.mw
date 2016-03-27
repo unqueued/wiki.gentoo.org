@@ -113,6 +113,29 @@ Para crear el enlace simbólico, ejecute:
 
 Para una configuración separada de {{Path|/usr}}, utilice un [[initramfs]] para que monte {{Path|/usr}} antes de iniciar systemd. Consulte la [[Initramfs/Guide|Initramfs Gentoo Guide]] para obtener instrucciones al respecto.
 
+{{Emerge|params+=--unmerge|sys-kernel/genkernel}}
+{{Emerge|sys-kernel/dracut}}
+{{Emerge|sys-kernel/genkernel-next}}
+
+When using dracut, enable the usrmount module if it is not automatically enabled to mount {{Path|/usr}} automatically.
+
+{{FileBox|filename=/etc/dracut/dracut.conf|lang=bash|1=
+# Dracut modules to add to the default
+add_dracutmodules+="usrmount"
+}}
+
+When genkernel-next is used, before rebuilding the kernel, be sure to set the <var>UDEV</var> variable in {{c|genkernel}}'s configuration file to <code>yes</code>. This will pull {{path|/usr}} into the initramfs:
+
+{{FileBox|filename=/etc/genkernel.conf|lang=bash|1=
+# Use udev instead of mdev as the default device manager for the initramfs.
+# If systemd and perhaps lvm is used, then this _must_ be turned on.
+UDEV="yes"
+}}
+
+{{RootCmd|genkernel --install all}}
+
+See the [[Initramfs/Guide|Initramfs guide]] for more alternatives.
+
 === Utililizar LVM2 y initramfs ===
 
 Cuando se utiliza [[LVM|sys-fs/lvm2]] y el sistema se arranca usando un initramfs, dicho initramfs tendrá que ser creado con {{Package|sys-kernel/genkernel-next}}, ejecutando:
@@ -139,6 +162,11 @@ use_lvmetad {{=}} 1
 Active el parámetro global de USE <code>systemd</code> (en {{Path|make.conf}}). Al mismo tiempo, el parámetro USE <code>consolekit</code> debe ser desactivado para evitar conflictos con el servicio {{c|systemd-logind}}. También es posible cambiar a un subperfil systemd para utilizar parámetros USE por defecto más coherentes, en cuyo caso no es necesario cambiar {{Path|make.conf}}:
 
 {{RootCmd|eselect profile list}}
+
+{{Note|When no systemd profile is used, or there is no systemd profile available for the system architecture, add the following code to {{Path|/etc/portage/profiles/packages}} so that {{Package|sys-apps/openrc}} is not pulled in as a system dependency since OpenRC and systemd conflict.}}
+
+{{FileBox|filename=/etc/portage/profiles/packages|lang=text|1=# Remove OpenRC from the system profile when using systemd
+-*sys-apps/openrc}}
 
 Finalmente, actualice el sistema con los nuevos parámetros:
 
@@ -698,6 +726,12 @@ Sin embargo, también cron ejecuta los scripts situados en {{Path|/etc/cron.dail
 * {{Bug|systemd|search=product|site=fdo}}
 * [http://freedesktop.org/wiki/Software/systemd/Debugging Upstream debugging guide]
 
+=== /dev/kmsg buffer overrun, some messages lost ===
+
+; Problem: When booting the system displays an infinite loop of <code>/dev/kmsg buffer overrun, some messages lost</code>. The login screen to console never appears since the system never gets to that point in the boot process.
+
+; Solution: Most of the time this issue is caused when <var>CONFIG_POWER_SUPPLY_DEBUG</var> is enabled in the kernel. The current workaround is to disable this option in the kernel, then recompile, install, and boot the new kernel. The solution can also be found in [https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-0.html this thread] on the Gentoo forums. According to one user one the forum, this issue was also seen when using I2C eeprom on an embedded system<ref>https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-25.html  Retrieved on March 12th, 2016</ref>. The solution in this case was to disable the <var>CONFIG_I2C_DEBUG_CORE</var> kernel option.
+
 === Sesiones gráficas abiertas en lugares aleatorios ===
 
 Por defecto, systemd lanza únicamente un proceso {{c|getty}} cuando se va a utilizar. Esto causa que algunos gestores gráficos (como GDM) utilicen los  TTYs que queden para abrir sesiones gráficas bajo demanda lo cual puede resultar en tener las consolas y las sesiones gráficas repartidas de forma aleatoria dependiendo en el orden en el que se hayan utilizando.
@@ -744,6 +778,18 @@ systemd crea {{Path|/dev/log}} como socket de datagramas <ref>Jose Pedro Oliveir
 #  Por defecto syslog-ng utiliza unix-stream. Comentar esta línea y añadir unix-dgram en su lugar.
 # unix-stream('/dev/log');
 unix-dgram('/dev/log');
+}}
+
+=== syslog-ng source for systemd ===
+
+There is ''no need'' to add <code>unix-dgram('/dev/log');</code> to the {{Path|/etc/syslog-ng/syslog-ng.conf}} config file. It will cause {{c|syslog-ng}} to fail (at least on version syslog-ng-3.7.2). Update the <code>source src { ...; };</code> line mentioned in the [https://wiki.gentoo.org/wiki/Syslog-ng#Sources Gentoo Syslog-ng Wiki Page] as follows:
+
+{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|1=
+# default config for openrc
+#source src { system(); internal(); };
+ 
+# systemd
+source src { systemd-journal(); internal(); };
 }}
 
 === Configuración de sys-fs/cryptsetup ===
