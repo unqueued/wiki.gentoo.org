@@ -111,6 +111,29 @@ systemd 꾸러미에서는 자체적으로 {{Path|/run}} 디렉터리를 만듭�
 
 {{Path|/usr}} 설정을 나누려면 [[initramfs]]를 활용하여 systemd를 시작하기 전에 {{Path|/usr}}를 마운트하십시오. 절차는 [[Initramfs/Guide|Initramfs 젠투 안내서]]를 참고하십시오.
 
+{{Emerge|params+=--unmerge|sys-kernel/genkernel}}
+{{Emerge|sys-kernel/dracut}}
+{{Emerge|sys-kernel/genkernel-next}}
+
+When using dracut, enable the usrmount module if it is not automatically enabled to mount {{Path|/usr}} automatically.
+
+{{FileBox|filename=/etc/dracut/dracut.conf|lang=bash|1=
+# Dracut modules to add to the default
+add_dracutmodules+="usrmount"
+}}
+
+When genkernel-next is used, before rebuilding the kernel, be sure to set the <var>UDEV</var> variable in {{c|genkernel}}'s configuration file to <code>yes</code>. This will pull {{path|/usr}} into the initramfs:
+
+{{FileBox|filename=/etc/genkernel.conf|lang=bash|1=
+# Use udev instead of mdev as the default device manager for the initramfs.
+# If systemd and perhaps lvm is used, then this _must_ be turned on.
+UDEV="yes"
+}}
+
+{{RootCmd|genkernel --install all}}
+
+See the [[Initramfs/Guide|Initramfs guide]] for more alternatives.
+
 === LVM2 와 Initramfs 사용하기===
 
 [[LVM|sys-fs/lvm2]]를 사용하여 시스템을 initramfs로 부팅하려 할 때, {{Package|sys-kernel/genkernel-next}}의 다음 명령을 사용하면 initramfs를 만듭니다:
@@ -137,6 +160,11 @@ use_lvmetad {{=}} 1
 <code>systemd</code> USE  플래그를({{Path|make.conf}}에서) 전체적으로 활성화하십시오. {{c|systemd-logind}} 서비스와 충돌하는 현상을 막으려면  <code>consolekit</code> USE 플래그를 비활성해야합니다. 분명한 USE 플래그를 기본으로 사용하려 systemd 하위 프로파일로 전환할 수도 있는데, 이런 경우 {{Path|make.conf}}의 설정을 바꿀 필요는 없습니다.
 
 {{RootCmd|eselect profile list}}
+
+{{Note|When no systemd profile is used, or there is no systemd profile available for the system architecture, add the following code to {{Path|/etc/portage/profiles/packages}} so that {{Package|sys-apps/openrc}} is not pulled in as a system dependency since OpenRC and systemd conflict.}}
+
+{{FileBox|filename=/etc/portage/profiles/packages|lang=text|1=# Remove OpenRC from the system profile when using systemd
+-*sys-apps/openrc}}
 
 마지막으로 새 플래그로 시스템을 업데이트하십시오:
 
@@ -695,6 +723,12 @@ ExecStart=/home/<user>/scripts/backup-work.sh
 * {{Bug|systemd|search=product|site=fdo}}
 * [http://freedesktop.org/wiki/Software/systemd/Debugging 업스트림 디버깅 안내서]
 
+=== /dev/kmsg buffer overrun, some messages lost ===
+
+; Problem: When booting the system displays an infinite loop of <code>/dev/kmsg buffer overrun, some messages lost</code>. The login screen to console never appears since the system never gets to that point in the boot process.
+
+; Solution: Most of the time this issue is caused when <var>CONFIG_POWER_SUPPLY_DEBUG</var> is enabled in the kernel. The current workaround is to disable this option in the kernel, then recompile, install, and boot the new kernel. The solution can also be found in [https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-0.html this thread] on the Gentoo forums. According to one user one the forum, this issue was also seen when using I2C eeprom on an embedded system<ref>https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-25.html  Retrieved on March 12th, 2016</ref>. The solution in this case was to disable the <var>CONFIG_I2C_DEBUG_CORE</var> kernel option.
+
 === 임의의 위치에서 열리는 그래픽 세션 ===
 
 기본적으로 systemd는 사용하려는 {{c|getty}} 프로세스만 실행합니다. 때문에 일부 (GDM 같은) 디스플레이 관리자 프로그램에서 필요할 때마다 열려있는 그래픽 세션에 대한 기존의 tty를 사용하게 하는데, 이 때문에 콘솔과 그래픽 세션이 사용 순서에 따라 임의대로 배치되는 결과를 초래할 수 있습니다.
@@ -741,6 +775,18 @@ systemd에서는 {{Path|/dev/log}}를 데이터그램 소켓 <ref>Jose Pedro Oli
 # By default syslog-ng uses unix-stream. Comment this out and add unix-dgram instead.
 # unix-stream('/dev/log');
 unix-dgram('/dev/log');
+}}
+
+=== syslog-ng source for systemd ===
+
+There is ''no need'' to add <code>unix-dgram('/dev/log');</code> to the {{Path|/etc/syslog-ng/syslog-ng.conf}} config file. It will cause {{c|syslog-ng}} to fail (at least on version syslog-ng-3.7.2). Update the <code>source src { ...; };</code> line mentioned in the [https://wiki.gentoo.org/wiki/Syslog-ng#Sources Gentoo Syslog-ng Wiki Page] as follows:
+
+{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|1=
+# default config for openrc
+#source src { system(); internal(); };
+ 
+# systemd
+source src { systemd-journal(); internal(); };
 }}
 
 === sys-fs/cryptsetup 설정  ===
