@@ -456,35 +456,69 @@ When a RADIUS server is running on the same machine, pppd can use RADIUS. Ensure
 If individual users have certificates (which is not the same as the machine certificate above), then setup pppd to authenticate via EAP-TLS. It is recommended that the users authenticate via smartcards or RSA secureID. Ensure the <code>eap-tls</code> USE flag is set on {{package|net-dialup/ppp}}. RADIUS needs to be setup (see above). The <code>require-eap</code> option might need to be included in the PPP options file as well. Setting up pppd to do this is beyond the scope of this document.
 
 == Client Troubleshooting ==
+
 === Windows: Correctly installing the certificate (for PKI users) ===
-The certificate should be packaged in a PKCS12 package. You can do this using openssl or gnutls 
+
+The certificate should be packaged in a PKCS12 package. This can be done through openssl or gnutls:
+
 {{Cmd|openssl pkcs12 -export -certfile ca.crt -inkey client.example.com.key -in client.example.com.crt -out client.example.p12}}
+
 {{Cmd|certtool --load-ca-certificate ca.crt --load-certificate client.example.com.crt --load-privkey client.example.com.key --to-p12 --outfile client.example.com.p12}}
-Once you have the p12 file, you can import into Windows, however the method is not obvious. DO NOT double-click the key and follow the instructions, that won't work. That imports the key into your personal certificate store, but in Windows, its the local computer that need to so the authentication, so the certificate need to be added to the local computer's store. To do that, we need to use the Microsoft Management Console (mmc). Note you must have Administrator privileges for this to work
 
+Once a {{Path|.p12}} file is created, import it into Windows. However, the method is not obvious. ''Do not'' double-click the key and follow the instructions, that won't work. That imports the key into a personal certificate store, but in Windows, it is the local computer that needs to do the authentication, so the certificate needs to be added to the local computer's key store. To do that, use the Microsoft Management Console (mmc). Administrator privileges are needed for this to work.
+
+{{CodeBox|title=Importing the key into Windows|1=
 Start -> Run -> mmc File -> Add/Remove Snap-in -> Certificates -> Add Computer Account -> Local Computer -> Finish -> OK.
+}}
 
-Expand the Certificates. Choose any folder (doesn't matter which), right-click, choose "All Tasks", then "Import". NOW follow the wizard, but on the last step, make sure you choose "Automatically select the certificate store based on the type of certificate" 
+Expand the Certificates. Choose any folder (doesn't matter which), right-click, choose "All Tasks", then "Import". Only now follow the wizard, but on the last step, make sure to choose "Automatically select the certificate store based on the type of certificate".
+
 === Windows: RAS networking errors ===
+
 ==== Error 766: A certificate could not be found ====
-This means you didn't import the certificate correctly. You have to import it though MMC, and not by double-clicking the file. 
+
+If this error occurs, then this means the certificate was not imported correctly. Make sure to import it though MMC, and not by double-clicking the file.
+ 
 ==== Error 810: VPN connection not complete ====
-If you're using ipsec-tools (racoon) you may see in you syslog as well: ''ERROR: ignore information because ISAKMP-SAhas not been established yet.''
 
-This means you didn't import the certificate correctly, or the p12 bundle is missing the CA certificate. You must do this though MMC, and you MUST choose "Automatically select the certificate store based on the type of certificate" at the end of the import process. 
+When using ipsec-tools (racoon) the following message might occur in the system log:
+
+{{CodeBox|title=Error message in system log when using ipsec-tools/racoon|1=
+ERROR: ignore information because ISAKMP-SAhas not been established yet.
+}}
+
+This means the certificate was not imported correctly, or the p12 bundle is missing in the CA certificate. Make sure to import the key through MMC, and make sure to select "Automatically select the certificate store based on the type of certificate" at the end of the import process.
+
 ==== XP SP2 and above: Error 809: Server not responding (Server behind NAT) ====
-Windows XP SP2 and Vista [http://support.microsoft.com/kb/885348|will not, by default, connect to server behind a NAT]. A registry hack is required. Separate fixes are required for Windows XP and Windows Vista. 
-==== Vista: Error 835 Could not authenticate ====
-This one occurs only when using PKI. It means the subjectAltName does not match the server you are connecting to. This often occurs when using dynamic DNS - the certificate has the internal name rather than the external name. Either add the external name to the certificate, or disable "Verify the Name and Usage attributes of the server's certificate" in Security -> Networking -> IPsec settings of the connection
-==== Error 741: The local computer does not support required encryption type ====
-Windows will try to negotiate MPPE a (weak) encryption. If you're not using PPP authentication, do not have a pppd with MPPE support, or MPPE supported not compiled into the kernel (or a module), you'll get this error. If you're using authentication, I recommend fixing the pppd or kernel, for minimal configuration problems, even though there's no point to double encryption. If you are not using PPP authentication, or don't want the double encryption, you can disable it by unchecking "Require data encryption" on the Security tab. Note the connection is still protected by IPsec encryption either way, this just disable the requirement for MPPE.
-=== Mac OS X ===
-Mac OS X clients appear to be picky on the proposals they will negotiate with. In particular:
-* dh_group must be "modp1024". 
-* my_identifier must be an address, not an FQDN (address is the default, so just leave that line out from racoon.conf). 
-Mac OS X won't connect if subjectAltName does not match the server you are connecting to. Unlike Vista you cannot disable this check.
 
-Also, Mac OS X won't connect if the server certificate contains any "Extended Key Usage" (EKU) fields (except for the deprecated ikeIntermediate one). In particular, if you are using certificates from the OpenVPN easy-rsa utility, it adds the "TLS WWW Server" or "TLS WWW Client" EKU, so such certificates will not work. However, you can use such certificates on the Mac OS X client, as it doesn't not care what on the client certificate - only the server. 
+Windows XP SP2 and Vista [http://support.microsoft.com/kb/885348|will not, by default, connect to server behind a NAT]. A registry hack is required. Separate fixes are required for Windows XP and Windows Vista.
+
+==== Vista: Error 835 Could not authenticate ====
+
+This one occurs only when using PKI. It means the <var>subjectAltName</var> does not match the server that the client is connecting to. This often occurs when using dynamic DNS - the certificate has the internal name rather than the external name. Either add the external name to the certificate, or disable "Verify the Name and Usage attributes of the server's certificate" in the connection definition, under Security -> Networking -> IPsec.
+
+==== Error 741: The local computer does not support required encryption type ====
+
+Windows will try to negotiate MPPE, a (weak) encryption. When 
+* the system is not using PPP authentication, or
+* the system does not have a pppd with MPPE support, or 
+* MPPE is supported but not compiled into the kernel (or a module)
+then this error occurs.
+
+If PPP authentication is used, it is recommended to fix the pppd or kernel (which are minimal configuration changes) even though there's no point to have double encryption. If the system does not use PPP authentication, or the double encryption is definitely not wanted, then disable it by unchecking "Require data encryption" on the Security tab.
+
+{{Note|The connection is still protected by IPsec encryption either way, this just disable the requirement for MPPE.}}
+
+=== Mac OS X ===
+
+Mac OS X clients appear to be picky on the proposals they will negotiate with. In particular:
+* <var>dh_group</var> must be <code>modp1024</code>. 
+* <var>my_identifier</var> must be an address, not a fully qualified domain name (address is the default, so just leave that line out from {{Path|racoon.conf}}).
+
+Mac OS X won't connect if <var>subjectAltName</var> does not match the server the client is connecting to. Unlike Vista this check cannot be disabled.
+
+Also, Mac OS X won't connect if the server certificate contains any "Extended Key Usage" (EKU) fields (except for the deprecated ikeIntermediate one). In particular, when using certificates from the OpenVPN {{c|easy-rsa}} utility, it adds the "TLS WWW Server" or "TLS WWW Client" EKU, so such certificates will not work. However, such certificates can still be used on the Mac OS X client, as it doesn't care what is on the client certificate - only the server.
+
 == See also ==
 == References ==
 Jacco de Leeuw [http://www.jacco2.dds.nl/networking/freeswan-l2tp.html%7CIPsec|L2TP guide for Freeswan]
