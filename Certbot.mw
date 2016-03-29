@@ -14,27 +14,67 @@ From the official website: "Anyone who has gone through the trouble of setting u
 
 Point an external IP at http (port 80/tcp) and https (port 443/tcp) at a web server and setup DNS for it.  This is important. You have to prove you own the IP/domain. You could use dynamic DNS if necessary.
 
-== Installation ==
+== Client Software ==
+
+=== Official Let's Encrypt Client ===
+
+==== Installation ====
 
 {{Tip|The ebuild for the official client can be tricky to set up. It is helpful to read the [https://letsencrypt.readthedocs.org/en/latest/intro.html official documentation] ''before'' proceeding with this article.}}
 
-=== Emerge ===
-
 {{Emerge|app-crypt/letsencrypt}}
 
-=== acme-tiny (manual installation) ===
+==== Usage ====
 
-{{c|acme-tiny}} is a short Python script which is useful, quick way to get started.
+{{RootCmd|letsencrypt --help|output=<pre>
+letsencrypt [SUBCOMMAND] [options] [-d domain] [-d domain] ...
 
-Either {{c|git clone}} the script from [https://github.com/diafygi/acme-tiny/ the acme-tiny repository] on GitHub or {{c|wget}} the raw script directly from GitHub:
+The Let's Encrypt agent can obtain and install HTTPS/TLS/SSL certificates.  By
+default, it will attempt to use a webserver both for obtaining and installing
+the cert. Major SUBCOMMANDS are:
+
+  (default) run        Obtain & install a cert in your current webserver
+  certonly             Obtain cert, but do not install it (aka "auth")
+  install              Install a previously obtained cert in a server
+  revoke               Revoke a previously obtained certificate
+  rollback             Rollback server configuration changes made during install
+  config_changes       Show changes made to server config during installation
+  plugins              Display information about installed plugins
+
+Choice of server plugins for obtaining and installing cert:
+
+  (the apache plugin is not installed)
+  --standalone      Run a standalone webserver for authentication
+  (nginx support is experimental, buggy, and not installed by default)
+  --webroot         Place files in a server's webroot folder for authentication
+
+OR use different plugins to obtain (authenticate) the cert and then install it:
+
+  --authenticator standalone --installer apache
+
+More detailed help:
+
+  -h, --help [topic]    print this message, or detailed help on a topic;
+                        the available topics are:
+
+   all, automation, paths, security, testing, or any of the subcommands or
+   plugins (certonly, install, nginx, apache, standalone, webroot, etc)
+</pre>}}
+
+=== acme-tiny (Alternative, minimalist client) ===
+
+[https://github.com/diafygi/acme-tiny/ app-crypt/acme-tiny] is a short, auditable Python script which avoids a lot of the bloat included in the official client.  It is currently available in the [[User:NP-Hardass|NP-Hardass]]' overlay.
+
+==== Installation ====
 
 {{RootCmd
-|wget https://github.com/diafygi/acme-tiny/raw/master/acme_tiny.py
-|mv acme_tiny.py /tmp
-|chmod +x /tmp/acme_tiny.py
+|layman -a np-hardass-overlay
+|emerge -av app-crypt/acme-tiny
 }}
 
-{{RootCmd|python /tmp/acme_tiny.py}}
+==== Configuration ====
+
+The documentation on [https://github.com/diafygi/acme-tiny/] is the best place to look for the most up to date information, but has been summarized below:
 
 Make a directory for challenges to be created in:
 
@@ -75,28 +115,28 @@ Create an account key, domain key and a CSR (replace www.example.co.uk with your
 Register and create the various certificate files:
 
 {{RootCmd
-|python /tmp/acme_tiny.py --account-key ./account.key --csr ./domain.csr --acme-dir  /var/www/localhost/acme-challenge/ > ./signed.crt
+|/usr/bin/acme_tiny --account-key ./account.key --csr ./domain.csr --acme-dir  /var/www/localhost/acme-challenge/ > ./signed.crt
 |wget -O - https://letsencrypt.org/certs/lets-encrypt-x1-cross-signed.pem > intermediate.pem
 |cat signed.crt intermediate.pem > chained.pem
 }}
 
-Restart Apache (systemd):
+Reload configs for webserver:
 
-{{RootCmd|systemctl restart apache2}}
+{{RootCmd|service apache2 reload}}
+or
+{{RootCmd|service nginx reload}}
+or
+{{RootCmd|service lighttpd reload}}
 
-Restart Apache (OpenRC):
-
-{{RootCmd|/etc/init.d/apache2 restart}}
-
-Renewal script: 
+Sample renewal script: 
 
 {{FileBox|filename=/usr/bin/local/renew-le-cert|title=LetsEncrypt Cert renew script|1=
 <pre>
 #!/bin/sh
-python /var/lib/letsencrypt/acme_tiny.py --account-key /var/lib/letsencrypt/account.key --csr /var/lib/letsencrypt/domain.csr --acme-dir /var/www/localhost/acme-challenge/ > /tmp/signed.crt || exit
+python /var/lib/letsencrypt/acme_tiny.py --account-key /var/lib/letsencrypt/account.key --csr /var/lib/letsencrypt/domain.csr --acme-dir /var/www/localhost/acme-challenge/ > /var/lib/letsencrypt/signed.crt || exit
 wget -O - https://letsencrypt.org/certs/lets-encrypt-x1-cross-signed.pem > intermediate.pem
-cat /tmp/signed.crt intermediate.pem > /var/lib/letsencrypt/chained.pem
-systemctl restart apache2
+cat /var/lib/letsencrypt/signed.crt intermediate.pem > /var/lib/letsencrypt/chained.pem
+service apache2 reload
 </pre>
 }}
 
@@ -107,55 +147,14 @@ Add a monthly cron job:
 0 0 1 * * /usr/local/bin/renew-le-cert.sh 2>> /var/log/acme_tiny.log
 }}
 
-== Usage ==
-
-=== Invocation ===
-
-{{RootCmd|letsencrypt --help|output=<pre>
-letsencrypt [SUBCOMMAND] [options] [-d domain] [-d domain] ...
-
-The Let's Encrypt agent can obtain and install HTTPS/TLS/SSL certificates.  By
-default, it will attempt to use a webserver both for obtaining and installing
-the cert. Major SUBCOMMANDS are:
-
-  (default) run        Obtain & install a cert in your current webserver
-  certonly             Obtain cert, but do not install it (aka "auth")
-  install              Install a previously obtained cert in a server
-  revoke               Revoke a previously obtained certificate
-  rollback             Rollback server configuration changes made during install
-  config_changes       Show changes made to server config during installation
-  plugins              Display information about installed plugins
-
-Choice of server plugins for obtaining and installing cert:
-
-  (the apache plugin is not installed)
-  --standalone      Run a standalone webserver for authentication
-  (nginx support is experimental, buggy, and not installed by default)
-  --webroot         Place files in a server's webroot folder for authentication
-
-OR use different plugins to obtain (authenticate) the cert and then install it:
-
-  --authenticator standalone --installer apache
-
-More detailed help:
-
-  -h, --help [topic]    print this message, or detailed help on a topic;
-                        the available topics are:
-
-   all, automation, paths, security, testing, or any of the subcommands or
-   plugins (certonly, install, nginx, apache, standalone, webroot, etc)
-</pre>}}
-
-== Removal ==
-
-=== Unmerge ===
-
-{{Emerge|params+=--unmerge|app-crypt/letsencrypt}}
+=== Manual (Get HTTPS For Free) ===
+For those that are not interested in using scripts or want to configure things manually the first time,  the author of acme-tiny has provided a webpage that gives step by step instructions along with javascript to help walk you through setting up your certificates.  The guide may be found on [https://gethttpsforfree.com/ Get HTTPS for Free]
 
 == See also ==
 
 * [[Apache]] - The most popular HTTP server used the Internet.
 * [[Nginx]] - A small, robust, and high-performance HTTP server and reverse proxy.
+* [[Lighttpd]] - a very lightweight HTTP server.
 
 == External resources ==
 
