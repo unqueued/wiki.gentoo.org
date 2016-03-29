@@ -332,35 +332,43 @@ These operating systems do not automatically support IPSec/L2TP servers behind N
 There is no provision within the IPsec protocol to negotiate PSKs. The only information available to choose which key to use is based on the source and destination IP addresses. Since, in the usual scenario, the responder won't know the initiator's IP in advance, ''everyone'' must use the same pre-shared key. Therefore, certificates (PKI) are highly recommended over pre-shared keys (PSK), even for only a single connection. However generating certificates and creating a PKI is a rather complex process and out of scope of this document.
 
 == L2TP ==
-The second layer, l2tp is much easier to setup. Like IPsec, l2tp is a peer-to-peer protocol. The client side called the L2TP Access Concentrator or LAC and the server side is called the L2TP Network Server or LNS
-{{Warning|L2TP is totally insecure, and must NOT be accessible outside the IPsec connection}}
-If you are using iptables to block all l2tp connection outside the ipsec layer:
+
+The second layer, l2tp,  is much easier to setup. Like IPsec, l2tp is a peer-to-peer protocol. The client side is called the ''L2TP Access Concentrator'' or LAC and the server side is called the ''L2TP Network Server'' or LNS.
+
+{{Warning|L2TP is totally insecure, and should '''not''' be accessible outside the IPsec connection}}
+
+When using iptables, use the following rules to block all l2tp connection outside the ipsec layer:
+
 {{RootCmd
 |iptables -t filter -A INPUT -p udp -m policy --dir in --pol ipsec -m udp --dport l2tp -j ACCEPT
 |iptables -t filter -A INPUT -p udp -m udp --dport l2tp -j REJECT --reject-with icmp-port-unreachable 
 |iptables -t filter -A OUTPUT -p udp -m policy --dir out --pol ipsec -m udp --sport l2tp -j ACCEPT
 |iptables -t filter -A OUTPUT -p udp -m udp --sport l2tp -j REJECT --reject-with icmp-port-unreachable
 }}
-If you are using ufw as your firewall you will need to get ufw to accept incoming & outgoing connections using the ESP protocol to allow ipsec authentication, and to block all l2tp connection outside the ipsec layer edit the following file:
+
+If the local firewall is ufw then get ufw to accept incoming & outgoing connections using the ESP protocol to allow ipsec authentication, and to block all l2tp connections outside the ipsec layer. This can be accomplished by using the following file:
+
 {{FileBox|filename=/etc/ufw/before.rules|1=
 # Allow L2TP only over IPSEC
 -A ufw-before-input -m policy --dir in --pol ipsec -p udp --dport l2tp -j ACCEPT
 -A ufw-before-input -p udp -m udp --dport l2tp -j REJECT --reject-with icmp-port-unreachable
 -A ufw-before-output -m policy --dir out --pol ipsec -p udp --sport l2tp -j ACCEPT
 -A ufw-before-output -p udp -m udp --sport l2tp -j REJECT --reject-with icmp-port-unreachable
-
+ 
 # Allow IPSEC authentication using ESP protocol
 -A ufw-before-input -p esp -j ACCEPT
 -A ufw-before-output -p esp -j ACCEPT
 }}
 
 === Using xl2tpd ===
-Unlike other L2TP servers, xl2tpd can maintain an IP address pool without a DHCP or RADIUS server. This is a layering violation, but for small setup its extremely convenient 
+
+Unlike other L2TP servers, {{c|xl2tpd}} can maintain an IP address pool without a DHCP or RADIUS server. This is a layering violation, but for small setup its extremely convenient:
+
 {{FileBox|filename=/etc/xl2tpd/xl2tpd.conf|1=
 [global]
 port = 1701
 access control = no
-
+ 
 [lns default]
 ip range = 172.21.118.2-172.21.118.254
 local ip = 172.21.118.1
@@ -368,9 +376,11 @@ require authentication = yes
 name = LinuxVPN
 pppoptfile = /etc/ppp/options.xl2tpd
 }}
-If you want to use a RADIUS or DHCP server, leave off the "ip range" and "local ip" parts. If the connection is unstable, try adding "length bit = yes" to the "lns default" section. If you don't want to use PPP authentication, change "require authentication = yes" to "refuse authentication = yes"
 
-We'll need to create the options file as well
+To use a RADIUS or DHCP server, leave off the <code>ip range</code> and <code>local ip</code> parts. If the connection is unstable, try adding <code>length bit = yes</code> to the <code>lns default</code> section. To not use PPP authentication, change <code>require authentication = yes</code> to <code>refuse authentication = yes</code>.
+
+Create the options file as well:
+
 {{FileBox|filename=/etc/ppp/options.xl2tpd|1=
 noccp
 auth
@@ -382,27 +392,31 @@ lock
 proxyarp
 silent
 }}
+
 === Using rp-l2tp ===
-Configuration of rp-l2tp is simple:
+
+Configuring rp-l2tp is simple:
+
 {{FileBox|filename=/etc/rp-l2tp/rp-l2tpd.conf|1=
 # Global section (by default, we start in global mode)
 global
-
+ 
 # Load handlers
 load-handler "sync-pppd.so"
 load-handler "cmd.so"
-
+ 
 # Bind address
 listen-port 1701
-
+ 
 section peer
 peer 0.0.0.0
 mask 0
 lns-handler sync-pppd
-
+ 
 lns-pppd-opts "noccp auth crtscts mtu 1410 mru 1410 nodefaultroute lock proxyarp silent"
 }}
-You'll need to specify the server IP as well in lns-pppd-opts (in the form a.b.c.d: ). You'll also need to setup pppd to use an IP address pool, either via DHCP or RADIUS.
+
+Specify the server IP as well in <var>lns-pppd-opts</var>. Also don't forget to setup pppd to use an IP address pool, either via DHCP or RADIUS.
 
 == pppd ==
 === Authentication ===
