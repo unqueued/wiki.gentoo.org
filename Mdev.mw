@@ -1,32 +1,32 @@
 <languages />
 <translate>
 {{Lowercase title}}
-The aim of this page is to document how to replace [[udev]] in Linux with mdev, thus allowing a separate {{Path|/usr}} partition, without an [[initramfs]]. The author uses Gentoo Linux with IceWM as the window manager. The instructions here should be applicable to other distros, assuming you can make the necessary changes.
+
+The aim of this page is to document how to replace [[udev]] in Linux with mdev, thus allowing a separate {{Path|/usr}} partition, without an [[initramfs]]. The author uses Gentoo Linux with IceWM as the window manager. The instructions here should be, with some small adjustments, applicable to other distributions.
 
 == Will mdev work on my system? ==
 
-I run a simple Gentoo install, using IceWM, and no "desktop environment". An {{Path|[[xorg.conf]]}} is not required on my system. Note that a "desktop environment" is not required to run AbiWord, Firefox, GIMP, Gnumeric, etc. However, "Koffice apps" like KMail seem to pull in most of KDE as a dependency. In general, if you use KDE or GNOME lvm2, you may have problems, and may not be able to get by with mdev. One beta tester reports getting close with lvm2, but it's not there yet. 
+The {{c|mdev}} application is definitely suitable as long as the system does not use a full-fledged desktop environment. Note that a desktop environment is not required to run AbiWord, Firefox, GIMP, Gnumeric, etc. However, KOffice applications like KMail seem to pull in most of KDE as a dependency. In general, when using KDE or GNOME, {{c|mdev}} is not suitable. Also using [[LVM]] might be troublesome.
 
-It will work for you very well if you use the default Gentoo profile
+It will work very well when using the default Gentoo profiles:
 
 * ''default/linux/x86/13.0''
+* ''default/linux/amd64/13.0''
 
-* ''default/linux/amd64/13.0''.
-
-You can show the used profile by using following command:
+List the currently used profile by using following command:
 
 {{Cmd|eselect profile list|output=<pre>
 Current /etc/portage/make.profile symlink:
   default/linux/amd64/13.0
 </pre>}}
 
-{{Note|Recent versions of evdev {{package|x11-drivers/xf86-input-evdev}} and Chromium {{package|www-client/chromium}} require udev. They will not build without it.}}
+{{Note|Recent versions of evdev (as provided through {{package|x11-drivers/xf86-input-evdev}}) and {{package|www-client/chromium}} require udev. They will not build without it.}}
 
-There is one more sanity check that Gentoo users can run to check for udev dependency. I don't think this can be duplicated in other distros.
+There is one more sanity check that Gentoo users can run to check for udev dependency.
 
 === Sanity check ===
 
-Get an general overview which packages might depend on udev, the output could look similar to the one shown below:
+Get a general overview which packages might depend on udev. The output could look similar to the one shown below:
 
 {{Cmd|equery d udev|output=<pre>
  * These packages depend on udev:
@@ -39,7 +39,7 @@ x11-drivers/xf86-video-intel-2.20.13 (udev ? virtual/udev)
 x11-libs/cairo-1.10.2-r3 (drm ? >=virtual/udev-136)
 </pre>}}
 
-To {{Path|/etc/portage/package.mask/mdev}}, add the line
+Add the following line to the {{Path|/etc/portage/package.mask/mdev}} file (which can be created if it does not exist yet):
 
 {{FileBox|filename=/etc/portage/package.mask/mdev|title=Mask away udev|1=
 sys-fs/udev
@@ -53,54 +53,49 @@ Rebuild all packages with the new <code>-udev</code> USE flag
 
 {{Emerge|params=-uDNvp|@world}}
 
-If the only errors you get are for not being able to re-install udev as required by {{Package|virtual/dev-manager}}, you can proceed to the next stage. Otherwise, {{Package|sys-fs/udev}} might be an hard dependency of some package you requested.
+If the only error that comes up is that Portage is not able to re-install udev as required by {{Package|virtual/dev-manager}}, proceed to the next stage. Otherwise, {{Package|sys-fs/udev}} might be an hard dependency of one or more packages installed on the system.
 
 == Software requiring extra steps ==
 
 === ATI/AMD binary blobs ===
 
-Some ATI/AMD Radeon cards require binary blobs. The Gentoo {{Package|sys-firmware/radeon-ucode}} package pulls down all the binary blobs available at [http://people.freedesktop.org/~ag5f/radeon_ucode/ http://people.freedesktop.org/~ag5f/radeon_ucode/] to support many different models.
+Some ATI/AMD Radeon cards require binary blobs. The Gentoo {{Package|sys-firmware/radeon-ucode}} package pulls in all the binary blobs available at [http://people.freedesktop.org/~ag5f/radeon_ucode/ http://people.freedesktop.org/~ag5f/radeon_ucode/] to support many different models.
 
-With all the binary blobs in the library directory, the kernel needs udev to figure out which one of the many binary blobs to load. If all but one of the binary blobs are removed, leaving only the correct one in the library directory, it loads automatically.
-
-== Warning / Disclaimer ==
-
-This solution may result in a not boot-able Linux.
-
-{{Important|Proceed only if the above stages don't reveal any udev dependencies.}}
+With all the binary blobs in the library directory, the kernel needs udev to figure out which one of the many binary blobs to load. If all but one of the binary blobs are removed, leaving only the correct one in the library directory, the binary blob is loaded automatically.
 
 == Replacing udev with mdev ==
 
-=== Setting up your kernel for devtmpfs ===
+{{Warning|This is a critical step which might result in a non-bootable Linux system. Only proceed if the above approach has not revealed any additional udev dependencies.}}
 
-Set up your kernel to support and automount a devtmpfs [[filesystem]] at {{Path|/dev}}:
+=== Setting up the kernel for devtmpfs ===
 
-{{KernelBox|1=
+Set up the kernel to support and automount a devtmpfs [[filesystem]] at {{Path|/dev}}:
+
+{{KernelBox|title=Enabling devtmpfs|1=
 Device Drivers --->
     Generic Driver Options --->
         [*] Maintain a devtmpfs filesystem to mount at /dev
         [*] Automount devtmpfs at /dev, after the kernel mounted the rootfs
 }}
 
-Once you've made the changes, rebuild the kernel. Do '''NOT''' reboot yet.
+Once the changes have been made, rebuild the kernel. Do '''NOT''' reboot yet.
 
 === Emerging busybox ===
 
-For our circumstance, you will need the <code>mdev</code> USE flag set for {{Package|sys-apps/busybox}}. The <code>static</code> USE flag is probably also a good idea. In the {{Path|/etc/portage/package.use/mdev}} file, add the line:
+Make sure that the <code>mdev</code> USE flag is set for {{Package|sys-apps/busybox}}. The <code>static</code> USE flag is probably also a good idea. In the {{Path|/etc/portage/package.use/mdev}} file, add the follwoing line:
 
-{{FileBox|filename=/etc/portage/package.use/mdev|1=sys-apps/busybox static mdev}}
+{{FileBox|filename=/etc/portage/package.use/mdev|1=
+sys-apps/busybox static mdev}}
 
-Now, you may run
+Now, (re)install busybox:
 
 {{Emerge|params+=--oneshot|busybox}}
 
-If you're using a distro other than Gentoo, or building BusyBox manually, do whatever necessary in your situation to enable the mdev option.
-
 === Mounting devpts ===
 
-devpts exhibits non-standard behaviour. It does not automount, at bootup, or with {{c|mount -a}}. An explicit {{c|mount devpts}} command is required. The standard solution for udev-based systems is to run {{c|rc-update add udev-mount sysinit}} as root, and have the udev-mount script do the mounting at startup. An mdev-based system will probably not have udev installed. An alternative way to do this at bootup is to include the command {{c|mount devpts}} in a shell script in {{Path|/etc/local.d/}} In this example, the file will be named {{Path|/etc/local.d/000.start}}
+The devpts filesystem exhibits non-standard behavior. It does not automount, at bootup, or with {{c|mount -a}}. An explicit {{c|mount devpts}} command is required. The standard solution for udev-based systems is to run {{c|rc-update add udev-mount sysinit}} as root, and have the udev-mount script do the mounting at startup. An mdev-based system will probably not have udev installed. An alternative way to do this at bootup is to include the command {{c|mount devpts}} in a shell script in {{Path|/etc/local.d/}}. In this example, the file will be named {{Path|/etc/local.d/000.start}}
 
-Another side-effect of not using udev-mount is that {{Path|/dev/shm}} is only writable by root. The command {{c|chmod 1777 /dev/shm}} is required to restore the standard behaviour. This command will also be run from a script at startup.
+Another side-effect of not using udev-mount is that {{Path|/dev/shm}} is only writable by root. The command {{c|chmod 1777 /dev/shm}} is required to restore the standard behavior. This command will also be run from the script at startup.
 
 {{FileBox|filename=/etc/local.d/000.start|title=Mount of devpts at bootup and change /dev/shm permissions|lang=bash|1=
 #!/bin/bash
@@ -108,22 +103,15 @@ mount devpts
 chmod 1777 /dev/shm
 }}
 
-Notes regarding scripts used in {{Path|/etc/local.d/}}
-* The files must be executable.
-* They must have the extension ".start" on order to run at startup.
-* They must have the extension ".stop" on order to run at stop.
-
-Editing {{Path|/etc/fstab}} is a optional step only for Linux 3.5.7. It is not needed for newer kernels.
-
-{{Note|As of approximately kernel 3.5.7, devpts has to be included in {{Path|/etc/fstab}} with the following parameters:}}
-
-{{FileBox|filename=/etc/fstab|title=Entry for devpts|1=
-devpts     /dev/pts      devpts      defaults 0 0
+{{Note|Scripts used in {{Path|/etc/local.d/}}
+* must be executable
+* must have the extension ".start" in order to run at startup
+* must have the extension ".stop" in order to run at shutdown
 }}
 
 === Replace the udev service ===
 
-Remove udev from the services list, replacing it with mdev:
+Remove udev from the services list and replace it with mdev:
 
 {{RootCmd
 |rc-update del udev sysinit
@@ -132,14 +120,17 @@ Remove udev from the services list, replacing it with mdev:
 
 === Reboot ===
 
-Reboot to your new kernel. Your system should now be running using mdev.
+Reboot to the new kernel. The system should now be running using mdev.
 
 === Cleanup ===
 
-Remove udev from your system by running {{c|emerge --unmerge sys-fs/udev}}.
-In the {{Path|/etc/portage/package.mask}}, append the line ''sys-fs/udev''. Create {{Path|/etc/portage/package.mask}} if it doesn't already exist.
+Remove udev from the system:
 
-You should now have a completely udev-free machine.
+{{RootCmd|emerge --unmerge sys-fs/udev}}
+
+In the {{Path|/etc/portage/package.mask}} file (or a file in this directory), add <code>sys-fs/udev</code>.
+
+This now results in a completely udev-free machine.
 
 == Setting up a USB printer running under CUPS ==
 
@@ -152,57 +143,58 @@ You should now have a completely udev-free machine.
 
 === Rebuild the kernel ===
 
-For libusb (and hence CUPS) to see the USB ports, set ''CONFIG_USB_DEVICE_CLASS=y'' and ''CONFIG_USB_DEVICEFS=y'' in your kernel configuration.  You will also need to enable ''CONFIG_USB_PRINTER'', despite the injunction in the cups-1.5.2 ebuild to disable it.  If you use {{c|make menuconfig}}, these items are found here:
+For libusb (and hence CUPS) to see the USB ports, set <code>CONFIG_USB_DEVICE_CLASS=y</code> and <code>CONFIG_USB_DEVICEFS=y</code> in the kernel configuration.  Also enable <code>CONFIG_USB_PRINTER=y</code>, despite the injunction in the cups-1.5.2 ebuild to disable it.  When using {{c|make menuconfig}}, these items are found here:
 
 {{KernelBox|title=Enabling generation of USB devices at boot time|1=
   Device Drivers --->
     [*] Support for Host-side USB
       [*] USB device filesystem [DEPRECATED]
       [*] USB device class-devices [DEPRECATED]
-    [*] USB Printer support}}
-(Don't worry about the "DEPRECATED"s.)
+    [*] USB Printer support
+}}
 
-=== Configure the new kernel into your bootloader and reboot into it ===
+{{Note|Don't worry about the deprecation warnings.}}
+
+=== Configure the new kernel into the bootloader and reboot into it ===
 
 === Verify the presence of the new device nodes ===
 
-You should see a hierarchy of device nodes under {{Path|/dev/bus/usb/}}.  If you switch on your printer, you will probably see a node for it at {{Path|/dev/lp0}}.  You should be able to run {{c|lsusb}} successfully, and this should display your printer's details.
+A hierarchy of device nodes should be present under {{Path|/dev/bus/usb/}}. When switching on the printer, a node for it should occur at {{Path|/dev/lp0}}. {{c|lsusb}} should run successfully, and this should display the printer's details.
 
-=== Configure your printer in CUPS ===
+=== Configure the printer in CUPS ===
 
-You should now be able to configure CUPS in the [http://www.gentoo.org/doc/en/printing-howto.xml usual way].  CUPS should find your printer, and will give it a URI something like {{Path|parallel:/dev/lp0}}.
+Configure CUPS in the [[Printing|usual way]].  CUPS should find the printer, and will give it a URI like {{Path|parallel:/dev/lp0}}.
 
 == Troubleshooting ==
 
 === Linux modules missing at boot sequence ===
 
-If Linux modules are required and not loaded on boot after migration, you might might chose or combine following solutions:
+If Linux modules are required and not loaded on boot after migration, execute one or more of the following solutions:
 
 * Add Linux modules to {{Path|/etc/conf.d/modules}}
 
-* Compile modules into Linux kernel, without the need of loading them on demand.
+* Compile modules into the Linux kernel, without the need of loading them on demand.
 
-* Write your own module loader:
-
-{{FileBox|filename=/sbin/hotplug|lang=bash|1=
+* Write a custom module loader:
+: {{FileBox|filename=/sbin/hotplug|lang=bash|1=
 #!/bin/sh
 test -n "$MODALIAS" && modprobe "$MODALIAS";
 exec /sbin/mdev
 }}
 
-Install it as your hotplug handler instead of mdev.  Note that the earlier you get this installed, the better.  You might consider naming this script {{Path|/sbin/hotplug}}, since that is the default value of {{Path|/proc/sys/kernel/hotplug}} (or, change the default value in your kernel)
+Install it as the hotplug handler instead of mdev.  Note that the earlier this gets executed, the better.  Consider naming this script {{Path|/sbin/hotplug}}, since that is the default value of {{Path|/proc/sys/kernel/hotplug}} (or change the default value in the kernel configuration).
 
-== Notes ==
+== Miscellaneous ==
 
-This set of instructions was originally written by Walter Dnes and hosted at his personal website. It was imported to the Gentoo wiki with some editing by [[User:Short Circuit|Michael Mol]] per discussion on the gentoo-user mailing list.
+{{Note|This set of instructions was originally written by Walter Dnes and hosted at his personal website. It was imported to the Gentoo wiki with some editing by [[User:Short Circuit|Michael Mol]] per discussion on the gentoo-user mailing list.}}
 
-* mdev unlike udev does not support auto-modules loading thus you will need to use {{Path|/etc/conf.d/modules}} and put there all the modules like you used to load (nvidia, wl etc.). Also, {{Path|/etc/conf.d/modules}} have own _args variables as it does not support {{Path|/etc/modprobe.d}}. You may need to move your configuration there.
+* mdev unlike udev does not support auto-modules loading. Use {{Path|/etc/conf.d/modules}} and put all the modules there that should be loaded (nvidia, wl, etc.). Also, {{Path|/etc/conf.d/modules}} have their own <code>_args</code> variables as it does not support {{Path|/etc/modprobe.d}}. It might be necessary to move the module configuration to this location.
 
-* {{c|mdev -s}} does not create {{Path|/dev/mapper}} nodes. You may need to manualy create them or use {{c|dmsetup mknodes}} from lvm2 (good idea is to add it after {{c|mdev -s}} in init script).
+* {{c|mdev -s}} does not create {{Path|/dev/mapper}} nodes. Either manually create them or use {{c|dmsetup mknodes}} from lvm2. It is a good idea to add it after {{c|mdev -s}} in the init script.
 
-* you should use mouse and kbd drivers for xorg inputs. evdev need udev to be built. Mousedrv (mouse) may conflict with synaptics driver, when both are loaded.
+* Use mouse and keyboard drivers for xorg inputs. Evdev needs udev to be built. Mousedrv (for the mouse driver) may conflict with the synaptics driver when both are loaded.
 
-* Kernel configuration option ''CONFIG_INPUT_EVDEV'' not only provides the keyboard and mouse as input device events, it will provide lid and buttons to acpid as well.
+* The Kernel configuration option <var>CONFIG_INPUT_EVDEV</var> not only provides the keyboard and mouse as input device events, it will provide lid and button events to acpid as well.
 
 == See also ==
 
@@ -212,7 +204,8 @@ This set of instructions was originally written by Walter Dnes and hosted at his
 
 * [https://github.com/slashbeast/mdev-like-a-boss mdev like a boss] project.
 
+</translate>
+
+
 [[Category:Core system]]
 [[Category:Daemons]]
-
-</translate>
