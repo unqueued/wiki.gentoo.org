@@ -12,7 +12,7 @@
 
 === Prerequisites ===
 
-First off, you will need to configure your kernel with netfilter support. If you want to be able to add rules based on IP filtering like black listing IP addresses based on a live feed [https://forums.gentoo.org/viewtopic-t-863121.html], do not forget to add [[IPSet]] support to your kernel and merge {{Package|net-firewall/ipset}} package.
+First off, configure the kernel with netfilter support. To allow adding rules based on IP filtering like black listing IP addresses based on a live feed [https://forums.gentoo.org/viewtopic-t-863121.html], do not forget to add [[IPSet]] support to the kernel and merge the {{Package|net-firewall/ipset}} package.
 
 === Kernel ===
 
@@ -129,7 +129,16 @@ Activate the following kernel options:
                 <M>   "recent" match support
 }}
 
-One can setup IPv6 support category to ''<M>'' to be safe and enable almost all Netfilter sub category as the following. Or else, enable only what you need and leave the other modules unset. You certainly would want almost all ''IP virtual server support'' core components (scheduler are certainly optional), ''IP: Netfilter Configuration'' support, ''IPv6: Netfilter Configuration'' for IPv6 support, ''IP set support'' for IP filtering based on IP, MAC, ports and then pick up what you need in ''Core Netfilter Configuration'' with at least: Netfilter: NFQEUE, LOG; Connection tracking: flow, mark, events, netlink; Netfilter Xtables: NFQEUE, LOG, conn{bytes,mark,state}, state helper with Xtables match: conn{bytes,mark,state}... you get the idea.
+One can setup the IPv6 support category as modular (''<M>'') to be safe and enable almost all Netfilter sub-categories as well. Or, enable only what is needed and leave the other modules unset. A number of settings are almost always needed:
+
+* ''IP virtual server support'' core components (scheduler are certainly optional)
+* ''IP: Netfilter Configuration'' support
+* ''IPv6: Netfilter Configuration'' for IPv6 support
+* ''IP set support'' for IP filtering based on IP, MAC, ports 
+* pick up what is needed in ''Core Netfilter Configuration'' with at least: 
+** Netfilter: NFQEUE, LOG; 
+** Connection tracking: flow, mark, events, netlink; 
+** Netfilter Xtables: NFQEUE, LOG, conn{bytes,mark,state}, state helper with Xtables match: conn{bytes,mark,state}... 
 
 {{KernelBox|1=
 [*] Networking support  --->
@@ -162,7 +171,7 @@ Install iptables:
 
 === First run ===
 
-For some services such as [[sshguard]] and [[fail2ban]] you need a running firewall. We will save a blank firewall rule set and start the firewall.
+For some services such as [[sshguard]] and [[fail2ban]] a running firewall is mandatory. First save a blank firewall rule set and start the firewall.
 
 ==== IPv4 ====
 
@@ -170,11 +179,11 @@ For some services such as [[sshguard]] and [[fail2ban]] you need a running firew
 
 {{RootCmd|rc-service iptables start}}
 
-To start on reboot:
+To start on boot:
 
 {{RootCmd|rc-update add iptables default}}
 
-==== IPv6<ref>[[wikipedia:IPv6|IPv6]], [[wikipedia:Main_Page|Wikipedia, the free encyclopedia]], (last modified on) April 27th, 2015. Retrieved on May 6tht, 2015.</ref><ref group="–">[[IPv6_router_guide#Other_Resources]]</ref> ====
+==== IPv6 ====
 
 {{RootCmd|rc-service ip6tables save}}
 
@@ -186,27 +195,27 @@ To start on reboot:
 
 === General rules ===
 
-To create firewall rules, we are going to use <code>ipt=$(type -p iptables)</code> or <code>ipt=$(type -p ip6tables)</code>. For IPv6 support to write down a few rules that will be loaded using <code>"$ipt-restore" <"$rules"</code>. (rules file are usually saved to <code>/var/lib/"${ipt##*/}"/rules-save</code> so that whenever your machine is powered on, the rules set will be loaded automatically with <code>/etc/init.d/"${ipt##*/}"</code>.
+To create firewall rules, the {{c|iptables}} or {{c|ip6tables}} commands in the next set of examples will be defined through <code>ipt=$(type -p iptables)</code> or <code>ipt=$(type -p ip6tables)</code>. When the rules are saved, they are usually stored in {{Path|/var/lib/iptables/rules-save}} or {{Path|/var/lib/ip6tables/rules-save}}. This allows the firewall service to reload the rules at boot time.
 
-Lets begin with a little example:
+Let's begin with a little example:
 
 {{RootCmd|"$ipt" -P INPUT DROP}}
 
-If you're looking into the perfect firewall, the previous command will set up the policy for INPUT chain and will satisfy the more paranoid. However, the previous will drop every packet that will be sent to the local host. And usually nobody wants that to be a default policy. 
+This will implement a fairly strong firewall: it will drop every packet that will be sent to the host (as this matches the INPUT chain). 
 
-That example shows how we will be generating firewall rules.
+The following examples show how firewall rules are further generated.
 
 === Stateless firewall ===
 
-Traditional firewall uses stateless firewall rules like:
+Traditional firewalls use stateless firewall rules like so:
 
 {{RootCmd|"$ipt" -A INPUT --dport 80 -j ACCEPT}}
 
-That simply opens a local port, to accept HTTP requests (`--dport' switch means destination port, and HTTP servers listen on port 80).
+That simply allows the local port 80 to accept traffic (<code>--dport</code> configures the destination port), which usually implies HTTP servers as those generally listen on port 80).
 
 === Stateful firewall ===
 
-In a stateful firewall approach, the previous example will be handled like:
+In a stateful firewall approach, the previous example would be handled like so:
 
 {{RootCmd|<pre>
 "$ipt" -P INPUT                                                                                       DROP
@@ -214,7 +223,7 @@ In a stateful firewall approach, the previous example will be handled like:
 "$ipt" -A INPUT                                 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 </pre>}}
 
-First, we will drop everything like a hot potato, then accept only incoming traffic depending on the state of the state of the packets (stated NEW here), and then establish the connection. Even better, we could place the last line before the second to avoid going into complicated filtering chain for already related and established connections.
+By default, everything will be dropped like a hot potato. However, incoming traffic might be accepted based on the connection state of the packets (starting with NEW and further allowing all established/related traffic). Performance-wise, it would even be better to place the last line before the second to avoid going into complicated filtering chains for already related and established connections.
 
 This is how a stateful firewall operates to avoid opening unneeded holes and accept in/outbound packets based on the state of the packets.
 
@@ -222,7 +231,7 @@ This is how a stateful firewall operates to avoid opening unneeded holes and acc
 
 ==== Generating firewall rules for client ====
 
-A script as simple as shown here should be sufficient for most client computers. Store it in a safe place. You only need it for setting up or for changing the firewall rules. Absolutely no need to run it on boot or shutdown.
+A script as simple as shown below should be sufficient for most client computers. Store it in a safe place - it is only needed for setting up or for changing the firewall rules. As the firewall rules are saved and reloaded, there is no need to run the script after every boot.
 
 <pre>
 #!/bin/bash
@@ -258,7 +267,7 @@ ip6tables -A INPUT -p udp -m conntrack --ctstate NEW -j REJECT --reject-with icm
 ip6tables -A INPUT -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -m conntrack --ctstate NEW -j REJECT --reject-with tcp-reset 
 </pre>
 
-An example of a higher sophisticated rule set with logging is shown in the forum discussion.<ref>[http://forums.gentoo.org/viewtopic-p-7578926.html#7578926 Gentoo Forums :: View topic - iptables help], [https://forums.gentoo.org/ Gentoo Forums :: Index], July 5th, 2014. Retrieved on September 15th, 2014.</ref>
+An example of a more sophisticated rule set with logging is shown in [http://forums.gentoo.org/viewtopic-p-7578926.html#7578926 this forum discussion].
 
 ==== Generating firewall rules for server ====
 
@@ -272,11 +281,11 @@ This section will try to build up a script that will generate a set of rules wit
 
 {{RootCmd|iptables -L -n}}
 
-Print all rules like iptables-saveː
+Print all rules (similar to {{c|iptables-save}})ː
 
 {{RootCmd|iptables -S}}
 
-Like every other iptables command, it  applies  to the specified table (filter is the default), so NAT rules get listed byː
+Like every other {{c|iptables}} command, it applies to the specified table (of which <code>filter</code> is the default), so NAT rules get listed byː
 
 {{RootCmd|iptables -t nat -L -n}}
 
@@ -286,11 +295,11 @@ Like every other iptables command, it  applies  to the specified table (filter i
 
 {{RootCmd|ip6tables -L -n}}
 
-Print all rules like ip6tables-saveː
+Print all rules (similar to {{c|ip6tables-save}})ː
 
 {{RootCmd|ip6tables -S}}
 
-Like every other ip6tables command, it  applies  to the specified table (filter is the default), so NAT rules get listed byː
+Like every other {{c|ip6tables}} command, it applies to the specified table (of which <code>filter<code> is the default), so NAT rules get listed byː
 
 {{RootCmd|ip6tables -t nat -L -n}}
 
@@ -298,7 +307,6 @@ Like every other ip6tables command, it  applies  to the specified table (filter 
 
 == See also ==
 
-{{reflist|group="–"}}
 * [[Security_Handbook/Firewalls#Iptables|iptables (Security Handbook)]]
 
 == External resources ==
@@ -307,9 +315,8 @@ Like every other ip6tables command, it  applies  to the specified table (filter 
 * [http://www.gentoo-wiki.info/HOWTO_Iptables_and_stateful_firewalls Iptables and stateful firewall source article]
 * [http://gentoo-en.vfose.ru/wiki/Iptables_and_stateful_firewalls Iptables and stateful firewall]
 * [https://cgit.gentoo.org/user/mv.git/tree/net-firewall/firewall-mv firewall-mv]
+* [[wikipedia:IPv6|IPv6]]
 
-== References ==
-{{reflist}}
+</translate>
 
 [[Category:Server_and_Security]]
-</translate>
