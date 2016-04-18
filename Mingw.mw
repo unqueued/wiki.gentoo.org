@@ -33,16 +33,57 @@ Notes about the toolchain:
 If files are left over (such as libraries and things you have added), you will be prompted to remove the <code>/usr/i686-w64-mingw32</code> directory recursively.
 
 == Using Portage ==
-Some things work. Most things do not. Try with <code>USE="-*"</code> after a failed build, then selectively add USE flags you need. If that does not work, then you probably cannot use Portage to install the package desired for use with MinGW.
+Some things work. Most things do not. Try with <code>USE="-*"</code> after a failed build, then selectively add USE flags you need.  If that does not work, then you probably cannot use Portage to install the package desired for use with MinGW.
 
+=== make.conf and profile changes ===
+{{Note|If <code>crossdev</code> didn't create <code>/usr/i686-w64-mingw32/etc/profile/</code> then you may need to use emerge-wrapper to initialize it:
+ 
+{{rootCmd|emerge-wrapper --target i686-w64-mingw32 --init}}
+
+}}
+
+Various ebuilds support mingw or win32 targets, but different build systems often need different indicators.  Ensuring the following are set in <code>/usr/i686-w64-mingw32/etc/profile/make.conf</code> should allow most build systems to detect the proper target.  Note, some of these may have already been set by crossdev:
+
+{{FileBox|filename=/usr/i686-w64-mingw32/etc/profile/make.conf|title=Profile-level variables|1=
+ARCH=x86
+ELIBC="mingw"
+KERNEL="Winnt"
+}}
+
+{{Note|As of sprint 2016, the default <code>embedded</code> profile that <code>/usr/i686-w64-mingw32/etc/profile/make.profile</code> points to actually excludes all three of the above variables from being set in make.conf.  In order to rectify this, at this point in time the easiest way is to delete the <code>make.profile</code> symlink and copy <code>/usr/portage/profiles/embedded</code> directly in its place.  Then you can edit <code>make.defaults</code> to remove the above three variables from the <code>PROFILE_ONLY_VARIABLES</code> list at the bottom of the file.}}
+
+Mingw64-runtime and the cross-toolchain do not provide any <code>libgcc_s_*.dll</code> files, and without an external source for these files (eww) there will be issues trying to execute what is built by the cross-toolchain.  Fortunately, there's a workaround in the form of LDFLAGS <code>-static-libgcc</code> and <code>-static-libstdc++</code>, however due to the fact that these non-standard flags tend to get stripped out of builds, you need to perform some trickery.  Add the following to your make.conf:
+
+{{FileBox|filename=/usr/i686-w64-mingw32/etc/profile/make.conf|1=
+# Workaround missing libgcc_s_*.dll files by statically linking libc and libstdc++
+CC="${CHOST}-gcc -static-libgcc"
+CXX="${CHOST}-g++ -static-libgcc -static-libstdc++"
+}}
+
+USE flags can be set globally in <code>make.conf</code> or per-package in <code>package.use</code>; as the builds are for win32 it likely makes sense to globally disable some flags, such as <code>USE="-X"</code>.
+
+Finally, you likely want to make sure that the code you compile will actually run on the targets you plan to execute it on.  This means setting an appropriate -march and -mtune in CFLAGS for the target platform:
+
+{{FileBox|filename=/usr/i686-w64-mingw32/etc/profile/make.conf|1=
+CFLAGS="-march=i586 -mtune=generic -O2 -pipe"
+CXXFLAGS="${CFLAGS}"
+}}
+
+=== Emerging packages ===
 Using Portage, you may run into problems such as the following:
 
 * Application wants GDBM (see below)
 * Application wants to link with ALSA/OSS/Mesa/other library only useful to X or Linux
+* Ebuild of application doesn't contain the necessary configuration option to support a mingw or win32 target
+* Application is an unnecessary utility script, such as gentoo-functions or eselect
 
 Emerging <code>sys-libs/zlib</code>:
 
 {{rootCmd|i686-w64-mingw32-emerge sys-libs/zlib}}
+
+Alternatively:
+
+{{rootCmd|emerge-wrapper --target i686-w64-mingw32 -av sys-libs/zlib}}
 
 === GDBM ===
 These are "Standard GNU database libraries" according to Portage. Many libraries and applications depend on this. Successfully compiled before, but the current version in Portage does not compile. A patch is very much needed.
