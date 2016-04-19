@@ -26,6 +26,16 @@ Notes about the toolchain:
 * Sanitize may cause compilation failures for at least gcc-4.9, maybe newer.
 * OpenMP was once forcefully disabled in the ebuild, but now honors the use flag setting. However it may still cause compilation issues when set.
 
+=== libssp ===
+The GCC useflag [https://packages.gentoo.org/useflags/libssp <nowiki>sys-devel/gcc[libssp]</nowiki>] has been masked, as it is usually already provided by libc. Apparently msvcrt does not provide libssp, so it is recommended to re-enable this useflag for cross compilation (see [https://wiki.gentoo.org/wiki//etc/portage/profile/package.use.mask package.use.mask]):
+
+{{FileBox|filename=/etc/portage/profile/package.use.mask/mingw-libssp|1=
+cross-i686-w64-mingw32/gcc -libssp
+cross-x86_64-w64-mingw32/gcc -libssp}}
+{{FileBox|filename=/etc/portage/profile/package.use.force/mingw-libssp|1=
+cross-i686-w64-mingw32/gcc libssp
+cross-x86_64-w64-mingw32/gcc libssp}}
+
 === Uninstallation ===
 
 {{rootCmd|crossdev -C i686-w64-mingw32}}
@@ -50,7 +60,7 @@ ELIBC="mingw"
 KERNEL="Winnt"
 }}
 
-{{Note|As of sprint 2016, the default <code>embedded</code> profile that <code>/usr/i686-w64-mingw32/etc/profile/make.profile</code> points to actually excludes all three of the above variables from being set in make.conf.  In order to rectify this, at this point in time the easiest way is to delete the <code>make.profile</code> symlink and copy <code>/usr/portage/profiles/embedded</code> directly in its place.  Then you can edit <code>make.defaults</code> to remove the above three variables from the <code>PROFILE_ONLY_VARIABLES</code> list at the bottom of the file.}}
+{{Note|As of spring 2016, the default <code>embedded</code> profile that <code>/usr/i686-w64-mingw32/etc/profile/make.profile</code> points to actually excludes all three of the above variables from being set in make.conf.  In order to rectify this, at this point in time the easiest way is to delete the <code>make.profile</code> symlink and copy <code>/usr/portage/profiles/embedded</code> directly in its place.  Then you can edit <code>make.defaults</code> to remove the above three variables from the <code>PROFILE_ONLY_VARIABLES</code> list at the bottom of the file.}}
 
 Mingw64-runtime and the cross-toolchain do not provide any <code>libgcc_s_*.dll</code> files, and without an external source for these files (eww) there will be issues trying to execute what is built by the cross-toolchain.  Fortunately, there's a workaround in the form of LDFLAGS <code>-static-libgcc</code> and <code>-static-libstdc++</code>, however due to the fact that these non-standard flags tend to get stripped out of builds, you need to perform some trickery.  Add the following to your make.conf:
 
@@ -60,7 +70,7 @@ CC="${CHOST}-gcc -static-libgcc"
 CXX="${CHOST}-g++ -static-libgcc -static-libstdc++"
 }}
 
-USE flags can be set globally in <code>make.conf</code> or per-package in <code>package.use</code>; as the builds are for win32 it likely makes sense to globally disable some flags, such as <code>USE="-X"</code>.
+USE flags can be set globally in <code>make.conf</code> or per-package in <code>package.use</code>; as the builds are for win32 it likely makes sense to globally disable some flags, such as <code>USE="-X"</code> and globally enable <code>USE="win32"</code> in case any packages support it.
 
 Finally, you likely want to make sure that the code you compile will actually run on the targets you plan to execute it on.  This means setting an appropriate -march and -mtune in CFLAGS for the target platform:
 
@@ -86,8 +96,68 @@ Alternatively:
 
 {{rootCmd|emerge-wrapper --target i686-w64-mingw32 -av sys-libs/zlib}}
 
-=== GDBM ===
-These are "Standard GNU database libraries" according to Portage. Many libraries and applications depend on this. Successfully compiled before, but the current version in Portage does not compile. A patch is very much needed.
+=== Notes on specific packages ===
+
+==== app-admin/eselect ====
+This package brings in a number of system dependencies that are just plain not needed to build win32 software, and at the time of writing many of them (like python) fail to emerge.  However, as the binary is called during phase functions of other ebuilds you do want, a siple <code>package.provided</code> entry does not suffice to get rid of it.  Instead, I recommend overlaying your own <code>app-admin/eselect</code> ebuild that installs a dummy eselect binary, something that will do nothing yet always return success.  This is a dirty hack that certainly has drawbacks, but it at least allows the meat of slotted packages to be emerged.
+
+==== sys-apps/gentoo-functions ====
+This is another one of those necessary tool dependencies that isn't really needed in a mingw cross-build environment.  Although mostly implemented in shell, there is a single compiled binary that fails due to missing POSIX API stuff, <code>/sbin/consoletype</code>.  This package may be something that can be <code>package.provided</code> away, but to be on the safe side one can also overlay this ebuild and install a dummy script that echo's 'serial' and exists with code 1, in place of compiling consoletype.
+
+==== dev-util/gtk-update-icon-cache ====
+<code>gtk-update-icon-cache</code> is a tool that various packages inheriting the gnome eclasses will call in their pkg_postinst phase functions.  Although it may be a good idea to install it for use within the win32 target environment, the resulting binary cannot be run in phase functions and so failures will often occur.  Another dummy-script-installing overlay package can get around this issue.
+
+==== OpenSSL ====
+Follow this guide: [https://github.com/tatsh/cross-pc-mingw32-openssl]
+
+==== sys-libs/ncurses ====
+Ncurses is a very finnicky package, mostly due to the fact that it's build system was generated using a custom-forked version of autotools.  At this time of writing, <code>sys-libs/ncurses-5.9-r5</code> is stable and a static-only installation will emerge with <code>EXTRA_ECONF="--enable-term-driver --enable-sp-funcs --without-shared"</code> and <code>USE="static-libs"</code>, but ncurses-6.0 will not compile.
+
+==== sys-libs/readline ====
+<code>sys-libs/readline</code> is another finnicky package, in part because it depends on ncurses.  Only <code>~sys-libs/readline-6.2_p5</code> will build successfully, newer versions need a lot of patching.  Further, due to ncurses being limited to a static-only installation, readline must also be built static-only using <code>EXTRA_ECONF="--disable-shared"</code> and <code>USE="static-libs"</code>.
+
+==== x11-libs/cairo ====
+Cairo is well supported but the ebuilds currently do not provide a USE flag for the win32 target.  Specifying <code>EXTRA_ECONF="--with-target=win32"</code> and ensuring <code>USE="-X -aqua -xcb -x11-xcb"</code> will address this for now.
+
+If the plan is to emerge <code>x11-libs/gtk+</code>, then in order to avoid forced X11 dependencies both packages will need USE="aqua" set, and cairo will also need EXTRA_ECONF="--enable-quartz=no --enable-quartz-image=no" in addition to the above in order to undo the configuration options that the use flag adds.
+
+{{Note|Support for a win32 use flag may soon be added to cairo in the gentoo repo.}}
+
+==== x11-libs/gdk-pixbuf ====
+This package builds as-is without any modification, however there are two minor issues related to using the package:  
+
+* The pkg_postinst phase is unable to run 'gdk-pixbuf-query-loaders' to generate the loaders.cache file, which means that this will need to be done by hand using wine, via something like: {{rootCmd|wine /usr/i686-w64-mingw32/usr/bin/gdk-pixbuf-query-loaders.exe >/usr/i686-w64-mingw32/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache}}
+
+* The paths used by gdk-pixbuf at runtime to find the various loader DLLs is absolute, meaning that they will need to be installed on target win32 systems at <code>[drive]:\usr\lib\gdk-pixbuf-2.0\2.10.0\loaders</code>.
+
+It is possible to circumvent both of these issues by building the gdk-pixbuf with <code>EXTRA_ECONF="--with-included-loaders=yes"</code>, as this will include the loader code directly in the main gdk-pixbuf dll.
+
+==== x11-libs/gtk+ ====
+As touched on in the section about cairo above, in order to avoid a lot of X11 deps, gtk+ needs to be built with <code>USE="aqua"</code> and <code>EXTRA_ECONF="--with-gdktarget=win32"</code> for gtk+:2 or <code>EXTRA_ECONF="--enable-win32-backend."</code> for gtk+:3.
+
+If you see build failures related to missing symbols in the libraries at installation time, this may be related to a need to clear the gtk.def file so that it can be regenerated properly by the build system.  An easy way to do this without overlaying the ebuilds is to use the following script snippet in <code>/usr/i686-w64-mingw32/etc/portage/bashrc</code>:
+
+{{FileBox|filename=/usr/i686-w64-mingw32/etc/portage/bashrc|1=
+case "${CATEGORY}/${PN}" in
+x11-libs/gtk+)
+        case "${EBUILD_PHASE}" in
+        prepare)
+                einfo "Cleaning out gtk/gtk.def to aid in mingw out-of-source builds"
+                rm -f "${S}"/gtk/gtk.def
+                ;;
+        esac
+        ;;
+esac
+}}
+
+{{Note|<code>x11-libs/gtk+-3.18</code> and newer needs the function <code>cairo_win32_surface_create_with_format</code>, which reportedly will not be available until <code>x11-libs/cairo-1.15.2</code> or newer.}}
+
+{{Note|There are currently collisions between <code>gtk+:2</code> and <code>gtk+:3</code> on the file <code>${EROOT}/usr/bin/gailutil.def</code>; this needs to be resolved by hand if both slots are desired at the same time.}}
+
+{{Note|Support for a win32 use flag may soon be added to cairo in the gentoo repo.}}
+
+==== GDBM ====
+These are "Standard GNU database libraries" according to Portage. Many libraries and applications depend on this. The package reportedly compiled successfully compiled in the past, but the current versions in Portage do not compile due to the package requiring a POSIX environment (which mingw is not). Patching is very much needed.
 
 {{FileBox|filename=build.log|title=excerpt|1=
 i686-w64-mingw32-gcc -c -I. -I. -march=k8 -msse3 -O2 -pipe gdbmfetch.c  -DDLL_EXPORT -DPIC -o .libs/gdbmfetch.lo                                                                                                     
@@ -103,29 +173,12 @@ gdbmopen.c:177: error: 'F_WRLCK' undeclared (first use in this function)
 
 To get around this problem for the moment, try building with <code>USE="-*"</code>.
 
-== Libraries ==
-=== libssp ===
-The GCC useflag [https://packages.gentoo.org/useflags/libssp <nowiki>sys-devel/gcc[libssp]</nowiki>] has been masked, as it is usually already provided by libc. Apparently msvcrt does not provide libssp, so it is recommended to re-enable this useflag for cross compilation (see [https://wiki.gentoo.org/wiki//etc/portage/profile/package.use.mask package.use.mask]):
-
-{{FileBox|filename=/etc/portage/profile/package.use.mask/mingw-libssp|1=
-cross-i686-w64-mingw32/gcc -libssp
-cross-x86_64-w64-mingw32/gcc -libssp}}
-{{FileBox|filename=/etc/portage/profile/package.use.force/mingw-libssp|1=
-cross-i686-w64-mingw32/gcc libssp
-cross-x86_64-w64-mingw32/gcc libssp}}
-
-=== OpenSSL ===
-Follow this guide: [https://github.com/tatsh/cross-pc-mingw32-openssl]
 <!--
-=== FreeType ===
-=== jpeglib ===
-=== libpng ===
-=== PortAudio ===
-=== Qt ===
-=== tifflib ===
+==== PortAudio ====
+==== Qt ====
 -->
 
-=== SDL Example ===
+=== SDL Tutorial Example ===
 Emerge SDL:
 
 {{rootCmd|i686-w64-mingw32-emerge media-libs/libsdl}}
