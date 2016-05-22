@@ -448,7 +448,6 @@ Now we can unmask what we explicitly need (using, as described [[../Installing_t
 |echo "app-portage/showem::sakaki-tools" >> /etc/portage/package.unmask/showem
 |echo "sys-kernel/buildkernel::sakaki-tools" >> /etc/portage/package.unmask/buildkernel
 |echo "app-portage/genup::sakaki-tools" >> /etc/portage/package.unmask/genup
-|echo "app-crypt/efitools::sakaki-tools" >> /etc/portage/package.unmask/efitools
 |echo "app-crypt/staticgpg::sakaki-tools" >> /etc/portage/package.unmask/staticgpg
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
@@ -467,10 +466,6 @@ Here is a brief summary of what the above (whitelisted) ebuilds are, and what th
 |-
 | {{Package|app-portage/genup}} || {{Path|/usr/local/portage/sakaki-tools/app-portage/genup/genup-1.0.10.ebuild}}|| Provides the {{c|genup}} script, to simplify the process of keeping your Gentoo system up-to-date. {{c|genup}} can automatically update the Portage tree, all installed packages, and kernel. Has interactive and non-interactive (batch) modes. (Will be used later in the tutorial ([[../Configuring_systemd_and_Installing_Necessary_Tools#ensure_system_up_to_date|{{c|systemd}}]], [[../Completing_OpenRC_Configuration_and_Installing_Necessary_Tools#ensure_system_up_to_date|{{c|OpenRC}}]]).) A manpage is provided. The underlying source is available on [https://github.com/sakaki-/genup GitHub].
 |-
-| {{Package|app-crypt/efitools}} || {{Path|/usr/local/portage/sakaki-tools/app-crypt/efitools/efitools-1.4.3.ebuild}}|| <span id="efitools_patch">Later in the tutorial</span>, we will need to use programs provided by this package to manipulate the secure boot keystores on the target machine. However, at the time of writing, the latest version available on Gentoo (1.4.2-r1) does not yet reflect a [http://git.kernel.org/cgit/linux/kernel/git/jejb/efitools.git/commit/?id=c33fc28e6be00ac0bfae7fcff48170830a4730d8 change made upstream] which is necessary to allow {{c|efitools}} to work properly with LVM, nor [http://git.kernel.org/cgit/linux/kernel/git/jejb/efitools.git/commit/?id=4727744d42ec594d558e5d6c3fcf4c8d63d83186 another] which is needed to allow secure boot setup to proceed correctly on certain BIOSes<ref name="efi_updatevar_problem">Bottomley, J. [http://blog.hansenpartnership.com/uefi-secure-boot/#comment-47198 "UEFI Secure Boot", comment 47198 et seq.]</ref>. The supplied overlay ebuild builds the 1.4.3 version directly from [http://git.kernel.org/cgit/linux/kernel/git/jejb/efitools.git kernel.org] sources.
-
-When a later upstream version becomes available in Gentoo, your system will revert to using the 'stock' version of this package. This will happen automatically.
-|-
 | {{Package|app-crypt/staticgpg}} || {{Path|/usr/local/portage/sakaki-tools/app-crypt/staticgpg/staticgpg-1.4.16.ebuild}}|| <span id="staticgpg_first_intro">The {{c|buildkernel}} tool (above)</span> needs to be able to be able to place a copy of the {{c|gpg}} tool into the initramfs, so that the keyfile (which we created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]) can be decrypted.
 
 Unfortunately, the version of {{c|gpg}} that is emerged by Portage by default is the 2.x variant. This <span id="pinentry_problem">requires</span> a (rather convoluted) service known as {{c|pinentry}} to ask you for your password (even when compiled statically), and currently {{c|genkernel}}'s initramfs builder (and init script) does not work correctly with it. Instead, {{c|genkernel}} expects to be using a version 1.x {{c|gpg}} which can query for passphrases itself, without invoking an outside agent.
@@ -487,22 +482,14 @@ Next, note that all user overlay ebuilds (by [http://devmanual.gentoo.org/keywor
 |mkdir -p -v /etc/portage/package.accept_keywords
 |touch /etc/portage/package.accept_keywords/zzz_via_autounmask
 |echo "*/*::sakaki-tools ~amd64" >> /etc/portage/package.accept_keywords/sakaki-tools-repo
-|echo -e "# required by efitools\nsys-boot/gnu-efi ~amd64" >> /etc/portage/package.accept_keywords/gnu-efi
+|echo -e "# all versions of efitools currently marked as ~ in Gentoo tree\napp-crypt/efitools ~amd64" >> /etc/portage/package.accept_keywords/efitools
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
 {{Note|For explanation of the qualified atoms used here, refer to [[../Installing_the_Gentoo_Stage_3_Files#qualified_version_atom{{!}}the previous chapter]].}}
-{{Note|The only other keyworded package here is {{Package|/sys-boot/gnu-efi}}: the (testing) variant is required by {{Package|app-crypt/efitools}}. We're not going to be installing (emerging) {{c|efitools}} yet, but we add the entry here so we don't have to come back to it later.}}
+{{Note|The only other keyworded package here is {{Package|app-crypt/efitools}}, which will be required to manipulate the secure boot keystores on the target machine later in the tutorial. We're not going to be installing (emerging) {{c|efitools}} yet, but we add the entry here so we don't have to come back to it further on.}}
 {{Note|Again, as [[#create_zzz_autounmask{{!}}above]], we create a {{Path|zzz_via_autounmask}} file as a convenient receptacle for changes that you may, in future, request be automatically made to your {{c|package.accept_keywords}} configuration to allow an {{c|emerge}} operation to complete successfully.}}
 
 Next, if you like, take a look through the {{c|ebuild}} files in the overlay (and any patches), read the underlying sources, and satisfy yourself that everything is benign. It is good hygiene to do this, particularly prior to using a third-party overlay for the first time.
-
-{{Note|One useful hint, for ebuilds which are modified versions of packages in the default Portage tree, is to {{c|diff}} the new ebuild from the standard version, to check what has been changed. For example, for the {{c|sakaki-tools}} overlay, you could run:
-{{RootCmd
-|diff /usr/portage/app-crypt/efitools/efitools-1.4.2-r1.ebuild /usr/local/portage/sakaki-tools/app-crypt/efitools/efitools-1.4.2-r2.ebuild
-|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
-}}
-to check the differences in {{Package|app-crypt/efitools}}.
-}}
 
 Now, with that setup done, <span id="install_showem">we can now install</span> the {{c|showem}} tool using the standard {{c|emerge}} command. Issue:
 
