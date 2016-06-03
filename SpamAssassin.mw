@@ -1,0 +1,63 @@
+== Configuration ==
+
+SpamAssassin comes with a number of modules (or plugins) that can be enabled or disabled via configuration files. These files can be found under {{Path|/etc/mail/spamassassin}}. When new plugins appear in a release of SpamAssassin, they are configured in a file named (for example) {{Path|v341.pre}}, which corresponds to SpamAssassin v3.4.1 and contains configuration for new plugins as of that version.
+
+Your local configuration belongs in {{Path|local.cf}}; however, any file with a <code>.cf</code> suffix (in that same directory) will be loaded by SpamAssassin.
+
+=== Bayes SQL database ===
+
+By default, SpamAssassin comes configured to use BerkeleyDB (<code>USE=berkdb</code>) for its bayes database. If you chose some other database (e.g. <code>USE=mysql</code>, <code>USE=postgres</code>, or <code>USE=sqlite</code>), then you will need to configure SpamAssassin to use that database before SpamAssassin will run.
+
+Detailed instructions are provided with SpamAssassin and can be found in {{Path|README.bayes}} within your SpamAssassin documentation directory (something like {{Path|/usr/share/doc/spamassassin*/README.bayes}}).
+
+=== spamd ===
+
+If you plan on passing the <code>--username</code> flag to spamd, then please read the notes in {{Path|/etc/conf.d/spamd}} regarding the location of the PID file.
+
+== Spam detection rules ==
+
+Our SpamAssassin ebuilds do not ship any rules. You need to download these yourself after SpamAssassin has been installed. The simplest way to do this is to run <code>sa-update</code>, but first, you need to download and install the SpamAssassin project's GPG key (so that the authenticity of the rules can be verified).
+
+To install the GPG key,
+
+{{RootCmd|wget -q https://spamassassin.apache.org/updates/GPG.KEY
+|sa-update --import GPG.KEY}}
+
+Now you should be able to download the rules:
+
+{{RootCmd|sa-update}}
+
+To improve performance, you may also wish to compile the rules:
+
+{{RootCmd|sa-compile}}
+
+(that should output a bunch of junk).
+
+=== Daily updates ===
+
+The SpamAssassin project regularly releases new and updated rules. It is a good idea to schedule your updates (at least) daily, so that your rules are never out of date. A cron job is ideal for this:
+
+{{FileBox|filename=/etc/cron.daily/spamassassin-rule-updates|lang=bash|1=
+#!/bin/bash
+#
+# Update/compile the SpamAssassin rules.
+#
+
+# First, redirect stdout to /dev/null.
+exec 1>/dev/null
+
+# This thing sometimes spits out its progress onto stderr.
+sa-update 2>/dev/null
+
+# Exit code 0 means new updates were installed. Exit code 1 means we
+# were already up-to-date. Anything else is failure.
+if [ $? -eq 0 ]; then
+    sa-compile
+
+    # Do you run spamd or amavisd? Both daemons need to be reloaded
+    # in order to pick up the newly-updated rules. The "status" check
+    # should succeed only when the daemon is running.
+    /etc/init.d/spamd status && /etc/init.d/spamd reload
+    /etc/init.d/amavisd status && /etc/init.d/amavisd reload
+fi
+}}
