@@ -3,9 +3,11 @@
 <includeonly>== Tightening security ==</includeonly>
 === USE flags ===
 
-The {{Path|[[make.conf]]}} file contains user defined USE flags and {{Path|[[:/etc/portage/make.profile|/etc/portage/make.profile/make.defaults]]}} contains the default USE flags for Gentoo Linux. For this guide's purposes, the important flags are <code>pam</code> (Pluggable Authentication Modules), <code>tcpd</code> (TCP wrappers), and <code>ssl</code> (Secure Socket Layer). These are all in the default USE flags.
+The {{Path|[[make.conf]]}} file contains user defined USE flags and {{Path|[[:/etc/portage/make.profile|/etc/portage/make.profile/make.defaults]]}} contains the default USE flags for Gentoo Linux. For this guide's purposes, the important USE flags are <code>pam</code> (Pluggable Authentication Modules), <code>tcpd</code> (TCP wrappers), and <code>ssl</code> (Secure Socket Layer). These are all in the default USE flags.
 
-=== Password protecting GRUB legacy ===
+=== Password protecting the boot loader ===
+
+==== GRUB legacy ====
 
 GRUB legacy supports two different ways of adding password protection to your boot loader. The first uses plain text, while the latter uses md5+salt encryption.
 
@@ -35,7 +37,7 @@ Encrypted: $1$T7/dgdIJ$dJM.n2wZ8RG.oEiIOwJUs.
 grub> quit
 </pre>}}
 
-Then, cut and paste the password to {{Path|/boot/grub/grub.conf}}:
+Simply cut and paste the password into the {{Path|/boot/grub/grub.conf}} file:
 
 {{FileBox|filename=/boot/grub/grub.conf|1=
 timeout 5
@@ -44,7 +46,37 @@ password --md5 $1$T7/dgdIJ$dJM.n2wZ8RG.oEiIOwJUs.
 
 The 5 seconds timeout becomes handy if the system is remote and should be able to reboot without any keyboard interaction. Learn more about GRUB passwords by executing {{c|info grub}}.
 
-=== Password protecting LILO ===
+==== GRUB2 ====
+
+Password protecting GRUB2 is performed in a similar way to GRUB legacy (listed above). First, the {{c|grub2-mkpasswd-pbkdf2}} user space tool must be used in order to generate a pbkdf2 hash for the password:
+
+{{RootCmd|grub2-mkpasswd-pbkdf2|output=<pre>
+Enter password:
+Reenter password:
+PBKDF2 hash of your password is grub.pbkdf2.sha512.10000.abcdef...
+</pre>}}
+
+Next create a few new GRUB users in the {{Path|/etc/grub.d/40_custom}} file. One of the users should be the superuser, the other user can have permissions to only boot specific boot entries.
+
+{{FileBox|filename=/etc/grub.d/40_custom|1=
+set superusers="root"
+password_pbkdf2 root grub.pbkdf2.sha512.10000.aaa
+password_pbkdf2 larry grub.pbkdf2.sha512.10000.ccc
+}}
+
+To make boot options unrestricted (any GRUB2 user can boot unrestricted entries) add <code>--unrestricted</code> to each menuentry line in the {{Path|/etc/grub.d/10_linux}} configuration file. This will look something like the following:
+
+{{FileBox|filename=/etc/grub.d/10_linux|Unrestricted boot entry|lang=bash|1=
+echo "menuentry '$(echo "$title" {{!}} grub_quote)' --unrestricted ${CLASS} \$menuentry_id_option 'gnulinux-$version-$type-$boot_device_id' {" {{!}} sed "s/^/$submenu_indentation/"
+}}
+
+To only let the superuser and a specific user (with a password) boot an entry, add the <code>--users</code> option to the menuentry lines. The user "larry" is used in the example below:
+
+{{FileBox|filename=/etc/grub.d/10_linux|title=Specific user boot entry|lang=bash|1=
+echo "menuentry '$(echo "$title" {{!}} grub_quote)' --users larry ${CLASS} \$menuentry_id_option 'gnulinux-$version-$type-$boot_device_id' {" {{!}} sed "s/^/$submenu_indentation/"
+}}
+
+==== LILO ====
 
 LILO also supports two ways of handling passwords: global and per-image, both in clear text.
 
