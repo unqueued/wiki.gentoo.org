@@ -169,7 +169,57 @@ The ''senter_done: TRUE'' and ''ERRORCODE: 0x00000000'' are the important parts 
 
 == Setting the Launch Control Policy ==
 
-TODO
+The Launch Control Policy is used by the SINIT so control launching into the TXT environment. It controls which Measured Launch Environment (MLE, tboot in this case), PCRs are allowed. It also can contain the Verified Launch Policy which tboot will use later to verify the kernel and initrd.
+
+
+The LCP can contain one or more policy lists which contain one or more policy elements. The policy lists can be signed or unsigned. We will use signed lists because the value extended into PCR18 will be the hash of the public key instead of the hash of the whole policy. This means policy upgrades will leave PCR18 unchanged so any sealed values are still accessible.
+
+
+{{RootCmd|# Policy element for MLE
+|# $CMDLINE_TBOOT should be the arguments that are passed to tboot on the grub commandline
+|lcp_mlehash -c "$CMDLINE_TBOOT" /boot/tboot.gz > mle_hash
+|lcp_crtpolelt --create --ctrl 0x01 --type mle --minver 17 --out mle.elt mle_hash
+|# Policy element for PCRs
+|egrep "^PCR-00" /sys/class/tpm/tpm0/device/pcrs > pcrs.txt
+|lcp_crtpolelt --create --ctrl 0x01 --type pconf --out pconf.elt pcrs.txt}}
+
+
+Next create the Verified Launch Policy that tboot will use to verify the kernel and initrd. --ctrl 0x00 disables the EXTEND_PCR_17 flag, which means that tboot will not extend the hash of the first module into PCR18. With that flag set, tboot will always extend the hash of the first module into PCR18. If another PCR is specified as well, that pcr will be extended in addition to pcr18. Instead we extend the kernel and initrd into pcr19/20 and leave pcr18 untouched. This means kernel upgrades will not break anything sealed to PCR18.
+
+
+{{RootCmd|# Create the Verified Launch Policy
+|tb_polgen --create --ctrl 0x00 --type continue vl.pol
+|# $CMDLINE_KERNEL should be the arguments that are passed to the kernel
+|tb_polgen --add --num 0 --pcr 19 --hash image --cmdline "$CMDLINE_KERNEL" --image /boot/vmlinuz-"$KVERS" vl.pol
+|tb_polgen --add --num 1 --pcr 20 --hash image --cmdline "" --image /boot/initramfs-genkernel-x86_64-"$KVERS" vl.pol
+|lcp_crtpolelt --create --ctrl 0x01 --type custom --out vl.elt --uuid tboot vl.pol}}
+
+
+Put all the elements into a policy list, sign the list then make the policy and data. Policies with type list (as opposed to ANY) need to have a separate list.data because the TPM can not store all the data.
+
+
+{{RootCmd|lcp_crtpollist --create --out list_unsig.lst mle.elt pconf.elt vl.elt
+|cp list_unsig.lst list_sig.lst
+|lcp_crtpollist --sign --pub pubkey.pem --priv privkey.pem --out list_sig.lst
+|lcp_crtpol2 --create --ctrl 0x00 --type list --pol list.pol --data list.data list_sig.lst}}
+
+
+Make sure the required indexes are defined in the TPM:
+
+
+{{RootCmd|# define the error index
+|tpmnv_defindex -i 0x20000002 -s 8 -pv 0 -rl 0x07 -wl 0x07 -p $OWNER_PASSWORD
+|# define the TXT launch control policy locality
+|tpmnv_defindex -i owner -s 0x36 -p $OWNER_PASSWORD}}
+
+
+The list.pol has to be written to the TPM index for the LCP. If using a signed list policy, the list.pol will be unchanged between versions so later upgrades will only require copying list.data to /boot
+
+
+{{RootCmd|# write list.pol into the TPM
+|lcp_writepol -i owner -f list.pol -p $OWNER_PASSWORD
+|cp list.data /boot/list.data
+|grub2-mkconfig -o /boot/grub/grub.cfg}}
 
 == Sealing data in the TPM ==
 
