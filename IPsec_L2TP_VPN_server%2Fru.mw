@@ -1,0 +1,562 @@
+<languages />
+
+Many operating systems support an L2TP/IPsec VPN out-of-the-box. By combining the confidentiality- and authentication services of IPsec (Internet Protocol security), the network tunneling of the Layer 2 Tunnel Protocol (L2TP) and the user authentication through pppd, administrators can define VPN networks across multiple, heterogeneous systems. This allows setting up a VPN across Android, Windows, Linux, MacOS and other operating systems without any commercial software requirements.
+
+== Introduction ==
+
+IPsec/L2TP is a commonly used VPN protocol used in Windows and other operating systems. All version of Windows since Windows 2000 have support built-in, not requiring an external client (like OpenVPN does) making it very convenient. However, it is significantly harder to set up on the server side on Linux, as there's at least 3 layers involved: IPsec, L2TP, and PPP.
+
+# The IPsec setup provides the confidentiality of the network communication and the client (system) authentication
+# With L2TP a tunnel is set up so that the VPN traffic goes over IPsec in a transparent manner
+# The PPP (Point-to-Point Protocol) setup manages the authentication of the users
+
+This guide will not cover setting up DHCP, RADIUS, Samba or a Public Key Infrastructure (PKI). It also does not really cover how to configure Linux clients, although the step to do so can be derived from the guide pretty easily. It does cover some Windows client configuration for the purpose of troubleshooting the server setup.
+
+=== Assumptions and example settings ===
+
+For the purpose of this guide, the following assumptions (or sample settings) are used:
+
+* Domain is example.com 
+* Server name is vpn.example.com 
+* CA file is called {{Path|ca.crt}} 
+* Server cert is {{Path|vpn.example.com.crt}} 
+* Server key is {{Path|vpn.example.com.key}} 
+* Client cert is {{Path|client.example.com.crt}} 
+* Client key is {{Path|client.example.com.key}}
+
+== IPsec ==
+
+The first layer - and most difficult one - to set up is IPsec. Note IPsec is peer-to-peer, so in IPsec terminology, the ''client'' is called the '''initiator''' and the ''server'' is called the '''responder'''.
+
+Windows uses IKEv1 for the process. There are 3 implementation of IPsec in Portage: ipsec-tools (racoon), LibreSwan, and strongswan.
+
+In the next sections, the different configurations are explained. For each option, we document
+* how to use PSK for authentication, and
+* how to use certificates for authentication
+
+Make sure to pick one (either PSK or certificates). When using certificate based authentication, we assume that the necessary certificates are already available.
+
+=== Option 1: ipsec-tools (racoon) ===
+
+{{Note|{{Package|net-firewall/ipsec-tools}} must be compiled with the <code>nat</code> flag when either the server is behind NAT, or when clients need to be supported that are behind NAT.}}
+
+ipsec-tools is the least featured one, but for those coming from *BSD, it may be more familiar. However unlike *BSD, Linux does not use a separate interface for IPsec.
+
+After installing ipsec-tools, a few files need to be created. First create the directories where these files will be placed:
+
+{{RootCmd
+|mkdir /etc/racoon/certs
+|mkdir /etc/racoon/scripts
+}}
+
+==== PSK setup for ipsec-tools ====
+
+First create the pre-shared key file. This file contains a unique key that will be used for authentication between peers.
+
+{{Cmd|dd if{{=}}/dev/random count{{=}}24 bs{{=}}1 2>/dev/null {{!}} hexdump -e '24/1 "%02x" "\n"'}}
+
+Each entry in the PSK file consists of an identifier and the key. Windows identifies itself through the fully qualified domain name (FQDN). The key may be specified as either a string or a hex number (starting with 0x). In any case, the contents (the key itself) is totally up to the administrator to pick:
+
+{{FileBox|filename=/etc/racoon/psk.txt|1=
+client.example.com 0x87839cfdab5f74bc211de156d2902d128bec3243
+}}
+
+Inside the {{Path|racoon.conf}} file, this PSK file is referred to through the <code>path pre_shared_key</code> setting:
+
+{{FileBox|filename=/etc/racoon/racoon.conf|title=Using racoon with PSK|1=
+path certificate "/etc/racoon/certs";
+path pre_shared_key "/etc/racoon/psk.txt";
+path script "/etc/racoon/scripts";
+ 
+remote anonymous {
+ 
+        exchange_mode main;
+        my_identifier fqdn "vpn.example.com";
+ 
+        passive on;
+        generate_policy on;
+        nat_traversal on;
+ 
+        proposal {
+                encryption_algorithm 3des;
+                hash_algorithm sha1;
+                authentication_method pre_shared_key;
+                dh_group 14;
+        }
+}
+ 
+sainfo anonymous {
+        encryption_algorithm aes, 3des;
+        authentication_algorithm hmac_sha1, hmac_md5;
+        compression_algorithm deflate;
+}
+}}
+
+==== Certificate based setup for ipsec-tools ====
+
+Copy {{Path|ca.crt}}, {{Path|vpn.example.com.crt}}, and {{Path|vpn.example.com.key}} to {{Path|/etc/racoon/certs}}. Make sure {{Path|vpn.example.com.key}} is not world-readable or world writable.
+
+Next, update the {{Path|racoon.conf}} file to refer to these files in the <code>remote anonymous</code> section:
+
+{{FileBox|filename=/etc/racoon/racoon.conf|title=Using certificates with racoon|1=
+path certificate "/etc/racoon/certs";
+path pre_shared_key "/etc/racoon/psk.txt";
+path script "/etc/racoon/scripts";
+ 
+remote anonymous {
+        exchange_mode main;
+        my_identifier fqdn "vpn.example.com";
+ 
+        certificate_type x509 "vpn.example.com.crt" "vpn.example.com.key";
+        ca_type x509 "ca.crt";
+ 
+        passive on;
+        generate_policy on;
+        nat_traversal on;
+ 
+        proposal {
+                encryption_algorithm 3des;
+                hash_algorithm sha1;
+                authentication_method rsasig;
+                dh_group 14;
+        }
+}
+ 
+sainfo anonymous {
+        encryption_algorithm aes, 3des;
+        authentication_algorithm hmac_sha1, hmac_md5;
+        compression_algorithm deflate;
+}
+}}
+
+==== Troubleshooting ipsec-tools ====
+
+When problems arise, this section might give some interesting pointers in resolving the issue.
+
+===== Creating security policies and NAT =====
+
+The <code>generate_policy on;</code> setting should cause racoon to generate the appropriate Security Policies for us. However, in the presence of NAT (at least, if the server is behind NAT) it doesn't generate the policies quite the way one would hope. So, if no traffic flows over the tunnel, the policy will need to be defined manually.
+
+Polices are created in the {{Path|/etc/ipsec-tools.conf}} file:
+
+{{FileBox|filename=/etc/ipsec-tools.conf|1=
+#!/usr/sbin/setkey -f
+ 
+flush;
+spdflush;
+spdadd vpn.example.com[l2tp] 0.0.0.0/0 udp -P out ipsec
+        esp/transport//require;
+spdadd 0.0.0.0/0 vpn.example.com[l2tp] udp -P in ipsec
+        esp/transport//require;
+}}
+
+Note that, while this policy says we want ''all'' L2TP traffic going to and from the server to be protected, if there's no Security Association, the traffic will be not protected and will travel through the Internet in the usual (unauthenticated/unencrypted) way - it won't be dropped just because there's no Security Association.
+
+=== Option 2: LibreSwan ===
+
+LibreSwan is a fork of Openswan (which itself a fork of FreeS/WAN). It is actually forked by the remaining original developers of Openswan, however after the original developers left Xelerance, a dispute about the "Openswan" name escalated to a lawsuit, after which the name LibreSwan was taken.
+
+It is desirable to have each VPN configuration on it own file, which can be done by uncommenting the last line in {{Path|/etc/ipsec.conf}}:
+
+{{FileBox|filename=/etc/ipsec.conf|1=
+# Configuration (.conf) files can also be placed in the "/etc/ipsec.d/" directory
+# by uncommenting this line
+#include /etc/ipsec.d/*.conf
+}}
+
+NAT traversal is enabled by default in the LibreSwan config file, so no special configuration steps are needed.
+
+==== PSK setup for LibreSwan ====
+
+A shared key must be created. It may either be specified by a quoted string or by a hex number. Based on the next example, <code>PUT_VPN_SERVER_IP</code> should be replaced by the server's IP address. The domain name can be used, but it is not recommended by the LibreSwan developers. The <code>%any</code> setting allows any client to use this PSK. 
+
+{{FileBox|filename=/etc/ipsec.d/vpn.example.com.secret|1=
+PUT_VPN_SERVER_IP %any : PSK 0x87839cfdab5f74bc211de156d2902d128bec3243
+# Or to use a plain text key instead of hex:
+# PUT_VPN_SERVER_IP %any : PSK "password_pass"
+}}
+
+Then create {{Path|/etc/ipsec.d/vpn.example.com.conf}}:
+
+{{FileBox|filename=/etc/ipsec.d/vpn.example.com.conf|1=
+conn vpnserver
+        type=transport
+        authby=secret
+        pfs=no
+        rekey=no
+        keyingtries=1
+        left=%defaultroute
+        leftprotoport=udp/l2tp
+        leftid=@vpn.example.com
+        right=%any
+        rightprotoport=udp/%any
+        auto=add
+}}
+
+==== Certificate based setup for LibreSwan ====
+
+LibreSwan requires Network Security Services (NSS) to be properly configured and used for the certificate management. To make things easy, a PKCS#12 bundle should be created containing the server's secret key, the server's certificate and the CA certificate.
+
+{{Cmd|openssl pkcs12 -export -certfile ca.crt -inkey vpn.example.com.key -in vpn.example.com.crt -out /etc/ipsec.d/vpn.example.com.p12}}
+
+The bundle can then be imported into the NSS database:
+
+{{RootCmd
+|cd /etc/ipsec.d
+|pk12util -i ''somewhere''/vpn.example.com.p12 -d .}}
+
+The LibreSwan configuration files will refer to the nickname for the imported objects. Use {{c|certutil -L -d .}} and {{c|certutil -K -d .}} to see what they are.
+
+{{FileBox|filename=/etc/ipsec.d/vpn.example.com.secrets|1=
+ : RSA "vpn.example.com"
+}}
+
+Above, <code>vpn.example.com</code> is used for the nickname obtained through the {{c|certutil -K -d .}} command.
+
+{{FileBox|filename=/etc/ipsec.d/vpn.example.com.conf|1=
+conn vpnserver
+        type=transport
+        authby=rsasig
+        pfs=no
+        rekey=no
+        keyingtries=1
+        left=%defaultroute
+        leftprotoport=udp/l2tp
+        leftcert=vpn.example.com
+        leftid=@vpn.example.com
+        right=%any
+        rightprotoport=udp/%any
+        rightrsasigkey=%cert
+        auto=add
+}}
+
+Here, <code>vpn.example.com</code> was the nickname obtained via the {{c|certutil -L -d .}} command.
+
+=== Option 3: strongSwan ===
+
+strongSwan is a fork of FreeS/WAN (although much code has been replaced).
+
+As of strongSwan 5.0, NAT traversal is automatic, no configuration is needed.
+
+strongSwan does not create an {{Path|ipsec.secrets}} file, thus one must be created:
+
+{{RootCmd|touch /etc/ipsec.secrets && chmod 664 /etc/ipsec.secrets}}
+
+==== PSK setup for strongSwan ====
+
+A shared key must be created. It may either be specified by a quoted string or by a hex number. In the next example, <code>PUT_VPN_SERVER_IP</code> should be replaced by the server's IP address. The <code>%any</code> means that any client selector can authenticate using the given PSK.
+
+{{FileBox|filename=/etc/ipsec.secrets|1=
+PUT_VPN_SERVER_IP %any : PSK 0x87839cfdab5f74bc211de156d2902d128bec3243
+# Or to use a plain text PSK instead of hex code:
+# PUT_VPN_SERVER_IP %any : PSK "password_pass"
+}}
+
+Next edit {{Path|/etc/ipsec.conf}} as follows:
+
+{{FileBox|filename=/etc/ipsec.conf|1=
+conn vpnserver
+        type=transport
+        authby=secret
+        pfs=no
+        rekey=no
+        keyingtries=1
+        left=%any
+        leftprotoport=udp/l2tp
+        leftid=@vpn.example.com
+        right=%any
+        rightprotoport=udp/%any
+        auto=add
+}}
+
+When both <var>left</var> and <var>right</var> are set to <code>%any</code>, then strongSwan assumes the '''l'''ocal machine is '''l'''eft.
+
+==== Certificate based setup for strongSwan ====
+
+The certificates and keys must be copied to the appropriate directories:
+
+{{RootCmd
+|cp ca.crt /etc/ipsec.d/cacerts
+|cp vpn.example.com.crt /etc/ipsec.d/certs
+|cp vpn.example.com.key /etc/ipsec.d/private
+|chown -R ipsec: /etc/ipsec.d}}
+
+Next, tell strongSwan to use public keys for the authentication:
+
+{{FileBox|filename=/etc/ipsec.secrets|1=
+ : RSA vpn.example.com.key
+}}
+
+Finally update the {{Path|/etc/ipsec.conf}} file as follows:
+
+{{FileBox|filename=/etc/ipsec.conf|1=
+conn vpnserver
+        type=transport
+        authby=rsasig
+        pfs=no
+        rekey=no
+        keyingtries=1
+        left=%defaultroute
+        leftprotoport=udp/l2tp
+        leftcert=server.crt
+        leftid=@vpn.example.com
+        right=%any
+        rightprotoport=udp/%any
+        rightrsasigkey=%cert
+        auto=add
+}}
+
+As before, when both <var>left</var> and <var>right</var> are <code>%any</code>, strongSwan assumes the '''l'''ocal machine is '''l'''eft.
+
+==== Troubleshooting strongSwan ====
+
+===== IPsec pass-through / broken NAT =====
+
+In previous strongSwan versions, IPsec pass-through does not seem to work. It returns "cannot respond to IPsec SA request because no connection is known" or (which heavy editing of the config file) an INVALID_HASH_INFORMATION error. This may not be true anymore with strongSwan 5.0 or higher.
+
+=== Troubleshooting generic IPsec ===
+
+IPsec is not the easiest to deal with. This section gives some pointers to common problems and errors.
+
+==== Server behind NAT ====
+
+When the server is behind NAT (Network Address Translation), which is usually the case when the server is hosted after a home router, some specific attention pointers can help in ensuring the IPsec connection is stable and working.
+
+===== Opening ports =====
+
+2 port need to be open: 
+* UDP port 500 (for ISAKMP)
+* UDP port 4500 (for NAT Traversal)
+
+Make sure to forward those to the VPN server.
+
+Also the following Internet Protocols (not ports) need to be allowed as well:
+* 50 (ESP)
+* 51 (AH)
+
+This might need to be configured on the router side if the router has protocol specific settings (most don't though).
+
+===== IPsec passthough / broken NAT =====
+
+Many routers have an "IPsec pass-through" option, which can mean 1 of 2 things:
+
+# Mangle IPsec packets in broken way not compatible with IPsec NAT Traversal 
+# Allow all IPsec packets through the router unmodified
+
+If it means (1), ''disable'' IPsec pass-through. If it means (2), then ''enable'' IPsec pass-through.
+
+Unfortunately, there are routers that will discard all IPsec traffic, even if the ports are forwarded, and only support method (1). For those with such a router, there are 3 options:
+
+# Upgrade the firmware, if a newer version is available that behaves properly
+# Open a bug/defect report with the make of the router, if it is not EOL/Legacy
+# Get a different router. Linksys and D-link routers are reported behave properly.
+
+This tutorial was initially being written with such a router (a Zyxel P-330W) - and (3) was the only option available.
+
+===== Windows Vista/Server 2008 clients =====
+
+These operating systems do not automatically support IPsec/L2TP servers behind NAT. See [http://support.microsoft.com/kb/926179/en-us KB926179] for the registry edit to make them support it. 
+
+==== Limitation of Pre-Shared keys (PSK) ====
+
+There is no provision within the IPsec protocol to negotiate PSKs. The only information available to choose which key to use is based on the source and destination IP addresses. Since, in the usual scenario, the responder won't know the initiator's IP in advance, ''everyone'' must use the same pre-shared key. Therefore, certificates (PKI) are highly recommended over pre-shared keys (PSK), even for only a single connection. However generating certificates and creating a PKI is a rather complex process and out of scope of this document.
+
+== L2TP ==
+
+The second layer, Layer 2 Tunneling Protocol (L2TP),  is much easier to setup. Like IPsec, L2TP is a peer-to-peer protocol. The client side is called the ''L2TP Access Concentrator'' or LAC and the server side is called the ''L2TP Network Server'' or LNS.
+
+{{Warning|L2TP is totally insecure, and should '''not''' be accessible outside the IPsec connection}}
+
+When using iptables, use the following rules to block all L2TP connection outside the ipsec layer:
+
+{{RootCmd
+|iptables -t filter -A INPUT -p udp -m policy --dir in --pol ipsec -m udp --dport l2tp -j ACCEPT
+|iptables -t filter -A INPUT -p udp -m udp --dport l2tp -j REJECT --reject-with icmp-port-unreachable 
+|iptables -t filter -A OUTPUT -p udp -m policy --dir out --pol ipsec -m udp --sport l2tp -j ACCEPT
+|iptables -t filter -A OUTPUT -p udp -m udp --sport l2tp -j REJECT --reject-with icmp-port-unreachable
+}}
+
+If the local firewall is {{c|ufw}} then get {{c|ufw}} to accept incoming & outgoing connections using the ESP protocol to allow IPsec authentication, and to block all L2TP connections outside the IPsec layer. This can be accomplished by using the following file:
+
+{{FileBox|filename=/etc/ufw/before.rules|1=
+# Allow L2TP only over IPsec
+-A ufw-before-input -m policy --dir in --pol ipsec -p udp --dport l2tp -j ACCEPT
+-A ufw-before-input -p udp -m udp --dport l2tp -j REJECT --reject-with icmp-port-unreachable
+-A ufw-before-output -m policy --dir out --pol ipsec -p udp --sport l2tp -j ACCEPT
+-A ufw-before-output -p udp -m udp --sport l2tp -j REJECT --reject-with icmp-port-unreachable
+ 
+# Allow IPsec authentication using ESP protocol
+-A ufw-before-input -p esp -j ACCEPT
+-A ufw-before-output -p esp -j ACCEPT
+}}
+
+=== Using xl2tpd ===
+
+Unlike other L2TP servers, {{c|xl2tpd}} can maintain an IP address pool without a DHCP or RADIUS server. This is a layering violation, but for a small setup it is extremely convenient:
+
+{{FileBox|filename=/etc/xl2tpd/xl2tpd.conf|1=
+[global]
+port = 1701
+access control = no
+ 
+[lns default]
+ip range = 172.21.118.2-172.21.118.254
+local ip = 172.21.118.1
+require authentication = yes
+name = LinuxVPN
+pppoptfile = /etc/ppp/options.xl2tpd
+}}
+
+To use a RADIUS or DHCP server, leave off the <code>ip range</code> and <code>local ip</code> parts. If the connection is unstable, try adding <code>length bit = yes</code> to the <code>lns default</code> section. To not use PPP authentication, change <code>require authentication = yes</code> to <code>refuse authentication = yes</code>.
+
+Create the options file as well:
+
+{{FileBox|filename=/etc/ppp/options.xl2tpd|1=
+noccp
+auth
+crtscts
+mtu 1410
+mru 1410
+nodefaultroute
+lock
+proxyarp
+silent
+}}
+
+=== Using rp-l2tp ===
+
+Configuring rp-l2tp is simple:
+
+{{FileBox|filename=/etc/rp-l2tp/rp-l2tpd.conf|1=
+# Global section (by default, we start in global mode)
+global
+ 
+# Load handlers
+load-handler "sync-pppd.so"
+load-handler "cmd.so"
+ 
+# Bind address
+listen-port 1701
+ 
+section peer
+peer 0.0.0.0
+mask 0
+lns-handler sync-pppd
+ 
+lns-pppd-opts "noccp auth crtscts mtu 1410 mru 1410 nodefaultroute lock proxyarp silent"
+}}
+
+Specify the server IP as well in <var>lns-pppd-opts</var>. Also don't forget to setup pppd to use an IP address pool, either via DHCP or RADIUS.
+
+== PPP ==
+
+The final layer to configure is the Point-to-Point Protocol (PPP) layer. The package to install here is {{Package|net-dialup/pptpd}}.
+
+{{Emerge|net-dialup/pptpd}}
+
+=== Authentication ===
+
+PPP is used to perform authentication. Unlike the certificate based or PSK authentication, the PPP layer is more for authenticating (and authorizing) the end users' access to the VPN.
+
+==== No authentication ====
+
+The easiest way to setup pppd is to not use any authentication at all. In that case, make sure "noauth" is specified. This is useful for testing purposes, but otherwise not recommended - especially when using PSK. For certain PKI setups, such a configuration may be sensible - for example,
+* all the client machines are fully trusted and under control, or 
+* all the users are trusted and the keys are on machines no one else, besides the users' themselves, have access to, or
+* all connections are unattended (using this method to connected multiple sites)
+
+==== Authentication via chap.secrets ====
+
+For small users (typically, those wanting to connect their home network from elsewhere), authentication can be done through the {{Path|chap.secrets}} file:
+
+{{FileBox|filename=/etc/ppp/chap-secrets|1=
+# Secrets for authentication using CHAP
+# client        server  secret                  IP addresses
+avatar          *       unontanium              *
+}}
+
+{{Note|When authenticating with domains, the client name will need to be mangled appropriately, in this case, <code>EXAMPLE\\avatar</code>.}}
+
+{{Warning|{{Path|/etc/ppp/chap-secrets}} contains unencrypted passwords, so make sure only root can read or write it}}
+
+==== Authentication via Samba ====
+
+When the machine is part of (or hosting) an MS Domain or AD forest, and the clients are using winbind, then Samba can do the authentication. Add <code>plugin winbind.so</code> to the ppp options. Setting up Samba and pppd to do this is beyond the scope of this document.
+
+==== Authentication via RADIUS ====
+
+When a RADIUS server is running on the same machine, pppd can use RADIUS. Ensure the <code>radius</code> USE flag is set on {{Package|net-dialup/ppp}}. Then add <code>plugin radius.so</code> to the PPP options. Setting up RADIUS and pppd to do this is beyond the scope of this document. 
+
+==== Authentication via EAP-TLS ====
+
+If individual users have certificates (which is not the same as the machine certificate above), then setup pppd to authenticate via EAP-TLS. It is recommended that the users authenticate via smartcards or RSA secureID. Ensure the <code>eap-tls</code> USE flag is set on {{package|net-dialup/ppp}}. RADIUS needs to be setup (see above). The <code>require-eap</code> option might need to be included in the PPP options file as well. Setting up pppd to do this is beyond the scope of this document.
+
+== Client Troubleshooting ==
+
+=== Windows: Correctly installing the certificate (for PKI users) ===
+
+The certificate should be packaged in a PKCS12 package. This can be done through openssl or gnutls:
+
+{{Cmd|openssl pkcs12 -export -certfile ca.crt -inkey client.example.com.key -in client.example.com.crt -out client.example.p12}}
+
+{{Cmd|certtool --load-ca-certificate ca.crt --load-certificate client.example.com.crt --load-privkey client.example.com.key --to-p12 --outfile client.example.com.p12}}
+
+Once a {{Path|.p12}} file is created, import it into Windows. However, the method is not obvious. ''Do not'' double-click the key and follow the instructions, that won't work. That imports the key into a personal certificate store, but in Windows, it is the local computer that needs to do the authentication, so the certificate needs to be added to the local computer's key store. To do that, use the Microsoft Management Console (mmc). Administrator privileges are needed for this to work.
+
+{{CodeBox|title=Importing the key into Windows|1=
+Start -> Run -> mmc File -> Add/Remove Snap-in -> Certificates -> Add Computer Account -> Local Computer -> Finish -> OK.
+}}
+
+Expand the Certificates. Choose any folder (doesn't matter which), right-click, choose "All Tasks", then "Import". Only now follow the wizard, but on the last step, make sure to choose "Automatically select the certificate store based on the type of certificate".
+
+=== Windows: RAS networking errors ===
+
+==== Error 766: A certificate could not be found ====
+
+If this error occurs, then this means the certificate was not imported correctly. Make sure to import it though MMC, and not by double-clicking the file.
+ 
+==== Error 810: VPN connection not complete ====
+
+When using ipsec-tools (racoon) the following message might occur in the system log:
+
+{{CodeBox|title=Error message in system log when using ipsec-tools/racoon|1=
+ERROR: ignore information because ISAKMP-SAhas not been established yet.
+}}
+
+This means the certificate was not imported correctly, or the p12 bundle is missing in the CA certificate. Make sure to import the key through MMC, and make sure to select "Automatically select the certificate store based on the type of certificate" at the end of the import process.
+
+==== XP SP2 and above: Error 809: Server not responding (Server behind NAT) ====
+
+Windows XP SP2 and Vista [http://support.microsoft.com/kb/885348|will not, by default, connect to server behind a NAT]. A registry hack is required. Separate fixes are required for Windows XP and Windows Vista.
+
+==== Vista: Error 835 Could not authenticate ====
+
+This one occurs only when using PKI. It means the <var>subjectAltName</var> does not match the server that the client is connecting to. This often occurs when using dynamic DNS - the certificate has the internal name rather than the external name. Either add the external name to the certificate, or disable "Verify the Name and Usage attributes of the server's certificate" in the connection definition, under Security -> Networking -> IPsec.
+
+==== Error 741: The local computer does not support required encryption type ====
+
+Windows will try to negotiate MPPE, a (weak) encryption. When 
+* the system is not using PPP authentication, or
+* the system does not have a pppd with MPPE support, or 
+* MPPE is supported but not compiled into the kernel (or a module)
+then this error occurs.
+
+If PPP authentication is used, it is recommended to fix the pppd or kernel (which are minimal configuration changes) even though there's no point to have double encryption. If the system does not use PPP authentication, or the double encryption is definitely not wanted, then disable it by unchecking "Require data encryption" on the Security tab.
+
+{{Note|The connection is still protected by IPsec encryption either way, this just disable the requirement for MPPE.}}
+
+=== Mac OS X ===
+
+Mac OS X clients appear to be picky on the proposals they will negotiate with. In particular:
+* <var>dh_group</var> must be <code>modp1024</code>. 
+* <var>my_identifier</var> must be an address, not a fully qualified domain name (address is the default, so just leave that line out from {{Path|racoon.conf}}).
+
+Mac OS X won't connect if <var>subjectAltName</var> does not match the server the client is connecting to. Unlike Vista this check cannot be disabled.
+
+Also, Mac OS X won't connect if the server certificate contains any "Extended Key Usage" (EKU) fields (except for the deprecated ikeIntermediate one). In particular, when using certificates from the OpenVPN {{c|easy-rsa}} utility, it adds the "TLS WWW Server" or "TLS WWW Client" EKU, so such certificates will not work. However, such certificates can still be used on the Mac OS X client, as it doesn't care what is on the client certificate - only the server.
+
+== External resources ==
+
+* [http://www.jacco2.dds.nl/networking/freeswan-l2tp.html|Using a Linux L2TP/IPsec VPN server] from Jacco de Leeuw
+
+[[Category:Server and Security]]
