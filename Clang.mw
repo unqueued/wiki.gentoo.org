@@ -68,40 +68,84 @@ If you have {{Package|app-portage/flaggie}} installed, the {{Path|/etc/portage/p
 
 === Enabling link-time optimizations ===
 
-The ''link-time optimization'' feature defers optimizing the resulting executables to linking phase. This can result in better optimization of packages but is unsupported in Gentoo yet, and many packages simply fail to build.
+The link-time optimization feature defers optimizing the resulting executables to linking phase. This can result in better optimization of packages but isn't standard behavior in Gentoo yet. In order to use LTO we must first install LLVM with the gold linker plugin so clang can pass the -plugin flag to the linker. 
 
-When using LTO, clang compiles units into LLVM byte-code rather than machine code. In order to support linking such object files, the [[gold]] linker must be installed and set as the default linker, as it does support plugins.
+Set the gold flag in the llvm package so portage knows to include the gold plugin.
 
-Similarly, ''ar'' needs plugin support as well. Sadly, binutils ar doesn't support passing ''--plugin'' option before the actual command. Thus, we need to create a wrapper for it:
-
-{{FileBox|filename=/usr/local/bin/clang-ar|title=ar wrapper for LLVM plugin|
-<nowiki>
-#!/bin/sh
-firstarg=${1}
-shift
-
-exec /usr/bin/ar "${firstarg}" --plugin /usr/lib/llvm/LLVMgold.so "${@}"
-</nowiki>
+{{RootCmd
+|echo /etc/portage/package.use sys-devel/llvm gold
 }}
 
-If that's done, you can create a new environment override profile for LTO-enabled clang:
+
+Now emerge llvm and check the use flags to make sure your changes went into effect.
+
+{{RootCmd|emerge sys-devel/llvm|output=<pre>
+
+These are the packages that would be merged:
+
+Calculating dependencies... done!
+[ebuild     U  ] sys-devel/llvm-3.8.0-r3:0/3.8.0::gentoo [3.8.0-r2:0/3.8.0::gentoo] USE="clang gold libffi python static-analyzer xml -debug -doc -libedit -lldb -multitarget -ncurses -ocaml {-test}" ABI_X86="32 (64) (-x32)" PYTHON_TARGETS="python2_7" VIDEO_CARDS="-radeon" 0 KiB      
+
+Total: 1 package (1 upgrade), Size of downloads: 0 KiB
+
+Would you like to merge these packages? [Yes/No]
+</pre>
+}}
+
+
+We must set gold as the default linker since it allows clang to pass the -plugin flag. By default, Gentoo uses the bfd linker. As of July 2016, the bfd linker bundled with binutils does not support passing the -plugin as seen below.
+
+{{RootCmd|/usr/bin/ld -plugin|output=<pre>
+/usr/bin/ld: unrecognized option '-plugin'
+/usr/bin/ld: use the --help option for usage information
+</pre>
+}}
+
+
+Using the sys-devel/binutils-config package, we'll set ld to default to ld.gold instead of ld.bfd.
+
+{{RootCmd|binutils-config --linker ld.gold|output=<pre>
+* Setting default linker to ld.gold for x86_64-pc-linux-gnu-2.25.1 ...
+</pre>
+}}
+
+
+Once ld is set to gold, check the -plugin flag to see if it works.
+
+{{RootCmd|/usr/bin/ld -plugin|output=<pre>
+/usr/bin/ld: -plugin: missing argument
+/usr/bin/ld: use the --help option for usage information
+</pre>
+}}
+
+
+Great! It works. If you want to switch back to the default linker change the command from ld.gold to ld.bfd.
+
+{{RootCmd|binutils-config --linker ld.bfd|output=<pre>
+* Setting default linker to ld.bfd for x86_64-pc-linux-gnu-2.25.1 ...
+</pre>
+}}
+
+
+Now that we're done setting up the gold linker, we can create a new environment override profile for LTO enabled clang. We do this by passing the -flto flag to clang which in turn passes the -plugin flag to the linker.<ref>http://llvm.org/docs/GoldPlugin.html</ref> You need to set optimization flags when linking because that's where clang needs them.
 
 {{FileBox|filename=/etc/portage/env/clang-lto|title=Environment override named ''clang-lto''|
 <nowiki>
-CC='clang'
-CXX='clang++'
-CFLAGS="${CFLAGS} -O4"
-CXXFLAGS="${CXXFLAGS} -O4"
-LDFLAGS="${LDFLAGS} -O4 -Wl,-plugin,/usr/lib/llvm/LLVMgold.so"
-AR='/usr/local/bin/clang-ar'
-RANLIB=':'
-NM='nm --plugin /usr/lib64/llvm/LLVMgold.so'
+CC="clang"
+CXX="clang++"
+CFLAGS="${CFLAGS} -flto"
+CXXFLAGS="${CXXFLAGS} -flto"
+LDFLAGS="${LDFLAGS} -Ox" #please use whichever optimization level you're comfortable with
 </nowiki>
 }}
 
-Note that the link-time optimizations were indirectly enabled here via ''-O4''. If you don't want to enable other optimizations enforced by ''-O3'', please use ''-flto'' instead. You need to also pass optimization flags when linking because that's where clang needs them.
 
-You may also need to adjust the libdir path to plugin. Newer (live) versions of clang add `-plugin` when linking automatically, so `-Wl,-plugin`… is no longer necessary.
+Now you can set ''package.env'' overrides using LTO enabled clang.
+
+{{FileBox|filename=/etc/portage/package.env|title=Enabling ''clang'' for ''app-foo/bar'' and ''app-bar/baz''|
+app-foo/bar clang-lto
+app-bar/baz clang-lto
+}}
 
 === Using clang with distcc ===
 
