@@ -95,20 +95,59 @@ CXXFLAGS="${CFLAGS}"
 
 ==== Emerging packages ====
 
-Using Portage, you may run into problems such as the following:
-
-* Application wants GDBM (see below).
-* Application wants to link with ALSA/OSS/Mesa/other library only useful to X or Linux.
-* Ebuild of application doesn't contain the necessary configuration option to support a mingw or win32 target.
-* Application is an unnecessary utility script, such as gentoo-functions or {{c|eselect}}.
-
-Emerging the {{Package|sys-libs/zlib}} package:
+Cross emerging is done by <code>i686-w64-mingw32-emerge</code>. For example, to emerge the {{Package|sys-libs/zlib}} package, use:
 
 {{RootCmd|i686-w64-mingw32-emerge sys-libs/zlib}}
 
 Alternatively:
 
 {{rootCmd|emerge-wrapper --target i686-w64-mingw32 -av sys-libs/zlib}}
+
+Using Portage, you may run into problems such as the following:
+
+* Application wants GDBM (see below).
+* Application wants to link with ALSA/OSS/Mesa/other library only useful to X or Linux.
+* Ebuild of application doesn't contain the necessary configuration option to support a mingw or win32 target.
+* Application is an unnecessary utility script, such as gentoo-functions or {{c|eselect}}.
+* An ebuild inherits multilib and specifies <code>MULTILIB_CHOST_TOOLS</code>.
+
+In the multilib case, emerge wants to move the executables specified in <code>MULTILIB_CHOST_TOOLS</code>. But when cross compiling with mingw32 the executables receive an extension <code>.exe</code> and emerge cannot find the file without extension and fails.
+
+At this point the only fix I know is overlaying (see [[#Overlaying|below]]) a custom ebuild, appending the extension <code>.exe</code> to all files in <code>MULTILIB_CHOST_TOOLS</code>.
+This concerns for example {{Package|dev-libs/glib}}, {{Package|media-libs/fontconfig}}, {{Package|x11-libs/gdk-pixbuf}}, {{Package|x11-libs/cairo/cairo}} and {{Package|x11-libs/gtk+}}.
+
+The main techniques to tweak ebuilds to make them work are
+===== Overriding use flags, keywords and configuration options =====
+To override use flags and keywords, simply use {{Path|/etc/portage/package.use/}} and {{Path|/etc/portage/package.keywords/}} respectively.
+For the configuration options, we can tell emerge to use a package specific file defining environment variables (see [[package.env]]). For example, if we want to configure {{Package|x11-libs/cairo}} with <code>--with-target=win32</code>, we create
+{{FileBox|filename=/usr/i686-w64-mingw32/etc/portage/env/cairo.conf|title=Environment overrides for configure options|lang=bash|1=
+EXTRA_ECONF="--with-target=win32"
+}}
+
+{{FileBox|filename=/usr/i686-w64-mingw32/etc/portage/package.env/cairo|title=Specifying ''cairo.conf'' as package specific file defining overrides for cairo|1=
+x11-libs/cairo cairo.conf
+}}
+
+===== Overlaying =====
+
+If issues cannot simply be fixed by overriding configure options, in some cases we have to override ebuilds. In order to do that we create a custom [[Overlay/Local overlay#Crossdev|local overlay]]. Since {{Path|/usr/i686-w64-mingw32/usr/portage}} is empty, we will use this path. Create the following files
+{{FileBox|filename=/usr/i686-w64-mingw32/usr/portage/metadata/layout.conf|1=
+masters = gentoo
+}}
+{{FileBox|filename=/usr/i686-w64-mingw32/usr/portage/profiles/repo_name|1=
+cross-i686-w64-mingw32
+}}
+{{FileBox|filename=/usr/i686-w64-mingw32/etc/portage/repo|1=
+[DEFAULT]
+main-repo = gentoo
+
+[cross-i686-w64-mingw32]
+location = /usr/i686-w64-mingw32/usr/portage/
+masters = gentoo
+auto-sync = no
+}}
+
+Portage will then use our custom ebuilds in the {{Path|/usr/i686-w64-mingw32/usr/portage/}} folder.
 
 ==== Notes on specific packages ====
 
