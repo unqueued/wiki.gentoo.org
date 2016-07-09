@@ -1,6 +1,87 @@
-This article describes the setup of microcode-ctl to update the microcode of Intel processors.
+This article describes the process of updating the microcode of Intel processors.
 
 == Installation ==
+{{Note|The microcode-ctl utility has been deprecated as of version 1.28-r1(Gentoo unstable) and no longer contains the init script. It also does not work on certain CPUs such as Intel Haswell, you should switch to the "Early microcode" method explained directly below. If however you wish to continue using microcode-ctl please skip to the bottom of this page.}}
+
+=== Kernel ===
+You need to activate the following kernel options:
+{{KernelBox|title=Enable CONFIG_MICROCODE and CONFIG_MICROCODE_INTEL|<pre>
+Processor type and features  --->
+    <*> CPU microcode loading support
+    [*]   Intel microcode loading support
+</pre>}}
+{{Note|Modules don't work for early microcode, so make sure microcode loading is built-in.}}
+
+=== Software ===
+You can now install the microcode {{Package|sys-firmware/intel-microcode}}
+{{Emerge|intel-microcode}}
+And a tool to manipulate it {{Package|sys-apps/iucode_tool}}
+{{Emerge|iucode_tool}}
+
+
+== Configuration ==
+After emerging {{Package|sys-apps/intel-microcode}}, generate the microcode cpio archive using {{Package|sys-apps/iucode_tool}}:
+
+{{RootCmd|1=iucode_tool -S --write-earlyfw=/boot/early_ucode.cpio /lib/firmware/intel-ucode/*
+|output=<pre>iucode_tool: system has processor(s) with signature 0x000306c3
+iucode_tool: Writing selected microcodes to: /boot/early_ucode.cpio</pre>}}
+
+Now you need to change this small section of /etc/grub.d/10_linux from:
+{{FileBox|filename=/etc/grub.d/10_linux|title=Before|lang=bash|1=
+  initrd=
+  for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" \
+           "initrd-${version}" "initramfs-${version}.img" \
+           "initrd.img-${alt_version}" "initrd-${alt_version}.img" \
+           "initrd-${alt_version}" "initramfs-${alt_version}.img" \
+           "initramfs-genkernel-${version}" \
+           "initramfs-genkernel-${alt_version}" \
+           "initramfs-genkernel-${GENKERNEL_ARCH}-${version}" \
+           "initramfs-genkernel-${GENKERNEL_ARCH}-${alt_version}"; do
+    if test -e "${dirname}/${i}" ; then
+      initrd="$i"
+      break
+    fi
+  done}}
+To this:
+{{FileBox|filename=/etc/grub.d/10_linux|title=Before|lang=bash|1=
+  initrd=
+  for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" \
+           "initrd-${version}" "initramfs-${version}.img" \
+           "initrd.img-${alt_version}" "initrd-${alt_version}.img" \
+           "initrd-${alt_version}" "initramfs-${alt_version}.img" \
+           "initramfs-genkernel-${version}" \
+           "initramfs-genkernel-${alt_version}" \
+           "initramfs-genkernel-${GENKERNEL_ARCH}-${version}" \
+           "initramfs-genkernel-${GENKERNEL_ARCH}-${alt_version}"; do
+    if test -e "${dirname}/${i}" ; then
+      initrd="early-ucode.cpio /$i"
+      break
+    else
+      initrd="early-ucode.cpio"
+    fi
+  done}}
+{{Note|This is the most pain-free method I've found to load the microcode, works with or without an initramfs.}}
+Reboot and you're all done.
+
+
+== Verification ==
+Here is an example of a CPU with no available microcode updates or the system was not configued to load them properly:
+{{RootCmd|1=<nowiki>dmesg | grep microcode</nowiki>
+|output=<pre>[    1.196567] microcode: CPU0 sig=0x6fd, pf=0x80, revision=0xa3
+[    1.196575] microcode: CPU1 sig=0x6fd, pf=0x80, revision=0xa3
+[    1.196623] microcode: Microcode Update Driver: v2.01 <tigran@aivazian.fsnet.co.uk>, Peter Oruba
+</pre>}}
+Here is the same CPU but with microcode updates being applied successfully:
+{{RootCmd|1=<nowiki>dmesg | grep microcode</nowiki>
+|output=<pre>[    0.000000] microcode: microcode updated early to revision 0xa4, date = 2010-10-02
+[    1.207385] microcode: CPU0 sig=0x6fd, pf=0x80, revision=0xa4
+[    1.207393] microcode: CPU1 sig=0x6fd, pf=0x80, revision=0xa4
+[    1.207445] microcode: Microcode Update Driver: v2.01 <tigran@aivazian.fsnet.co.uk>, Peter Oruba
+</pre>}}
+
+
+== Microcode-ctl ==
+{{Note|The microcode-ctl utility has been deprecated as of 1.28-r1(Gentoo unstable) and will no longer contain the init script. It also does not work on certain CPUs such as Intel Haswell, the information below this point is only relevant to microcode-ctl users.}}
 
 === Kernel ===
 You need to activate the following kernel options:
@@ -16,8 +97,6 @@ Processor type and features  --->
 You can now install {{Package|sys-apps/microcode-ctl}}<ref>[https://fedorahosted.org/microcode_ctl/ https://fedorahosted.org/microcode_ctl/]<pre>Please be advised microcode_ctl is obsolete and v2.0+ is the temporary solution. Future microcode updates will be delivered through the kernel-firmware infrastructure.</pre></ref>:
 {{Emerge|microcode-ctl}}
 
-== Configuration ==
-
 === OpenRC ===
 You can now start microcode-ctl:
 {{RootCmd|/etc/init.d/microcode_ctl start}}
@@ -27,48 +106,3 @@ To start microcode-ctl at boot time, add it your boot runlevel:
 
 === systemd ===
 See: [[Systemd]]. Simply make sure that the Microcode loader is set as a module in the kernel configuration as noted above.  You don't need to add a service or do anything else.
-
-== Verification ==
-In order to verify if the CPU microcode is being applied you can use the following command:
-{{RootCmd|<nowiki>dmesg | grep microcode</nowiki>|output=<pre>
-[    0.093399] microcode: CPU0 sig=0x1067a, pf=0x1, revision=0xa07
-[    0.093459] microcode: CPU1 sig=0x1067a, pf=0x1, revision=0xa07
-[    0.093557] microcode: Microcode Update Driver: v2.00 <tigran@aivazian.fsnet.co.uk>, Peter Oruba
-[    7.502437] microcode: CPU0 sig=0x1067a, pf=0x1, revision=0xa07
-[    7.503000] microcode: CPU0 updated to revision 0xa0b, date = 2010-09-28
-[    7.507419] microcode: CPU1 sig=0x1067a, pf=0x1, revision=0xa07
-[    7.508417] microcode: CPU1 updated to revision 0xa0b, date = 2010-09-28
-</pre>}}
-In this example the microcode of a dual-core Intel CPU has been successfully updated from revision 0xa07 to revision 0xa0b.
-
-== Early Microcode ==
-
-Some CPUs (like Haswell) require loading microcode before everything else, as the update causes system instability otherwise. For that reason the kernel supports early microcode loading.
-
-{{KernelBox|title=<nowiki>CONFIG_MICROCODE_EARLY=y</nowiki>|1=<pre>
-Processor type and features  --->
-    <*> CPU microcode loading support
-      [*]   Intel microcode loading support
-      [ ]   AMD microcode loading support
-    [*] Early load microcode
-</pre>}}
-
-{{Note|Modules don't work for early microcode, so make sure microcode loading is built-in.}}
-
-After emerging {{Package|sys-apps/microcode-data}}, generate the microcode cpio archive using {{Package|sys-apps/iucode_tool}}:
-
-{{RootCmd|1=iucode_tool -S --write-earlyfw=/boot/early-ucode.cpio /lib/firmware/intel-ucode/*
-|output=<pre>iucode_tool: system has processor(s) with signature 0x000306c3
-iucode_tool: Writing selected microcodes to: /boot/early-ucode.cpio</pre>}}
-
-Add it to your bootloader:
-
-{{FileBox|filename=/boot/grub/grub.cfg|title=Early Microcode Initrd|lang=bash|1=
-linux /boot/your-bzImage
-initrd /boot/early-ucode.cpio}}
-
-If you're already using another initrd, you can specify several of them in your bootloader or, if your bootloader does not support that, merge them yourself using <tt>cat</tt>. The early microcode might be ignored if it's not the first initrd, though.
-
-== References ==
-{{reflist}}
-[[Category:Processors]]
