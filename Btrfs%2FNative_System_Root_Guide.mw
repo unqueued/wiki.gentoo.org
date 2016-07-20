@@ -1,4 +1,3 @@
-== Converting to a "Native" btrfs Based System ==
 This exercise is an update to the original example for re-basing a Gentoo installation's root filesystem to use btrfs [[Btrfs/System Root Guide|found here]].  In this case, the existing system is a mirror set using two 2TB drives at {{Path|/dev/sda}} and {{Path|/dev/sdb}}.  Two fresh 2TB drives have been added at {{Path|/dev/sdc}} and {{Path|/dev/sdd}}.  In the original exercise, the mdadm array was kept to mirror the {{Path|/boot}} partitions on the two drives, while the rest of the partitions were converted to btrfs subvolumes.
 
 This second exercise explores the use of GRUB2 to fully convert the mirror set to use the multi-volume functionality of btrfs, implementing {{Path|/boot}} as a mirrored btrfs filesystem and forgoing the need to use an initramfs file on {{Path|/boot}} to provide early userspace mounting of the root subvolume.  We also will be using the gptfdisk ebuild tools to make a GPT based partition table on the new mirror set in place of a legacy MBR table.
@@ -6,9 +5,10 @@ This second exercise explores the use of GRUB2 to fully convert the mirror set t
 One of the lessons learned here is that GRUB2 (2.00_p5107-r2 here) and the current kernel (3.10.25 here) are not quite up to the job of directly booting a filesystem in a btrfs subvolume, at least, not one in a multi-disc set.  However it is able to find a simple filesystem on the default volume of a multi-disc set.
 
 === Partitioning ===
-Emerge gptfdisk if you don't already have it.  It provides the gdisk, sgdisk and cgdisk utilities for manipulating GPT partitions.  These correspond to the legacy fdisk, sfdisk and cfdisk utilities for MBR tables.
 
-We followed the writeup on GRUB2 [[GRUB2|here]] to put together the following GPT scheme that GRUB2 can use and got it working after a false start or two.
+Emerge gptfdisk if you don't already have it.  It provides the {{c|gdisk}}, {{c|sgdisk}}, and {{c|cgdisk}} utilities for manipulating GPT partitions. These correspond to the legacy {{c|fdisk}}, {{c|sfdisk}}, and {{c|cfdisk}} utilities for MBR tables.
+
+We followed the write up on GRUB2 [[GRUB2|here]] to put together the following GPT scheme that GRUB2 can use and got it working after a false start or two.
 
 {{RootCmd|cgdisk|output=<pre>
                                           cgdisk 0.8.6
@@ -100,11 +100,11 @@ Part. #     Size        Partition Type            Partition Name
 The grub2biosboot partition was what got missed on the first round and thus got added later.
 
 * '''1007.0KiB free space''' - Will eventually get the boot record and leave enough of a gap for GRUB2 to park its [[BIOS]].
-* '''biosboot''' - The partition type 0xEF02 (BIOS boot partition) must be set in order for GRUB2 to find it and use it.  Some web pages suggest using EF00 (EFI System), but this will not work with the current version of GRUB2.  The bare minimum for this size is 1mb, but some pages suggest using at least 2mb.  We err on the side of caution and future bloat.
+* '''biosboot''' - The partition type 0xEF02 (BIOS boot partition) must be set in order for GRUB2 to find it and use it.  Some web pages suggest using EF00 (EFI System), but this will not work with the current version of GRUB2.  The bare minimum for this size is 1mb, but some pages suggest using at least 2 MBs.  We err on the side of caution and future bloat.
 * '''boot''' - GRUB2 will take about 32mb more of {{Path|/boot}} than you may be used to so the usual suggestion of 200mb in days past is now more like 300mb - 500mb depending on how many kernels and initramfs filesystems you like to keep around.  Set the partition type to the default which is 0x8300 for Linux.
 * '''root''' - We took the default for size to allocate the rest of the drive to the root partition.  Once again the type is set to 0x8300.
 
-The resulting table looks like the following in gdisk:
+The resulting table looks like the following in {{c|gdisk}}:
 
 {{RootCmd|gdisk /dev/sdc|output=<pre>
 GPT fdisk (gdisk) version 0.8.6
@@ -136,9 +136,10 @@ Command (? for help):
 
 {{Note|You may not see the "MBR: protective" indication in the output unless an MBR has been written to the drive at least once.}}
 
-Repeat the same partitioning on {{Path|/dev/sdd}}.  Similar to sfdisk, the sgdisk utility has the ability to dump the GPT table to a file and then reload that.  However the output is binary, so we just went ahead and used cgdisk to create the same layout on {{Path|/dev/sdd}}.
+Repeat the same partitioning on {{Path|/dev/sdd}}. Similar to {{c|sfdisk}}, the {{c|sgdisk}} utility has the ability to dump the GPT table to a file and then reload that. However the output is binary, so we just went ahead and used {{c|cgdisk}} to create the same layout on {{Path|/dev/sdd}}.
 
-== Filesystem Creation ==
+== Filesystem creation ==
+
 Since this is a two disk simple mirror, we specify raid1 for both metadata and data when making the two filesystems.  If you have more than two drives, the current stable versions of kernel (3.10.25) and btrfs-progs (3.12-r1) now also make raid5 and raid6 available for options alongside raid1 and raid10.
 
 {{RootCmd|mkfs -t btrfs -L BOOT -m raid1 -d raid1 /dev/sdc2 /dev/sdd2|output=<pre>
@@ -156,6 +157,7 @@ fs created label BTBOOT on /dev/sdc2
 Btrfs v3.12
 
 </pre>}}
+
 {{RootCmd|mkfs -t btrfs -L BTROOT -m raid1 -d raid1 /dev/sdc3 /dev/sdd3|output=<pre>
 
 WARNING! - Btrfs v3.12 IS EXPERIMENTAL
@@ -167,48 +169,52 @@ fs created label BTROOT on /dev/sdc3
         nodesize 16384 leafsize 16384 sectorsize 4096 size 3.64TiB
 </pre>}}
 
-
 ===Root Volume===
+
 We mount the default volume for the root partition on {{Path|/mnt/newmirror}} but will be putting the actual contents into subvolumes with different btrfs features enabled or disabled.
 {{RootCmd|mkdir /mnt/newmirror}}
 {{RootCmd|mount -t btrfs -o defaults,noatime,compress{{=}}lzo,autodefrag /dev/sdc3 /mnt/newmirror}}
 
 
 The new root filesystem will go onto a subvolume (activeroot) which is created on the mirror and then mounted to {{Path|/mnt/newroot}}
-{{RootCmd|mkdir /mnt/newroot}}
-{{RootCmd|btrfs subvol create /mnt/newmirror/activeroot}}
-{{RootCmd|mount -t btrfs -o defaults,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}activeroot /dev/sdc3 /mnt/newroot}}
 
-
+{{RootCmd
+|mkdir /mnt/newroot
+|btrfs subvol create /mnt/newmirror/activeroot
+|mount -t btrfs -o defaults,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}activeroot /dev/sdc3 /mnt/newroot
+}}
 
 We mount the existing root filesystem to {{Path|/mnt/rawroot}} and use tar to transfer things over while avoiding the dynamic stuff.
 
-{{RootCmd|mkdir /mnt/rawroot}}
-{{RootCmd|mount --bind / /mnt/rawroot}}
-{{RootCmd|cd /mnt/rawroot}}
-{{RootCmd|tar cvpf - . {{!}} (cd /mnt/newroot; tar xpf -)|output=<pre>
+{{RootCmd
+|mkdir /mnt/rawroot
+|mount --bind / /mnt/rawroot
+|cd /mnt/rawroot}}
+|tar cvpf - . {{!}} (cd /mnt/newroot; tar xpf -)|output=<pre>
 
 40 or so gb worth of stuff in the output log goes by
 </pre>}}
 
-===Boot Volume===
+=== Boot volume ===
+
 At this point {{Path|/mnt/newroot/boot}} and the mountpoints for the other subvolumes we will be creating are already in place from the tar.  We keep the mount options simple for {{Path|/mnt/newroot/boot}}.
 
-{{RootCmd|mount -t btrfs -o defaults,noatime /dev/sdc1 /mnt/newroot/boot}}
-{{RootCmd|cd /boot}}
-{{RootCmd|tar cvpf - . {{!}} (cd /mnt/newroot/boot; tar xpf -)|output=<pre>
+{{RootCmd
+|mount -t btrfs -o defaults,noatime /dev/sdc1 /mnt/newroot/boot
+|cd /boot
+|tar cvpf - . {{!}} (cd /mnt/newroot/boot; tar xpf -)|output=<pre>
 
 short and sweet output log goes by
 </pre>}}
 
-===Other Volumes===
+=== Other volumes ===
+
 {{Path|/home}} is an obvious candidate for a subvolume, but they are easy to create and manage so you will probably have others.  In our example we have the following:
 
 * '''/home'''
 * '''/distfiles''' - It doesn't do any good to enable compression strategies for a directory which just has compressed tarballs for the most part.
-* '''/vm''' - Keeping your virtual machine store in a separate volume eases snapshotting and migrations.  We will enable compression here.  At various points in btrfs history the use of autodefrag had impacts and issues on vm performance.
+* '''/vm''' - Keeping your virtual machine store in a separate volume eases snapshotting and migrations.  We will enable compression here.  At various points in btrfs history the use of autodefrag had impacts and issues on VM performance.
 * '''/vmcrypt''' - If the VM uses drive encryption, the whole compression strategy gets blown out of the water.
-
 
 {{RootCmd|btrfs subvol create /mnt/newmirror/home}}
 {{RootCmd|mount -t btrfs -o defaults,noatime,compress{{=}}lzo,autodefrag,subvol{{=}}home /dev/sdc3 /mnt/newroot/home}}
@@ -219,40 +225,42 @@ short and sweet output log goes by
 {{RootCmd|btrfs subvol create /mnt/newmirror/vmcrypt}}
 {{RootCmd|mount -t btrfs -o defaults,noatime,autodefrag,subvol{{=}}vmcrypt /dev/sdc3 /mnt/newroot/vmcrypt}}
 
-
 This process takes place overnight and a good bit of the next day, so we will gloss over it
 
-==Chrooting into /mnt/newroot==
+== Chrooting into /mnt/newroot ==
+
 We will chroot into the new root filesystem for the next set of steps:
 
 * '''Edit the fstab'''
 * '''Update the kernel to use an embedded initram filesystem'''
 * '''Install grub2 in place of grub0.97'''
 
+===Pre-chroot preparation===
 
-
-===Pre-chroot Preparation===
 We do the usual prelims to allow GRUB to find things when installing.
 
 {{RootCmd|mount --bind /dev /mnt/newroot/dev}}
 {{RootCmd|mount -t proc none /mnt/newroot/proc}}
 
 
-Edit your mtab to look something like this
+Edit your mtab to look something like this:
+
 {{FileBox|filename=/mnt/newroot/etc/mtab|title=the new root and boot as they will look to grub|1=
 /dev/sdc3 / btrfs rw,noatime,compress=lzo,autodefrag,subvol=activeroot 0 0
 /dev/sdc2 /boot btrfs rw,noatime 0 0
 }}
 
-
 {{RootCmd|chroot /mnt/newroot /bin/bash}}
 {{RootCmd|env-update|output=<pre>
 >>> Regenerating /etc/ld.so.cache...
 </pre>}}
+
 {{RootCmd|source /etc/profile}}
 
-===Updating fstab===
-We edit our new fstab to make it look something like this.
+=== Updating fstab ===
+
+We edit our new fstab to make it look something like this:
+
 {{FileBox|filename=/etc/fstab|title=edited in the chroot so is actually /mnt/newroot/etc/fstab|1=
 # /etc/fstab: static file system information.
 #
@@ -287,16 +295,15 @@ LABEL=BTROOT	/vmcrypt		btrfs	defaults,noatime,autodefrag,subvol=vmcrypt			0 0
 LABEL=BTBOOT	/boot			btrfs	defaults,noatime						0 0
 }}
 
+=== Embedding an initram filesystem ===
 
-
-===Embedding an initram filesystem===
 As we noted in the introduction, the current kernel and GRUB2 combination appear to work fine at least when searching for and mounting the simple /boot mirror btrfs filesystem in the default volume.  However we put our new root in a subvolume in order to take advantage of snapshotting and rollback of root as necessary.  To do that, we will follow the guide for [[Early Userspace Mounting]] again but will also draw upon one of its references in order to have the kernel build process make the archive and then embed it in the resulting bzImage file.  This lets us make grub2_mkconfig do all of the heavy lifting without having to do a custom stanza in {{Path|/etc/grub.d/40_custom}}.
 
 {{RootCmd|cd /usr/src/linux}}
 {{RootCmd|chmod +x usr/gen_init_cpio scripts/gen_initramfs_list.sh}}
 
+Run menuconfig to use devtmpfs and to specify an initramfs_list that will be used to put an initramfs into the bzImage:
 
-Run menuconfig to use devtmpfs and to specify an initramfs_list that will be used to put an initramfs into the bzImage
 {{KernelBox|1=
 General setup  --->
     [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
@@ -396,18 +403,18 @@ file    /init                   /usr/src/linux/initramfs/init             755 0 
 file	/etc/fstab		/usr/src/linux/initramfs/fstab	644 0 0
 }}
 
-====init script Alternatives====
-We started with the init script from the previous exercise but have modified it to create two alternatives.  The first should parse the /proc/cmdline to pull the information needed to mount root.  It thus doesn't need to use the embedded fstab, but you can place a copy of your normal one in the initramfs directory in case you are dumped to the rescue shell.
+==== init script alternatives ====
+
+We started with the init script from the previous exercise but have modified it to create two alternatives. The first should parse the {{Path|/proc/cmdline}} to pull the information needed to mount root. It thus doesn't need to use the embedded fstab, but you can place a copy of your normal one in the initramfs directory in case you are dumped to the rescue shell.
 
 The second is a basic mount script that uses an embedded fstab to explicitly spell out the mount entries for root and boot.  We resorted to using this when we ran into problems with the init stage and then found that grub2 was not letting busybox open the console device.
 
-=====/proc/cmdline parsing init script=====
+===== /proc/cmdline parsing init script =====
+
 This has not yet been shown to work during an actual boot, but the logic was tested against busybox on a running system.
 
 {{FileBox|filename=/usr/src/linux/initramfs/init|lang=bash|1=
 #!/bin/busybox sh
-
-
 
 rescue_shell() {
     echo "$@"
@@ -416,13 +423,9 @@ rescue_shell() {
     exec /bin/sh
 }
 
-
-
 get_opt() {
 	echo "$@" {{!}} cut -d "=" -f 2
 }
-
-
 
 mount_root() {
     ro=""
@@ -455,7 +458,6 @@ mount_root() {
 	esac
     done
 
-
     case $root in
 	UUID\=*)
 	    root="-U ${root:5}"
@@ -466,7 +468,6 @@ mount_root() {
 	    ;;
     esac
 
-
     if [[ ${ro} == "ro" ]] ; then
 	if [[ ${rootflags} != "" ]] ; then
 	    rootflags="ro,${rootflags}"
@@ -474,14 +475,10 @@ mount_root() {
 	    rootflags="ro"
 	fi
     fi
-
 	
     echo "mounting /mnt/root"
     mount -t ${rootfstype} -o ${rootflags} ${root} /mnt/root
 }
-
-
-
 
 #
 # temporarily mount proc and sys
@@ -531,7 +528,8 @@ exec switch_root /mnt/root /sbin/init
 
 
 =====Basic mount init script=====
-This basic fstab based mount version and the accompanying fstab appears to work.
+
+This basic fstab based mount version and the accompanying fstab appears to work:
 
 {{FileBox|filename=/usr/src/linux/initramfs/init|lang=bash|1=
 #!/bin/busybox sh
@@ -590,7 +588,8 @@ exec switch_root /mnt/root /sbin/init
 /dev/sda2	/mnt/boot	btrfs	device=/dev/sda2,device=/dev/sdb2,defaults,noatime		0 0
 }}
 
-=====Debug boot environment files=====
+===== Debug boot environment files =====
+
 It was interesting to see what the environment inside the kernel looks like.
 
 {{FileBox|filename=/root/mounts.txt|title=Result of "cat /proc/mounts"|1=
@@ -803,7 +802,9 @@ PWD=/
 }}
 
 ====Rebuilding kernel====
+
 {{RootCmd|cd /usr/src/linux}}
+
 {{RootCmd|make -j7 bzImage|output=<pre>
 (the scripts and cpio generation are actually done pretty early on if you've already built your kernel at least once)
 make[1]: Nothing to be done for `all'.
@@ -827,7 +828,6 @@ Kernel: arch/x86/boot/bzImage is ready  (#3)
 
 Our kernel just got about 3-4mb bigger as a result.
 
-
 {{RootCmd|make -j7 modules}}
 {{RootCmd|make modules_install}}
 {{RootCmd|cp .config /boot/config-3.10.25-gentoo}}
@@ -835,9 +835,8 @@ Our kernel just got about 3-4mb bigger as a result.
 {{RootCmd|cd arch/x86_64/boot}}
 {{RootCmd|cp bzImage /boot/kernel-3.10.25-gentoo}}
 
+==== Running grub2_mkconfig ====
 
-
-====Running grub2_mkconfig====
 The mkconfig will have a problem probing the multi-device set as follows:
 
 {{RootCmd|grub2-mkconfig -o /boot/grub/grub.cfg|output=<pre>
@@ -850,13 +849,11 @@ Found linux image: /boot/kernel-3.10.25-gentoo
 done
 </pre>}}
 
+This will also cause grub2-install to error out unless we uncomment and specify the <code>GRUB_DEVICE=/dev/sdc3</code> in {{Path|/etc/default/grub}}.  When we googled around for this, we found a number of pages such as Fedora bug reports that suggested a patch with bash arrays and jiggered quotes in a GRUB2 script.  However it doesn't appear that this patch has gotten far enough upstream or resolved to everyone's liking for Gentoo stable to pick it up yet.
 
-This will also cause grub2-install to error out unless we uncomment and specify the GRUB_DEVICE=/dev/sdc3 in {{Path|/etc/default/grub}}.  When we googled around for this, we found a number of pages such as Fedora bug reports that suggested a patch with bash arrays and jiggered quotes in a grub2 script.  However it doesn't appear that this patch has gotten far enough upstream or resolved to everyone's liking for Gentoo stable to pick it up yet.
+We also uncomment and force <code>GRUB_TERM=console</code> since other pages suggest that there may be issues with GRUB2 using a framebuffer and then running the proprietary nvidia-driver for X11 later on.  This may also be true for recent xf86-video-ati driver versions where we are activating a framebuffer before the GPU firmware gets loaded later on from {{Path|/lib/firmware}}.
 
-We also uncomment and force GRUB_TERM=console since other pages suggest that there may be issues with grub2 using a framebuffer and then running the proprietary nvidia-driver for X11 later on.  This may also be true for recent xf86-video-ati driver versions where we are activating a framebuffer before the GPU firmware gets loaded later on from {{Path|/lib/firmware}}.
-
-
-{{FileBox|filename=/etc/default/grub|title=Edited /mnt/newroot/etc/default/grub config file|1=
+{{FileBox|filename=/etc/default/grub|title=Edited /mnt/newroot/etc/default/grub config file|lang=bash|1=
 # Copyright 1999-2013 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 # $Header: /var/cvsroot/gentoo-x86/sys-boot/grub/files/grub.default-2,v 1.4 2013/09/21 18:10:55 floppym Exp $
@@ -894,7 +891,6 @@ GRUB_DEVICE=/dev/sdc3
 
 # Append parameters to the linux kernel command line
 #GRUB_CMDLINE_LINUX="rootfstype=btrfs rootflags=device=/dev/sda2,device=/dev/sdb2,subvol=btroot"
-
 
 # Append parameters to the linux kernel command line for non-recovery entries
 #GRUB_CMDLINE_LINUX_DEFAULT=""
@@ -958,7 +954,6 @@ GRUB_TERMINAL=console
 # Uncomment to disable generation of recovery mode menu entries
 #GRUB_DISABLE_RECOVERY=true
 }}
-
 
 After the edit the mkconfig now runs without any issues.
 
@@ -1125,17 +1120,18 @@ fi
 ### END /etc/grub.d/41_custom ###
 }}
 
+The set root='hd2,gpt2' statements in the {{Path|grub.cfg}} file will be wrong once we remove the original drive set and make the new set {{Path|/dev/sda}} and {{Path|/dev/sdb}}. However the if-then-else statements right after do a search for the correct UUID for the BTBOOT filesystem and thus will correct the root.
 
-The set root='hd2,gpt2' statements in the grub.cfg will be wrong once we remove the original drive set and make the new set {{Path|/dev/sda}} and {{Path|/dev/sdb}}.  However the if-then-else statements right after do a search for the correct uuid for the BTBOOT filesystem and thus will correct the root.
+==== Installing the MBR ====
 
-====Installing the MBR====
-We need to run grub2-install on both drives.
+We need to run {{c|grub2-install}} on both drives.
 
 {{RootCmd|grub2-install /dev/sdc|output=<pre>
 Installation finished. No error reported.
 </pre>}}
+
 {{RootCmd|grub2-install /dev/sdd|output=<pre>
 Installation finished. No error reported.
 </pre>}}
 
-With the MBR's installed, we also want to go back and re-edit the {{Path|/etc/default/grub}} file to reset the GRUB_DEVICE=/dev/sda3 before we forget.  It may be a while before we run grub2_mkconfig again to update for a new kernel.
+With the MBR's installed, we also want to go back and re-edit the {{Path|/etc/default/grub}} file to reset the <code>GRUB_DEVICE=/dev/sda3</code> before we forget.  It may be a while before we run {{c|grub2-mkconfig}} again to update for a new kernel.
