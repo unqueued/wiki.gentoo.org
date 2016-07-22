@@ -1,0 +1,866 @@
+<languages />
+{{Lowercase title}}
+{{InfoBox stack
+|{{InfoBox homepage|http://freedesktop.org/wiki/Software/systemd|header=true}}
+|{{InfoBox wikipedia}}
+|{{InfoBox gitweb|http://cgit.freedesktop.org/systemd/systemd/|raw=true}}
+}}
+
+'''systemd''' è un sostituto moderno per init SysV-style e per rc (run command)<ref>Eric S. Raymond.http://www.catb.org/jargon/html/R/rc-file.html Retrieved on June 27th, 2015</ref> per sistemi Linux. In Gentoo è supportato come sistema di init alternativo.
+<!--
+Le seguenti directoriy sono utilizzate sia da OpenRC sia da systemd:
+* {{Path|/etc/modules-load.d}},
+* {{Path|/etc/sysctl.d}},
+* {{Path|/etc/binfmt.d}}
+-->
+
+== Pre-installation Configuration ==
+
+{{Note|When updating from <{{=}}sys-apps/systemd-203 check the [[/upgrade|upgrade subpage]].}}
+
+=== Kernel ===
+
+systemd makes use of many modern Linux kernel features. Right now, the lower bound on kernel version is set in the ebuild to 2.6.39. In recent versions of {{Package|sys-kernel/gentoo-sources}}, there is a convenient way of selecting the mandatory and optional kernel options for systemd (see [[Kernel/Configuration]] for further details):
+
+{{KernelBox|title=Quick setup using gentoo-sources|<pre>
+Gentoo Linux --->
+        Support for init systems, system and service managers --->
+                [*] systemd
+</pre>}}
+
+To configure the kernel options manually (which is the only option when not using {{Package|sys-kernel/gentoo-sources}}), the following kernel configuration options are required or recommended:
+
+<!-- See http://cgit.freedesktop.org/systemd/systemd/plain/README -->
+{{KernelBox|title=Mandatory options|<pre>
+General setup  --->
+	[*] Control Group support
+	[*] open by fhandle syscalls
+	[ ] Enable deprecated sysfs features to support old userspace tools
+	[*] Configure standard kernel features (expert users)  --->
+		[*] Enable eventpoll support
+		[*] Enable signalfd() system call
+		[*] Enable timerfd() system call
+[*] Networking support --->
+Device Drivers  --->
+	Generic Driver Options  --->
+		[*] Maintain a devtmpfs filesystem to mount at /dev
+File systems  --->
+	[*] Inotify support for userspace
+	Pseudo filesystems  --->
+		[*] /proc file system support
+		[*] sysfs file system support
+</pre>}}
+
+{{KernelBox|title=Recommended options|<pre>
+General setup  --->
+	[*] Namespaces support  --->
+		[*] Network namespace
+[*] Enable the block layer  --->
+	[*] Block layer SG support v4
+Processor type and features  --->
+	[*] Enable seccomp to safely compute untrusted bytecode
+Networking support --->
+	Networking options --->
+		<*> The IPv6 protocol
+Device Drivers  --->
+	Generic Driver Options  --->
+		()  path to uevent helper
+		[ ] Fallback user-helper invocation for firmware loading
+Firmware Drivers  --->
+	[*] Export DMI identification via sysfs to userspace
+File systems --->
+	<*> Kernel automounter version 4 support (also supports v3)
+	Pseudo filesystems --->
+		[*] Tmpfs virtual memory file system support (former shm fs)
+		[*]   Tmpfs POSIX Access Control Lists
+		[*]   Tmpfs extended attributes
+</pre>}}
+
+For an UEFI system also enable the following:
+
+{{KernelBox|title=UEFI support|<pre>
+[*] Enable the block layer  --->
+	Partition Types  --->
+		[*] Advanced partition selection
+		[*]   EFI GUID Partition support
+Processor type and features  --->
+	[*] EFI runtime service support
+Firmware Drivers  --->
+        EFI (Extensible Firmware Interface) Support -->
+	        <*> EFI Variable Support via sysfs
+</pre>}}
+
+If the system is using the BFQ scheduler, it's recommended by BFQ upstream to enable "BFQ hierarchical scheduling support" under "Enable the block layer -> IO Schedulers".
+
+For an up-to-date list, see section "REQUIREMENTS" in the upstream [http://cgit.freedesktop.org/systemd/systemd/tree/README README] file.
+
+===The {{Path|/run}} directory===
+
+The {{Path|/run}} directory is used by systemd and other applications as a non-persistent storage for runtime data like {{Path|pid}} files, sockets and state files.
+
+The systemd package will create the {{Path|/run}} directory itself. However, please note that this change will trigger automatic mounting of it in [[OpenRC]] as well, and may trigger its use by different software packages.
+
+==={{Path|/etc/mtab}}===
+
+Upstream only supports the {{Path|/etc/mtab}} file being a symlink to {{Path|/proc/self/mounts}}. Not creating this symlink will also cause problems with {{c|mount}} ({{bug|434090}}) and {{c|df}} ({{bug|477240}}). In the past some utilities wrote information (like mount options) into {{Path|/etc/mtab}} and thus it was supposed to be a regular file. Nowadays all software is supposed to avoid this problem. Still, before switching the file to become a symbolic link, please check {{bug|477498}} to be sure that the system is not affected by any reported regressions.
+
+To create the symlink, run:
+
+{{RootCmd|ln -sf /proc/self/mounts /etc/mtab}}
+
+=== Ensure /usr is present at boot time ===
+
+For a split {{Path|/usr}} configuration, use an [[initramfs]] to mount {{Path|/usr}} before starting systemd. For now, this means using {{Package|sys-kernel/dracut}} or {{Package|sys-kernel/genkernel-next}} until support for {{Path|/usr}} is available in {{Package|sys-kernel/genkernel}}. Set aside time now to migrate:
+
+{{Emerge|params+=--unmerge|sys-kernel/genkernel}}
+{{Emerge|sys-kernel/dracut}}
+{{Emerge|sys-kernel/genkernel-next}}
+
+When using dracut, enable the usrmount module if it is not automatically enabled to mount {{Path|/usr}} automatically.
+
+{{FileBox|filename=/etc/dracut/dracut.conf|lang=bash|1=
+# Dracut modules to add to the default
+add_dracutmodules+="usrmount"
+}}
+
+When genkernel-next is used, before rebuilding the kernel, be sure to set the <var>UDEV</var> variable in {{c|genkernel}}'s configuration file to <code>yes</code>. This will pull {{path|/usr}} into the initramfs:
+
+{{FileBox|filename=/etc/genkernel.conf|lang=bash|1=
+# Use udev instead of mdev as the default device manager for the initramfs.
+# If systemd and perhaps lvm is used, then this _must_ be turned on.
+UDEV="yes"
+}}
+
+{{RootCmd|genkernel --install all}}
+
+See the [[Initramfs/Guide|Initramfs guide]] for more alternatives.
+
+=== Using LVM2 and initramfs ===
+
+When [[LVM|sys-fs/lvm2]] is used and the system is booted using an initramfs, the initramfs will have to be created using {{Package|sys-kernel/genkernel-next}} by running:
+
+{{RootCmd|genkernel --udev --lvm <target>}}
+
+<code><target></code> is either <code>initramfs</code> or one of the other genkernel targets which imply the creation of an initramfs. For more information, look at the output of {{c|genkernel --help}}:
+
+{{Cmd|genkernel --help}}
+
+When LVM is used, the {{c|lvmetad}} daemon needs to be started as well. Otherwise systemd will be unable to mount LVM volumes. {{c|lvmetad}} can be enabled in {{Path|/etc/lvm/lvm.conf}}:
+
+{{FileBox|filename=/etc/lvm/lvm.conf|title=Snippet of required changes in lvm.conf|lang=ini|1=
+# Set use_lvmetad to '1' for systemd
+use_lvmetad {{=}} 1
+}}
+
+{{Note|Instead of modifying {{Path|/etc/lvm/lvm.conf}} this could probably be achieved through a {{Path|lvmetad.socket}} unit which activates a {{Path|lvmetad.service}}, but current versions of {{Package|sys-fs/lvm2}} don't ship those yet.}}
+
+== Installation ==
+
+{{Package|sys-apps/systemd}} contains udev. Once installed, {{Package|sys-fs/udev}} can be removed as systemd will be the provider for {{Package|virtual/udev}}.
+
+Enable the <code>systemd</code> USE flag globally (in {{Path|make.conf}}). The <code>consolekit</code> USE flag should also be disabled to prevent conflicts with the {{c|systemd-logind}} service. It is also possible to switch to a systemd subprofile to use saner USE flags defaults in which case it is not necessary to change {{Path|make.conf}}:
+
+{{RootCmd|eselect profile list}}
+
+Finally update the system with the new flags:
+
+{{RootCmd|emerge -avDN @world}}
+
+When dependency problems occur (such as {{Package|sys-fs/udev}} blocking {{Package|sys-apps/systemd}}), {{Package|sys-fs/udev}} might be registered in the world file.  Try to resolve this by deselecting it:
+
+{{RootCmd|emerge --deselect sys-fs/udev}}
+
+== Booting with systemd ==
+
+In order to run systemd, switch the {{c|init}} that the executable kernel (or the initramfs) uses.
+
+{{Warning|The services that are set up for the previous service manager will not be automatically started. This is because the system is switching to a different service manager. In order to obtain back the functionality like networking or a login manager, these services will need to be enabled again. More information about this follows in the services section later in this article.}}
+
+{{Note|In case the migration yields a broken state, it is always possible to boot back into the default service manager (OpenRC) by undoing this init change step. This allows safe return and a way to follow through the troubleshooting section at the end of this article to fix the problem.}}
+
+The following subsections document how to switch the {{c|init}} in one of the boot managers or the kernel.
+
+=== Grub Legacy (0.x) ===
+
+The <code>init=/usr/lib/systemd/systemd</code> argument should be added to the kernel command-line. An example excerpt from {{Path|grub.conf}} would look like so:
+
+{{FileBox|filename=/boot/grub/grub.conf|title=Example GRUB config for systemd|1=
+title=Gentoo with systemd
+root (hd0,0)
+kernel /vmlinuz root=/dev/sda2 init=/usr/lib/systemd/systemd
+}}
+
+Should the system boot using OpenRC, try using <code>real_init</code> instead of <code>init</code>.
+
+=== Grub 2 ===
+
+When {{c|grub2-mkconfig}} is used, add the init option to <var>GRUB_CMDLINE_LINUX</var>:
+
+{{Note|This is not needed when using an initramfs generated by {{c|dracut}} with systemd inside as the initramfs already starts systemd.}}
+
+{{FileBox|filename=/etc/default/grub|title=Configure GRUB 2 for systemd|lang=bash|1=
+# Append parameters to the linux kernel command line
+GRUB_CMDLINE_LINUX="init=/usr/lib/systemd/systemd"
+}}
+
+When the GRUB 2 configuration file is written by hand (experts only), append the <code>init=</code> parameter to the <code>linux</code> or <code>linux16</code> command.
+
+{{FileBox|filename=/boot/grub/grub.cfg|title=Example GRUB2 configuration fragment|1=
+linux /vmlinuz-3.10.9 root=UUID=508868e4-54c6-4e6b-84b0-b3b28b1656b6 init=/usr/lib/systemd/systemd
+}}
+
+When using genkernel-next's initrd, use <code>real_init</code> instead of <code>init</code>.
+
+{{Note|This use of the deprecated <code>real_init</code> should not be needed for stable versions of genkernel-next.}}
+
+=== In kernel config ===
+
+The init configuration can also be hard-coded in the kernel configuration. See {{Path|Processor type and features -> Built-in kernel command line}}. Note that this technique works for both {{c|grub}} and {{c|grub2}}.
+
+=== Setting root password ===
+
+At this point don't forget to set the system's root password. If something goes wrong, systemd will prompt for the root password to go into maintenance mode.
+
+== Post-installation configuration ==
+
+systemd supports a few system configuration files to set the most basic system details.
+
+{{Note|While some system configuration parameters can be updated by modifying the appropriate configuration files, most settings are managed using utilities that require systemd to be running. In this case, it is safe to reboot the computer with systemd and use the {{c|hostnamectl}}, {{c|localectl}}, and {{c|timedatectl}} utilities as required.}}
+
+=== Hostname ===
+
+To set the hostname, create/edit {{Path|/etc/hostname}} and simply provide the desired hostname.
+
+When booted using systemd, a tool called {{c|hostnamectl}} exists for editing {{Path|/etc/hostname}} and {{Path|/etc/machine-info}}. To change the hostname, run:
+
+{{RootCmd|hostnamectl set-hostname <HOSTNAME>}}
+
+Refer to {{c|man hostnamectl}} for more options.
+
+<!--
+{{FileBox|filename=/etc/machine-info|title=Configuration file for local machine information.|lang=bash|1=
+PRETTY_NAME="Larry's Computer"
+ICON_NAME="computer-laptop"
+}}
+-->
+
+=== Locale ===
+
+Usually, locales will be properly migrated from OpenRC when installing systemd. When required, the locale can be set in {{Path|/etc/locale.conf}} as per the Gentoo handbook instructions:
+
+{{FileBox|filename=/etc/locale.conf|title=System locale configuration|lang=bash|1=
+LANG="en_US.utf8"
+}}
+
+Once booted with systemd, the tool {{c|localectl}} is used to set locale and console or X11 keymaps. To change the system locale, run the following command:
+
+{{RootCmd|localectl set-locale LANG<nowiki>=</nowiki><LOCALE>}}
+
+To change the virtual console keymap:
+
+{{RootCmd|localectl set-keymap <KEYMAP>}}
+
+And finally, to set the X11 layout:
+
+{{RootCmd|localectl set-x11-keymap <LAYOUT>}}
+
+If needed the model, variant and options can be specified as well:
+
+{{RootCmd|localectl set-x11-keymap <LAYOUT> <MODEL> <VARIANT> <OPTIONS>}}
+
+=== Time and date ===
+
+Time and date can be set using the {{c|timedatectl}} utility. That will also allow users to set up synchronization without needing to rely on {{Package|net-misc/ntp}} or other providers than systemd's own implementation.
+
+To learn how to use {{c|timedatectl}} simply run:
+
+{{RootCmd|timedatectl --help}}
+
+=== Automatic module loading ===
+
+Automatic module loading is configured in a different file, or rather directory of files. The configuration files are stored in {{Path|/etc/modules-load.d}}. On boot every file with a list of modules will be loaded. The file format is a list of modules separated by newlines and can have any name as long as it ends with {{Path|.conf}}. The module loading can be separated by program, service or whatever way that fits personal preference. An example {{Path|virtualbox.conf}} is listed below:
+
+{{FileBox|filename=/etc/modules-load.d/virtualbox.conf|title=Example file for the virtualbox modules|1=
+vboxdrv
+vboxnetflt
+vboxnetadp
+vboxpci
+}}
+
+=== Network ===
+
+==== systemd-networkd ====
+
+systemd-networkd is useful for simple configuration of wired network interfaces. It is disabled by default.
+
+To configure systemd-networkd, create a {{Path|*.network}} file under {{Path|/etc/systemd/network}}. See [http://www.freedesktop.org/software/systemd/man/systemd.network.html systemd.network(5)] for reference. A simple DHCP configuration is given below:
+
+{{FileBox|filename=/etc/systemd/network/50-dhcp.network
+|1=[Match]
+Name=en*
+ 
+[Network]
+DHCP=yes}}
+
+{{RootCmd|systemctl enable systemd-networkd.service
+|systemctl start systemd-networkd.service}}
+
+Note that systemd-networkd does not update {{Path|resolv.conf}} by default. To have systemd manage the DNS settings, replace {{Path|resolv.conf}} with a symlink and start systemd-resolved.
+
+{{RootCmd|ln -snf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+|systemctl enable systemd-resolved.service
+|systemctl start systemd-resolved.service}}
+
+==== NetworkManager ====
+
+Often NetworkManager is used to configure network settings. For that purpose, simply run the following command when using an X11-powered desktop:
+
+{{RootCmd|nm-connection-editor}}
+
+If that is not the case and the network needs to be configured from console, give [https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Networking_Guide/sec-Using_the_NetworkManager_Command_Line_Tool_nmcli.html nmcli] a try, or follow a guided configuration process through {{c|nmtui}}:
+
+{{RootCmd|nmtui}}
+
+[https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Networking_Guide/sec-Networking_Config_Using_nmtui.html nmtui] is a curses frontend that will guide the user in the process while running in console mode.
+
+=== Handling of log files ===
+
+systemd has its own way of handling log files without needing to rely on any external log system (like {{Package|app-admin/syslog-ng}} or {{Package|app-admin/rsyslog}}). Messages can now be read with {{c|journalctl}}. It can still be configured to use a preferred external tool for handling them. See {{c|man journald.conf}} to learn how to configure journald to suit personal needs.
+
+Some common {{c|journalctl}} options:
+
+{| class="table table-striped table-condensed"
+|-
+! Command line options for {{c|journalctl}} !! Result
+|-
+| {{c|journalctl}} without options || Show all log entries, starting with earliest.
+|-
+| <code>-b</code>, <code>--boot</code> || Show all log entries from this boot.
+|-
+| <code>-r</code>, <code>--reverse</code> || Newest entries first.
+|-
+| <code>-f</code>, <code>--follow</code> || Show the last few entries and display new log entries as they're being produced.
+|-
+| <code>-p</code>, <code>--priority=</code> || Specify (minimum) priority to display messages, with a choice from: "emerg" (0), "alert" (1), "crit" (2), "err" (3), "warning" (4), "notice" (5), "info" (6), "debug" (7).
+|-
+| <code>--since=</code>, <code>--until=</code> || Restrict entries by time. Accepts the format "YYYY-MM-DD hh:mm:ss" or the strings "yesterday", "today" and "tomorrow".
+|-
+| <code>-n</code>, <code>--lines=</code> || Restrict to a number of entries.
+|-
+| <code>-k</code>, <code>--dmesg</code> || Restrict to kernel messages.
+|-
+| <code>-u</code>, <code>--unit=</code> || Restrict to a certain Systemd unit.
+|}
+
+For more information and many more options, look at {{c|man journalctl}}.
+
+=== /tmp is now in tmpfs ===
+
+Unless some other filesystem is explicitly mounted to {{Path|/tmp}} in {{Path|/etc/fstab}}, systemd will mount {{Path|/tmp}} as tmpfs. That means it will be emptied on every boot and its size will be limited to 50% of the system's RAM size. To know why this is the desired behavior and how to modify it, take a look at [http://www.freedesktop.org/wiki/Software/systemd/APIFileSystems/ API File Systems].
+
+=== Configure verbosity of boot process ===
+
+When migrating to systemd users usually notice differences regarding verbosity of boot process:
+
+* The boot option <code>quiet</code> not only influences the kernel output, but also that of systemd itself. Then, while setting up systemd for the machine, drop the option to see any errors could arise more easily. After that, add it back to get a quiet (and faster) boot.
+* Even passing the <code>quiet</code> boot option, systemd can still be configured to show its status by also passing <code>systemd.show_status=1</code>.
+* When not using the <code>quiet</code> boot option, some messages might be overwriting consoles. That is caused by the kernel configuration (see {{c|man 5 proc}} and look for {{Path|/proc/sys/kernel/printk}}). To tweak it pass the <code>loglevel=5</code> boot parameter to the kernel (and update the value according to preference, for instance set a lower value like 1).
+
+== Services ==
+
+At some point the system will need to be rebooted in order to get systemd running (in system mode). Be sure to read all of this document to ensure systemd is configured as completely as possible before rebooting. Note that {{c|journalctl}} works with systemd not running, but that {{c|systemctl}} will not do anything useful without systemd running. Complete the service configuration (enabling and starting of services) after logging in to the system running systemd.
+
+=== OpenRC services ===
+
+Although systemd originally intended to support running old init.d scripts, that support is not suited well for a dependency-based RC like OpenRC and thus is completely disabled on Gentoo. OpenRC provides additional measures to ensure that init.d scripts can't be run when OpenRC was not used to boot the system (otherwise the results would be unpredictable).
+
+=== Listing available services ===
+
+All available service units can be listed using the <code>list-units</code> argument of {{c|systemctl}}:
+
+{{RootCmd|systemctl list-units|output=<pre>
+UNIT                               LOAD   ACTIVE SUB       DESCRIPTION
+boot.automount                     loaded active waiting   EFI System Partition Automount
+proc-sys-fs-binfmt_misc.automount  loaded active waiting   Arbitrary Executable File Formats File System Automount Point
+...
+</pre>}}
+
+The following file suffixes are of interest:
+
+{| class="table"
+! Suffix
+! Description
+|-
+| {{Path|.service}}
+| plain service files (e.g. ones just running a daemon directly),
+|-
+| {{Path|.socket}}
+| socket listeners (much like ''inetd''),
+|-
+| {{Path|.path}}
+| filesystem triggers for services (running services when files change etc.).
+|}
+
+Alternatively the {{c|systemctl}} tool can be used to list all services (including implicit ones):
+
+{{RootCmd|systemctl --all --full}}
+
+And finally check for services that failed to start:
+
+{{RootCmd|systemctl --failed}}
+
+=== Enabling, disabling, starting, and stopping services ===
+
+The usual way of enabling a service is using the following command:
+
+{{RootCmd|systemctl enable foo.service}}
+
+Services can be disabled likewise:
+
+{{RootCmd|systemctl disable foo.service}}
+
+These commands enable services using their default name in default target (both specified in "Install" section of the service file). However, sometimes services either don't provide that information or users prefer to have another name/target.
+
+Note that these commands only enable or disable the system to be started on a next boot; to start the service right now, use:
+
+{{RootCmd|systemctl start foo.service}}
+
+Services can be stopped likewise:
+
+{{RootCmd|systemctl stop foo.service}}
+
+=== Installing custom unit files ===
+
+Custom unit files can be placed in {{Path|/etc/systemd/system}}, where they will be recognized after running {{c|systemctl daemon-reload}}:
+
+{{RootCmd|systemctl daemon-reload}}
+
+{{Path|/usr/lib/systemd/system}} is reserved for service files installed by the package manager.
+
+=== Customizing unit files ===
+
+When only minor changes to a unit are needed, there's no need to create a full copy of the original unit file in {{Path|/etc/systemd/system}}. Overriding settings in a package management provided unit can be achieved by drop-in files in a {{Path|*.d}} directory named after the original unit (e.g. {{Path|apache2.d}}) in {{Path|/etc/systemd/system/}}.
+
+{{FileBox|filename=/etc/systemd/system/apache2.d/mem-limit.conf|title=Example of adding/overriding settings in a service file|lang=ini|1=
+[Service]
+MemoryLimit{{=}}1G
+}}
+
+A reload of systemd is needed to inform it of the changes:
+
+{{RootCmd|systemctl daemon-reload}}
+
+Then the service needs to be restarted to apply the changes:
+
+{{RootCmd|systemctl restart apache2}}
+
+Verify that the changed property was applied to the service:
+
+{{RootCmd|systemctl show --property{{=}}MemoryLimit apache2|output=<pre>MemoryLimit=1074000000</pre>}}
+
+=== Enabling a service under a custom name ===
+
+When the name provided by "Alias" in the unit's "[Install]" section does not meet the expectations and providing a permanent new value for this through a [[#Customizing unit files|customization]] is not desired, a symlink can be created manually in {{Path|/etc/systemd/system/*.wants/}}. The name of the {{Path|*.wants}} directory can either specify a target or another service which will depend on the new one.
+
+For example, to install {{Path|mysqld.service}} as {{Path|db.service}} in the {{Path|multi-user.target}}:
+
+{{RootCmd|ln -s /usr/lib/systemd/system/mysqld.service /etc/systemd/system/multi-user.target.wants/db.service}}
+
+To disable the service, just remove the symlink:
+
+{{RootCmd|rm /etc/systemd/system/multi-user.target.wants/db.service}}
+
+=== Native services ===
+
+Some of Gentoo packages already install systemd unit files. For these services, it is enough to enable them. A quick summary of packages installing unit files can be seen on [http://qa-reports.gentoo.org/output/eclass-usage/systemd.txt systemd eclass users list].
+
+The following table lists systemd services matching OpenRC ones:
+
+{| class="table" style="text-align: center;"
+|+ Migration chart
+|-
+! scope="col" | Gentoo package
+! scope="col" | OpenRC service
+! scope="col" | systemd unit 
+! scope="col" | Notes
+|-
+! scope="row" rowspan="28" | {{Package|sys-apps/openrc}}
+| bootmisc || systemd-tmpfiles-setup.service || always enabled, uses {{Path|tmpfiles.d}}
+|-
+| consolefont || systemd-vconsole-setup.service || always enabled, uses {{Path|vconsole.conf}}
+|-
+| devfs ||  || 
+|-
+| dmesg ||  || 
+|-
+| fsck || fsck*.service || pulled in implicitly by mounts
+|-
+| functions.sh || See note || {{Bug|373219}}
+|-
+| hostname || (builtin) || {{Path|/etc/hostname}}
+|-
+| hwclock || See note || always enabled as part of systemd (ie It is baked in and is not a unit)
+|-
+| keymaps || systemd-vconsole-setup.service || always enabled, uses {{Path|vconsole.conf}}
+|-
+| killprocs ||  || 
+|-
+| local ||  || 
+|-
+| localmount || local-fs.target || actual units are created implicitly from fstab
+|-
+| modules || systemd-modules-load.service || always enabled, uses {{Path|/etc/modules-load.d/*.conf}}
+|-
+| mount-ro ||  || 
+|-
+| mtab ||  || 
+|-
+| netmount || remote-fs.target || 
+|-
+| numlock ||  || 
+|-
+| procfs || (builtin) || 
+|-
+| root || remount-rootfs.service || 
+|-
+| savecache || n/a || OpenRC internals
+|-
+| staticroute ||  || 
+|-
+| swap || swap.target || actual units are created implicitly from fstab
+|-
+| swclock ||  || 
+|-
+| sysctl || systemd-sysctl.service || {{Path|sysctl.conf}} and {{Path|sysctl.d/}}
+|-
+| sysfs || (builtin) || 
+|-
+| termencoding || systemd-vconsole-setup.service || always enabled, uses {{Path|vconsole.conf}}
+|-
+| scope="row" rowspan="2" | urandom
+| systemd-random-seed-load.service || 
+|-
+| systemd-random-seed-save.service || 
+|-
+! scope="row" | {{Package|app-admin/rsyslog}}
+| rsyslog || rsyslog.service || 
+|-
+! scope="row" | {{Package|app-admin/syslog-ng}}
+| syslog-ng || syslog-ng.service || 
+|-
+! scope="row" rowspan="2" | {{Package|media-sound/alsa-utils}}
+| scope="row" rowspan="2" | alsasound
+| alsa-store.service || (enabled by default)
+|-
+| alsa-restore.socket || (enabled by default)
+|-
+! scope="row" | {{Package|net-misc/dhcpcd}}
+| dhcpcd || dhcpcd.service || 
+|-
+! scope="row" rowspan="5" | {{Package|net-misc/netifrc}} 
+| scope="row" rowspan="5" | net.*
+| net@.service || systemd wrapper for net.* scripts (comes with net-misc/netifrc)
+|-
+| netctl@.service || net-misc/netctl is originally an Arch Linux tool.
+|-
+| NetworkManager.service || For &lt;networkmanager-0.9.8.4 : enable NetworkManager-dispatcher.service for dispatcher.d scripts to work. <br/> Enable NetworkManager-wait-online.service to detect that the system has a working internet connection.<br/>Disable all other managers (e.g., wicd, dhcpcd) and wpa_supplicant.
+|-
+| dhcpcd.service || Provided by net-misc/dhcpcd
+|-
+| systemd.networkd.service || Part of systemd
+|-
+! scope="row" | {{Package|net-misc/openntpd}}
+| ntpd || ntpd.service ||
+|-
+! scope="row" rowspan="2" | {{Package|net-misc/openssh}}
+| scope="row" rowspan="2" | sshd
+| sshd.service || runs sshd as a daemon
+|-
+| sshd.socket || runs sshd on a inetd-like basis (for each incoming connection)
+|-
+! scope="row" rowspan="2" | {{Package|net-wireless/wpa_supplicant}}
+| scope="row" rowspan="2" | wpa-supplicant
+| wpa_supplicant.service || D-Bus controlled daemon (e.g. for [[NetworkManager#Systemd|NetworkManager]])
+|-
+| wpa_supplicant@.service || interface-specific wpa_supplicant (used like {{Path|wpa_supplicant@wlan0.service}})
+|-
+! scope="row" rowspan="3" | {{Package|net-print/cups}}
+| scope="row" rowspan="3" | cupsd
+| cups.service || classic on-boot start up service
+|-
+| cups.socket
+| scope="row" rowspan="2" | socket and path activation (cups only started on-demand)
+|-
+| cups.path
+|-
+! scope="row" | {{Package|net-wireless/bluez}}
+| bluetooth || bluetooth.service || 
+|-
+! scope="row" rowspan="2" | {{Package|sys-apps/dbus}}
+| scope="row" rowspan="2" | dbus
+| dbus.service || 
+|-
+| dbus.socket || 
+|-
+! scope="row" | {{Package|sys-apps/irqbalance}}
+| irqbalance || irqbalance.service || supports daemon mode only
+|-
+! scope="row" | {{Package|sys-apps/microcode-ctl}}
+| microcode_ctl ||  || Configure ''microcode'' as a '''module''' to let it load the microcode itself. Go to "Processor type and features" -> "CPU microcode loading support" and remember to add the right option based on the system having an intel or amd processor.
+|-
+! scope="row" rowspan="4" | {{Package|sys-fs/udev}}
+| udev || udev.service || 
+|-
+| udev-mount || (builtin) || {{Path|/dev}} is mounted as tmpfs
+|-
+| udev-postmount || udev-trigger.service || 
+|-
+| || udev-settle.service || 
+|-
+! scope="row" | {{Package|sys-power/acpid}}
+| acpid || acpid.service || Most of its functionality is done by systemd itself, so consider disabling this
+|-
+! scope="row" | {{Package|x11-apps/xdm}}
+| (xdm) || xdm.service || OpenRC uses common xdm init.d installed by {{Package|x11-base/xorg-server}}. With systemd the corresponding unit file for each DM (gdm.service, kdm.service...) needs to be enabled.
+|-
+! scope="row" rowspan="2" | {{Package|net-firewall/iptables}}
+| scope="row" rowspan="2" | iptables
+| iptables-store.service || 
+|-
+| iptables-restore.service || 
+|-
+|}
+
+=== Timer services ===
+
+Since version 197 systemd supports timers, making cron unnecessary on a systemd system. Since version 212 persistent services are supported, replacing even anacron. Persistent timers are run at the next opportunity if the system was powered down when the timer was scheduled.
+
+The following is an example on how to make a simple timer that runs in the context of a user. It will even run if the user is not logged in. Every timed service needs a timer and a service file that is activated by the timer as follows:
+
+{{FileBox|filename=~/.local/share/systemd/user/backup-work.timer|title=Example of a timer running every working day|lang=ini|1=
+[Unit]
+Description=daily backup work
+RefuseManualStart=no
+RefuseManualStop=no
+ 
+[Timer]
+Persistent=false
+OnCalendar=Mon-Fri *-*-* 11:30:00
+Unit=backup-work.service
+ 
+[Install]
+WantedBy=default.target
+}}
+
+{{FileBox|filename=~/.local/share/systemd/user/backup-work.service|title=Example of a service triggering backup|lang=ini|1=
+[Unit]
+Description=daily backup work
+RefuseManualStart=no
+RefuseManualStop=yes
+ 
+[Service]
+Type=oneshot
+ExecStart=/home/<user>/scripts/backup-work.sh
+}}
+
+Firstly, tell systemd to rescan the service files:
+
+{{Cmd|systemctl --user daemon-reload}}
+
+It is possible to trigger the backup manually by running the following command:
+
+{{Cmd|systemctl --user start backup-work.service}}
+
+Start and stop the timer manually as follows:
+
+{{Cmd|systemctl --user start backup-work.timer}}
+{{Cmd|systemctl --user stop backup-work.timer}}
+
+Finally, to activate the timer at every system start, run:
+
+{{Cmd|systemctl --user enable backup-work.timer}}
+
+To check the last results of running the service:
+
+{{Cmd|systemctl --user list-timers}}
+
+==== Emailing failures ====
+
+If a timed service runs and fails an e-mail can be send out to inform the user or administrator. This is possible with the "OnFailure" stanza which specifies what should happen if a service fails. A failure is detected by a non-zero return code of the invoked script.
+
+For that change the script as follows:
+
+{{FileBox|filename=~/.local/share/systemd/user/backup-work.service|title=Example of a service triggering backup|lang=ini|1=
+[Unit]
+Description=daily backup work
+RefuseManualStart=no
+RefuseManualStop=yes
+OnFailure=failure-email@%i.service
+ 
+[Service]
+Type=oneshot
+ExecStart=/home/<user>/scripts/backup-work.sh
+}}
+
+This requires to have the service {{Path|failure-email@.service}} installed, which can be found in 
+[https://github.com/kylemanna/systemd-utils/tree/master/onfailure kylemanna's systemd-utils repository].
+
+==== Replacing cron ====
+
+The above timer and service files can also be added to {{Path|/usr/lib/systemd/system}} to make them available system-wide. The install section should then say <code>WantedBy=multi-user.target</code> to enable the service at system start.
+
+However, cron also runs the scripts in {{Path|/etc/cron.daily}} and other locations. Several packages place scripts there that they expect to be run daily. This behavior can be emulated with systemd by installing {{Package|sys-process/systemd-cron}}. Then activate the new cron replacement with the following commands:
+
+{{RootCmd|systemctl enable cron.target}}
+{{RootCmd|systemctl start cron.target}}
+
+== Troubleshooting ==
+
+* {{Bug|systemd|search=package}}
+* {{Bug|systemd|search=product|site=fdo}}
+* [http://freedesktop.org/wiki/Software/systemd/Debugging Upstream debugging guide]
+
+=== /dev/kmsg buffer overrun, some messages lost ===
+
+; Problem: When booting the system displays an infinite loop of <code>/dev/kmsg buffer overrun, some messages lost</code>. The login screen to console never appears since the system never gets to that point in the boot process.
+
+; Solution: Most of the time this issue is caused when the <var>CONFIG_POWER_SUPPLY_DEBUG</var> option is enabled in the kernel. The current workaround is to disable this option in the kernel, then recompile, install, and boot the new kernel. The solution can also be found in [https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-0.html this thread] on the Gentoo forums. According to one user one the forum, this issue was also seen when using I2C EEPROM on an embedded system<ref>https://forums.gentoo.org/viewtopic-t-977530-postdays-0-postorder-asc-start-25.html  Retrieved on March 12th, 2016</ref>. The solution in this case was to disable the <var>CONFIG_I2C_DEBUG_CORE</var> kernel option.
+
+=== Graphical sessions opened in random places ===
+
+By default systemd only launches a {{c|getty}} process when it's going to be used. This causes some display managers (like GDM) to use the remaining TTYs for opening graphical sessions on demand, which can result in having consoles and graphical sessions placed randomly depending on the order they were used.
+
+To stick with a more "classical" behavior (i.e, consoles placed from {{Path|tty1}} to {{Path|tty6}} and graphical sessions using the remaining TTYs) force it to always launch {{c|getty}} on those:
+
+{{RootCmd|systemctl enable getty@tty{2,3,4,5,6}.service}}
+
+=== lvm ===
+
+When switching from OpenRC to systemd and lvm is needed to properly mount the system volumes, activate the lvm service:
+
+{{RootCmd|systemctl enable lvm2-monitor.service}}
+
+While it might not be needed for activation of the root volume (if lvm is integrated into the initramfs) it might not work for other lvm volumes, unless the service is activated.
+
+=== systemd-bootchart ===
+
+{{KernelBox|title=systemd-bootchart support|1=<pre>
+File systems  --->
+	Pseudo filesystems --->
+	[*] /proc file system support
+Kernel hacking  --->
+	[*] Kernel debugging
+	[*] Collect scheduler debugging info
+	[*] Collect scheduler statistics
+</pre>}}
+
+As systemd-bootchart attempts to start {{Path|/sbin/init}}, reconfigure it to invoke systemd instead:
+
+{{FileBox|filename=/etc/systemd/bootchart.conf|lang=bash|1=
+...
+Init=/usr/lib/systemd/systemd
+...
+}}
+
+The result of the bootchart is a report in SVG format located in {{Path|/run/log/}}.
+
+=== syslog-ng conflicts with systemd ===
+
+systemd creates {{Path|/dev/log}} as datagram socket <ref>Jose Pedro Oliveira. [https://bugzilla.redhat.com/show_bug.cgi?id=770810#c10 Note about custom syslog-ng configurations files], [https://bugzilla.redhat.com/ Red Hat Bugzilla], January 11, 2012. Retrieved on January 12th, 2015</ref> <ref>[https://fedoraproject.org/wiki/Common_F16_bugs#systemd-syslog-ng-problems Systemd and syslog-ng interaction problems: system freezes / syslog-ng fails to start], [https://fedoraproject.org/wiki/Fedora_Project_Wiki Fedora Project Wiki]. Retrieved on January 12th, 2015</ref> so syslog-ng needs to be told to read from a ''unix-dgram'' instead of a ''unix-stream'' as otherwise syslog-ng would be using a "wrong" stream:
+
+{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|1=
+# By default syslog-ng uses unix-stream. Comment this out and add unix-dgram instead.
+# unix-stream('/dev/log');
+unix-dgram('/dev/log');
+}}
+
+=== syslog-ng source for systemd ===
+
+There is ''no need'' to add <code>unix-dgram('/dev/log');</code> to the {{Path|/etc/syslog-ng/syslog-ng.conf}} config file. It will cause {{c|syslog-ng}} to fail (at least on version syslog-ng-3.7.2). Update the <code>source src { ...; };</code> line mentioned in the [[Syslog-ng#Sources|syslog-ng article]] as follows:
+
+{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|1=
+# default config for openrc
+#source src { system(); internal(); };
+ 
+# systemd
+source src { systemd-journal(); internal(); };
+}}
+
+=== sys-fs/cryptsetup configuration ===
+
+systemd does not seem to respect {{Path|/etc/conf.d/dmcrypt}} (see {{bug|429966}}) so it needs to be configured through the {{Path|/etc/crypttab}} file:
+
+{{FileBox|filename=/etc/crypttab|title=Configuration file for encrypted block devices|1=
+crypt-home UUID=c25dd0f3-ecdd-420e-99a8-0ff2eaf3f391 -
+}}
+
+Based on the system's {{Path|/etc/crypttab}} file, a new service file might need to be created.
+To do this, enable the <code>cryptsetup</code> USE flag for {{Package|sys-apps/systemd}}. It will install {{Path|/usr/lib/systemd/system-generators/systemd-cryptsetup-generator}}. Executing it will create a service file in {{Path|/tmp/}}, which can now be copied to {{Path|/etc/systemd/system}}, adjusted manually and added to the desired runlevel.
+
+=== Check for units that failed to start ===
+
+Check for units that failed to start with:
+
+{{RootCmd|systemctl --failed}}
+
+=== Enable Debug Mode ===
+
+To get more informations set the following in {{Path|/etc/systemd/system.conf}}:
+
+{{FileBox|filename=/etc/systemd/system.conf|lang=bash|1=
+LogLevel=debug
+}}
+
+Or enable the debug-shell, that opens a terminal at tty9. This helps to debug services during the boot process.
+
+{{RootCmd|systemctl enable debug-shell.service}}
+
+=== e4rat usage ===
+
+Please remember to edit {{Path|/etc/e4rat.conf}} setting 'init' to {{Path|/usr/lib/systemd/systemd}}, otherwise it will keep booting OpenRC.
+
+=== GRSecurity hardening ===
+
+With grsecurity enabled, systemd-networkd might log the following error:
+
+{{CodeBox|title=systemd-networkd error|1=could not find udev device: Permission denied}}
+
+The error raises due to systemd-networkd working under a non-root user with grsecurity refusing access to the complete {{Path|/sys}} structure for such users. To disable this option, disable the <var>CONFIG_GRKERNSEC_SYSFS_RESTRICT</var> kernel option.
+
+logind may also have subtle permission issues with <var>CONFIG_GRKERNSEC_PROC</var> active, see {{Bug|472098}}.
+
+=== shutdown -rF does not force fsck ===
+
+The {{c|systemd-fsck}} service is responsible of running {{c|fsck}} when needed. It doesn't honor {{c|shutdown}}'s <code>-rF</code> option, but instead honors the following kernel boot parameters.
+
+{| class="table table-striped table-condensed" style="text-align: left;" 
+|-
+! Boot parameter
+! Supported options
+! Description
+|-
+| <code>fsck.mode</code>
+| <code>auto</code><br /><code>force</code><br /><code>skip</code>
+| Controls the mode of operation. The default is <code>auto</code>, and ensures that file system checks are done when the file system checker deems them necessary. <code>force</code> unconditionally results in full file system checks. <code>skip</code> skips any file system checks.
+|-
+| <code>fsck.repair</code>
+| <code>preen</code><br /><code>yes</code><br /><code>no</code>
+| Controls the mode of operation. The default is <code>preen</code>, and will automatically repair problems that can be safely fixed.  <code>yes</code> will answer yes to all questions by fsck and <code>no</code> will answer no to all questions.
+|}
+
+== See also ==
+
+* [[Comparison of init systems]] - An article comparing and contrasting the differences in Gentoo init systems.
+* [[Sakaki's_EFI_Install_Guide|Sakaki's EFI Install Guide]] - Particularly look at the chapter entitled [[Sakaki's_EFI_Install_Guide/Configuring_systemd_and_Installing_Necessary_Tools|Configuring systemd and installing necessary tools]]
+* [[OpenRC to Systemd Cheatsheet]]
+
+== External resources ==
+
+* [http://www.freedesktop.org/wiki/Software/systemd/FrequentlyAskedQuestions FAQ]
+* [http://www.freedesktop.org/wiki/Software/systemd/TipsAndTricks Tips and tricks]
+
+== References ==
+
+{{reflist}}
+
+[[Category:Init systems]]
