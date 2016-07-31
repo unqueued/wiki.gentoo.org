@@ -94,12 +94,6 @@ Se il sistema sta utilizzando lo scheduler BFQ, gli autori di BFQ consigliano di
 
 Per una lista aggiornata, vedi la sezione "REQUISITI" nel file del progetto originale [http://cgit.freedesktop.org/systemd/systemd/tree/README README]
 
-===La directory {{Path|/run}} ===
-
-La directory {{Path|/run}} è utilizzata sia da systemd sia da altre applicazioni come spazio di archiviazione temporaneo per dati durante l'esecuzione, come {{Path|pid}} file, socket e file di stato.
-
-Il pacchetto systemd creerà da solo la directory {{Path|/run}}. Tuttavia osserva che questa modifica comporterà automaticamente il mount della directory anche in  [[OpenRC]], e può provocare l'utilizzo della directory anche da parte di altri pacchetti software.
-
 ==={{Path|/etc/mtab}}===
 
 Il progetto supporta solo il file {{Path|/etc/mtab}} come link simbolico a {{Path|/proc/self/mounts}}. Non creare questo link causerà problemi descritti nei bugreport {{c|mount}} ({{bug|434090}}) e {{c|df}} ({{bug|477240}}). In passato alcune utilitiy scrivevano informazioni (come le opzioni di mount) in {{Path|/etc/mtab}} e quindi si presupponeva che fosse un file normale. Oggi si presuppone che i programmi evitino questo problema. Tuttavia, prima di modificare il file per convertirlo in un link simbolico, controlla il bugreport {{bug|477498}} per essere certo che il sistema non sia affetto da alcuna delle regressioni descritte.
@@ -217,15 +211,17 @@ Se si utilizza una intrd generata con genkernel-next's initrd, si utilizzi <code
 
 La configurazione di init può anche essere inserita direttamente nella configurazione del kernel. Si veda  {{Path|Processor type and features -> Built-in kernel command line}}. Questa tecnica funziona sia per {{c|grub}}, sia per {{c|grub2}}.
 
-=== Impostare la password di root ===
-
-A questo punto non ci si deve dimenticare di impostare la password di root. Nel caso in cui qualcosa andasse storto, systemd richiederà la password di root per passare in modalità manutenzione.
-
 == Configurazione post installazione ==
 
 systemd supporta alcuni file di configurazione del sistema per impostare i dettagli del sistema di base.
 
 {{Note|Mentre alcuni parametri di configurazione possono essere aggiornati modificando gli opportuni file di configurazione, la maggior parte delle impostazioni vengono gestite utilizzando delle utility che richiedono che systemd sia in esecuzione. In questo caso, si deve riavviare il computer con systemd ed utilizzare le utility {{c|hostnamectl}}, {{c|localectl}}, e {{c|timedatectl}} ove richiesto.}}
+
+=== Machine ID ===
+
+Create a machine ID for journaling to work. This can be done through the following command:
+
+{{RootCmd|systemd-machine-id-setup}}
 
 === Hostname ===
 
@@ -744,7 +740,9 @@ While it might not be needed for activation of the root volume (if lvm is integr
 
 === systemd-bootchart ===
 
-{{KernelBox|title=systemd-bootchart support|1=<pre>
+Make sure that <var>CONFIG_DEBUG_KERNEL</var>, <var>CONFIG_SCHED_DEBUG</var>, and <var>CONFIG_SCHEDSTATS</var> are enabled.
+
+{{KernelBox|title=Enable systemd-bootchart support|1=<pre>
 File systems  --->
 	Pseudo filesystems --->
 	[*] /proc file system support
@@ -754,7 +752,7 @@ Kernel hacking  --->
 	[*] Collect scheduler statistics
 </pre>}}
 
-As systemd-bootchart attempts to start {{Path|/sbin/init}}, reconfigure it to invoke systemd instead:
+Since systemd-bootchart attempts to start {{Path|/sbin/init}}, reconfigure it to invoke systemd instead:
 
 {{FileBox|filename=/etc/systemd/bootchart.conf|lang=bash|1=
 ...
@@ -762,17 +760,15 @@ Init=/usr/lib/systemd/systemd
 ...
 }}
 
-The result of the bootchart is a report in SVG format located in {{Path|/run/log/}}.
+Next, enable {{Path|systemd-bootchart.service}}:
 
-=== syslog-ng conflicts with systemd ===
+{{RootCmd|systemctl enable systemd-bootchart}}
 
-systemd creates {{Path|/dev/log}} as datagram socket <ref>Jose Pedro Oliveira. [https://bugzilla.redhat.com/show_bug.cgi?id=770810#c10 Note about custom syslog-ng configurations files], [https://bugzilla.redhat.com/ Red Hat Bugzilla], January 11, 2012. Retrieved on January 12th, 2015</ref> <ref>[https://fedoraproject.org/wiki/Common_F16_bugs#systemd-syslog-ng-problems Systemd and syslog-ng interaction problems: system freezes / syslog-ng fails to start], [https://fedoraproject.org/wiki/Fedora_Project_Wiki Fedora Project Wiki]. Retrieved on January 12th, 2015</ref> so syslog-ng needs to be told to read from a ''unix-dgram'' instead of a ''unix-stream'' as otherwise syslog-ng would be using a "wrong" stream:
+The result of the changes will produce a bootchart report in SVG format located in {{Path|/run/log/}} after each boot. It can be viewed using a modern web browser.
 
-{{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|1=
-# By default syslog-ng uses unix-stream. Comment this out and add unix-dgram instead.
-# unix-stream('/dev/log');
-unix-dgram('/dev/log');
-}}
+The chart for the current boot can (re)generated manually by running the following command:
+
+{{RootCmd|systemd-analyze plot > bootchart.svg}}
 
 === syslog-ng source for systemd ===
 
