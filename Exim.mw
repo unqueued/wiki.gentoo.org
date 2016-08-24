@@ -11,10 +11,292 @@ As only one MTA can be installed at the same time on a system, you might be requ
 
 == Installation ==
 Install {{Package|mail-mta/exim}}:
-{{Emerge|exim}}
+{{RootCmd|USE{{=}}"postgres exiscan-acl maildir uuid srs" emerge --ask exim}} 
+
+== Configuration ==
+This configuration use spamassasin, clamav, and postgresql, you can adjust to feet your needs, also disallow open relay.
+
+{{FileBox|filename=/etc/exim.conf|lang=ini|1=
+# Domain list configuration, each domain must be separated by ":"
+domainlist local_domains = example.com:otherdomain.com:anotherdomain.com:@
+
+# On initial configuration we do not want to relay any other domain
+domainlist relay_to_domains =
+hostlist   relay_from_hosts = 127.0.0.1 : ::::1/128
+
+# ACL we want to be checked
+local_from_check = true
+
+acl_smtp_mail = acl_check_mail
+acl_smtp_rcpt = acl_check_rcpt
+acl_smtp_connect = acl_check_host
+acl_smtp_data = acl_check_data
+acl_smtp_helo = acl_check_helo
+
+# Postgresql Database connection
+hide pgsql_servers = localhost/db_maik/dbusername/dbpassword:
+
+# Set maximum parallel remote smtp
+remote_max_parallel = 24
+
+# Define clamav configuration
+av_scanner = clamd:127.0.0.1 3310
+
+# Spam configuration
+spamd_address = 127.0.0.1 783
+
+# Allow use of TLS, we can have files here.
+tls_advertise_hosts = *
+
+# Set the key and cert to use
+tls_certificate = /etc/ssl/mail/mycert.pem
+tls_privatekey = /etc/ssl/mail/myprivate.key
+
+# Our default qualify domain
+qualify_domain = example.com
+
+begin acl
+# Force authentication for send email
+acl_check_mail:
+  warn  set acl_c_auth_deny = no
+        set acl_c_deny_msg = Checking User
+
+  accept sender_domains = !+local_domains: 
+
+  deny  sender_domains = +local_domains
+        !authenticated = *
+        set acl_c_auth_deny = yes
+        set acl_c_deny_msg  = Authentication Needed for Send Mail
+        message = Authentication Needed for Send Mail
+
+  accept
+acl_check_rcpt:
+  deny  condition = $acl_c_auth_deny
+        message = $acl_c_deny_msg
+
+  deny  hosts = :
+
+  deny    message       = Restricted characters in address
+          domains       = +local_domains
+          local_parts   = ^[.] : ^.*[@%!/\{{!}}]
+
+  deny    message       = Restricted characters in address
+          domains       = !+local_domains
+          local_parts   = ^[./{{!}}] : ^.*[@%!] : ^.*/\\.\\./
+
+  accept  local_parts   = postmaster
+          domains       = +local_domains
+
+  require verify        = sender
+
+  accept  authenticated = *
+          control       = submission/sender_retain
+
+  require message = relay not permitted
+          domains = +local_domains : +relay_to_domains
+
+  require verify = recipient
+
+  accept
+
+# Verify the host to black lists
+acl_check_host:
+    deny hosts    = !+relay_from_hosts
+         message  = Host is listed in $dnslist_domain.
+         dnslists = \
+         cbl.abuseat.org : \
+         virbl.dnsbl.bit.nl : \
+         bl.spamcop.net : \
+         sbl.spamhaus.org : \
+         xbl.spamhaus.org
+
+    accept
+
+# Check that the hello does not pretend to come from our servers
+acl_check_helo:
+   accept hosts =  +relay_from_hosts
+
+   deny condition = ${if or { \
+                         {eq {${lc:$sender_helo_name} }{example.com} } \
+                         {eq {${lc:$sender_helo_name} }{10.100.0.100} } \
+                         {eq {${lc:$sender_helo_name} }{127.0.0.1} } \
+                         {eq {${lc:$sender_helo_name} }{localhost} } \
+                        } {true}{false} }
+
+  accept
+# ACL fot data
+acl_check_data:
+  deny    condition  = ${if > {$max_received_linelength}{998} }
+
+   deny    malware    = *
+           message    = This message contains a virus ($malware_name).
+   warn    spam       = nobody
+           add_header = X-Spam_score: $spam_score\n\
+                        X-Spam_score_int: $spam_score_int\n\
+                        X-Spam_bar: $spam_bar\n\
+                        X-Spam_report: $spam_report
+
+   deny    message    = Mensaje clasificado como SPAM
+           spam       = nobody:true
+           condition  = ${if >{$spam_score_int}{60}{1}{0} }
+
+begin routers
+dnslookup:
+  driver = dnslookup
+  domains = ! +local_domains
+  transport = remote_smtp
+  ignore_target_hosts = 0.0.0.0 : 127.0.0.0/8 : ::::1/128
+  no_more
+
+# Virtual aliases
+virtual_aliases:
+  driver = redirect
+  allow_fail
+  allow_defer
+  data = ${lookup{$local_part}lsearch{/etc/mail/valiases/$domain} }
+  file_transport = address_file
+  pipe_transport = address_pipe
+
+system_aliases:
+  driver = redirect
+  allow_fail
+  allow_defer
+  data = ${lookup{$local_part}lsearch{/etc/mail/aliases} }
+# user = exim
+  file_transport = address_file
+  pipe_transport = address_pipe
+
+userforward:
+  driver = redirect
+  check_local_user
+# local_part_suffix = +* : -*
+# local_part_suffix_optional
+  file = $home/.forward
+# allow_filter
+  no_verify
+  no_expn
+  check_ancestor
+  file_transport = address_file
+  pipe_transport = address_pipe
+  reply_transport = address_reply
+
+localuser:
+  driver = accept
+  check_local_user
+# local_part_suffix = +* : -*
+# local_part_suffix_optional
+  # Without dovecot
+  #transport = local_delivery
+  # With dovecot
+  transport = dovecot_virtual_delivery
+  cannot_route_message = Unknown user
+
+user_vacation:
+  driver = accept
+  check_local_user
+  # do not reply to errors or lists
+  condition = "${if or { {match {$h_precedence:} {(?i)junk{{!}}julk{{!}}list} } {eq {$sender_address} {} } } {no} {yes} }"
+  no_expn
+  require_files = ${lookup pgsql{select concat(user_home,'/.vacation.msg') from mail_users where user_uid = '${local_part}' or    user_uid = '${local_part}@${domain}'}{$value}fail}
+  # do not reply to errors and bounces or lists
+  senders = " ! ^.*-request@.*:\
+              ! ^owner-.*@.*:\
+              ! ^postmaster@.*:\
+              ! ^listmaster@.*:\
+              ! ^mailer-daemon@.*\
+              ! ^root@.*"
+  transport = vacation_reply
+  unseen
+  user = ${local_part}
+  no_verify  
+
+begin transports
+
+remote_smtp:
+  driver = smtp
+  delivery_date_add
+  dkim_domain = $sender_address_domain
+  dkim_selector = thisis
+  dkim_private_key = /etc/ssl/exim/dkim.private.key
+  dkim_canon = relaxed
+
+local_delivery:
+  driver = appendfile
+  directory = ${lookup pgsql{select concat(user_home,'/.maildir') from softmail_users where user_uid = '${local_part}' or user_uid = '${local_part}@${domain}'}{$value}fail}
+  maildir_format
+  delivery_date_add
+  envelope_to_add
+  return_path_add
+
+dovecot_virtual_delivery:
+        driver = pipe
+        command = /usr/libexec/dovecot/dovecot-lda -d $local_part@$domain  -f $sender_address
+        # v1.1+: command = /usr/local/libexec/dovecot/dovecot-lda -d $local_part@$domain  -f $sender_address -a    $original_local_part@$original_domain
+        message_prefix =
+        message_suffix =
+        delivery_date_add
+        envelope_to_add
+        return_path_add
+        log_output
+        temp_errors = 64 : 69 : 70: 71 : 72 : 73 : 74 : 75 : 78
+address_pipe:
+  driver = pipe
+  return_output
+
+
+address_file:
+  driver = appendfile
+  delivery_date_add
+  envelope_to_add
+  return_path_add
+
+address_reply:
+  driver = autoreply
+
+vacation_reply:
+  driver = autoreply
+
+begin retry
+# Address or Domain    Error       Retries
+# -----------------    -----       -------
+
+*                      *           F,2h,15m; G,16h,1h,1.5; F,4d,6h
+
+begin rewrite
+
+# This rule allow to have more than one user with same email
+*@* "${lookup pgsql{select user_alias{{!}}{{!}}'@'{{!}}{{!}}user_qualify_domain from mail_alias where user_uid = '$1@$2'}{$value}fail}" Ffrw
+
+begin authenticators
+AUTH_CRAM_MD5{{=}}yes
+AUTH_SPA{{=}}yes
+
+CRAM:
+  driver = cram_md5
+  server_set_id = $auth1
+  public_name = CRAM-MD5
+  server_secret = ${lookup pgsql{select user_pass from mail_users where user_uid = '$auth1' or user_uid = '$auth1$auth3'}{$value}fail}
+  #server_secret = ${if eq{$auth1}{ph10}{secret1}fail}
+SPA:
+  driver = spa
+  server_set_id = $auth1
+  public_name = NTLM
+  server_password = ${lookup pgsql{select user_pass from mail_users where user_uid = '$auth1' or user_uid = '$auth1$auth3'}{$value}fail}
+
+}}
 
 == Testing Exim ==
-For the lay person, email your self, and don't forget to check the spam box. (if your email were to happen to be bunnyfoofoo@gmail.com):
-{{RootCmd|echo "test" {{!}} sendmail bunnyfoofoo@gmail.com}}
+Once the configuration file is ready we can test the the file with the following command:
+{{RootCmd|exim -bV}}
 
+If everything goes right we can now start exim
+{{RootCmd|/etc/init.d/exim start}}
+
+No we must be able to test how exim will route some addresses
+{{RootCmd|exim -bt someuser}}
+{{RootCmd|exim -bt bunnyfoofoo@gmail.com}}
+{{RootCmd|exim -bt someuser@example.com}}
+
+Finally we can do the bunny test
+{{RootCmd|echo "test" {{!}} sendmail bunnyfoofoo@gmail.com}}
 [[Category:Mail Transfer Agents]]
