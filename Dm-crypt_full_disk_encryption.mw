@@ -32,33 +32,35 @@ LUKS uses [[Wikipedia:PBKDF2|PBKDF2]] for key derivation. In essence, the suppli
 {{RootCmd|cryptsetup luksFormat ... -h sha512 --iter-time 3000 ...}}
 
 
-== Which key (file) mode? ==
+== On passphrases, detached LUKS headers, and (encrypted) keyfiles ==
 
-Choosing “key” or “key file” mode depends on the secure requirements of the system: a long and random password with special characters is more secure than an easy dictionary breakable password of course. So to meet the length, randomness and complexity of password requirements a key file seems to be the right spot. However, a key file does not meet the security/secure requirements side because it is always better to leave no traces behind which could compromise or ease the break ability of an encrypted system or disk. This is where GnuPG crypted key files comes into play which will satisfy almost every aspect with a little minus in security because the key file can be accessible from world.
+A reasonably long passphrase (use, e.g., 8-12 common random words, see [https://xkcd.com/936/ xkcd] on that subject) in combination with PBKDF2 for key stretching can be considered a reasonably secure setup.
 
-=== GnuPG crypted key file ===
+Additional protection against brute force attacks can be achieved by setting up a an external USB flash drive to store essential decryption information (like a keyfile, or the LUKS header itself). The flash drive then has the equivalent function physical key; opening the encrypted partition is only possible if both, flash drive and passphrase are provided. However, this comes with a significant downside in terms of complexity, for example for setting up full disk encryption, or potential to loose decryption keys (by loosing the USB flash drive).
 
-To get a secure key file that could be piped to cryptsetup (cryptsetup is the command line tool to interface with the kernel module dm-crypt), one could generate a random key and encrypt it with GnuPG. Or else, a simple password will be sufficient if there are not severe secure/security requirements.
+=== Detached LUKS header ===
 
-{{Cmd|openssl rand -base64 48 {{!}} gpg --symmetric --cipher-algo aes --armor >/path/to/key.gpg}}
-Above we are requesting 48 bytes of random data because that will be exactly one line of base64 output.
+It is possible to encrypt a partition with detached LUKS header (where all information about password derivation is stored) that is stored at (physically) different location, e.g., a USB flash drive. This leaves an attacker that is not in possession of the flash drive with no information about key derivation and encryption algorithms used. This makes brute force attacks potentially more difficult.
 
-=== LUKS crypted key file ===
+The following commands format create a detached header file <code>luks-header</code> while formatting a partition:
 
-To get a simple and secure crypted key file, one could use DM-Crypt LUKS to generate one via loop back device to avoid having an extra binary to deal with, if size and such are limiting factors for an initramfs for example.
+{{RootCmd|truncate -s 2M /path/to/luks-header|cryptsetup luksFormat ... --header /path/to/luks-header ...}}
 
-{{RootCmd
-|dd if{{=}}/dev/zero of{{=}}key.lbd bs{{=}}512 count{{=}}2050
-|losetup -f key.ldb
-|cryptsetup luksFormat /dev/loop<n> -c aes-xts-plain64:sha512 -s 512
-|cryptsetup luksOpen /dev/loop<n> key
-|dd if{{=}}/dev/random of{{=}}/dev/mapper/key
-}}
+In order to open the encrypted device
 
-{{Note|Note that >{{=}}sys-fs/cryptsetup-1.3.0 has loop back device support so two lines can be combined to `cryptsetup luksFormat /path/to/file ...'.}}
+{{RootCmd|cryptsetup open ... --header /path/to/luks-header}}
 
-That's all, now one can use that secure crypted key file to decrypt cyphertext.
+See the cryptsetup man page for more details.
 
+=== Generating a GnuPG encrypted keyfile ===
+
+An alternative approach is to use a GnuPG encrypted keyfile (that contains sufficient entropy).
+The following command create such a file and format an encrypted partition.
+{{RootCmd|dd if{{=}}/dev/urandom count{{=}}48 {{!}} gpg --symmetric --cipher-algo aes --armor > /path/to/key.gpg|gpg --decrypt /path/to/key.gpg {{!}} cryptsetup luksFormat ...}}
+
+In order to open the encrypted device
+
+{{RootCmd|gpg --decrypt /path/to/key.gpg {{!}} cryptsetup open ...}}
 
 == Preparing the disk(s) ==
 Preparing the disk(s) is the only thing that deviates from the official installation documents along with generating an initramfs. You may want to add a proper amount of entropy to new disks through some mechanism such as `cat /dev/random | wcs > /dev/XXX' or using other more usable methods be it ''secure erasing'' disks. The drawback is... a very long time to complete such a task.
