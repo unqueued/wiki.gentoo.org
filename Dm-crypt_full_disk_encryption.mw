@@ -68,33 +68,26 @@ In order to open the encrypted device,
 
 {{Note|dm-crypt, of course, also works with clear, non-encrypted keyfiles, see the [[dm-crypt]] wiki page. The usage of clear keyfiles stored on the root partition to "chain open" encrypted partitions is discussed further down below.}}
 
-== Preparing the disk(s) ==
+== Preparing disks ==
 
-{{Warning|This section contains factual wrong information pending an immediate rewrite [[User:Tamiko|Tamiko]] ([[User talk:Tamiko|talk]]) 06:33, 24 August 2016 (UTC)}} 
+{{Warning|Extra precautions must be taken if the strategy outlined in this section is applied to an [[Wikipedia:Solid-state drive|SSD]].}}
 
-Preparing the disk(s) is the only thing that deviates from the official installation documents along with generating an initramfs. You may want to add a proper amount of entropy to new disks through some mechanism such as `cat /dev/random | wcs > /dev/XXX' or using other more usable methods be it ''secure erasing'' disks. The drawback is... a very long time to complete such a task.
+It is sometimes recommended to overwrite the whole disk with random numbers prior to setting up disk encryption. The rationale behind this recommendation is that reading an encrypted disk should leak as little information as possible. But if unused blocks (by the file system) are still all zero, an adversary can recover some high level information by determining which (encryption) blocks are likely used (because they contain random looking data) and which are unused (because they are, for example, all zero). The number and location of likely used encryption blocks can reveal information such as disk usage, the file system in use, or likely average file size.
 
-A usable alternative and straight forward method is to set up DM-Crypt LUKS and then zero-ing the whole disk: e.g. after ''LUKS formating'' the disks run the following command.
+Thus, a somewhat effective (but time consuming) counter measure is to overwrite the disk with random data before using it. An efficient way to do generate large amounts of random data quickly is to use a cryptsetup mapping. For example, in order to overwrite <code>/dev/sdXX</code>, use
 
-{{RootCmd|dd if{{=}}/dev/zero of{{=}}/dev/mapper/root}}
+{{RootCmd|cryptsetup open --type{{=}}plain --key-file{{=}}/dev/urandom /dev/sdXX delete_sdXX|dd if{{=}}/dev/zero of{{=}}/dev/mapper/delete_sdXX bs{{=}}1M status{{=}}progress|cryptsetup close delete_sdXX}}
 
-Of course you have to replace ''root'' by the actual mapping name. This method will save several hours of secure erasing disks or dozen of hours to set up enough ''randomness'' or ''entropy''. This step might be necessary or even required depending on the ''plausible deniability'' requirements. Just make sure, afterwards, to not use specific block device commands like ''TRIM'' which will ''destroy'' this tedious effort. Anyway, nobody would ever want to do this with SSDs, so this is a non issue.
+After that, format the disk with <code>cryptsetup luksFormat ...</code>
 
-With the previous section, remains encrypting the physical devices. Before doing just that, one should consider the order of DM stack depending of using RAID, LVM or a modern file system that include ''both'' in the file system layer like [[ZFS]].
+{{Warning|Overwriting a whole SSD with random data will mark every block as used and can, depending on manufacturer and model, <i>severely</i> degrade wear levelling. This might have potentially disastrous effects on disk lifetime. As mitigation, it is sometimes recommended to leave a substantial portion of the disk, around 10 - 20%, unused to have enough empty blocks for wear levelling. This can be done by creating a suitably sized, unformatted partition, and properly discarding it with <code>blkdiscard</code>. Please note that mounting a LUKS container with the <code>--allow-discards</code> option will transparently forward discards to the SSD and would contradict above setup.}}
 
-Using RAID and/or LVM together make it easier to only encrypt the resulting logical volume especially for RAID. If using LVM with fewer logical volume than the number of physical volume, it makes sense to crypt the logical volume. There's no practical advantages to use LUKS on the underlaying volumes of RAID arrays but to raise the complexity while lowing usability.
+=== Dm-crypt on SSDs and hybrid drives ===
 
-With a modern file system like ZFS, there's not choice but encrypt the physical volume or vdev in ZFS terms.
+For additional information about security aspects of using dm-crypt on SSDs and hybrid drives, have a look at the
+[https://gitlab.com/cryptsetup/cryptsetup/wikis/FrequentlyAskedQuestions cryptsetup FAQ].
 
-Before encrypting the devices, considering the {{Path|/boot}} partition should be taken into account as many bootloader does not support LUKS. [[GRUB2]] should support LUKS formated devices although I did not try to load kernel+initramfs yet. So some spare space should be allocated for `/boot' if necessary. 
-
-GRUB2 also support ZFS so in that case, one could encrypt with '--align-payload 0 --header /dev/<removable_media>|/path/to/file', the whole disk, to set up a more secure setup and be able to claim the "plausible deniability" because nothing in the disk can prove that the disk is encrypted. This, however, require >=sys-fs/cryptsetup-1.4.0.
-
-GnuPG crypted key file should be piped to cryptsetup with something like `gpg -qd /path/to/key |' while LUKS crypted key file via loop back device is given like a regular key file ({{Path|/dev/mapper/key.lbd}}) after decryption.
-
-{{RootCmd|cryptsetup luksFormat /dev/sda -c aes-xts-plain64 -s 256}}
-
-When done, creating logical volume if using LVM or adding the crypted cyphertext to a vdev can be done then.
+Cryptsetup can transparently forward discard operations to an SSD. This feature is activated by using the <code>--allow-discards</code> option in combination with <code>cryptsetup open</code>. Enabling discards on an encrypted SSD can be a measure to ensure effective wear levelling and longevity, especially if the full disk is encrypted. For an in detail discussion about the security implications, have a look at the [https://gitlab.com/cryptsetup/cryptsetup/wikis/FrequentlyAskedQuestions cryptsetup FAQ] and the man page of cryptsetup.
 
 == Generating an initramfs ==
 
