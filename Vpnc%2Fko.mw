@@ -1,42 +1,42 @@
 <languages />
 
 
-{{Metadata|abstract=이 문서는 연결 관리 프로그램 vpnc를 활용하여 시스코 VPN 집중화 장비에 워크스테이션을 연결하는 방법을 자세히 다룹니다.}}
+{{Metadata|abstract=This document details how to connect a workstation to a Cisco VPN concentrator utilizing vpnc to manage the connection.}}
 
-이 문서는 연결 관리 프로그램 vpnc를 활용하여 시스코 VPN 집중화 장비에 워크스테이션을 연결하는 방법을 자세히 다룹니다.
+This document details how to connect a workstation to a Cisco VPN concentrator utilizing vpnc to manage the connection.
 
 == 도입부 ==
 
-이 글을 읽는다면 가정에서나 여행중이든 사무실 네트워크망에 연결해야 할 경우일겁니다. 대부분의 회사에서는 Cisco 3000 VPN 집중화 장비를 VPN 기능이 필요한 곳에 활용하고 있고, 대부분의 리눅스 생초보가 윈도우를 사용하도록 강요 받으리라 생각합니다. 글쎄요. 이 문서는 시스코 VPN 장비에 연결하는 방법을 정말 가능하게, 젠투 워크스테이션 내지는 랩톱에서 터널링을 충분히 동작하게끔 하는 방법을  안내합니다. 
+This document is meant for users who want to connect to their office network from home or during travel. Many companies utilize Cisco 3000 VPN concentrators for their VPN needs, and I am willing to bet that most Linux newbies think that they are forced to use Windows to connect to them. Well, this document explains that connecting to a Cisco VPN is definitely possible and will hopefully enable to setup a working tunnel using a Gentoo workstation or laptop. 
 
 === 이 문서에서 취급하는 내용 ===
 
-* <code>vpnc</code> 기본 동작 안내
-* VPN에 관련된 DNS 및 라우팅 문제 논의
-* VPN 세션 관리 예제
-* 쓸모 있는 (기대되는) 요령
+* A guide to the basic workings of vpnc
+* A discussion of DNS and routing issues that relate to VPNs
+* Examples of managing VPN sessions
+* Useful tips and tricks (hopefully)
 
 === 이 문서에서 취급하지 않는 내용 ===
 
-* VPN/암호화 기술 심층 안내
-* <code>vpnc</code>에 대한 기능별 설명
+* An in-depth guide to VPN/encryption technologies
+* A feature by feature explanation of vpnc
 
 === 가정 ===
 
 여기서 가정할 사항은: 
 
-* 젠투를 설치했음
-* 인터넷에 연결했음
-* Cisco 3000 VPN 집중화 장비에 연결했음
-* 새 커널을 설정, 빌드, 설치하는 방법을 이미 알고 있음
+* Gentoo is installed
+* Internet access is available and configured
+* The connection is towards a Cisco 3000 VPN concentrator
+* Configuring, building, and installing a new kernel is not a daunting task for the reader
 
-== Installation ==
+== 설치 ==
 
-== 커널 설정 ==
+=== Kernel ===
 
-리눅스에서 VPN 연결을 개방할 수 있으려면 커널에서 ''Universal TUN/TAP device driver support'' 항목을 활성화해야합니다. 이게 뭐고 왜 필요할까요? 아래에 커널 설정 상자에서 비교적 간단한 설명을 보여드리겠습니다: 
+In order for Linux to be able to open a VPN connection ''Universal TUN/TAP device driver support'' must be enabled in the kernel. What is it and why is it needed? Below is a relatively straight forward explanation from the kernel configuration dialog: 
 
-{{CodeBox|title=CONFIG_TUN|1=
+{{CodeBox|title=Enable TUN/TAP device driver (<var>CONFIG_TUN</var>)|1=
 TUN/TAP provides packet reception and transmission for user space
 programs. It can be viewed as a simple Point-to-Point or Ethernet
 device, which instead of receiving packets from a physical media,
@@ -47,10 +47,9 @@ When a program opens /dev/net/tun, driver creates and registers
 corresponding net device tunX or tapX. After a program closed above
 devices, driver will automatically delete tunXX or tapXX device and
 all routes corresponding to it.
-(커널의 도움말 메시지이므로 번역하지 않음. 역자 주.)
 }}
 
-다음 명령을 활용하면 커널에서 TUN/TAP을 지원하는지 확인할 수 있습니다: 
+To verify that the kernel has TUN/TAP support, grep the kernel's configuration file: 
 
 {{RootCmd|grep "TUN" /usr/src/linux/.config|output=<pre>
 CONFIG_INET_TUNNEL=m
@@ -62,22 +61,22 @@ CONFIG_TUN=m
 </pre>
 }}
 
-위에서 보신 바와 같이 <code>CONFIG_TUN=m</code> 설정을 통해 모듈로 컴파일합니다. 설정에서 비활성화했다면 커널 항목 선택에서 활성화하고, 다시 빌드하고, 설치하고, 다시 부팅한 후 다음 단계로 넘어가기 전에 여기로 다시 돌아오십시오. 
+As can be seen above, <code>CONFIG_TUN=m</code> is compiled as a module. If it is disabled in the setup, enable it in the kernel of choice, rebuild, install, reboot and return to this document before continuing with the next steps. 
 
-{{KernelBox|title=커널 설정 대화상자의 설정 위치|
+{{KernelBox|title=Configuration location in the kernel configuration dialog|1=
 Device Drivers  --->
   Network device support  --->
     [*] Universal TUN/TAP device driver support
 }}
 
-TUN/TAP 기능을 커널에서 바로 지원하도록 빌드했다면, 다음과 같이 {{c|dmesg}} 출력에서 내용을 살펴볼 수 있습니다. 
+If TUN/TAP support is built directly into the kernel, {{c|dmesg}} output should look like the following: 
 
 {{RootCmd|dmesg {{!}} grep TUN|output=<pre>
 Universal TUN/TAP device driver 1.5 (C)1999-2002 Maxim Krasnyansky
 </pre>
 }}
 
-TUN/TAP 지원 기능을 모듈로 빌드했다면, <code>tun</code> 모듈을 먼저 불러와야합니다: 
+If TUN/TAP support is built as a module, then first load the <code>tun</code> module: 
 
 {{RootCmd|modprobe tun
 |lsmod|output=<pre>
@@ -86,7 +85,7 @@ tun                     7296  0
 </pre>
 }}
 
-이제 <code>tun</code>모듈을 불러왔으니 {{c|dmesg}} 출력을 확인해보겠습니다. 다음과 같은 내용을 볼 수 있어야합니다: 
+Now that the <code>tun</code> module is loaded, check {{c|dmesg}} output. Something like the following should show up: 
 
 
 {{RootCmd|dmesg {{!}} grep TUN|output=<pre>
@@ -94,21 +93,21 @@ Universal TUN/TAP device driver 1.5 (C)1999-2002 Maxim Krasnyansky
 </pre>
 }}
 
-== 필요 프로그램 설치 ==
+=== Emerge ===
 
-이제 커널 설정을 동작하게 했으니, {{Pakcage|net-misc/vpnc}}를 설치해야합니다: 
+Now that a working kernel setup is completed, install the {{Package|net-misc/vpnc}} package: 
 
 {{Emerge|net-misc/vpnc}}
 
-지원하는 여러 USE 플래그를 확인하시고 환경에 제대로 적용했는지 살펴보십시오. 다음 오류로 나중에 몇가지 문제가 생긴다면 hybrid-auth USE 플래그를 활성화해야합니다: 
+Make sure to check the supported USE flag combinations and see if they apply to the environment. When encountering a problem later with the following error, enable the <code>hybrid-auth</code> USE flag: 
 
 {{CodeBox|title=hybrid/cert 모드에서 vpnc 오류 출력|1=
 vpnc was built without openssl: Can't do hybrid or cert mode.
 }}
 
-== 예제 설정 ==
+== Configuration ==
 
-다음 부분 진행을 좀더 매끄럽게 하려면, 동작하는 환겨에 대한 설정 예제가 필요합니다. 여기 예시를 보여드리기 위해 여러 대의 컴퓨터를 보유했다고 가정합니다. 모든 컴퓨터는 192.168.0.0 / 255.255.255.0 네트워크에 있습니다. 궁금해할 법한 LAN 환경은 iptables 방화벽, DHCP, 캐싱 DNS, 등을 활용하는 젠투 박스로 동작하며, ISP에서 제공하는 공용 IP 주소 너머로 LAN에 매스커레이딩합니다. 사무실에서 VPN을 가동하게 하고 싶은 LAN에 워크스테이션도 있습니다. 
+In order to make the following sections more clear, we need an example setup to work from. For the purpose of this exercise, we will assume that the home network consists out of several computers. All computers are on the 192.168.0.0 / 255.255.255.0 network. The LAN in question is run by a Gentoo box using an iptables firewall, DHCP, caching DNS, etc ... and it masquerades the LAN behind the public IP address it receives from an ISP. A workstation is also on the LAN from which the VPN into the office will be configured. 
 
 예제에서 워크스테이션 설정은 다음과 같습니다: 
 
@@ -152,9 +151,9 @@ default         router          0.0.0.0         UG        0 0          0 eth0
 </pre>
 }}
 
-== vpnc 설정 ==
+=== vpnc ===
 
-이제 <code>vpnc</code>를 설치했고 동작하는 예제를 적용했으니 <code>vpnc</code> 설정 방법의 기초를 다루어보겠습니다. <code>vpnc</code> 설정 파일은 설정할 프로파일을 얼마나 두느냐에 따라 몇 군데에 놓을 수 있습니다. 기본적으로 <code>vpnc</code>는 {{Path|/etc/vpnc/default.conf}}에서 연결 설정을 찾습니다. 파일이 없으면 {{Path|/etc/vpnc.conf}} 에서 찾습니다. 이 설정은 단일 프로파일 예제를 다루며 {{Path|/etc/vpnc.conf}} 설정 파일 위치를 활용합니다.  {{Path|/etc/vpnc/default.conf}} 파일이 ''없는'' 지 확인하십시오.
+Now that vpnc is installed and we have an example to work from, let's discuss the basics of setting up vpnc. The configuration file for vpnc connection settings can be located in a couple places, depending on how many profiles need to be configured. By default, vpnc looks for {{Path|/etc/vpnc/vpnc.conf}} for its connection settings. This setup will only address a single profile example and will use the configuration file location {{Path|/etc/vpnc/vpnc.conf}} .
 
 {{FileBox|filename=/etc/vpnc.conf|1=
 IPSec gateway vpngateway.domain.org
@@ -164,9 +163,9 @@ Xauth username network_signon
 Xauth password network_password
 }}
 
-위에서 보여드린 설정 파일 예제를 여러분이 진행하는 설정 과정에서 적당한 값으로 바꾸어야합니다. <code>vpngateway.domain.org</code> 게이트웨이 옵션은 완전한 도메인 이름 또는 IP 주소가 될 수 있습니다. ID와 비밀 옵션은 네트워크 관리자가 제공해야합니다. 만약 이 정보를 제공받을 수 없지만 공식 시스코 VPN 클라이언트를 활용하는 윈도우 머신에서 설정을 보유하고 있다면 해당 프로파일을 내보내기만 하면 됩니다. 사용자 이름 및 암호 옵션은 윈도우 NT 도메인 계정처럼 일반 네트워크 접속에 활용합니다. 
+The configuration file example above should be modified to reflect the appropriate values for the local setup. The gateway option <code>vpngateway.domain.org</code> can be a fully qualified domain name or an IP address. The ID and secret options should be given  by a network administrator. If this information cannot be obtained but a working setup on a Windows box is available which utilizes the official Cisco VPN client, then it suffices to export the profile. The user name and password options are for the normal network sign-on, such as a Windows NT domain account. 
 
-윈도우 머신에서 프로파일을 끌어냈다면,  {{Path|.pcf}}란 파일이 나왔을 겁니다. 이 파일은 필요한 모든 정보가 들어있습니다. 아래는 내용의 예제입니다: 
+When the profile is exported from a Windows machine, then the result is most likely a file ending in {{Path|.pcf}} . This file will have all the necessary information. Below is an example: 
 
 {{FileBox|filename=profile.pcf|1=
 [main]
@@ -207,13 +206,13 @@ EnableSplitDNS=1
 ForceNetLogin=0
 }}
 
-위 예제에서 <code>Host</code> , <code>GroupName</code>, <code>enc_GroupPwd</code> 항목을 볼 수 있습니다. <code>Username</code> 및 <code>UserPassword</code> 는 설정에 따라 가져오거나 아니면 가져오지 않을 수도 있습니다.  동작하는 vpnc 설정을 만들려면 vpnc를 넣은 <code>pcf2vpnc</code>를 활용할 수 있습니다. 
+In the above example, we can see entries for <code>Host</code>, <code>GroupName</code>, and <code>enc_GroupPwd</code>. The <code>Username</code> and <code>UserPassword</code> may or may not be exported depending on the setup. To generate a working vpnc configuration out of it, use <code>pcf2vpnc</code>, included with vpnc. 
 
-{{Note|최신 vpnc에 들어있는 <code>cisco-decrypt</code> 프로그램으로 암호 해독 도움을 받을 수 있습니다.}}
+{{Note|The password can be decrypted with the help from the {{c|cisco-decrypt}} program, shipped with the latest vpnc.}}
 
-=== 설정 시험 ===
+=== Testing the setup ===
 
-이제 제 위치에 설정을 저장했으니 설정을 시험해 볼 차례입니다. <code>vpnc</code>를 시작하려면 다음을 따르십시오: 
+Now that a configuration is in place it is time to test the setup. To start {{c|vpnc}} do the following: 
 
 {{RootCmd|vpnc|output=<pre>
 Enter password for username@vpngateway.domain.org:
@@ -221,9 +220,9 @@ VPNC started in background (pid: 14788)...
 </pre>
 }}
 
-명령 출력에서 보시는 바와 같이 (루트 계정으로)  <code>vpnc</code>를 실행하면 암호를 물어봅니다. 암호를 입력하고 나면, 입력한 암호가 나타나지 않는데 <code>vpnc</code> 프로세스는 자동으로 백그라운드 프로세스로 전환합니다. 
+The above command output shows that, once {{c|vpnc}} (as root) is executed, a prompt comes up asking for a password. After entering the password (which will not be echoed to the terminal), the {{c|vpnc}} process will automatically become a background process. 
 
-{{Note|<code>vpnc</code> 설정 파일에서 <code>Xauth password</code> 옵션을 지정했다면 <code>vpnc</code>를 시작할 때 암호를 물어보지 않습니다. 또한, <code>vpnc</code> 에서 설정 파일에 지정하지 않은 일부 추가 옵션이 필요하거나 뭔가를 까먹었다면 물어볼테니 걱정하지 마십시오.}}
+{{Note|If the <code>Xauth password</code> option is specified in the vpnc config file, then at vpnc startup no password will be asked. Additionally, if vpnc needs some extra options not specified in the configuration file, or if something is forgotten, don't worry, it will ask for it.}}
 
 {{RootCmd|ifconfig -a|output=<pre>
 eth1      Link encap:Ethernet  HWaddr 00:11:2F:8D:08:08
@@ -263,21 +262,21 @@ default         *               0.0.0.0         U         0 0          0 tun0
 </pre>
 }}
 
-위의 명령 출력에서 보신 바와 같이 <code>vpnc</code>에서 다음의 역할을 처리했습니다: 
+As can be seen from the above command output(s), {{c|vpnc}} has done the following: 
 
-* VPN 터널을 통하는 트래픽을 처리하는 가상 tun0 네트워크 인터페이스를 만듬
-* VPN 제공자로부터 tun0 장치의 IP 주소를 가져옴
-* VPN 게이트웨이에 기본 라우팅 정보를 설정
+* Created the tun0 network interface, a virtual interface to handle the traffic across the VPN tunnel
+* Obtained the IP address for the tun0 device from the VPN provider
+* Set the default route to the VPN gateway
 
-여기서, 워크스테이션은 VPN으로 호스트간 통신을 수행할 수 있습니다. <code>vpnc</code>가 VPN 게이트웨이의 기본 경로를 설정하기 때문에, 추가 경로로 인터넷이나 다른 곳을 따로 지정하지 않아도, 모든 네트워크 트래픽은 VPN을 거쳐 돕니다. 어떤 경우에는 연결 기본 형식으로 충분하겠지만 대부분의 경우 추가 과정이 필요합니다. 
+At this point, the workstation is capable of communicating with hosts via the VPN. Because {{c|vpnc}} sets the default route to the VPN gateway, all network traffic will travel across the VPN, even if it destined for the Internet or elsewhere not specifically specified by additional routes. For some, this basic type of connection may be satisfactory, but for most, additional steps need to be taken. 
 
-붙여볼만한 추가 기능은: 
+Additional things that might be interesting to have: 
 
-* VPN용 DNS
-* VPN 가상 터널 아래로만 트래픽을 거쳐가게 하는 경로 설정. 이 방법을 쓰면 VPN에 연결한 상태에서도 개인용 웹/p2p 등을 활용하지 않고 인터넷을 탐색할 수 있습니다. 트래픽은 터널을 거칩니다.
-* <code>vpnc</code>가 기본적으로 원하는 작업을 충분히 수행하지 않으므로, 이 모두를 관리하는 스크립트
+* DNS for the VPN
+* A routing setup that will only send traffic destined for the VPN down the virtual tunnel. This way, browsing the Internet will originate directly from the local network even when connected to the VPN, without the personal web/p2p etc. traffic going across the tunnel.
+* A script to manage all this, because {{c|vpnc}} just doesn't do enough by default.
 
-VPN 세션을 끝낼 준비가 되었다면 {{c|vpnc-disconnect}}를 실행하십시오. 예제는 아래에 있습니다. 
+To end the VPN session, execute {{c|vpnc-disconnect}}. An example is shown below. 
 
 {{Note|추가로 시험해봐야 할 건이 있으니 아직은 끊지 마십시오. 아래 예제는 그냥 알려주는 목적일 뿐입니다.}}
 
@@ -286,54 +285,56 @@ Terminating vpnc daemon (pid: 26250)
 </pre>
 }}
 
-== DNS 설정 ==
+=== Set up DNS ===
 
-불행하게도 <code>vpnc</code> 에서는 새로 구축한 터널의 DNS를 설정하거나 관리할 수 없습니다. 사용자는 DNS를 처리하는 방법을 결정할 수 없습니다. 연결할 때 트래픽이 VPN 터널을 거쳐가는지 여부는 상관 없이 모든 DNS 요청에 대한 VPN DNS를 활용하는 {{Path|/etc/resolv.conf}}를 덮어쓸 수 있습니다. 이 방식은 매우 기능적인 해결책이며 터널 연결만 필요하다면, 직접 처리하고, 끊은 다음, 더 이상의 내용은 읽지 마십시오. 허나, 상당히 긴 시간동안 터널에 연결한 채로 둘 수 있도록 하고 싶고, 개별 드래픽에 대한 요청을 처리하도록 DNS 서버를 동작하게 하겠다면, 계속 읽어내려하십시오. 
+Unfortunately, {{c|vpnc}} doesn't handle the setup and management of DNS for the newly established tunnel. The user is left to decide how DNS should be handled. Although {{Path|/etc/resolv.conf}} can be written during the connection, that would utilize the VPN DNS for all DNS queries regardless of whether or not the traffic is destined for the VPN tunnel. This is a very functional solution and if all that is needed is to connect to the tunnel, work, and then disconnect, read no further. But, to be able to leave the tunnel connected for lengthy periods of time without the work DNS servers handling requests for the personal traffic, read on. 
 
-이상적인 설정은 DNS 설정을 VPN 관련, 기타 두가지로 분류할 수 있게 합니다. 이 설정 과정에서 VPN 관련 DNS 요청은 VPN 터널의 반대편 종단에 있는 DNS 서버에서 응답하며 기타 모든 요청은 로컬 또는 ISP에 있는 DNS 서버에서 계속 응답합니다. 이는 곧, 여기서 시연할 설정입니다. 
+The ideal setup would allow users to separate the DNS queries into two categories: VPN-related and other. Under this setup, all VPN-related DNS queries would be answered by DNS servers located at the other end of the VPN tunnel and all other queries would continue to be answered by local or ISP supplied DNS servers. This is the setup that will be demonstrated here. 
 
 {{Note|VPN 관련 DNS 요청은  host1.example.org 또는 server1.example.org 와 같은 example.org 도메인의 요청으로 간주합니다.}}
 
-그래서, 어떻게 설정해서 example.org의 호스트의 요청만 DNS 서버가 있는 VPN으로 보낼까요? 글쎄 말입니다. 로컬 DNS 서버를 설치해야 하겠지만 생각보다 꽤 쉬우니까 걱정하지 않으셔도 됩니다. 우리가 원하는 방식의 설정을 처리할 수 있는 프로그램 꾸러미는 상당히 많지만, 시연 의도를 맞추기 위해 <code>dnsmasq</code>를 활용하겠습니다. 이머지 해보죠: 
+So how to make sure that requests made to hosts on the example.org domain get sent to VPN supplied DNS servers? Well, first install a local DNS server, but don't worry, it's much easier than it sounds. There are several software packages that can handle the type of setup we desire, but for the purposes of this demonstration, {{c|dnsmasq}} will be utilized. Let's emerge it now: 
 
-{{Note|이 DNS 서버 프로그램은 네트워크에 없으며, localhost, <code>127.0.0.1</code>에서만 요청에 응답합니다.}}
+{{Note|This DNS server software will not be available to the network, and will only answer requests from localhost, <code>127.0.0.1</code>.}}
 
-{{Emerge|dnsmasq}}
+{{Emerge|net-dns/dnsmasq}}
 
-이제 <code>dnsmasq</code>를 시작 옵션에 추가해야합니다. 다음 옵션을 요구에 맞춰 편집하십시오. .example.org 대신 적당한 도메인과 VPN 터널에 붙은 유효한 DNS 서버 IP 주소로 바꾸십시오. 
+Next add an option to {{c|dnsmasq}}'s startup options. Edit the following option and substitute .example.org with the appropriate domain and the IP address with a valid DNS server that belongs to the VPN tunnel. 
 
 {{FileBox|filename=/etc/conf.d/dnsmasq|1=
 # See the dnsmasq(8) man page for possible options to put here.
 DNSMASQ_OPTS="-S /.example.org/192.168.125.10"
 }}
 
-다음, {{Path|/etc/resolv.conf}}에 있는 처음 항목이 localhost, <code> 127.0.0.1</code>인지, 그 다음 항목은 dmsmasq 시작에 실패했을 때 DNS 트래픽을 다뤄야 할 백업 DNS 서버의 위치가 따라는지 확인하십시오. 확인하지 않으면 DNS 요청을 포워딩해야 할 때 현재 캐시에 없습니다. {{Path|/etc/resolv.conf}} 예제를 아래에 보여드립니다. 
+Next, make sure that the first entry in {{Path|/etc/resolv.conf}} is the local host <code>127.0.0.1</code>, followed by the location of the backup DNS servers that should handle the DNS traffic in case {{c|dnsmasq}} fails to start, or if it needs to forward a DNS query it doesn't currently have in its cache. An example {{Path|/etc/resolv.conf}} is shown below. 
 
 {{FileBox|filename=/etc/resolv.conf|1=
 nameserver 127.0.0.1
 nameserver 192.168.0.1
 }}
 
-이제 VPN 터널 DNS 규칙을 설정했으니 <code>dnsmasq</code>를 시작해야합니다. 
+Now that a rule is setup for the VPN tunnel DNS, start {{c|dnsmasq}}. 
 
-{{RootCmd|/etc/init.d/dnsmasq start
-|rc-update add dnsmasq default}}
+{{RootCmd
+|/etc/init.d/dnsmasq start
+|rc-update add dnsmasq default
+}}
 
-== 라우팅 테이블 설정 ==
+=== The routing table ===
 
-VPN 터널만을 거쳐가는 트래픽이 링크를 거쳐가는 이상적인 가정을 해보겠습니다. 여기서 VPN 터널을 설정했으며, 추가 경로를 지정하기 전 모든 트래픽은 터널을 거쳐갑니다. 이 문제를 바로 잡으려면 VPN에서 어떤 네트워크를 활용할 수 있는지 알아야합니다. 필요한 정보를 찾는 쉬운 방법은 네트워크 관리자에게 물어보는 방법이지만 때로는 일부 질문에 답변하기를 주저하기도 합니다. 로컬 네트워크 관리자가 필요한 정보를 알려주지 않으면, 몇가지를 시도해보고 오류를 찾아봐야 합니다. 
+The ideal scenario would be if only the traffic destined for the VPN tunnel would travel across the link. At this point, a VPN tunnel setup exists and all traffic will travel across the tunnel, unless additional routes are specified. In order to fix this situation, know what networks are available on the VPN. The easiest way to find out the needed information is to ask a network administrator, but sometimes they are reluctant to answer such questions. If the local network admin doesn't provide the needed information, some trial and error experiments will be required. 
 
-VPN 터널을 시작했다면 <code>vpnc</code>에서 터널에 기본 라우팅 정보를 설정합니다. 따라서 일반 기본 라우팅 설정으로 되돌려 기대대로 돌아가게 해야 합니다. 
+When the VPN tunnel was started, vpnc set the default route to the tunnel. So set the default route back to normal, so that things work as expected. 
 
 {{RootCmd|route add default gw 192.168.0.1}}
 
-이전에 VPN의 DNS 서비스를 설정했다면, example.org 도메인을 처리할 DNS 서버를 지정했습니다. 여기에 192.168.125.0 서브넷에 대한 라우팅 규칙을 추가하여 DNS 요청이 동작하게 해야합니다.
+Earlier, when DNS services were being configured for the VPN, a DNS server was specified to handle the example.org domain. Add a route for the 192.168.125.0 subnet so that DNS queries will work:
 
 {{RootCmd|route add -net 192.168.125.0 netmask 255.255.255.0 dev tun0}}
 
-여기서, 일려진 네트워크(이를 테면, 192.168.160.0 서브넷의 경우, TUN/TAP 가상 장치에서 받은 IP 주소가 있음)의 추가 라우팅 설정을 추가해야합니다. 친한 네트워크 관리자가 필요한 정보를 줬다면, 그걸로 대박입니다. 안줬다면 자주 연력할 호스트에 ping 명령을 실행하여 라우팅 테이블을 어떻게 갖춰야 할 지 생각해내야합니다. 
+At this point, any additional routes for known networks (such as for the subnet 192.168.160.0, which includes the IP address received by the TUN/TAP virtual device) should be added. If a friendly network administrator gave the required info, great. Otherwise, start pinging hosts that will be connected to frequently, to give an idea about what the routing table should look like. 
 
-{{Note|설정 때문에, VPN 네트워크 서비스를 이름으로 호출하여 사용한다면, webserver1.example.org와 같이 제대로 된 도메인 이름을 지정해야합니다.}}
+{{Note|Due to the setup, when using VPN network services by name, specify the fully qualified domain name, for instance: webserver1.example.org}}
 
 {{RootCmd|ping intranet1.example.org|output=<pre>
 PING intranet1.example.org (172.25.230.29) 56(84) bytes of data.
@@ -343,17 +344,17 @@ PING intranet1.example.org (172.25.230.29) 56(84) bytes of data.
 </pre>
 }}
 
-위 예제에서 보신 바와 같이 ping은 <code>intranet1.example.org</code>  설정이 제대로 안되어 있음을 보여줍니다. 따라서 서브넷에 라우팅 설정을 추가해야합니다. 
+As seen from the above example, the ping probes to <code>intranet1.example.org</code> were unsuccessful. So we need to add a route for that subnet. 
 
 {{RootCmd|route add -net 172.25.230.0 netmask 255.255.255.0 dev tun0}}
 
-몇가지 {{c|ping}} 및 {{c|route}} 명령을 처리하고 나면, 여러분의 방식대로 제대로 동작하는 라우팅 테이블을 갖춰져 있어야합니다. 
+A few ping and route commands later, and the system should be well on its way to a well working routing table. 
 
-== 연결 관리 ==
+=== Manage the connection ===
 
-=== 필요할 때 vpnc 호출 ===
+==== Calling vpnc when needed ====
 
-다음은 VPN 연결을 관리하는 예제 스크립트입니다. VPN을 시작할 때 (루트 권한으로) xterm에서 실행할 수 있습니다. 그 다음 VPN을 끊을 때 {{Key|Return}} 키만 누르면 됩니다. 분명히 여러분은 설정을 바꿔야 할테니 여러분이 필요한 부가 경로 추가 설정을 기억해두십시오. 
+Next is an example script to manage the VPN connection. Execute it (as root) from an xterm to start a connection to the VPN. Then all that is left to do is to press return to disconnect the VPN. Obviously this needs to be modified on the current setup, remembering to add all the additional routes that may be necessary. 
 
 {{FileBox|filename=sessionmgmt.sh|title=세션 관리 스크립트 예제|lang=bash|1=
 #!/bin/bash
@@ -385,47 +386,47 @@ eend
 einfo "VPN should now be disconnected"
 }}
 
-=== 부팅할 때 vpnc 시작하기 ===
+==== Start vpnc on boot ====
 
 vpnc 0.4.0-r1에는 다중 설정을 처리하는 초기화 스크립트 파일( {{Path|/etc/init.d/vpnc}} )이 있습니다. 기본 스크립트는  {{Path|/etc/vpnc/vpnc.conf}} 파일을 찾지만 대부분의 설정에서는 가능한 생각만큼 많은 설정을 보유합니다. 서비스를 내리고 시작하기 전에 별도로 만든 스크립트는 각각의 초기화 스크립트(0.5.1-r1 부터)의 이름과 연동하여 실행할 수 있습니다. 이름은 {{Path|-preup.sh}} , {{Path|-postup.sh}} , {{Path|-predown.sh}} , {{Path|-postdown.sh}}로 끝나며,  {{Path|/etc/init.d/scripts.d/}} 디렉터리에 들어있습니다. 일반 이름 형식은 다음 표에 적어두었습니다. 
 
-{| class="table" style="text-align: left;" 
+{| class="table table-striped table-condensed" style="text-align: left;" 
 |- 
-! 초기화 스크립트 이름
-! 필요한 설정 파일
-! 사전 가동 스크립트 이름
+! Init script name
+! Needed configuration file
+! Pre-up script name
 |- 
-| /etc/init.d/vpnc
-| /etc/vpnc/vpnc.conf
-| /etc/vpnc/scripts.d/vpnc-preup.sh
+| {{Path|/etc/init.d/vpnc}}
+| {{Path|/etc/vpnc/vpnc.conf}}
+| {{Path|/etc/vpnc/scripts.d/vpnc-preup.sh}}
 |- 
-| /etc/init.d/vpnc.work
-| /etc/vpnc/work.conf
-| /etc/vpnc/scripts.d/work-preup.sh
+| {{Path|/etc/init.d/vpnc.work}}
+| {{Path|/etc/vpnc/work.conf}}
+| {{Path|/etc/vpnc/scripts.d/work-preup.sh}}
 |-
 |}
 
-다음 명령으로 vpnc를 기본 런레벨에 추가하십시오(이 경우 표준 설정에 한합니다). 시작시 커널 모듈 자동 적재 기반에 (모듈 기반으로 빌드했을 경우) tun 모듈의 추가를 잊지 마십시오. 
+Add vpnc to default runlevel with the following commands (in this case for the standard configuration). Do not forget to add the tun module (if built that way) to the kernel's autoload mechanism at startup. 
 
 {{RootCmd|rc-update add vpnc default}}
 
-설정 파일에 암호를 저장하기 싫다면, {{Path|/etc/conf.d/vpnc}} 파일을 편집하여 초기화 스크립트에 표준 출력으로 모든 출력을 보여주게 할 수 있습니다. <code>VPNCOUTPUT</code> 변수 값을 화면 출력을 기본으로 표시할 지 말 지 yes 또는 no 값을 설정하십시오. 
+To not have to save the password in the configuration file, tell the init script to show all output and prompts on standard output by editing {{Path|/etc/conf.d/vpnc}}. Set the <var>VPNCOUTPUT</var> variable to <code>yes</code> or <code>no</code>, where its default is to not display screen output. 
 
-{{Note| 초기화 스크립트에서는 DNS 분리를 처리하지 않지만, 개별 스크립트를 활용할 수 있습니다.}}
+{{Note|The init scripts don't handle DNS separation, but can use custom scripts to achieve that.}}
 
-== 요령 ==
+== Tips and tricks ==
 
 === 그래픽 원격 접근 ===
 
-RDP (Remote Desktop Protocol) 를 지원하는 리눅스 프로그램을 찾는다면 <code>grdesktop</code>를 사용해보십시오. GTK+로 작성한 GUI 앱이며 그놈 데스크톱에 어울리지만 꼭 필요하진 않습니다.  grdesktop에서 제공하는 GUI 설정 대화상자가 필요없다면  <code>rdesktop</code>만 설치하십시오. 그러니까, grdesktop은 rdesktop의 프론트엔드일 뿐입니다. 
+When looking for a Linux application that supports RDP (Remote Desktop Protocol) then give {{Package|net-misc/grdesktop}} a try. It is a GUI app written in GTK+ that fits in well with a Gnome desktop, but doesn't require it. As an alternative to the GUI configuration dialog that grdesktop provides, just install {{Package|net-misc/rdesktop}}. Ultimately, grdesktop is just a frontend for rdesktop. 
 
-KDE 사용자라면 <code>kvpnc</code>를 사용해보시면 좋겠습니다. 멋진 VPN 관리 GUI를 나타냅니다. 
+KDE users might want to try out {{Package|net-misc/kvpnc}}. It appears to be a very mature VPN management GUI. 
 
-DNS 항목을 설정하지 않은 윈도우 머신에 연결해야 하고 WINS 서버의 주소를 안다면 머신의 호스트 이름으로 WINS 서버를 요청하는 <code>nmblookup</code> 도구를 사용할 수 있습니다. 불행하게도 이 도구를 이용하려면 <code>samba</code>를 설치행해야하지만, 윈도우를 실행하는 장치와 동작하게 한다면 마찬가지로 여러가지 기타 쓸만한 도구가 있기 때문에 삼바를 설치하는게 좋습니다. 
+To connect to a Windows machine which doesn't have a DNS entry, but for which the address of an available WINS server is known, use a tool called {{c|nmblookup}} to query the WINS server for the host name of the machine to connect to. Unfortunately, {{Package|net-fs/samba}} needs to be installed to get it, but when working with boxes running Windows installing samba is usually a given, because it includes several other useful tools. 
 
-{{Emerge|samba}}
+{{Emerge|net-fs/samba}}
 
-삼바 및 관련 도구를 설치했다면 wintelbox1 호스트에 대해 192.168.125.11 IP 주소의 WINS 서버를 요청하여 {{c|nmblookup}}을 시험해보십시오. 
+When samba and its tools are installed, test {{c|nmblookup}} by asking the WINS server at IP address 192.168.125.11 about a host named wintelbox1. 
 
 {{RootCmd|nmblookup -U 192.168.125.11 -R 'wintelbox1'|output=<pre>
 querying wintelbox1 on 192.168.125.11
@@ -435,7 +436,7 @@ querying wintelbox1 on 192.168.125.11
 
 === 부팅시 활용하는 개별 정의 스크립트===
 
-{{Path|init.d}} 파일에 개별적으로 만든 스크립트는 사용자가 vpnc 연결에 지정한 라우팅을 설정하는데 사용할 수 있습니다. 아래 예제에서는 라우팅 테이블을 설정하는 방법을 보여드려 123.234.x.x IP로의 연결만 VPN을 통하고 나머지 연결은 기본 게이트웨이를 거쳐가도록 합니다. 예제에서는 vpnc를 시작하기 전 현재 기본 게이트웨이를 보존하기 위해 work-preup.sh를, 새 기본 게이트웨이를 삭제하고 이전 기본 게이트웨이를 복원하며 vpnc 연결을 활용하여 모든 연결을  123.234.x.x로 라우팅하는 {{Path|work-postup.sh}}를 사용합니다. 
+The custom-made scripts for the {{Path|init.d}} file can be used to setup a user-defined routing for the vpnc connection. The examples below show how to setup the routing table so that only connections to 123.234.x.x are routed over the VPN and all other connections use the default gateway. The example uses {{Path|work-preup.sh}} to save the current default gateway before starting vpnc (which resets the default gateway using the VPN connection). Once vpnc has been started, {{Path|work-postup.sh}} deletes this new default gateway, restores the old default gateway and sets the route for all connections to 123.234.x.x to use the vpnc connection. 
 
 {{FileBox|filename=/etc/vpnc/scripts.d/work-preup.sh|lang=bash|1=
 #!/bin/sh
@@ -449,13 +450,12 @@ route add default gw $(cat /var/tmp/defaultgw)
 route add -net 123.234.0.0 netmask 255.255.0.0 dev tun1
 }}
 
-예제 스크립트에서는 vpnc 를 연결할 때 tun1을 tun 장치로 활용한다고 가정합니다. 연결 설정 파일에서 장치 이름을 설정할 수 있습니다. 
+The example scripts assume that the vpnc connection uses tun1 as tun device. Set the device name in the connection's configuration file. 
 
 {{FileBox|filename=/etc/vpnc/work.conf|1=
 Interface name tun1
 IPSec gateway vpn.mywork.com
 Pidfile /var/run/vpnc.work.pid
-</pre>
 }}
 
 == External resources ==
