@@ -393,6 +393,45 @@ echo ACCEPT ${LAN_PRIVATE_LXC} ALL;
 
 This will give you Internet access inside container. You can later create more isolated containers inside each separate bridge br0.X or connect several container's interfaces inside one br0.Y.
 
+==== Host configuration with NAT networking ====
+For simple network access from container to outside world via NAT using iptables - we can masquarad all connections from our container network to outside world via device, that connected to internet.
+
+Before this, you already created device <code>net.br0.1</code> (see topic above)
+{{FileBox|filename=/etc/lxc/lxc-usernet|1=lxc veth br0.1 2}}
+and your guest container have something like this (for full listing of this file and configuration, please, read next section or unprivileged container section)
+{{FileBox|filename=~/.config/lxc/guest.conf|1=
+# Other configuration here
+lxc.network.type = veth
+lxc.network.flags = up
+lxc.network.link = br0.1
+lxc.network.name = eth0
+lxc.network.ipv4 = 192.168.10.101/24
+lxc.network.ipv4.gateway = 192.168.10.1
+# Maybe, guid mapping here
+}}
+
+First, enable masquerade for ipv4 
+{{RootCmd|echo 1 > /proc/sys/net/ipv4/ip_forward}}
+If you want to enable it at every boot time:
+{{FileBox|filename=/etc/sysctl.conf|1=
+...
+net.ipv4.ip_forward = 1
+...
+}}
+
+Configure NAT to accept and masquerade all connections from container to outside. Command use output device <code>enp5s0</code>. Please, set-up correct device name of your network/wifi network card (you can find it via ifconfig output)
+
+{{RootCmd
+|iptables -P FORWARD ACCEPT
+|iptables -t nat -A POSTROUTING -s 192.168.10.1/24 -o enp5s0 -j MASQUERADE
+}}
+
+To save this rule for feature boot-ups:
+{{RootCmd|service iptables save}}
+
+Now, you can start you container and check networking:
+{{Cmd|ping 8.8.8.8}}
+
 === Guest configuration for a virtual Ethernet pair device connected by bridge ===
 
 Your guest network configuration resides in the guest's {{Path|/etc/lxc/<lxcname>/config}} file. To auto-generate it we will use distributive-specific template scripts, but we need some network configuration base for generation. We will use {{Path|/etc/lxc/guest.conf}} as such base config file. Documentation for both of this files is accessible with: {{c|man lxc.conf}}.
