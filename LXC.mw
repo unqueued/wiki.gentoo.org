@@ -883,6 +883,61 @@ Then you can login easily with your new password as usual under your user:
 
 P.S. To be accomplished. "Creating cgroups" section has to be added with or without cgmanager through OpenRC/systemd accordingly (See [http://chbrauner.blogspot.ru/ "Creating cgroups" paragraph there] as an example at the moment).
 
+==== Create user namespace manually (no systemd) ====
+On systems without systemd, we should create user cgroup namespace manually. In our case, we should create all required dirs for lxc user, give permission for it and move current active bash shell to cgroup user namespace.
+
+Add such things in lxc users .bashrc
+{{FileBox|filename=~/.bashrc|lang=bash|<pre>
+# ... some other stuff here
+for d in /sys/fs/cgroup/*; do
+    f=$(basename $d)
+    if [ "$f" = "cpuset" ]; then
+        echo 1 | sudo tee -a $d/cgroup.clone_children;
+    elif [ "$f" = "memory" ]; then
+        echo 1 | sudo tee -a $d/memory.use_hierarchy;
+    fi
+    sudo mkdir -p $d/$USER
+    sudo chown -R $USER $d/$USER
+    echo $$ > $d/$USER/tasks
+done
+</pre>
+}}
+
+And add to sudoers ability for lxc user create directory and set owner for itself. Also, command echo $$ > $d/$USER/tasks move current active bash session to new cgroup.
+
+Add to sudoers permissions for lxc user
+{{FileBox|filename=/etc/sudoers|lang=bash|1=
+# ... Other permissions here
+Cmnd_Alias CGRP_MKDIR = /bin/mkdir -p /sys/fs/cgroup/*/lxc
+Cmnd_Alias CG_TEE = /usr/bin/tee -a /sys/fs/cgroup/*
+Cmnd_Alias CG_CHOWN = /bin/chown -R lxc /sys/fs/cgroup/*/lxc
+
+lxc ALL=(ALL) NOPASSWD: CGRP_MKDIR, CG_TEE,CG_CHOWN
+}}
+
+After re-login to user lxc, lxc should have user namespace lxc
+Lets recheck it: 
+
+cat /proc/self/cgroup should be
+{{FileBox|filename=/proc/self/cgroup |lang=bash|1=
+12:pids:/lxc
+11:hugetlb:/lxc
+10:net_prio:/lxc
+9:net_cls:/lxc
+8:freezer:/lxc
+7:devices:/lxc
+6:memory:/lxc
+5:blkio:/lxc
+4:cpuacct:/lxc
+3:cpu:/lxc
+2:cpuset:/lxc
+1:name=openrc:/lxc
+}}
+
+Now, we can execute any lxc-* command from lxc user without any permission problems.
+For example:
+{{Cmd|prompt=lxc@localhost $|lxc-start --name alpha}} 
+
 == See Also ==
 
 * [[LXD]]
