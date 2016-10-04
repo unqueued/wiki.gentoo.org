@@ -213,7 +213,93 @@ If everything is in place (winbind etc) then you simply start Evolution up, add 
 * Connection -> SSH -> Auth -> GSSAPI, make sure Attempt GSSAPI authentication is selected
 
 = Full Domain Member on a laptop =
-Here's a quick rundown for a laptop that is connected to a 2012 R2 AD domain.
+Here's a quick rundown for a laptop domain member.  I use KDE Plasma as my WM
 
+* Samba4
+* systemd
+* ~amd64
+* AD - 2012R2 forest and domain functionality
+* Exchange 2016 (CU2 at the moment)
+* VPN to the AD DCs
+* Time via ntpd and DNS is setup correctly
+* Autodiscover - internal and external domains are the same and all Exchange names are the same ones
+* HA proxy in use which makes things a bit more interesting
+** setspn.exe used to add more SPNs to the machine account for the Exchange CAS
+
+== Kerberos ==
+ app-crypt/mit-krb5 USE=keyutils pkinit threads -doc -libressl -openldap -selinux -test -xinetd
+
+{{FileBox|filename=/etc/krb5.conf|title=Main Kerberos config file|lang=bash|1=
+[libdefaults]
+   default_realm = EXAMPLE.CO.UK
+}}
+
+== Samba ==
+ net-fs/samba USE=acl ads client cups gnutls ldap pam syslog system-mitkrb5 systemd winbind -addc -addns -aio -avahi -cluster -dmapi -fam -iprint -quota -selinux -test
+
+{{FileBox|filename=/etc/samba/smb.conf|title=Samba config|lang=bash|1=
+[global]
+        workgroup             = EXAMPLE
+        realm                 = EXAMPLE.CO.UK
+        server string         = My laptop
+        security              = ADS
+        obey pam restrictions = Yes
+        guest account         = nobody
+
+        kerberos method         = secrets and keytab
+        winbind refresh tickets = true
+
+        client NTLMv2 auth    = Yes
+        client lanman auth    = No
+        client plaintext auth = No
+
+        lanman auth  = No
+        max protocol = SMB2
+        min protocol = NT1
+
+        syslog       = 0
+        log level    = 0 winbind:6 auth:7
+        log file     = /var/log/samba/%m.log
+        max log size = 100
+        debug uid    = Yes
+
+        socket options = TCP_NODELAY SO_RCVBUF=8192 SO_SNDBUF=8192
+
+        printcap name = cups
+        dns proxy     = No
+
+        idmap config * : backend        = tdb
+        idmap config * : range          = 1000000-1999999
+        idmap config EXAMPLE : backend = rid
+        idmap config EXAMPLE : range   = 10000 - 19999
+
+        template shell             = /bin/bash
+        winbind enum users         = Yes
+        winbind enum groups        = Yes
+        winbind use default domain = Yes
+        winbind offline logon      = Yes
+        winbind expand groups      = 2
+
+        ea support           = Yes
+        store dos attributes = Yes
+        dos filemode         = Yes
+
+        unix extensions = no
+        follow symlinks = yes
+        wide links      = yes
+
+        veto files = /.*/
+
+[homes]
+        comment    = Home Directories
+        read only  = No
+        browseable = No
+        veto files = /.*/
+
+[shared]
+        comment   = Shared Files
+        path      = /home/shared
+        read only = No
+}}
 
 [[Category:Software]]
