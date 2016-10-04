@@ -1,13 +1,12 @@
 <div style="float: right">__TOC__</div>
-== Introduction ==
+= Introduction =
 Kerberos allows single sign and can assist with Windows and Linux interoperability.  The basic goal is to get systems attached to an AD domain to be able to access servers using pass through authentication.  For example, start up a browser and point it at an Apache webserver.  The web server allows access to the browser user because they have been authenticated in the background via Kerberos.
 
 The setup here is designed to use Samba to manage the Kerberos keytab side of things for servers like Squid, Apache and sshd.  As is often the case there are other ways to do it but these notes provide an approach that seems to work with minimal maintenance once set up.  Winbind will sort out keytabs for server applications and also for workstation apps like Evolution.
 
 Before you start this you must ensure that the clock on your system agrees with the Windows DC that holds the "PDC Emulator" FSMO role. Realistically any of them will do not just that one but that DC is the time source for the whole AD. You must also make sure that DNS is set up correctly.  If you can resolve the name of the AD domain, then that is a good start.  If either time or DNS go astray then you will get some tricky errors to debug.  Always check them both first.  You can mitigate DNS via the [realms] section in krb5.conf but not time.
 
-== Kerberos (MIT) ==
-
+= Kerberos (MIT) =
 On Gentoo enabling the <code>kerberos</code> USE flag should pull in {{Package|app-crypt/mit-krb5}}.  Configuration for a simple setup (set your realm):
 
 {{FileBox|filename=/etc/krb5.conf|title=Main Kerberos config file|lang=bash|1=
@@ -43,8 +42,7 @@ mask::r--
 other::---
 </pre>}}
 
-== Samba ==
-
+= Samba =
 Make sure you have a reasonably recent Samba release installed (eg 3.5 or 3.6+)
 * Set Samba to allow access via both secrets (winbind and local passwd) and Kerberos. There are many more options that you might want to configure when joining an AD domain but here we only consider Kerberos related ones.
 
@@ -67,8 +65,7 @@ Make sure you have a reasonably recent Samba release installed (eg 3.5 or 3.6+)
 
 * Start or restart Samba.  Make sure that {{Path|/etc/conf.d/samba}} has winbind included in the list of daemons.
 
-== Apache ==
-
+= Apache =
 * emerge {{Package|www-apache/mod_auth_kerb}}
 * Add <code>-D AUTH_KERB</code> to {{Path|/etc/conf.d/apache2}}
 
@@ -111,8 +108,7 @@ Test it with this {{Path|index.php}} in the web server's htdocs somewhere (assum
 Errors like this in errors_log means that the keytab can't be read - check the permissions on it for the apache user:
  gss_acquire_cred() failed: Unspecified GSS failure.  Minor code may provide more information (, Permission denied)
 
-== SSHD ==
-
+= SSHD =
 Use Samba to get the service principle for SSHD - "host".  Just to spell it out in case of confusion: use the word host in your command. It is not part of an example, only change the bits between < and >.
 {{RootCmd|net ads keytab add host -U <a_domain_admin>}}
 
@@ -127,8 +123,7 @@ UsePAM no
 
 When you turn off PAM you obviously wont be able to get it to make a home directory for a new user. So another method will be needed to do this.  Winbindd can do this - see the docs for it if you need this.
 
-== Squid ==
-
+= Squid =
 Squid also seems to use "HTTP" as its service name like Apache.  This will probably need a Squid 3.1.x release.
  
 {{FileBox|filename=/etc/squid/squid.conf|title=Part of the Squid configuration|lang=bash|1=
@@ -145,25 +140,18 @@ http_access deny all
 SQUID_KEYTAB="/etc/krb5.keytab"
 }}
 
-== NFS ==
-=== Windows Server ===
-
-Add the file services role to Windows 2008(R2) and include services for NFS.  To add NFS support on a folder, right click it and set it up on the NFS tab.  NFS shares do not seem to appear in the Server Manager under Share and Storage Management.  The Services for Network File System MMC snap in is a bit random as well.
-
-=== Linux ===
-== Client apps ==
-=== setspn.exe ===
+= Client apps =
+== setspn.exe ==
 
 Check Service Principle Names:
  c:\>setspn.exe -l <account_name>
 
-=== net ads keytab ===
+== net ads keytab ==
 
 Check a Samba maintained keytab like this:
 {{RootCmd|net ads keytab list}}
 
-=== ktutil and klist ===
-
+== ktutil and klist ==
 Check keytabs like this:
 
 {{RootCmd|ktutil|Output=<pre>
@@ -189,29 +177,29 @@ ktutil:  quit
 or 
 {{RootCmd|klist -ke /etc/krb5.keytab}}
 
-=== Firefox ===
+== Firefox ==
 * about:config
 * Type <code>negotiate</code> into the filter
 * Set <code>network.negotiate-auth.trusted-uris</code> to <code>example.co.uk</code>
 * Additional domains (eg short names) can be added separated by commas: e.g. <code>example.co.uk,host1,host2</code>.  
 * (On Linux only) at a user shell prompt type <code>kinit</code> and enter your AD password to authenticate and get a ticket from the KDC (This is not needed if you set up {{Path|/etc/security/pam_winbind.conf}})
 
-=== Chrome(ium) ===
+== Chrome(ium) ==
 Start Chrome with <code>--auth-server-whitelist="*.example.co.uk" --auth-negotiate-delegate-whitelist="*.example.co.uk"</code>. You can edit {{Path|/usr/share/applications/chrome.desktop}} to add this. Not needed on Windows.
 
 See http://www.chromium.org/developers/design-documents/http-authentication and http://www.chromium.org/administrators/policy-list-3
 
-=== IE ===
+== IE ==
 Does single signon out of the box. IE 7+. Don't use <=6!
 
-=== ssh ===
+== ssh ==
 For the SSH client on Linux.  This can go in the system wide configuration or in a user specific configuration: 
 {{FileBox|filename=/etc/ssh/ssh_conf|title=ssh config snippet|lang=bash|1=
 host *.example.co.uk
   GSSAPIAuthentication yes
 }}
 
-=== Evolution EWS ===
+== Evolution EWS ==
 You can connect to Exchange via Evolution EWS and provided that autodiscover is set up correctly it will work out of the box.  I have found that adding additional SPNs to the client access server's machine account can assist with getting Kerberos instead of NTLM working. eg:
   c:\>setspn.exe -S HTTP/exchange.example.co.uk EXCHCAS
 
@@ -219,9 +207,13 @@ To determine what names are needed, switch Evolution to using Kerberos and have 
 
 If everything is in place (winbind etc) then you simply start Evolution up, add a new account, fill in your name and set the type to ews and then press the lookup button after filling in your email address
 
-=== PuTTY ===
+== PuTTY ==
 * Get hold of a development snapshot until it is in the core release.
 * Connection -> Data, select Use system username (your name)
 * Connection -> SSH -> Auth -> GSSAPI, make sure Attempt GSSAPI authentication is selected
+
+= Full Domain Member on a laptop =
+Here's a quick rundown for a laptop that is connected to a 2012 R2 AD domain.
+
 
 [[Category:Software]]
