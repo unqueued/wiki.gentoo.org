@@ -213,7 +213,7 @@ If everything is in place (winbind etc) then you simply start Evolution up, add 
 * Connection -> SSH -> Auth -> GSSAPI, make sure Attempt GSSAPI authentication is selected
 
 = Full Domain Member on a laptop =
-Here's a quick rundown for a laptop domain member.  I use KDE Plasma as my WM
+Here's a quick rundown for a laptop domain member.  I use KDE Plasma as my WM.  The configs provided are direct copies from my working config, I have only changed domain names to EXAMPLES.
 
 * Samba4
 * systemd
@@ -301,5 +301,78 @@ Here's a quick rundown for a laptop domain member.  I use KDE Plasma as my WM
         path      = /home/shared
         read only = No
 }}
+
+{{FileBox|filename=/etc/security/pam_winbind.conf |title=Winbind PAM config|lang=bash|1=
+[global]
+# turn on debugging
+debug = yes
+
+# turn on extended PAM state debugging
+debug_state = yes
+
+# request a cached login if possible
+# (needs "winbind offline logon = yes" in smb.conf)
+cached_login = yes
+
+# authenticate using kerberos
+krb5_auth = yes
+
+# when using kerberos, request a "FILE" krb5 credential cache type
+# (leave empty to just do krb5 authentication but not have a ticket
+# afterwards)
+krb5_ccache_type = file
+
+# make successful authentication dependend on membership of one SID
+# (can also take a name)
+;require_membership_of =
+
+# password expiry warning period in days
+;warn_pwd_expire = 14
+
+# omit pam conversations
+;silent = no
+
+# create homedirectory on the fly
+mkhomedir = yes
+}}
+
+NIS:
+{{FileBox|filename=/etc/nsswitch.conf |title=NIS nsswitch config snippet|lang=bash|1=
+passwd:      compat winbind
+shadow:      compat
+group:       compat winbind
+}}
+
+Make sure that everything is in place, join the domain and then test the join:
+ #net ads info
+ #net ads join -U AD_username_with_computer_account_create_rights
+ #net ads testjoin
+
+Check NIS is working (should spit out a list of local and then AD users):
+ # getent passwd
+
+{{Warning|Be very careful when setting up PAM, make sure that you have a backout plan and at least one root session already running to the box first, ideally on a console and not via ssh (unless you really know what you are doing)}}
+
+Setup PAM:
+{{FileBox|filename=/etc/pam.d/system-auth|title=PAM config|lang=bash|1=
+auth        required      pam_env.so
+auth        sufficient    pam_unix.so likeauth nullok try_first_pass
+auth        sufficient    pam_winbind.so use_first_pass
+auth        required      pam_deny.so
+
+account     sufficient    pam_winbind.so
+account     required      pam_unix.so
+
+password    required      pam_cracklib.so retry=3
+password    sufficient    pam_unix.so nullok use_authtok md5 shadow
+password    optional      pam_permit.so
+
+session     required      pam_mkhomedir.so skel=/etc/skel/ umask=0022 
+session     required      pam_limits.so
+session     required      pam_unix.so
+session     required      pam_systemd.so debug
+}}
+
+Now login as a domain user via a console and make sure all is well.
 
 [[Category:Software]]
