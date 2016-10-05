@@ -126,6 +126,69 @@ To start microcode-ctl at boot time, add it your boot runlevel:
 See: [[Systemd]]. Simply make sure that the Microcode loader is set as a module in the kernel configuration as noted above.  You don't need to add a service or do anything else.
 
 
+== New method without initram-fs/disk ==
+
+{{Note|This method should be preferable, especially for EFI-Stub systems (some motherboard firmware might have issues with parsing/passing custom boot command line options), since these changes are less likely to leave your system unbootable (and possibly unrepairable without an EFI compatible rescue disks which can be very tricky on headless machines) the way a broken firmware boot entry and/or incorrect initram-fs/rd would, while it also works on BIOS systems or EFI systems with custom bootloaders on disk. However, this requires a relatively recent kernel version (possibly unstable at the time of writing). It was tested with Linux 4.8.0}}
+
+=== Software ===
+
+You can install the officialy published microcode package and let it automatically processed by {{Package|sys-firmware/intel-microcode}}
+{{Emerge|intel-microcode}}
+
+{{Note|Save the output of this command or make sure it's logged in a file you can find and access (you will need this information in the next step).}}
+
+And you can use this tool to identify your CPU signature(s) {{Package|sys-apps/iucode_tool}}
+{{Emerge|iucode_tool}}
+{{RootCmd|1=iucode_tool -S
+|output=<pre>iucode_tool: system has processor(s) with signature 0x000506e3</pre>}}
+because you have to find the appropriate filename(s) for the listed signature(s) using the output of the earlier emerge command.
+
+
+Alternatively, your might wish to process and install a custom file (the official Intel package intended for Linux users and thus the Gentoo ebuild might be a little old at times while you can find more recent microcodes from unofficial sources):
+{{RootCmd|1=iucode_tool -S -K UBU_v1_63_3/Modules/mCode/1151
+|output=<pre>iucode_tool: system has processor(s) with signature 0x000506e3
+iucode_tool: Writing microcode firmware file(s) into /lib/firmware/intel-ucode</pre>}}
+This example above will automatically identify your CPU signature (-S) and install (-K) the matching microcode binary found in the specified location to the default firmware location (/lib/firmware/) under the intel-ucode directory (see the manual for more information).
+
+Check the result and take a note (you will need this information in the next step):
+{{RootCmd|1=ls /lib/firmware/intel-ucode
+|output=<pre>06-5e-03</pre>}}
+
+
+
+=== Kernel ===
+
+You need tho enable and configure the following kernel options:
+
+{{KernelBox|title=Enable CONFIG_MICROCODE and CONFIG_MICROCODE_INTEL|<pre>
+Processor type and features  --->
+    <*> CPU microcode loading support
+    [*]   Intel microcode loading support
+
+Device Drivers  --->
+  Generic Driver Options  --->
+    [*]   Include in-kernel firmware blobs in kernel binary
+    (intel-ucode/06-5e-03) External firmware blobs to build into the kernel binary
+    (/lib/firmware/) Firmware blobs root directory
+</pre>}}
+
+{{Note|These should be built-in, not loadable external modules and the filename and directory (obviously) needs to be set according to where you placed the microcode file(s) for your specific CPU(s). In this example (for a Pentium G4400 CPU), the relevant filename is 06-5e-03 (the location is the system default).}}
+
+Rebuild and install your kernel the same way you normally would.
+
+== Verification ==
+
+After the next reboot, you should see something like this:
+
+{{RootCmd|1=dmesg |grep microcode
+|output=<pre>[    0.000000] microcode: microcode updated early to revision 0xa6, date = 2016-08-21
+[  111.772710] microcode: sig=0x506e3, pf=0x2, revision=0xa6
+[  112.284624] microcode: Microcode Update Driver: v2.01 <tigran@aivazian.fsnet.co.uk>, Peter Oruba</pre>}}
+
+{{Note|Note how this is the very fist step the kernel logs now.)}}
+{{Note|Be aware that injecting the microcode update directly into the motherboard firmware (which might sounds tempting) might result in CPU0 being updated but the rest of the CPUs (or CPU cores in a multi-core system) being left at their initial revision (which might cause more problems than running them all at the same initial version). And, since most stock motherboard firmwares have some microcode updates (even in their initial release versions), it's probably a good enough reason for everybody to make sure their kernel tries to update all CPUs (and cores) to the same version (so, let this update driver running even if the kernel has the same version which is stored in the motherboard firmware). Injecting the microcode into the firmware might be desirable still (to make sure it's loaded for the boot CPU before the kernel is loaded and able to update the rest of the microcodes).}}
+
 == See also ==
 * [[Intel]] - More Intel information for Gentoo users.
+* An example unofficial source for microcodes: http://www.win-raid.com/t154f16-Tool-Guide-News-quot-UEFI-BIOS-Updater-quot-UBU.html
 [[Category:Processors]]
