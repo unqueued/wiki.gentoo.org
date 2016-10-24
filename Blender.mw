@@ -5,28 +5,43 @@
 |{{InfoBox wikipedia|Blender_(software)}}
 }}
 
-{{Note|A new ebuild for blender-2.77a is being developed on [https://github.com/dracwyrm/gentoo-ebuilds github] to resolve {{Bug|536078}}. Preliminary documentation is available at [[Blender-2.77a]] which is planned to replace this text once it is incorporated into the tree. Help with testing and submitting bug reports would be appreciated.
-}}
-
-This page contains the documentation for blender-2.72b, which is the latest version currently in the tree.
-
 Blender is a professional free and open-source 3D computer graphics software.
 
 == Installation ==
 
-{{Note|Installation of recent releases of Blender on Gentoo is rather complicated. This page explains how to solve the most
-common issues for installation of version 2.72b. Blender quickly changes, so these steps may soon become obsolete. Wiki editors will attempt to stay current on build instructions. If something is broken do not hesitate to make changes to the article.}}
+{{Note|Installation of recent releases of Blender on Gentoo is rather complicated. 
+This page explains how to solve the most common issues for installation of version 2.78.
+Blender quickly changes, so these steps may soon become obsolete.
+Wiki editors will attempt to stay current on build instructions.
+If something is broken do not hesitate to make changes to the article.}}
+
+Installation can require many packages, It is recommended to first upgrade to python 3.5.2, set any required USE flags and then emerge blender.
+
+=== Python 3.5 ===
+
+Blender 2.78 requires python 3.5.2 which is currently marked as testing. It is recommmended to upgrade to python 3.5.2 and resolve any blockers prior to emerging blender.
 
 === USE flags ===
 
 {{USEflag|package=media-gfx/blender}}
 
-Setup USE flags for Blender in {{Path|/etc/portage/package.use}}:
+There are many additional features that can be enabled via USE flags. See the list above or the Additional Features section below for further details.
 
-{{FileBox|filename=/etc/portage/package.use|title=Appropriate USE flags for Blender|1=
+{{FileBox|filename=/etc/portage/make.conf|title=Appropriate Global USE flags for Blender|1=
+# All these global USE flags could be specified locally if desired.
+# While both ffmpeg and libav currently work, only ffmpeg is officially recommended.
+# Cycles requires tiff. Add any additional formats required eg. jpeg png...
+# If audio is required, choose from openal, jack or sdl.
+USE="ffmpeg X opengl threads tiff openal jack sdl fftw openexr expat"
+}}
+
+{{FileBox|filename=/etc/portage/package.use|title=Appropriate Local USE flags for Blender|1=
 # blender
-media-gfx/blender python_single_target_python3_4 cycles tiff openimageio player fftw openal
-sci-libs/hdf5 -threads # with threads we would have to disable cxx and fortran
+media-gfx/blender python_single_target_python3_5 cycles boost openexr tiff openimageio player game-engine bullet fftw openal jemalloc opensubdiv openvdb openvdb-compression
+# Enable cuda or opencl if possible
+media-libs/opencv cuda opencl
+media-libs/openimageio opencv
+media-libs/opensubdiv cuda opencl ptex tbb
 }}
 
 Unmask related packages by adding to {{Path|/etc/portage/package.keywords}}:
@@ -34,7 +49,122 @@ Unmask related packages by adding to {{Path|/etc/portage/package.keywords}}:
 {{FileBox|filename=/etc/portage/package.keywords|title=Accept unstable Blender related packages|1=
 media-gfx/blender ~amd64
 sci-libs/ldl ~amd64
+# Blender 2.78 requires python 3.5.2 (2.72b runs on the stable python 3.4)
+dev-lang/python ~amd64
+# For Python 3.5.2 many additional packages are required than those listed here.
+# Currently enabling python3.5 requires ~amd64 for all versions of python installed, not just 3.5 specifically
+dev-lang/python ~amd64
+dev-lang/python-exec ~amd64
+# For cuda support in 2.78 (See below for 2.72b patch)
+dev-util/nvidia-cuda-toolkit ~amd64
+# For openvdb and openvdb-compression support
+dev-libs/c-blosc ~amd64
+# Cycles and Open Shader Language require Boost
+dev-libs/boost ~amd64
+dev-util/boost-build ~amd64
 }}
+
+=== Emerge ===
+
+Now install the software on the system:
+
+{{Emerge|params+=--verbose|media-gfx/blender}}
+
+== Additional Features ==
+
+This section lists many of the optional features available in blender and gives a brief overview of their use for beginning users.
+
+=== Audio Device Support ===
+
+Support for Jack, OpenAL or SDL audio can optionally be enabled through USE flags.
+
+Inside blender, go to the File->User Preferences->System tab and set the Audio Dev to the desired setting.
+
+=== Cuda Support ===
+
+Cycles renderer can work on GPUs, for example Nvidia GTX 970 is about twice as fast as an i5 4690k on
+traditional BMW benchmark. Support for AMD GPUs and opencl is improving.
+
+To enable graphics card rendering, install Cuda:
+
+{{Emerge|params+=--verbose|dev-util/nvidia-cuda-toolkit}}
+
+With gcc 4.9, Cuda may not work, complaining that it does not support 
+gcc-4.9 and higher. However, gcc 4.9 happily works
+after a simple dirty hack: in a file /opt/cuda/include/host_config.h
+<pre>...
+#if defined(__GNUC__)
+
+#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 8)
+
+#error -- unsupported GNU version! gcc 4.9 and up are not supported!
+
+#endif /* __GNUC__> 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 8) */
+...</pre>
+replace "8" with "9" twice.
+
+Inside blender, go to the File->User Preferences->System tab and set Compute Device to CUDA and select the graphics card in the box below. If the graphics card is not supported these options will not be visible.
+
+Now set the renderer to Cycles Renderer and in the renderer panel under the Render options set the Device to GPU Compute.
+
+The first time a render is created with a new version of blender, the CUDA kernels will need to be compiled. This may take over 15 minutes.
+
+=== File Format Support ===
+
+Support OpenCOLLADA (.dae), jpeg2k, sndfile and tiff image file formats can optionally be enabled through USE flags. 
+
+The collada USE flag adds entries to File->Import/Export for Collada (Default) (.dae) files.
+The others can be used with background images in the properties panel of the 3D View or as output formats in the render panel.
+
+Blender should work with either ffmpeg or libav libraries, although only ffmpeg is officially recommended by the blender developers.
+
+=== Headless (Server Only) ===
+
+For render farms it is possible to compile blender with the headless USE flag. This is ''not recommended'' for most users.
+
+This feature reduces the blender file size by around 5 MB, but it '''will not be possible to run blender normally''' as the GUI is not available. 
+
+In headless mode, blender can still be used to run python scripts from the commmand line
+{{Cmd|user $ blender -b -P script.py [-- [--optionsforscript .. ] ]}}
+{{Note|This functionality is also available with regular versions of blender, it is not necessary to enable the headless use flag to run scripts from the command line.}}
+
+=== Memory Allocator ===
+
+It is recommended to enable jemalloc to use a more efficient memory allocator. This reduces wasted memory during rendering and allows for larger scenes to be rendered.
+
+=== Memory Profiling ===
+
+Support for memory profiling can be enabled using the valgrind USE flag. See [[Debugging]] for instructions on setting up Valgrind.
+
+=== OpenColorio ===
+
+Open Colorio provides additional options under the Color Management section of the Scene panel. 
+
+Inside blender, select the Render View and Look options, and adjust the exposure, gamma and curves to obtain the desired look.
+
+=== Opensubdiv ===
+
+Opensubdiv is a set of libraries that improve subdivision surface modifier evaluation. This can dramatically improve the frame rate of viewing animations in the viewport when using high levels of subdivision.
+
+Not all cards are suitable. The current code checks for geometry shader, GL_ARB_gpu_shader5, glProgramParameteri, glProgramParameteriEXT and glProgramParameteriARB. These are available as part of OpenGL 3.2, 4.0 and 4.1, or as extensions.
+
+Support is enabled via the opensubdiv USE flag.
+
+Inside blender, go to the File->User Preferences->System tab and set OpenSubdiv compute to the desired option. It may be possible to choose the CPU, but cards which support GLSL Compute will give better performance. This box will not appear if the card does not meet the requirements.
+
+Finally check the Use Opensubdiv box in the subdivision surface modifier
+
+=== OpenVDB ===
+
+OpenVDB provides a data structure for storing and manipulating volumetric information efficiently. It can be compiled into blender using the openvdb USE flag, and openvdb-compression is also recommended as the data can require upwards of 20MB.
+
+In blender, set the renderer to Cycles Renderer. Go to the physics panel and enable physics for Smoke. In the smoke section select Domain. Save the file to enable editing of the smoke cache. Change File Format to Openvdb and select Blosc compression if desired. Now create and bake the simulation.
+
+== Blender 2.72b Specific ==
+
+Blender 2.72b is quite old and upgrading to 2.78 is strongly recommended.
+
+=== x86 Intrinsics Compilation ===
 
 Due to {{Bug|523928}} cycles may fail to compile. To work around it, create {{Path|/etc/portage/patches/media-gfx/blender/blender.redefinition.patch}} patch file:
 
@@ -51,30 +181,11 @@ Due to {{Bug|523928}} cycles may fail to compile. To work around it, create {{Pa
  #include "util_types.h"
 </pre>
 
-(This patch can also be obtained from http://pastebin.com/k20VbHjG if copying and pasting from formatting adds extra spaces that break the patch.)
+(This patch can also be obtained from [http://pastebin.com/k20VbHjG pastebin] if copying and pasting from formatting adds extra spaces that break the patch.)
 
-=== Emerge ===
+=== Nvidia GTX 900 series in Blender 2.72b ===
 
-Emerge Blender:
-
-{{Emerge|params+=--verbose|media-gfx/blender}}
-
-== Cuda ==
-
-Cycles renderer can work on GPUs, for example Nvidia GTX 970 is about twice as fast as an i5 4690k on
-traditional BMW benchmark. As of February 2015, support for AMD GPUs and opencl is very limited.
-
-To enable graphics card rendering, install Cuda:
-
-{{Emerge|params+=--verbose|dev-util/nvidia-cuda-toolkit}}
-
-Follow Blender's manuals to switch from CPU rendering to GPU. There may be complications. See the sections below.
-
-=== Nvidia GTX 900 series ===
-
-At the moment of writing this (February 2015), newer Nvidia cards are not supported in Blender 2.72, and Blender 2.73 is not in the Portage tree.
-
-Fix is trivial, however:
+Newer Nvidia cards are not supported in Blender 2.72 and upgrading to 2.78 is recommended. However it is possible to patch 2.72b:
 
 * Unmask and emerge dev-util/nvidia-cuda-toolkit of version 6.5.19 or higher
 * Create a file /etc/portage/patches/media-gfx/blender/blender.sm_52.patch with contents
@@ -101,24 +212,9 @@ Re-emerge Blender:
 
 {{Emerge|params+=--one-shot|media-gfx/blender}}
 
-=== gcc 4.9 === 
-
-If you use gcc 4.9, cuda may not work, complaining that it does not support 
-gcc-4.9 and higher. However, gcc 4.9 happily works
-after a simple dirty hack: in a file /opt/cuda/include/host_config.h
-<pre>...
-#if defined(__GNUC__)
-
-#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 8)
-
-#error -- unsupported GNU version! gcc 4.9 and up are not supported!
-
-#endif /* __GNUC__> 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 8) */
-...</pre>
-replace "8" with "9" twice.
-
 == See also ==
 
+* [[Debugging]]   
 * [[SpaceNavigator]]   
 * [[OpenCL]]
 * [[Project:Artwork/Artwork]]: Gentoo artwork, including a .blend file used to create some of it.
