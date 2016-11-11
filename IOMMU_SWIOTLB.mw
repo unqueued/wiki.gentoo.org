@@ -1,0 +1,117 @@
+== IOMMU and SWIOTLB Memory Mapping ==
+
+Todays computing uses a method of partitioning memory and each device such as a graphics card or PCI device, USB etc has to have memory mapped to be accessed my the device or application. 
+Traditionally IOMMU was used. This is setup when the system is initialised and can not be dynamically changed as the system is running so Chip manufacturers such ans Intel and AMD developed more advanced memory management methods. 
+
+In the Linux Kernel we can manipulate the IOMMU using new mechanisms provided by SWIOTLB for Intel and others for architectures from AMD. 64Bit systems have enabled a huge amount of memory to be used in our computer systems and this memory needs mapping before it can be used. These kinds of terms are used across the Enterprise area of computing, particularly the Virtual-Machine sector but they can be used by anyone running a Linux kernel.
+
+== IOMMU ==
+
+This is Input Output Memory Management Unit. In every system this hardware is integrated into a north bridge controller which setup the memory and is programmed by the firmware on your main-board. In recent years manufacturers have stopped integrating this as a North-Bridge chip and integrated it into the CPU itself. This is why if you want to upgrade your memory speed, type and so on you are now required to not only change the motherboard but the CPU as well. 
+Regardless your kernel needs to setup and read the mappings to be able to use your system memory efficiently. 
+
+== Enabling IOMMU ==
+
+{{RootCmd| cd /usr/src/linux | make menuconfig }}
+
+{{KernelBox| title=Example of IOMMU settings kernel|1=
+ -*- IOMMU Hardware Support 
+        Generic IOMMU Pagetable Support  ----  
+   [*]   AMD IOMMU support                     
+   [*]     Export AMD IOMMU statistics to debugfs   
+   <M>     AMD IOMMU Version 2 driver               
+   [*]   Support for Intel IOMMU using DMA Remapping Devices  
+   [*]     Support for Shared Virtual Memory with Intel IOMMU  
+   [*]     Enable Intel DMA Remapping Devices by default       
+   [*]   Support for Interrupt Remapping
+}}
+
+The above will allow the kernel to control the mappings in the Memory Mapping controller.
+
+== Generic IOMMU options ==
+
+{| class="table table-condensed"
+|-
+! Attribute !! Description and options
+|-
+| <code> iommu=off </code> || This disables the IOMMU driver completely.
+|-
+|<code> iommu=noforce </code> || Don't force hardware IOMMU usage when it is not neede.
+|-
+|<code> iommu=Force </code> || The use of the hardware IOMMU even when it is not actually needed (e.g. because < 3 GB memory).
+|-
+|<code> iommu=soft </code> || Use software bounce buffering (SWIOTLB) (default for Intel machines). This can be used to prevent the usage of an available hardware IOMMU. (read bellow for Intel SWIOTLB).
+|-
+|}
+
+== IOMMU for AMD64 systems ==
+
+Once the above is enabled in the kernel for your system you can control aspects of the memory mapping using kernel boot parameters on the boot command line.
+
+{| class="table table-condensed"
+|-
+! Attribute !! Description and options
+|-
+| <code> amd_iommu=(nofullflush)(fullflush) </code> ||  - enable flushing of IO/TLB entries they are unmapped. Otherwise they are flushed before they will be reused, which is a lot of faster. off = do not initialize any AMD IOMMU found in the system. force_isolation = Force device isolation for all devices. The IOMMU driver is not allowed anymore to lift isolation requirements as needed. This option does not override iommu=pt.
+|-
+| <code> amd_iommu_dump=0 </code> || This is a boolean option  = disabled and 1 = enabled: This is to dump the ACPI table for AMD IOMMU. With this option enabled, AMD IOMMU driver will print ACPI tables for AMD IOMMU during IOMMU initialization.
+|-
+| <code> amd_iommu_intr=(legacy)(vapic) </code> || Specifies one of the following AMD IOMMU interrupt remapping modes: legacy = Use legacy interrupt remapping mode.	vapic = Use virtual APIC mode, which allows IOMMU to inject interrupts directly into guest. This mode requires kvm-amd.avic=1. (Default when IOMMU HW support is present.)
+|-
+|}
+
+You can edit your Grub configuration files as you see fit to use the above available options.
+
+== IOMMU for Intel systems ==
+
+Intel generally adopts a always enable it if it supports it rule so most options are to turn off or disable the function.
+
+{| class="table table-condensed"
+|-
+! Attribute !! Description and options
+|-
+| <code> intel_iommu=(on)(off) </code> || This is a boolean option, on = enabled and off = disabled. 
+|-
+| <code> intel_iommu=igfx_off </code> || This option turns off mapping for a graphics card and is the default state for this option. The gfx is mapped as normal device. If a gfx device has a dedicated DMAR unit, the DMAR unit is bypassed by not enabling DMAR with this option. In this case the gfx device will use physical address for DMA.
+|-
+| <code> intel_iommu=forcedac </code> || With this option iommu will not optimize to look for io virtual address below 32-bit forcing dual address cycle on pci bus for cards supporting greater than 32-bit addressing. The default is to look for translation below 32-bit and if not available then look in the higher range.
+|-
+| <code> intel_iommu=strict </code> || The default setting for this is disabled. This option on every unmap_single operation will result in a hardware IOTLB flush operation as opposed to batching them for performance.
+|-
+|<code> intel_iommu=sp_off </code> || Super Page which is by default enabled if supported, you can turn this off using this option.
+|-
+|<code> intel_iommu=ecs_off </code> || By default, extended context tables will be supported if the hardware advertises that it has support both for the extended tables themselves, and also PASID support. With this option set, extended tables will not be used even on hardware which claims to support them.
+|-
+|}
+
+== SWIOTLB Software Input Output Translation Lookaside Buffer ==
+
+This is an Intel technology which sort of bypasses the IOMMU and allows for a much more configurable memory management interface. Without going into the deep complexity of how this works, page tables are cached in the Lookaside Buffer reducing the need to constantly access physical RAM to map memory. This technology is also referred to as a bounce buffer as the physical address of the memory map is held in this virtual space of and IO is bounced between the physical IO and the Physical memory by this virtual lookaside buffer.
+
+This allows the memory mapping to be carried out quickly and have a physical memory space available for use much faster than if it had to be created physically in RAM and presented to the system as usable. 
+
+
+{| class="table table-condensed"
+|-
+! Attribute !! Description and options
+|-
+| <code> swiotlb=n'th amount of pages </code> || This specifies the amount of pages to be used by IOTLB, each page consists of 128KBit each, so a 64MBit SWIOTLB would consist of 512 pages or slabs as some call them. You can increase or decrease this value to allow for more buffering of virtual memory addresses in the buffer or not. Default is 64MB or 512 pages. We call these virtual memory addresses as the physical memory address is in the physical RAM which would take longer to access if the address was mapped physically and then accessed. 
+|-
+|<code> swiotlb=force </code> || This option will force all system IO through the SWIOTLB so there will be no IOMMU controlled by the BOIS or the IOMMU driver elsewhere if one existed.
+|-
+|}
+
+== SWIOTLB for high input output such as Graphics ==
+
+For decades the problem has existed in that how would you get data in and out of the CPU and RAM quickly and efficiently especially for high throughput devices like file IO and Graphics cards etc.
+Unfortunately the system is not only having to deal with that IO but many tasks all at the same time, your CPU and RAM maybe very fast but if you cant get the data out by either network, USB, storage device or onto a screen via a graphics card it is a waste of time having such a fast multiprocessing system. 
+
+Normally the system holds 4Mb for normal operation and allows the rest to be used by other devices. The problem is that if a device overlaps or overflows into another then the system panics and can't deal with it.
+Many new devices like Nvidia graphics cards and SCSI controllers have drivers now that allow you to set the IOMMU values they can use.
+
+There is no way this value can be set automatically because of the diversity of hardware configurations possible on the market. This means the end user has to design and build his/her system and utilise the best setting for their system.
+
+If one set a large SWIOTLB then one would need to instruct the driver of a device to utilise the larger amount of memory mapping buffer. Some hardware physically control this in the BIOS while others don't provide any control over this at all. For the most part newer high end hardware allows the user to control this as above from the kernel options. 
+Some drivers try to automatically control this but as mentioned above can cause stability issues even kernel panic. 
+
+So just setting a large SWIOTLB won't mean you will get a faster IO, you will need instruct your hardware to use it. Rule of thumb is if 64Mb is available then set a maximum remap IO for the driver of 4Mb less which would be 60Mb, If 128 then max remap for the driver would be 124mb and so on.
