@@ -1,0 +1,240 @@
+It is preferred that package testing takes place on a real system, inside a chroot, or within another type of non-virtualized container. Virtualization may be acceptable in situations where it is not possible or practical to test on real hardware.
+
+The testing system must only have stable packages installed, with no testing packages keyworded or unmasked. It should be up-to-date, and it is recommended to have as few packages installed as possible.
+
+The {{path|make.conf}} file should have settings similar to the following:
+
+{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
+# CFLAGS should be reasonable
+CFLAGS="-march=native -O2 -pipe -frecord-gcc-switches"
+CXXFLAGS="${CFLAGS}"
+
+# Defining all four *FLAGS variables enables a portage QA check reporting when these variables are not respected
+FFLAGS="${CFLAGS}"
+FCFLAGS="${CFLAGS}"
+
+# Enables a portage QA check to report when LDFLAGS is not respected
+LDFLAGS="${LDFLAGS} -Wl,--hash-style=gnu"
+
+# collision-protect - prevent a package from overwriting files it does not own
+# ipc-sandbox - prevent host IPC access (requires Linux and namespace support in kernel)
+# network-sandbox - prevent network access during merge (requires Linux and network namespace support in kernel)
+# sandbox - ensure package does not write directly to live system
+# split-log - store logs created by PORTAGE_ELOG_SYSTEM="save" in category subdirectories
+# split-elog - store build logs in category subdirectories
+# strict - have portage react strongly to conditions that have the potential to be dangerous
+# test - run package tests, or alternatively test-fail-continue
+# userfetch - drop privileges during fetching
+# userpriv - drop privileges during merge
+# usersandbox - enable sandbox when userpriv is enabled
+FEATURES="collision-protect ipc-sandbox network-sandbox sandbox split-log split-elog strict test userfetch userpriv usersandbox"
+
+# Display selected types of messages again when emerge exits, and save them to disk
+PORTAGE_ELOG_CLASSES="log warn error qa"
+PORTAGE_ELOG_SYSTEM="echo save"
+}}
+
+== Testing ==
+
+Each package in Gentoo is different and therefore requires a slightly different approach to stabilization. Consider the following guidelines for each class of package, and use common sense when in doubt.
+
+=== General ===
+
+==== USE flags ====
+
+While it is preferable to test every USE flag combination, this is not always possible or appropriate. The package may have a large number of USE flags, a long compile time, or the stabilization in question may just not call for it.
+
+In cases where all USE flags combinations are not being tested, it is still recommended to test:
+* with all USE flags enabled
+* with all USE flags disabled
+* the default USE flag settings
+
+==== Runtime testing ====
+
+Consider the level of runtime testing that is required for the target package. Remember, the focus of stabilization is to integrate a testing ebuild into the stable tree and not to identify routine bugs or regressions - that is the purpose of the package's waiting time in ~arch.
+
+The level of runtime testing required will vary wildly based on a variety of factors. Consider the following examples:
+
+* Multiple days of "normal use" testing may be appropriate for a new version of {{package|sys-libs/glibc}}
+* Basic functionality testing, such as browsing some web pages, may make sense for a new version of {{package|www-client/firefox}}
+* Passing tests might be enough for {{package|dev-python/yenc}}
+* A leaf package such as {{package|kde-apps/kcalc}} may not require any runtime testing at all
+
+=== Libraries ===
+
+A new library version may introduce incompatibles with reverse dependencies. Where there's a risk of such breakage, each stable reverse dependency must be rebuilt. Beware of reverse dependencies that only use the library conditionally (eg. <code>USE="png"</code>).
+
+=== Kernel ===
+
+Kernel packages referenced in the handbook have certain exemptions from the usual stabilization policy, so stabilization requests are normally only filed for the first version in a long term stable branch (subsequent versions can be stabilized at the discretion of the maintainer).
+
+First, test all available kernel options:
+
+{{Cmd
+|cd /usr/src/example-sources-1.2.3
+|make allyesconfig
+|make # add '-j' as appropriate for your hardware
+}}
+
+If that succeeds, build with your normal configuration:
+
+{{Cmd
+|make distclean
+|make menuconfig
+|make
+|make modules_install # if you use modules
+}}
+
+After reboot, check {{c|dmesg}} for anything strange and use the system as normal, trying to get a bit of uptime.
+
+If stabilizing a special feature variant such as {{package|sys-kernel/hardened-sources}}, try to test those features.
+
+=== Toolchain ===
+
+New versions of toolchain packages can often introduce major changes and widespread breakage into the tree. The purpose of a stabilization request for a toolchain package is to test the package itself on each architecture - not to detect build failures in miscellaneous packages. It is expected that such failures are managed and resolved by the maintainer (normally through tracker bugs and tinderboxing) prior to filing a stabilization request.
+
+Once the normal testing is successful, rebuild <code>@system</code> (or <code>@world</code> if the hardware permits) and once successful, observe the system in normal operation for abnormalities.
+
+== Tools ==
+
+=== getatoms ===
+
+[https://github.com/kensington/bugbot/blob/master/getatoms.py getatoms] is a simple script to get a list of atoms from a stabilisation bug. It's designed to feed atoms into another tool for processing, such as batch_stabilize.
+
+=== tatt ===
+{{package|app-portage/tatt}} is a tool designed to automate some of the repetitive tasks involved in arch testing. Currently only version 9999 supports working with a git ebuild repository and the Bugzilla atom field.
+
+For each job, tatt produces a series of scripts allowing the user to control exactly what is performed:
+
+{| class="table table-striped table-condensed"
+|-
+! Script name !! Function 
+|-
+| cleanup || Removes generated scripts and atoms from the keyword file
+|-
+| commit || Commits the keyword changes to the repository
+|-
+| rdeps || Compiles a selection of stable reverse dependencies
+|-
+| success || Reports a successful stabilisation to the bug, removing the arch from CC and closing if appropriate
+|-
+| useflags || Builds the atoms with various USE flag combinations
+|}
+
+==== Configuration ====
+
+tatt has a variety of configuration options (see {{c|man 5 tatt}}), but there is a few that must be set to ensure useful operation of all functions.
+
+{{FileBox|filename=~/.tatt|lang=bash|1=
+# architecture to use for keyword changes and bug updates
+arch=amd64
+
+# success message to print on bugs
+successmessage=@@ARCH@@ stable
+
+# repository to work in when committing keyword changes
+repodir=/home/dev/gentoo
+
+# API key to authenticate with bugzilla for updating/closing bugs
+# generate at https://bugs.gentoo.org/userprefs.cgi?tab=apikey
+bugzilla-key=XXX
+}}
+
+==== Sample workflow ====
+
+First, start a new job:
+
+{{cmd|tatt -b 590118|output=<pre>
+Bugnumber:  590118
+Stabilization bug detected.
+Jobname: writerperfect
+Found the following package atom : =app-text/writerperfect-0.9.5
+=app-text/writerperfect-0.9.5 already in /etc/portage/package.keywords/archtest
+No stable rdeps for writerperfect
+Success Report script written to writerperfect-success.s
+Commit script written to writerperfect-commit.sh
+</pre>}}
+
+Now the various scripts are available for use:
+
+{{cmd|ls|output=<pre>writerperfect-cleanup.sh  writerperfect-commit.sh  writerperfect-success.sh  writerperfect-useflags.sh</pre>}}
+
+Next, build the package and perform whatever testing is necessary:
+
+{{RootCmd|./writerperfect-useflags.sh}}
+
+{{cmd|writerperfect}}
+
+A report is also produced summarizing the build status of each USE flag combination:
+
+{{cmd|cat writerperfect.report|output=<pre>
+USE='-abiword -cdr -ebook -freehand -gsf -keynote -mspub -mwaw -pagemaker -visio -wpd -wpg -wps' : REQUIRED_USE not satisfied (probably)                                                                           
+USE='abiword cdr ebook -freehand gsf -keynote mspub mwaw pagemaker visio -wpd -wpg -wps'  succeeded for =app-text/writerperfect-0.9.5                                                                              
+USE='abiword cdr ebook freehand gsf keynote mspub mwaw pagemaker visio wpd wpg wps'  succeeded for =app-text/writerperfect-0.9.5                                                                                   
+ FEATURES= test succeeded for =app-text/writerperfect-0.9.5
+</pre>}}
+
+Once everything looks good, commit the keyword change:
+
+{{cmd|./writerperfect-commit.sh|output=<pre>
+writerperfect-0.9.5: amd64 ~x86 ~x86-linux ~x86-solaris
+
+RepoMan scours the neighborhood...
+RepoMan sez: "If everyone were like you, I'd be out of business!"
+
+RepoMan scours the neighborhood...
+>>> Creating Manifest for /home/michael/dev/gentoo/gentoo/app-text/writerperfect
+
+Note: use --include-dev (-d) to check dependencies for 'dev' profiles
+
+
+* 1 files being committed... 
+[master fe834f9] app-text/writerperfect: amd64 stable
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Commit complete.
+RepoMan sez: "If everyone were like you, I'd be out of business!"
+</pre>}}
+
+Finally, update the bug and cleanup the job:
+
+{{cmd|./writerperfect-success.sh|./writerperfect-cleanup.sh}}
+
+== QA violations ==
+
+Most of these violations will be detected automatically using the testing tool, but are also described here for completeness.
+
+* Does not respect CC
+* Does not respect CFLAGS
+* Does not respect LDFLAGS
+* Bundled symbols
+* Insecure symbols
+* Installs documentation outside of /usr/share/doc/${PF}
+* ELF files found in /usr/share
+* ...
+* ...
+
+== Architecture-specific notes ==
+
+A number of items described in earlier sections, such as checking of reverse dependencies and miscellaneous QA checks, are architecture-neutral. At a stabilization level, the primary responsibility for carrying out these checks rests on the first architecture to stabilize an ebuild. Subsequent architectures may assume that these checks have been completed and skip them if they wish.
+
+=== amd64 ===
+
+* Any developer may perform {{keyword|amd64}} stabilizations - it is not necessary to be on the arch team
+* <code>multilib-strict</code> must be added to the <var>FEATURES</var> variable in the {{Path|make.conf}} file.
+
+=== arm ===
+
+The [[Project:ARM|ARM project]] supports four {{keyword|arm}} variants - armv4, armv5, armv6, and armv7. In addition to regular testing, the package must be build tested on each variant. If access to each physical variant is not possible, <code>CFLAGS="-march=$arch"</code> is acceptable.
+
+=== x86 ===
+
+* Any developer may perform {{keyword|x86}} stabilization - it is not necessary to be on the arch team
+* It is acceptable to stabilize in an {{keyword|x86}} [[Project:AMD64/32-bit Chroot Guide|chroot]] on {{keyword|amd64}}
+* It is generally acceptable to stabilize a package with only a build test on {{keyword|x86}} if it is already stable on {{keyword|amd64}}
+
+== Acknowledgements ==
+
+Most of this guide was shameless stolen from many sources, including but not limited to:
+* Agostino Sarubbo 
+* Various arch teams
