@@ -98,6 +98,56 @@ After reviewing and adding any desired USE flags, emerge {{Package|app-emulation
 == Configuration ==
 
 === Networking ===
+The basic networking concept is outlined below.  This setup has been shown to work with both wired and wireless adapters on the host.  If desired, a DHCP server can also be setup on the host to allow for dynamic guest IP configurations.  There are many different tutorials available online to further understand these concepts.[//https://blog.san-ss.com.ar/2016/04/setup-nat-network-for-qemu-macosx][//https://shanetomlinson.com/2009/bridging-a-wireless-card-in-kvmqemu/][//http://blog.bodhizazen.net/linux/bridge-wireless-cards/][//https://forums.gentoo.org/viewtopic-t-987790-start-0.html]
+[[File:Qemu_network_diag.png|center]]
+
+
+==== Required packages ====
+{{USEflag|package=net-firewall/iptables}}
+{{USEflag|package=sys-apps/usermode-utilities}}
+{{USEflag|package=net-misc/bridge-utils}}
+
+==== Host configuration ====
+===== Creating TUN/TAP device =====
+This allows the guest to communicate with the bridge.  QEMU's default group is <code>kvm</code>, ensure that the correct group is given permissions to control the TAP.  Enabling promiscuous mode (<code>promisc</code>) for the adapter might be unnecessary.
+{{RootCmd
+|tunctl -t tap0 -g kvm
+|ifconfig tap0 0.0.0.0 promisc up
+}}
+
+
+===== Create network bridge =====
+Creating a network bridge seems necessary, even if only 1 guest is configured.  Create the bridge and add each TAP to it.  Spanning tree protocol (<code>stp</code>) is disabled because there is only 1 bridge.[//https://en.wikibooks.org/wiki/QEMU/Networking#TAP_interfaces]
+{{RootCmd
+|brctl addbr br0
+|brctl addif br0 tap0
+|brctl stp br0 off
+|ifconfig br0 10.0.1.1/24 up
+}}
+
+
+===== Packet Forwarding and NAT =====
+Allows for proper packet routing.
+{{RootCmd
+|sysctl net.ipv4.conf.tap0.proxy_arp{{=}}1
+|sysctl net.ipv4.conf.eth1.proxy_arp{{=}}1
+|sysctl net.ipv4.ip_forward{{=}}1
+}}
+
+{{RootCmd
+|iptables -t nat -A POSTROUTING -o br0 -j MASQUERADE
+|iptables -A FORWARD -i br0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+|iptables -A FORWARD -i eth1 -o br0 -j ACCEPT
+}}
+
+
+==== Guest configuration ====
+The following should be added to the configuration.
+{{CodeBox
+|-net nic,vlan{{=}}0 -net tap,ifname{{=}}tap0,script{{=}}no,downscript{{=}}no
+}}
+
+After starting the guest, the IP should be configured to be on the vlan and the gateway should be the IP given to the bridge.  The exact process will vary based on OS.
 
 === Ipv6 ===
 
