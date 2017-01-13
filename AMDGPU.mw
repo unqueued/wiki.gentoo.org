@@ -3,11 +3,13 @@
 |{{InfoBox wikipedia|Free_and_open-source_graphics_device_driver#amdgpu}}
 }}
 
-'''AMDGPU''' is a family of open source graphics drivers for newer AMD/ATI Radeon graphics cards.
+'''AMDGPU''' is a family of open source graphics drivers for newer AMD/ATI Radeon graphics cards based on the Southern Islands, Sea Islands, Volcanic Islands, and Arctic Islands chipsets.
 
-If the card in question is not found in the [[#Feature support|Feature support]] section below check the [[radeon]] article; it contains instructions for older open source AMD/ATI Radeon graphic card drivers.
+If the card in question does not appear in the [[#Feature support|Feature support]] section below, it is not supported by {{c|AMDGPU}}. In that case check the [[radeon]] article, which contains instructions for older open-source AMD/ATI Radeon graphics card drivers.
 
 == Installation ==
+
+Setting up a system to use {{c|AMDGPU}} requires identifying the proper card, installing the corresponding firmware, configuring the kernel, and installing the X11 driver.
 
 === Prerequisites ===
 
@@ -16,6 +18,8 @@ If the card in question is not found in the [[#Feature support|Feature support]]
 To choose the right driver, first detect the graphics card. Use {{c|[[Hardware detection#lspci|lspci]]}} for this task:
 
 {{RootCmd|lspci {{!}} grep -i VGA}}
+
+Check the output for one of the product names listed in the table below.
 
 ==== Feature support ====
 
@@ -27,6 +31,7 @@ To choose the right driver, first detect the graphics card. Use {{c|[[Hardware d
 ! OpenGL
 ! OpenGL ES
 ! VIDEO_CARDS
+! Firmware package
 |-
 | Southern Islands<sup>3</sup>
 | CAPE VERDE, PITCAIRN, TAHITI, OLAND, HAINAN
@@ -34,6 +39,7 @@ To choose the right driver, first detect the graphics card. Use {{c|[[Hardware d
 | {{Yes|4.1}}
 | {{Yes|3.0}}
 | ''amdgpu radeonsi''
+| {{Package|sys-firmware/radeon-ucode}}<sup>4</sup>
 |-
 | Sea Islands<sup>1</sup>
 | BONAIRE, KABINI, KAVERI, HAWAII, MULLINS
@@ -41,6 +47,7 @@ To choose the right driver, first detect the graphics card. Use {{c|[[Hardware d
 | {{Yes|4.3}}
 | {{Yes|3.1}}
 | ''amdgpu radeonsi''
+| {{Package|sys-firmware/amdgpu-ucode}}
 |-
 | Volcanic Islands
 | CARRIZO, FIJI, STONEY, TONGA, TOPAZ
@@ -48,6 +55,7 @@ To choose the right driver, first detect the graphics card. Use {{c|[[Hardware d
 | {{Yes|4.3}}
 | {{Yes|3.1}}
 | ''amdgpu radeonsi''
+| {{Package|sys-firmware/amdgpu-ucode}}
 |-
 | Arctic Islands<sup>2</sup>
 | POLARIS10, POLARIS11
@@ -55,27 +63,45 @@ To choose the right driver, first detect the graphics card. Use {{c|[[Hardware d
 | {{Yes|4.3}}
 | {{Yes|3.1}}
 | ''amdgpu radeonsi''
+| {{Package|sys-firmware/amdgpu-ucode}}
 |}
 
 : <sup>1</sup> Support is optional in the kernel.
 : <sup>2</sup> Since kernel 4.7-rc6
 : <sup>3</sup> Experimental, optional support added since kernel 4.9-rc1
+: <sup>4</sup> {{Bug|605526}} proposes adding SI firmware files to {{Package|sys-firmware/amdgpu-ucode}}
 
 === Firmware ===
 
-==== amdgpu-ucode ====
+It is necessary to install the proper firmware (or microcode) for your card. There are two ways to get the firmware: either install a specific AMD firmware package, or install the general package {{Package|sys-kernel/linux-firmware}}.
+
+==== Specific package: amdgpu-ucode ====
+
+For people '''not''' using Southern Islands cards (see "Chipset name" in the table above), the package to install is {{Package|sys-firmware/amdgpu-ucode}}.
 
 ===== USE flags =====
 
 {{USEflag|package=sys-firmware/amdgpu-ucode}}
 
-===== Emerge =====
+Using a Sea Islands card requires the <code>legacy</code> <var>USE</var> flag.
 
-Microcode is required. To get the firmware install one of two separate packages. Either the {{Package|sys-firmware/amdgpu-ucode}} package:
+===== Emerge =====
 
 {{Emerge|sys-firmware/amdgpu-ucode}}
 
-==== linux-firmware ====
+==== Specific package: radeon-ucode ====
+
+Those using Southern Islands cards need to install {{Package|sys-firmware/radeon-ucode}}.
+
+{{Note|{{Bug|605526}} proposes adding SI firmware files to {{Package|sys-firmware/amdgpu-ucode}}. If the bug is resolved and fixed, SI chipset users can then use {{Package|sys-firmware/amdgpu-ucode}} with the <code>legacy</code> <var>USE</var> flag instead.}}
+
+===== Emerge =====
+
+{{Emerge|sys-firmware/radeon-ucode}}
+
+==== General package: linux-firmware ====
+
+The alternative is the {{Package|sys-kernel/linux-firmware}} package, which contains a large collection of firmware files, including the files provided by {{Package|sys-firmware/radeon-ucode}} and {{Package|sys-firmware/amdgpu-ucode}}.
 
 ===== USE flags =====
 
@@ -83,110 +109,7 @@ Microcode is required. To get the firmware install one of two separate packages.
 
 ===== Emerge =====
 
-Or the {{Package|sys-kernel/linux-firmware}} package (this package contains also other firmware).
-
 {{Emerge|sys-kernel/linux-firmware}}
-
-==== Built-in kernel ====
-
-When compiling amdgpu directly into the kernel (instead of as a module), make sure the firmware for each model (check available ones in {{Path|/lib/firmware/amdgpu}} or {{Path|/lib/firmware/radeon}}) is included in the kernel:
-
-{{KernelBox|title=Including firmware in the kernel|
-Device Drivers  --->
-    Generic Driver Options  --->
-        -*- Userspace firmware loading support
-        [*] Include in-kernel firmware blobs in kernel binary
-            (amdgpu/<YOUR-MODEL>.bin radeon/<YOUR-MODEL>.bin)
-            (/lib/firmware) Firmware blobs root directory
-}}
-
-Save the kernel configuration and exit without compiling. More kernel configuration options will be set below.
-
-{{Note|''amdgpu/<YOUR-MODEL>.bin'' should be replaced with the full list (space separated) appearing in front of the chipset's name in the table below (e.g. for Volcanic Islands/TONGA: ({{Path|amdgpu/tonga_ce.bin amdgpu/tonga_mec2.bin amdgpu/tonga_rlc.bin amdgpu/tonga_smc.bin amdgpu/tonga_mc.bin amdgpu/tonga_mec.bin amdgpu/tonga_sdma1.bin amdgpu/tonga_uvd.bin amdgpu/tonga_me.bin amdgpu/tonga_pfp.bin amdgpu/tonga_sdma.bin amdgpu/tonga_vce.bin}}) }}
-
-{{Note|Run a command like "echo radeon/hawaii_{ce,k_smc,mc,me,mec,pfp,rlc,sdma,sdma1,smc,uvd,vce}.bin" in a terminal to expand the filenames}}
-
-Below is a list of the firmware files needed for each family/chipset of cards:
-
-{| class="table table-condensed table-striped"
-|-
-! Family
-! Chipset name
-! Product name
-! Firmware
-|-
-| rowspan="5" | Southern Islands
-| CAPE VERDE
-| HD7750, HD7770, R7 250, R7 250X, R9 370X
-| {{Path|radeon/verde_ce.bin radeon/verde_mc.bin radeon/verde_me.bin radeon/verde_pfp.bin radeon/verde_rlc.bin radeon/verde_smc.bin radeon/TAHITI_uvd.bin radeon/TAHITI_vce.bin}}
-|-
-| PITCAIRN
-| HD7800, R9 270X
-| {{Path|radeon/pitcairn_ce.bin radeon/pitcairn_mc.bin radeon/pitcairn_me.bin radeon/pitcairn_pfp.bin radeon/pitcairn_rlc.bin radeon/pitcairn_smc.bin radeon/pitcairn_k_smc.bin radeon/TAHITI_uvd.bin radeon/TAHITI_vce.bin}}
-|-
-| TAHITI
-| HD7870 XT, HD7900, R9 280X
-| {{Path|radeon/tahiti_ce.bin radeon/tahiti_mc.bin radeon/tahiti_me.bin radeon/tahiti_pfp.bin radeon/tahiti_rlc.bin radeon/tahiti_smc.bin radeon/TAHITI_uvd.bin radeon/TAHITI_vce.bin}}
-|-
-| OLAND
-| HD8550M-HD8790M, R7 240
-| {{Path|radeon/oland_ce.bin radeon/oland_mc.bin radeon/oland_me.bin radeon/oland_pfp.bin radeon/oland_rlc.bin radeon/oland_smc.bin radeon/TAHITI_uvd.bin}}
-|-
-| HAINAN
-| HD8970M
-| {{Path|radeon/hainan_ce.bin radeon/hainan_mc.bin radeon/hainan_me.bin radeon/hainan_pfp.bin radeon/hainan_rlc.bin radeon/hainan_smc.bin radeon/TAHITI_uvd.bin}}
-|-
-| rowspan="5" | Sea Islands
-| BONAIRE
-| HD7790, R7 260, R7 260X, R7 360
-| radeon/bonaire_ce.bin radeon/bonaire_mc.bin radeon/bonaire_me.bin radeon/bonaire_mec.bin radeon/bonaire_pfp.bin radeon/bonaire_rlc.bin radeon/bonaire_sdma1.bin radeon/bonaire_sdma.bin radeon/bonaire_smc.bin radeon/bonaire_uvd.bin radeon/bonaire_vce.bin
-|-
-| KABINI
-| HD8180-HD8400
-| radeon/kabini_ce.bin radeon/kabini_me.bin radeon/kabini_mec.bin radeon/kabini_pfp.bin radeon/kabini_rlc.bin radeon/kabini_sdma1.bin radeon/kabini_sdma.bin radeon/kabini_uvd.bin radeon/kabini_vce.bin
-|-
-| KAVERI
-| 
-| radeon/kaveri_ce.bin radeon/kaveri_me.bin radeon/kaveri_mec2.bin radeon/kaveri_mec.bin radeon/kaveri_pfp.bin radeon/kaveri_rlc.bin radeon/kaveri_sdma1.bin radeon/kaveri_sdma.bin radeon/kaveri_uvd.bin radeon/kaveri_vce.bin
-|-
-| HAWAII
-| R9 290, R9 290X, R9 390, R9 390X
-| radeon/hawaii_{ce,k_smc,mc,me,mec,pfp,rlc,sdma,sdma1,smc,uvd,vce}.bin
-|-
-| MULLINS
-| 
-| radeon/mullins_ce.bin radeon/mullins_me.bin radeon/mullins_mec.bin radeon/mullins_pfp.bin radeon/mullins_rlc.bin radeon/mullins_sdma1.bin radeon/mullins_sdma.bin radeon/mullins_uvd.bin radeon/mullins_vce.bin
-|-
-| rowspan="5" | Volcanic Islands
-| CARRIZO
-| 
-| amdgpu/carrizo_ce.bin amdgpu/carrizo_me.bin amdgpu/carrizo_mec2.bin amdgpu/carrizo_mec.bin amdgpu/carrizo_pfp.bin amdgpu/carrizo_rlc.bin amdgpu/carrizo_sdma1.bin amdgpu/carrizo_sdma.bin amdgpu/carrizo_uvd.bin amdgpu/carrizo_vce.bin
-|-
-| FIJI
-| R9 Fury, R9 Fury X, R9 Nano, Pro Duo
-| amdgpu/fiji_ce.bin amdgpu/fiji_mc.bin amdgpu/fiji_me.bin amdgpu/fiji_mec2.bin amdgpu/fiji_mec.bin amdgpu/fiji_pfp.bin amdgpu/fiji_rlc.bin amdgpu/fiji_sdma1.bin amdgpu/fiji_sdma.bin amdgpu/fiji_smc.bin amdgpu/fiji_uvd.bin amdgpu/fiji_vce.bin
-|-
-| TONGA
-| R9 285, R9 380, R9 380X
-| amdgpu/tonga_ce.bin amdgpu/tonga_k_smc.bin amdgpu/tonga_mc.bin amdgpu/tonga_me.bin amdgpu/tonga_mec2.bin amdgpu/tonga_mec.bin amdgpu/tonga_pfp.bin amdgpu/tonga_rlc.bin amdgpu/tonga_sdma1.bin amdgpu/tonga_sdma.bin amdgpu/tonga_smc.bin amdgpu/tonga_uvd.bin amdgpu/tonga_vce.bin
-|-
-| TOPAZ
-| R7 M260, R7 M265, R7 M340, R7 M360, R7 M360, R7 M370, R7 M440, R7 M445, R7 M460, R7 M465
-| amdgpu/topaz_ce.bin amdgpu/topaz_mc.bin amdgpu/topaz_me.bin amdgpu/topaz_mec2.bin amdgpu/topaz_mec.bin amdgpu/topaz_pfp.bin amdgpu/topaz_rlc.bin amdgpu/topaz_sdma1.bin amdgpu/topaz_sdma.bin amdgpu/topaz_smc.bin
-|-
-| STONEY
-|
-| amdgpu/stoney_ce.bin amdgpu/stoney_me.bin amdgpu/stoney_mec.bin amdgpu/stoney_pfp.bin amdgpu/stoney_rlc.bin amdgpu/stoney_sdma.bin amdgpu/stoney_uvd.bin amdgpu/stoney_vce.bin
-|-
-| rowspan="2" | Arctic Islands
-| POLARIS10
-| RX 470, RX 480
-| amdgpu/polaris10_ce.bin amdgpu/polaris10_mc.bin amdgpu/polaris10_me.bin amdgpu/polaris10_mec2.bin amdgpu/polaris10_mec.bin amdgpu/polaris10_pfp.bin amdgpu/polaris10_rlc.bin amdgpu/polaris10_sdma1.bin amdgpu/polaris10_sdma.bin amdgpu/polaris10_smc.bin amdgpu/polaris10_smc_sk.bin amdgpu/polaris10_uvd.bin amdgpu/polaris10_vce.bin
-|-
-| POLARIS11
-| RX 460
-| amdgpu/polaris11_ce.bin amdgpu/polaris11_mc.bin amdgpu/polaris11_me.bin amdgpu/polaris11_mec2.bin amdgpu/polaris11_mec.bin amdgpu/polaris11_pfp.bin amdgpu/polaris11_rlc.bin amdgpu/polaris11_sdma1.bin amdgpu/polaris11_sdma.bin amdgpu/polaris11_smc.bin amdgpu/polaris11_smc_sk.bin amdgpu/polaris11_uvd.bin amdgpu/polaris11_vce.bin
-|}
 
 === Kernel ===
 
@@ -198,14 +121,15 @@ Processor type and features  --->
 Device Drivers  --->
     Graphics support  --->
         <*/M> Direct Rendering Manager (XFree86 4.1.0 and higher DRI support)
+        <   > ATI Radeon
         <*/M> AMD GPU
               [ /*] Enable amdgpu support for SI parts
-                 (only needed if you want to use Southern Islands GPUs with the amdgpu driver)
+                    (only needed for Southern Islands GPUs with the amdgpu driver)
               [ /*] Enable amdgpu support for CIK parts 
-                 (only needed if you want to use Sea Islands GPUs with the amdgpu driver)
+                    (only needed for Sea Islands GPUs with the amdgpu driver)
               [*]   Enable AMD powerplay component  
-         ACP (Audio CoProcessor) Configuration  ---> 
-              [*] Enable AMD Audio CoProcessor IP support (CONFIG_DRM_AMD_ACP)
+              ACP (Audio CoProcessor) Configuration  ---> 
+                  [*] Enable AMD Audio CoProcessor IP support (CONFIG_DRM_AMD_ACP)
     <*/M> Sound card support  --->
         <*/M> Advanced Linux Sound Architecture  --->
             [*]   PCI sound devices --->
@@ -217,19 +141,128 @@ Device Drivers  --->
                   (2048) Pre-allocated buffer size for HD-audio driver
 }}
 
-The options from the Sound card support menu need only to be set if the card supports HDMI or DisplayPort audio and you want to use it. On newer kernels, you also want to additionally set <code>CONFIG_DRM_AMD_ACP=y</code>.
+{{Note|When using {{c|AMD GPU}}, it is recommended to '''unset''' the {{c|ATI Radeon}} option so that the {{c|radeon}} module is not built. Or alternatively, the module can be built and [[Kernel Modules#Blacklist|blacklisted]] (after rebooting check with <code>lsmod {{!}} grep radeon</code> to see if the blacklisting worked). The {{c|amdgpu}} and {{c|radeon}} modules are not meant to be loaded simultaneously.}}
 
-See the [[Radeon]] article for more details about using HDMI/DisplayPort audio.
+The options from the {{c|Sound card support}} menu need only to be set if the card supports HDMI or DisplayPort audio and you want to use it. On newer kernels where {{c|Enable AMD Audio CoProcessor IP support}} appears, that should also be set.
 
-Note: Some recent cards, such as those based on the POLARIS10/11 chipset, require AMD's DAL for HDMI/DisplayPort audio to function. It is not yet merged upstream.
+See the [[radeon]] article for more details about using HDMI/DisplayPort audio.
 
-=== USE flags ===
+{{Note|Some recent cards, such as those based on the POLARIS10/11 chipset, require AMD's DAL for HDMI/DisplayPort audio to function. It is not yet merged upstream.}}
+
+==== Incorporating firmware ====
+
+The firmware package installed in [[#Firmware|an earlier section]] provides files in {{Path|/lib/firmware/amdgpu}} (for Volcanic Islands and Arctic Islands cards) and/or {{Path|/lib/firmware/radeon}} (for Southern Islands and Sea Islands cards). Configure the kernel to use the correct firmware files by setting the following options:
+
+{{KernelBox|title=Including firmware in the kernel|
+Device Drivers  --->
+    Generic Driver Options  --->
+        -*- Userspace firmware loading support
+        [*] Include in-kernel firmware blobs in kernel binary
+            (amdgpu/<YOUR-MODEL>.bin or radeon/<YOUR-MODEL>.bin)
+            (/lib/firmware) Firmware blobs root directory
+}}
+
+<code>amdgpu/<YOUR-MODEL>.bin or radeon/<YOUR-MODEL>.bin</code> should be replaced with the full list of filenames given with the chipset's name in the table below, separated by spaces. Use <code>echo</code> to expand the filenames. E.g. for Volcanic Islands/TONGA, run
+{{Cmd|echo amdgpu/tonga_{ce,k_smc,mc,me,mec2,mec,pfp,rlc,sdma1,sdma,smc,uvd,vce}.bin|output=<code>amdgpu/tonga_ce.bin amdgpu/tonga_k_smc.bin amdgpu/tonga_mc.bin amdgpu/tonga_me.bin amdgpu/tonga_mec2.bin amdgpu/tonga_mec.bin amdgpu/tonga_pfp.bin amdgpu/tonga_rlc.bin amdgpu/tonga_sdma1.bin amdgpu/tonga_sdma.bin amdgpu/tonga_smc.bin amdgpu/tonga_uvd.bin amdgpu/tonga_vce.bin</code>}}
+Then <code>amdgpu/tonga_ce.bin amdgpu/tonga_k_smc.bin amdgpu/tonga_mc.bin amdgpu/tonga_me.bin amdgpu/tonga_mec2.bin amdgpu/tonga_mec.bin amdgpu/tonga_pfp.bin amdgpu/tonga_rlc.bin amdgpu/tonga_sdma1.bin amdgpu/tonga_sdma.bin amdgpu/tonga_smc.bin amdgpu/tonga_uvd.bin amdgpu/tonga_vce.bin</code> is the string that should be put into the kernel configuration.
+
+{{Important|If the {{c|amdgpu}} module is compiled as a loadable kernel module (i.e. {{c|AMD GPU}} in the kernel configuration is set to <code>M</code>), the firmware files need to be present on the filesystem at the time the module is loaded. In particular, if the module is loaded from an initrd, the firmware also needs to be included in the initrd. On the other hand, if the module is built into the kernel, the firmware files will also be built into the kernel itself.}}
+
+After expanding the firmware file names from the following table and copying them into the kernel configuration, save the configuration, then compile and install the new kernel and modules.
+
+{| class="table table-condensed table-striped"
+|-
+! Family
+! Chipset name
+! Product name
+! Firmware
+|-
+| rowspan="5" | Southern Islands
+| CAPE VERDE
+| HD7750, HD7770, R7 250, R7 250X, R9 370X
+| {{Path|radeon/{verde_{ce,mc,me,pfp,rlc,smc},TAHITI_{uvd,vce}}.bin}}
+|-
+| PITCAIRN
+| HD7800, R9 270X
+| {{Path|radeon/{pitcairn_{ce,mc,me,pfp,rlc,smc,k_smc},TAHITI_{uvd,vce}}.bin}}
+|-
+| TAHITI
+| HD7870 XT, HD7900, R9 280X
+| {{Path|radeon/{tahiti_{ce,mc,me,pfp,rlc,smc},TAHITI_{uvd,vce}}.bin}}
+|-
+| OLAND
+| HD8550M-HD8790M, R7 240
+| {{Path|radeon/{oland_{ce,mc,me,pfp,rlc,smc},TAHITI_uvd}.bin}}
+|-
+| HAINAN
+| HD8970M
+| {{Path|radeon/{hainan_{ce,mc,me,pfp,rlc,smc},TAHITI_uvd}.bin}}
+|-
+| rowspan="5" | Sea Islands
+| BONAIRE
+| HD7790, R7 260, R7 260X, R7 360
+| {{Path|radeon/bonaire_{ce,mc,me,mec,pfp,rlc,sdma1,sdma,smc,uvd,vce}.bin}}
+|-
+| KABINI
+| HD8180-HD8400
+| {{Path|radeon/kabini_{ce,me,mec,pfp,rlc,sdma1,sdma,uvd,vce}.bin}}
+|-
+| KAVERI
+| 
+| {{Path|radeon/kaveri_{ce,me,mec2,mec,pfp,rlc,sdma1,sdma,uvd,vce}.bin}}
+|-
+| HAWAII
+| R9 290, R9 290X, R9 390, R9 390X
+| {{Path|radeon/hawaii_{ce,k_smc,mc,me,mec,pfp,rlc,sdma,sdma1,smc,uvd,vce}.bin}}
+|-
+| MULLINS
+| 
+| {{Path|radeon/mullins_{ce,me,mec,pfp,rlc,sdma1,sdma,uvd,vce}.bin}}
+|-
+| rowspan="5" | Volcanic Islands
+| CARRIZO
+| 
+| {{Path|amdgpu/carrizo_{ce,me,mec2,mec,pfp,rlc,sdma1,sdma,uvd,vce}.bin}}
+|-
+| FIJI
+| R9 Fury, R9 Fury X, R9 Nano, Pro Duo
+| {{Path|amdgpu/fiji_{ce,mc,me,mec2,mec,pfp,rlc,sdma1,sdma,smc,uvd,vce}.bin}}
+|-
+| TONGA
+| R9 285, R9 380, R9 380X
+| {{Path|amdgpu/tonga_{ce,k_smc,mc,me,mec2,mec,pfp,rlc,sdma1,sdma,smc,uvd,vce}.bin}}
+|-
+| TOPAZ
+| R7 M260, R7 M265, R7 M340, R7 M360, R7 M360, R7 M370, R7 M440, R7 M445, R7 M460, R7 M465
+| {{Path|amdgpu/topaz_{ce,mc,me,mec2,mec,pfp,rlc,sdma1,sdma,smc}.bin}}
+|-
+| STONEY
+|
+| {{Path|amdgpu/stoney_{ce,me,mec,pfp,rlc,sdma,uvd,vce}.bin}}
+|-
+| rowspan="2" | Arctic Islands
+| POLARIS10
+| RX 470, RX 480
+| {{Path|amdgpu/polaris10_{ce,mc,me,mec2,mec,pfp,rlc,sdma1,sdma,smc,smc_sk,uvd,vce}.bin}}
+|-
+| POLARIS11
+| RX 460
+| {{Path|amdgpu/polaris11_{ce,mc,me,mec2,mec,pfp,rlc,sdma1,sdma,smc,smc_sk,uvd,vce}.bin}}
+|}
+
+=== X11 driver ===
+
+==== USE flags ====
+
+Set the <var>USE</var> flags for the <code>amdgpu</code> driver as needed.
 
 {{USEflag|package=x11-drivers/xf86-video-amdgpu}}
 
-=== Emerge ===
+The package will be automatically emerged as a dependency of {{Package|x11-base/xorg-drivers}} after setting <var>VIDEO_CARDS</var> following the instructions in the next section.
 
-Portage uses the <var>VIDEO_CARDS</var> variable for enabling support for various graphics cards in packages. Setting <var>VIDEO_CARDS</var> to <code>amdgpu radeonsi</code> (see the [[#Feature support|feature matrix]] section above) and asking Portage to update changed USE flags in the [[World set (Portage)|@world set]] will pull in the correct driver:
+==== Emerge ====
+
+Portage uses the <var>VIDEO_CARDS</var> variable for enabling support for various graphics cards in packages. Setting <var>VIDEO_CARDS</var> to <code>amdgpu radeonsi</code> (see the [[#Feature support|feature matrix]] section above) and asking Portage to update changed {{c|USE}} flags in the [[World set (Portage)|@world set]] will pull in the correct driver:
 
 {{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
 VIDEO_CARDS="amdgpu radeonsi"
@@ -237,15 +270,17 @@ VIDEO_CARDS="amdgpu radeonsi"
 
 {{Emerge|params+=--changed-use|@world}}
 
+The system should now be prepared to use {{c|amdgpu}} after the next reboot.
+
 == Troubleshooting ==
 
 === Kernel ===
 
-Older kernels may not provide the <code>AMD GPU</code> option. Try emerging an unstable (denoted by a {{Keyword|~}}) kernel.
+Older kernels which do not support the {{c|amdgpu}} driver will not provide the {{c|AMD GPU}} option. If this is the case, try emerging an unstable (denoted by a {{Keyword|~}}) kernel.
 
 === AMDGPU/RadeonSI drivers do not work ===
 
-If the graphics card is not supported by <code>amdgpu</code> and <code>radeonsi</code> alone, try adding <code>radeon</code> to {{Path|make.conf}}'s <var>VIDEO_CARDS</var> variable. For example:
+If the graphics card is not supported by including <code>amdgpu</code> and <code>radeonsi</code> alone in <var>VIDEO_CARDS</var>, try adding <code>radeon</code> to {{Path|make.conf}}'s <var>VIDEO_CARDS</var> definition. For example:
 
 {{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
 VIDEO_CARDS="amdgpu radeonsi radeon"
