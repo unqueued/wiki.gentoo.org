@@ -224,9 +224,9 @@ Since kernel version 4.4 the driver has been moved and the legacy fbdev support 
                 [*] Bootup logo  --->    
 </pre>}}
 
-=== Driver ===
+=== Drivers ===
 
-Portage uses the <var>[https://packages.gentoo.org/useflags/video_cards_intel VIDEO_CARDS]</var> variable, which expands into the <var>[[:/etc/portage/make.conf#USE_EXPAND|USE_EXPAND]]</var> variable, for enabling support for various graphics cards in packages. Assuming {{Package|x11-base/xorg-drivers}} has already been installed, setting <var>VIDEO_CARDS</var> variable in {{Path|[[:/etc/portage/make.conf#VIDEO_CARDS|/etc/portage/make.conf]]}} will pull in the correct video driver: (see the [[Intel#Feature support|feature matrix]]) 
+Portage uses the <var>[https://packages.gentoo.org/useflags/video_cards_intel VIDEO_CARDS]</var> variable, which expands into the <var>[[:/etc/portage/make.conf#USE_EXPAND|USE_EXPAND]]</var> variable, for enabling support for various graphics cards. Assuming {{Package|x11-base/xorg-drivers}} has already been installed, setting the <var>VIDEO_CARDS</var> variable in {{Path|[[:/etc/portage/make.conf#VIDEO_CARDS|/etc/portage/make.conf]]}} will pull in the correct video driver:
 
 {{FileBox|filename=[[:/etc/portage/make.conf#VIDEO_CARDS|/etc/portage/make.conf]]|title=Gen 1|lang=bash|1=VIDEO_CARDS="intel"}}
 
@@ -234,17 +234,71 @@ Portage uses the <var>[https://packages.gentoo.org/useflags/video_cards_intel VI
 
 {{FileBox|filename=[[:/etc/portage/make.conf#VIDEO_CARDS|/etc/portage/make.conf]]|title=Gen 4 through Gen 9|lang=bash|1=VIDEO_CARDS="intel i965"}}
 
-<code>[https://packages.gentoo.org/useflags/video_cards_intel intel]</code> is for {{Package|x11-base/xorg-drivers}} and <code>[https://packages.gentoo.org/useflags/video_cards_i915 i915]</code> resp. <code>[https://packages.gentoo.org/useflags/video_cards_i965 i965]</code> [https://bugs.gentoo.org/show_bug.cgi?id=522878#c1 are for media-libs/mesa].
+The <code>[https://packages.gentoo.org/useflags/video_cards_intel intel]</code> value is for {{Package|x11-base/xorg-drivers}}. The <code>[https://packages.gentoo.org/useflags/video_cards_i915 i915]</code> and <code> [https://packages.gentoo.org/useflags/video_cards_i965 i965]</code> values [https://bugs.gentoo.org/show_bug.cgi?id=522878#c1 are for media-libs/mesa].
 
-Beginning with x11-base/xorg-drivers-1.19, {{Package|x11-base/xorg-drivers}} also includes the <code>i965</code> USE flag.  This will omit {{Package|x11-drivers/xf86-video-intel}} in favor of the more advanced <code>modesetting</code> driver built in to {{Package|x11-base/xorg-server}}.
+{{Important|Beginning with '''x11-base/xorg-drivers-1.19''', the {{Package|x11-base/xorg-drivers}} package (in addition to the mesa package) includes support the <code>i965</code> USE flag. This will omit selection of the deprecating {{Package|x11-drivers/xf86-video-intel}} driver in favor of the more maintained, generic modesetting DDX driver built-in to {{Package|x11-base/xorg-server}}.}}
+
+After making any {{Path|make.conf}} modifications, update the system so the changes take effect using by passing the <code>--changed-use --deep</code> options to {{c|emerge}}:
+
+{{Emerge|params+=--changed-use --deep|@world}}
+
+Those wishing to not accept the Intel graphic driver defaults in the main repository can read on into the sub-sections below.
+
+==== Intel DDX ====
+
+Before proceeding with the Intel DDX driver, note that this driver has been ''slowly deprecating'' for around two years. This has caused other major<ref>https://lists.fedoraproject.org/archives/list/devel@lists.fedoraproject.org/thread/AUPYPJMFJZMHPEKN24LBABZKIEOV4NU5/</ref><ref>https://tjaalton.wordpress.com/2016/07/23/intel-graphics-gen4-and-newer-now-defaults-to-modesetting-driver-on-x/</ref> Linux distributions to begin to move toward the modesetting DDX driver (detailed in [[#Modesetting DDX|the section below]]). Although presently faster than modesetting driver, there has been no official package release from Intel upstream for their DDX driver for quite some time<ref>https://cgit.freedesktop.org/xorg/driver/xf86-video-intel/log/</ref>, and is therefore causing a maintenance burden on Gentoo's X11 package maintainers.
+
+With this being stated, the Intel DDX driver has slight speed advantages over the generic modesetting driver as it is able to more closely interact with hardware acceleration present in chips utilizing SNA and DRI3.
+
+===== USE flags =====
 
 Check the USE flags of {{Package|x11-drivers/xf86-video-intel}}:
 
 {{USEflag|package=x11-drivers/xf86-video-intel}}
 
-After making any changes update the system so the changes take effect by running the {{c|emerge}} command with the <code>--changed-use</code> option:
+===== Emerge =====
+
+{{Emerge|x11-drivers/xf86-video-intel}}
+
+===== xorg.conf =====
+
+To force Xorg server to use the Intel DDX driver with SNA for hardware accelleration, the following file can be created in {{Path|/etc/X11/xorg.conf.d/}}:
+
+{{FileBox|filename=/etc/X11/xorg.conf.d/20-intel.conf|title=Force Intel DDX|1=
+Section "Device"
+    Identifier  "Intel Graphics"
+    Driver      "intel"
+    Option      "AccelMethod"    "sna"
+EndSection
+}}
+
+==== Modesetting DDX ====
+
+As mentioned above, the modesetting DDX driver is now the default driver on newer Intel graphics chipsets for Gentoo. This driver uses GLAMOR to accelerate 2D graphical over Mesa (the open source OpenGL implementation). As of '''x11-base/xorg-drivers-1.19''', ''this has become the default'' for Gentoo.
+
+To force the modesetting driver, first make sure <code>glamor</code> has been added to the <var>USE</var> variable:
+
+{{FileBox|filename=/etc/portage/make.conf|title=Enable glamor globally|lang=bash|1=
+USE="glamor"
+VIDEO_CARDS="intel i965"
+}}
 
 {{Emerge|params+=--changed-use --deep|@world}}
+
+===== xorg.conf =====
+
+Now force Xorg server to load the modesetting driver:
+
+{{FileBox|filename=/etc/X11/xorg.conf.d/20-modesetting.conf|title=Force modesetting DDX|1=
+Section "Device"
+    Identifier  "Intel Graphics"
+    Driver      "modesetting"
+    Option      "AccelMethod"    "glamor"
+    Option      "DRI"            "3"
+EndSection
+}}
+
+Note, if both {{Path|20-intel.conf}} and {{Path|20-modesetting.conf}} are defined in {{Path|/etc/X11/xorg.conf.d/}}, the X server will attempt to load the files in alpha-numeric order.
 
 === VAAPI ===
 
