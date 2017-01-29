@@ -1,23 +1,30 @@
-'''AutoFS''' uses the Linux kernel Automounter to automatically mount several types of media like memory sticks, network shares, CD-Rom/DVD/BR etc. on demand.
+'''AutoFS''' is a program that uses the Linux kernel automounter to automatically mount filesystems on demand. It works with USB flash drives and external hard drives, network shares, CD-Rom/DVD/BluRay, and so on.
+
+AutoFS works by monitoring directories on the local filesystem. Whenever a program tries to access one of those directories, AutoFS will mount something on that directory. The directories to monitor, as well as what to mount on them, are specified in the AutoFS configuration files such as {{Path|/etc/autofs/autofs.master}}. Examples of how to configure AutoFS mounts are given down the page, under [[#Usage]].
 
 == Installation ==
 
-=== Kernel ===
+AutoFS requires a kernel module and a userspace program.
 
-Activate the following kernel options:
+{{Note|To mount a filesystem (whether with AutoFS, or manually), the corresponding mount helper needs to be installed at the time of mounting. For example, {{Package|sys-fs/ntfs3g}} or something equivalent is required to mount an NTFS filesystem. Some filesystems may also require changes to the kernel configuration. Check the wiki page for the specific filesystem to see what software and configuration will be required.}}
 
-{{KernelBox|<pre>
+=== Kernel configuration ===
+
+The following kernel option activates the kernel functionality required for automounting.
+
+{{KernelBox|
 File systems --->
-    <*> Kernel automounter version 4 support (also supports v3)
-</pre>}}
+    <*/M> Kernel automounter version 4 support (also supports v3)}}
 
-=== USE flags ===
+{{Note|If the option is set to {{c|M}}, the partition that contains the module file must already be mounted before AutoFS can work.}}
+
+=== Userspace program ===
+
+As with most Linux filesystems, in addition to the relevant option being enabled in the kernel, the userspace package must be installed to actually handle the mounting.
 
 {{USEflag|package=net-fs/autofs}}
 
-=== Emerge ===
-
-Like most filesystems available for Linux, after AutoFS has been enabled in the kernel, the user space package must be installed for system administration:
+Install it with the following command:
 
 {{Emerge|net-fs/autofs}}
 
@@ -25,97 +32,225 @@ Like most filesystems available for Linux, after AutoFS has been enabled in the 
 
 === Service ===
 
+The AutoFS daemon needs to be running for automounting to work.
+
 ==== OpenRC ====
 
-Start and add AutoFS to the default runlevel:
+Add AutoFS to the default runlevel:
 
-{{RootCmd
-|/etc/init.d/autofs start
-|rc-update add autofs default
-}}
+{{RootCmd|rc-update add autofs default}}
+
+To begin using the automounter before rebooting, start it manually:
+
+{{RootCmd|/etc/init.d/autofs start}}
+
+Of course it is advisable to edit the configuration files first, as described below. If AutoFS is already running when the configuration is edited, run
+
+{{RootCmd|/etc/init.d/autofs reload}}
+
+to make it reload the configuration.
 
 === Files ===
 
-The configuration files are found in the following locations:
+The default installation of AutoFS provides the following four configuration files:
 {| class="table table-condensed table-striped"
 |-
 ! scope="col" width="25%" | File
 ! Description
 |-
-| {{Path|/etc/conf.d/autofs}} || this file can be used to add ''automount'' command line options than will be used when the daemon is started;
+| {{Path|/etc/conf.d/autofs}} || This file can be used to pass command-line options to the <code>automount</code> program. Most users will not need to edit this file.
 |-
-| {{Path|/etc/autofs/autofs.conf}} || it defines some default parameters, such as the location of the master configuration file or default timeout that causes an inactive mount to be disconnected;
+| {{Path|/etc/autofs/autofs.conf}} || This file defines some default parameters for AutoFS, such as the location of the master map file and the default timeout that causes an inactive mount to be disconnected. Most users will not need to edit this file.
 |-
-| {{Path|/etc/autofs/auto.master}} || it's the ''"master map"'' which is consulted to set up managed mount points when the autofs script is invoked. It lists all the maps and their associated directories. It consists of triplets of directory name, map name, and mount options to be used with that map;
+| {{Path|/etc/autofs/auto.master}} || This is the '''"master map"''', effectively an index to the "map files" and other resources that tell AutoFS what to mount and where. Most users ''will'' need to edit this file.
 |-
-| {{Path|/etc/autofs/auto.misc}} || it's the map file which specifies the resources and mount options for the ''misc'' mount point;
+| {{Path|/etc/autofs/auto.misc}} || This is an example of a '''"map file"''' which is referenced by the master map. It specifies what to mount and where to mount it. Most users ''will' need to edit this file.
 |}
+
+==== /etc/conf.d/autofs ====
+
+{{Path|/etc/conf.d/autofs}} is the configuration file that corresponds to the initscript {{Path|/etc/init.d/autofs}}. For basic AutoFS usage, there is no need to modify this file.
+
+The file defines two variables:
+
+* <var>USE_MISC_DEVICE</var>: If this is set to <code>"yes"</code>, the initscript will create the device file {{Path|/dev/autofs}}.
+* <var>OPTIONS</var>: This contains command-line arguments to be passed to <code>automount</code>. Run <code>man 8 automount</code> to view the manual page which lists all the allowed options.
+
+{{Note|<code>automount</code> may be given one non-option argument, the filename of the master map, but for most users the default value (<code>auto.master</code>) is fine. If you do want to change the master map filename, setting the <var>master_map_name</var> configuration variable in {{Path|/etc/autofs/autofs.conf}} is probably a better way to do it. The rest of this page assumes the master map filename has been left at the default value.}}
+
+==== /etc/autofs/autofs.conf ====
+
+{{Path|/etc/autofs/autofs.conf}} is AutoFS's own configuration file. The default installation is well commented, and the options that can be specified in this file are also documented in the manual page, which can be viewed by running
+{{Cmd|man 5 autofs.conf}}
+For basic AutoFS usage, there is no need to modify this file.
+
+==== /etc/autofs/auto.master ====
+
+{{Path|/etc/autofs/auto.master}} is the (default) ''"master map"''. Each line describes an AutoFS mount. 
+
+{{Important|AutoFS does not use the terms "mount" and "mount point" in quite the same way as <code>/bin/mount</code> or {{Path|/etc/fstab}}.}}
+
+Typically, the lines in this file take the following format:
+
+{{FileBox|filename=/etc/autofs/auto.master|1=
+mount-point     [map-type[,format]:]map                      [-options]
+}}
+
+In brief, <code>mount-point</code> specifies a directory for AutoFS to watch, and <code>map</code> that tells AutoFS what to mount there. For details, see [[#Usage]] below, or view the manual page by running <code>man 5 auto.master</code>. Neither of these fields may contain spaces.
+
+After handling the first two (whitespace-separated) fields as <code>mount-point</code> and <code>map</code> respectively, anything else on the line is treated as an option to be passed to either AutoFS's {{c|automount}} (if it starts with a dash), or {{c|mount}} (if it does not). Options passed to {{c|mount}} will follow the <code>-o</code> switch. See [[#Usage]] for an example.
+
+{{Note|The comments in <code>auto.master</code> say the format is <code>key [ -mount-options-separated-by-comma ] location</code>. As of version 5.1.2, that is wrong. That format applies to entries in map files, such as {{Path|/etc/autofs/auto.misc}}.}}
+
+==== /etc/autofs/auto.misc ====
+
+{{Path|/etc/autofs/auto.misc}} is an example of a ''"map file"''. Only those map files actually referenced in the master map file are actually used by AutoFS, so it is safe to rename or delete this file as long as you edit {{Path|/etc/autofs/auto.master}} to match. You can also create additional map files following the same syntax. By convention, map files are named with the pattern {{Path|/etc/autofs/auto.*}}.
+
+Lines in this file take the following format:
+
+{{FileBox|filename=/etc/autofs/auto.misc|1=
+key             [-options]                                   location
+}}
+
+Here <code>key</code> specifies a unique key associated with the AutoFS mount, which forms part or all of the path at which the filesystem will be mounted. <code>location</code> tells AutoFS what filesystem to mount there. <code>-options</code> is a comma-separated list of options to pass to {{c|mount}}, except for some special options which are handled by AutoFS (such as <code>fstype</code>). For details, see [[#Usage]] below, or view the manual page by running
+{{Cmd|man 5 autofs}}.
 
 == Usage ==
 
-General configuration files for AutoFS. 
+AutoFS mounts are specified by lines in {{Path|/etc/autofs/auto.master}}. As a reminder, lines in this file take the format
 
-{{Important|You probably need to install additional software and modules to mount DVD, NFS, CIFS etc. The mount helpers need to be available for each file system you configure.}}
-
-=== autofs configuration ===
-
-The default options for autofs can be changed by setting the proper configuration variables located in {{Path|/etc/autofs/autofs.conf}}. The default location for the master map is ({{Path|/etc/autofs/auto.master}}). It can be changed by setting the <tt><b>master_map_name</b></tt> configuration variable in {{Path|/etc/autofs/autofs.conf}}.
-
-{{Note|The following examples of configuration files take into account the default location for {{Path|auto.master}}.}}
-
-=== auto.master ===
-
-In this configuration file is defined what other configuration files should be included as root mount-point. Here is one example with one additional mount-point on {{Path|/mnt/auto}}:
-
-{{FileBox|filename=/etc/autofs/auto.master|lang=properties|1=
-+auto.master # extry needed for NIS mapping
-# Here are the files listed, that should be included
-# mount-point {{!}} config file {{!}} options
-/mnt/auto   /etc/autofs/auto.misc    <nowiki>--timeout=15 --ghost</nowiki>
+{{FileBox|filename=/etc/autofs/auto.master|1=
+mount-point     [map-type[,format]:]map                      [-master-options]
 }}
 
-{{Note|{{Path|/mnt/auto}} is the root mount-point for all file systems defined in auto.misc. <code>--timeout</code> defines how many seconds to wait before the file system is unmounted. <code>--ghost</code> creates empty folders for each mount-point in auto.misc, this prevents timeouts if a network share cannot be contacted.}}
+Normally, <code>map</code> is the full path to a map file, such as {{Path|/etc/autofs/auto.misc}}, which contains lines of the format
 
-=== auto.misc ===
+{{FileBox|filename=/etc/autofs/auto.misc|1=
+key             [-map-options]                               location
+}}
 
-Here is our example for the file auto.misc. The folders for the mount-points are automatically created:
+Here the <code>location</code> field takes the format <code>host:path</code>. The <code>host</code> component may be left empty to refer to a path on the local machine. Otherwise, the named path from the named remote host will be mounted using [[Nfs-utils|NFS]].
 
-{{FileBox|filename=/etc/autofs/auto.misc|lang=properties|1=
+<code>-master-options</code> and <code>-map-options</code> are parsed as described above:
+
+* <code>-master-options</code> is a space-separated list of options to pass to either {{c|automount}} (if they begin with a dash) or {{c|mount}} (if not)
+* <code>-map-options</code> is a comma-separated list of options, most of which are passed to {{c|mount}}
+
+There are two kinds of AutoFS mounts, direct and indirect.
+
+=== Direct AutoFS mounts ===
+
+For a direct AutoFS mount, the <code>mount-point</code> is <code>/-</code>, and <code>key</code> in the map file is the full path at which the filesystem will be mounted. For example, the manual pages for AutoFS include an example like this:
+
+{{FileBox|filename=/etc/autofs/auto.master|lang=none|1=
+/-              /etc/autofs/auto.data
+}}
+
+{{FileBox|filename=/etc/autofs/auto.data|lang=none|1=
+/tst/sbin       bogus:/usr/sbin
+}}
+
+These lines tell AutoFS to watch the directory {{Path|/tst/sbin}}. If a program tries to access anything in that directory, AutoFS will mount the directory <code>/usr/sbin</code> from the remote host <code>bogus</code> on the local directory <code>/tst/sbin</code>. In other words, it will effectively execute the command
+
+{{RootCmd|mount -t nfs bogus:/usr/sbin /tst/sbin}}
+
+An example of mounting a local device might look like this:
+
+{{FileBox|filename=/etc/autofs/auto.master|lang=none|1=
+/-              /etc/autofs/auto.local
+}}
+
+{{FileBox|filename=/etc/autofs/auto.local|lang=none|1=
+/mnt/stuff      -fstype=ext4    :/dev/sdd1
+}}
+
+This will effectively execute the command
+
+{{RootCmd|mount -t ext4 /dev/sdd1 /mnt/stuff}}
+
+=== Indirect AutoFS mounts ===
+
+For an indirect AutoFS mount, the <code>mount-point</code> is a directory path, and <code>map</code> is the full path to a file which describes rules for mounting devices inside that directory. For example, the default installation includes the following line (though it is commented out):
+
+{{FileBox|filename=/etc/autofs/auto.master|lang=none|1=
+/misc           /etc/autofs/auto.misc
+}}
+
+This line would tell AutoFS to watch files and directories under {{Path|/misc}} for filesystem accesses. When a program tries to access something under {{Path|/misc}}, AutoFS will use the configuration in {{Path|/etc/autofs/auto.misc}} to determine whether to automatically mount something. Each (non-comment, non-empty) line in that file corresponds to something that AutoFS will be able to mount under {{Path|/misc}}. For example, the line
+
+{{FileBox|filename=/etc/autofs/auto.misc|lang=none|1=
+cd              -fstype=iso9660,ro,nosuid,nodev     :/dev/cdrom
+}}
+
+tells AutoFS to watch {{Path|/misc/cd}}. When a program tries to access this directory, AutoFS will effectively run the command
+
+{{RootCmd|mount -t iso9660 -o ro,nosuid,nodev /dev/cdrom /misc/cd}}
+
+Here are some other examples:
+
+{{FileBox|filename=/etc/autofs/auto.misc|lang=none|1=
 # mount-point below /mnt/auto {{!}} mount options {{!}} device, network share etc.
 
-# CD-Rom on /mnt/auto/cd
-cd              -fstype<nowiki>=</nowiki>iso9660,ro,nosuid,nodev              :/dev/cdrom
 # nework share mounted via NFSv3 on /mnt/auto/data
-data            -rw,vers<nowiki>=</nowiki>3,soft,async                        192.168.0.254:/tank1/data
+data            -rw,vers=3,soft,async                        192.168.0.254:/tank1/data
 # nework share mounted via CIFS on /mnt/auto/data1
-data1           -fstype<nowiki>=</nowiki>cifs,credentials<nowiki>=</nowiki>/root/smb.txt       ://192.168.0.254/data1
-# memory stick used regulary with known UUID, for example a kindle
-kindle          -fstype<nowiki>=</nowiki>vfat,rw,uid<nowiki>=</nowiki>1000                     :UUID<nowiki>="4CBF-23A2"</nowiki>
+data1           -fstype=cifs,credentials=/root/smb.txt       ://192.168.0.254/data1
+# memory stick used regulary with known UUID, for example a Kindle
+kindle          -fstype=vfat,rw,uid=1000                     :UUID="4CBF-23A2"
 }}
 
-{{Note|There are several more examples in the auto.misc that comes with the package}}
+Indirect mounts allow AutoFS to use wildcards. For example, if users' home directories are stored on a different machine and mounted over NFS, AutoFS could be configured as follows:
 
-=== Simple Windows-like SMB shares usage ===
-
-If you want to use network SMB shares easily you can try the following configuration. You will be able to automount, for example, by issuing "cd /net/10.50.40.32/share" command in shell or "/net/10.50.40.32/share" in a browser or commander and work with the files inside as they were located on local machine. Make the following modifications:
-
-{{FileBox|filename=/etc/autofs/auto.master|lang=properties|1=
-#+auto.master
-/net file:/etc/autofs/auto.smbm --ghost --nonstrict
+{{FileBox|filename=/etc/autofs/auto.master|lang=none|1=
+/home           /etc/autofs/auto.home
 }}
 
-{{FileBox|filename=/etc/autofs/auto.smbm|lang=properties|1=
-* -fstype=autofs,-Dhost=& file://etc/autofs/auto.share
+{{FileBox|filename=/etc/autofs/auto.home|lang=none|1=
+*               neighborhood:/export/home/&
 }}
 
-{{FileBox|filename=/etc/autofs/auto.share|lang=properties|1=
-* -fstype=cifs,username=guest,password=,file_mode=0664,dir_mode=0775,uid=netmount,gid=netmount,port=139 ://${host}/&
+This way, when a user <code>foo</code> logs in and accesses some files in their home directory, AutoFS will effectively run the command
+
+{{RootCmd|mount -t nfs neighborhood:/export/home/foo /home/foo}}
+
+=== Useful options ===
+
+These options can be given in the master map file.
+
+* <code>--timeout=&lt;seconds&gt;</code> specifies the number of seconds that an automounted filesystem can go unused before AutoFS unmounts it.
+* <code>--ghost</code> or <code>browse</code> (no dash in the latter form) can be useful for indirect mounts. It causes AutoFS to create the directory on which something would be mounted when the {{c|automount}} daemon starts up, rather than only when the directory is accessed.
+
+For a full description of options, run
+{{Cmd|man 5 auto.master}}
+
+=== Non-file maps ===
+
+In {{Path|/etc/autofs/auto.master}}, instead of merely specifying <code>map</code>, the second column can take a more complicated form such as <code>map-type:map</code>, which allows the map to be something other than a file. For instance, it can be an executable which prints out map specifications (the lines that would be included in a map file), or any of various types of databases. For a full description of recognized types, run
+{{Cmd|man 5 auto.master}}
+
+=== Simple Windows-like Samba share mounting ===
+
+Here is a way to automatically mount network [[Samba]] shares, as Windows does. This configuration allows automounting a share by issuing the following command in a shell:
+{{Cmd|cd /net/10.50.40.32/share}}
+or navigatint to {{Path|/net/10.50.40.32/share}} in a filesystem browser or dialog. The files inside will appear as if they were located on the local machine.
+
+{{Important|For this to work, [[Samba]] must be installed and configured prior to mounting.}}
+
+{{FileBox|filename=/etc/autofs/auto.master|lang=none|1=
+/net     file:/etc/autofs/auto.smbm    --ghost --nonstrict
 }}
 
-Restart autofs daemon and you are ready to use simple automount.
+{{FileBox|filename=/etc/autofs/auto.smbm|lang=none|1=
+*        -fstype=autofs,-Dhost=&       file://etc/autofs/auto.share
+}}
+
+{{FileBox|filename=/etc/autofs/auto.share|lang=none|1=
+*         -fstype=cifs,username=guest,password=,file_mode=0664,dir_mode=0775,uid=netmount,gid=netmount,port=139     ://${host}/&
+}}
 
 == External resources ==
 
 * [http://tldp.org/HOWTO/Automount.html Automount mini-Howto] on The Linux Documentation Project website
+* [https://help.ubuntu.com/community/Autofs AutoFS page] on the Ubuntu Community Help Wiki
 
 [[Category:Software]]
