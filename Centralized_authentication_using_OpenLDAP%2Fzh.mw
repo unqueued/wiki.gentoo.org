@@ -169,8 +169,8 @@ access to *
 }}
 
 {{RootCmd|mkdir /etc/openldap/slapd.d}}
-{{RootCmd|slaptest -f /etc/openldap/slapd.conf -F slapd.d}}
-{{RootCmd|chown -R ldap slapd.d}}
+{{RootCmd|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d}}
+{{RootCmd|chown -R ldap /etc/openldap/slapd.d}}
 
 上面的命令将会转换并翻译配置文件（slapd.conf->OLC），您可能曾经想过用准备好的ldif文件来完成OLC配置文件的升级，不过假如您对此不那么熟悉，你就可以像我们这样先编辑 {{Path|slapd.conf}} ，然后用slaptest命令将其翻译为OLC配置文件（最终保存于 {{Path|slapd.d/}}中），最后不要忘记检查这个目录的权限是否可以被ldap系统用户访问。
 
@@ -218,6 +218,36 @@ dn: cn=config
 changetype: modify
 replace: olcLogLevel
 olcLogLevel: stats sync
+}}
+
+To add the syncprov overlay:
+
+{{FileBox|filename=add-syncprov-overlay.ldif|1=
+# Add indexes for replica to the frontend db.
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcDbIndex
+olcDbIndex: entryCSN eq
+-
+add: olcDbIndex
+olcDbIndex: entryUUID eq
+ 
+# Load the syncprov module.
+# Skip if included statically, see slapd -VVV output for details
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: syncprov
+ 
+# syncrepl Provider for primary db
+dn: olcOverlay=syncprov,olcDatabase={1}mdb,cn=config
+changetype: add
+objectClass: olcOverlayConfig
+objectClass: olcSyncProvConfig
+olcOverlay: syncprov
+olcSpNoPresent: TRUE
+olcSpCheckpoint: 100 10
+olcSpSessionlog: 100
 }}
 
 为了确认这些改变，可以运行下面的命令：
@@ -459,6 +489,8 @@ shadow:         files ldap
 * ''sync replication provider'' 要指向另外一台机器。
 
 * 每一台OpenLDAP服务器的''serverID'' 是不同的。
+
+{{Note|Using a mirrored installation means that the OpenLDAP service should be configured like a single server installation, so the ''serverID'' value on each of the nodes must be the same. Instances are identified by ''rid'' values, which must be unique.}}
 
 下一步，创建同步帐号。我们创建一个LDIF文件（格式同LDAP服务器做信息导入所需格式），然后将其导入每一台LDAP服务器。 
 
