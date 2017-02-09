@@ -169,8 +169,8 @@ access to *
 }}
 
 {{RootCmd|mkdir /etc/openldap/slapd.d}}
-{{RootCmd|slaptest -f /etc/openldap/slapd.conf -F slapd.d}}
-{{RootCmd|chown -R ldap slapd.d}}
+{{RootCmd|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d}}
+{{RootCmd|chown -R ldap /etc/openldap/slapd.d}}
 
 Running this command will transfer and translate the configuration. After that you are expected to update the configuration using specially prepared ldif files. And only if you aren't enough familiar with them, you can first edit {{Path|slapd.conf}} and after that re-translate the {{Path|slapd.conf}} into {{Path|slapd.d/}}. Don't forget to check the directory's permissions.
 
@@ -218,6 +218,36 @@ dn: cn=config
 changetype: modify
 replace: olcLogLevel
 olcLogLevel: stats sync
+}}
+
+To add the syncprov overlay:
+
+{{FileBox|filename=add-syncprov-overlay.ldif|1=
+# Add indexes for replica to the frontend db.
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcDbIndex
+olcDbIndex: entryCSN eq
+-
+add: olcDbIndex
+olcDbIndex: entryUUID eq
+ 
+# Load the syncprov module.
+# Skip if included statically, see slapd -VVV output for details
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: syncprov
+ 
+# syncrepl Provider for primary db
+dn: olcOverlay=syncprov,olcDatabase={1}mdb,cn=config
+changetype: add
+objectClass: olcOverlayConfig
+objectClass: olcSyncProvConfig
+olcOverlay: syncprov
+olcSpNoPresent: TRUE
+olcSpCheckpoint: 100 10
+olcSpSessionlog: 100
 }}
 
 In order to apply the changes, run the following command:
@@ -459,6 +489,8 @@ To setup replication, first setup a second OpenLDAP server, similarly as above. 
 * The ''sync replication provider'' is pointing to the ''other'' system
 
 * The ''serverID'' of each OpenLDAP system is different
+
+{{Note|Using a mirrored installation means that the OpenLDAP service should be configured like a single server installation, so the ''serverID'' value on each of the nodes must be the same. Instances are identified by ''rid'' values, which must be unique.}}
 
 Next, create the synchronisation account. We will create an LDIF file (the format used as data input for LDAP servers) and add it to each LDAP server: 
 
