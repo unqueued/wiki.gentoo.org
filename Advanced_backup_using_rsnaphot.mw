@@ -1,0 +1,203 @@
+{{InfoBox stack
+|{{InfoBox homepage|http://www.rsnapshot.org|header=true}}
+}}
+This article describes a advanced automated remote backup scheme using the tool '''rsnapshot''' from non-root user, which is based on [[Wikipedia:Rsync|rsync]]. 
+
+rsnapshot makes a specified number of incremental backups of specified file trees from remote servers via ssh with non-user root using sudo, using [[Wikipedia:Hard link|hard links]] to save space on the backup medium.
+
+The following backup scheme will login to remote user <code>backup@remote.example.com</code> via ssh, fetch all required files with [[rsync]] to <code>backup.example.com</code> host, rotate the backups on a daily, weekly and monthly basis. That means, it will keep a daily snapshot for 7 days, a weekly snapshot for 4 weeks and a monthly snapshot for 12 month. Furthermore, it uses an extra partition for the backup which will be mounted only for the time of the backup process. 
+
+== Installation ==
+
+=== Emerge ===
+
+Install {{Package|app-backup/rsnapshot}}:
+
+{{Emerge|app-backup/rsnapshot}}
+
+== Remote server configuration ==
+First, we will setup remote host <code>remote.example.com</code> for backup. Remote host is host, which we want backup. For example, it is gentoo server, that serves web server and mysql database.
+
+=== Backup user ===
+All operations on remote server will be executed from non-root user. Lets create such user:
+
+{{RootCmd|useradd -m backup}}
+
+Backup user must have permissions to run [[rsync]] as root, as most of files on <code>remote.example.com</code> belong to root or other users. As we need to backup them, [[rsync]] requires root permissions. Lets give those permission to it:
+{{RootCmd|vim /etc/sudoers}}
+
+And add to sudoers to group <code>backup</code> ability to run [rsync] from root
+{{FileBox|filename=/etc/sudoers|lang=properties|1=
+...
+# backup group can do anything
+%backup ALL=(ALL) NOPASSWD: /usr/bin/rsync
+...
+}}
+
+=== rsync wrapper ===
+Remote backup server <code>backup.example.com</code> will login to this server and execute <code>backup@remote.example.com:~/rsync-wrappper.sh</code> command. This wrapper requires for [[sudo]]. Lets create those dummy wrapper script
+
+{{FileBox|filename=/home/backup/rsync-wrapper.sh|lang=properties|1=
+#!/bin/sh
+ 
+logger -t backup $@
+/usr/bin/sudo /usr/bin/rsync "$@";
+}}
+
+And give executable flag for those script
+{{Cmd|chmod ug+x /home/backup/rsync-wrapper.sh}}
+
+That all. This <code>remote.example.com</code> ready for remote backuping
+
+== Backup server configuration ==
+Backup server will connect to <code>backup@remote.example.com</code> server via ssh public key. All backup files will be save to {{Path|/mnt/backup}} directory. 
+
+=== Backup User ===
+
+SSH keys, configurations for backup will be stored in backup user <code>backup@backup.example.com</code>
+Lets create those user and group
+
+{{RootCmd|prompt=root@backup.example.com #|useradd -m backup}}
+
+=== Directories ===
+
+All backups will be saving to {{Path|/mnt/backup}} directory. We will create backup directory 
+
+{{RootCmd|prompt=root@backup.example.com #|mkdir -p /mnt/backup
+|chown backup:backup /mnt/backup
+|chmod 770 /mnt/backup}}
+
+=== SSH keys ===
+[[rsnapshot]] will login to remote servers via ssh public keys. Lets generate private/public ssh keys for all next ssh sessions.
+{{RootCmd|prompt=root@backup.example.com #|sudo -i -u backup}}
+{{Cmd|prompt=backup@backup.example.com $|ssh-keygen}}
+
+Save ssh keys to default path without password.
+After this, copy ssh key to remote server with ssh-copy-id:
+
+{{Cmd|prompt=backup@backup.example.com $|ssh-copy-id backup@remote.example.com}}
+
+And lets recheck, that everything is file
+{{Cmd|prompt=backup@backup.example.com $|ssh remote.example.com}}
+
+No password should be asked and you simply login to '''remote.example.com'''
+
+=== rsnapshot configuration files ===
+
+Set up the rsnapshot configuration file.
+
+{{Note|rsnapshot configuration files are '''tab delimited'''. Be careful to always use tabs instead of spaces for the options.}}
+
+{{Note|Filetree specifications are in ''rsync'' format.  See the ''rsync'' [[man page]] for details.}}
+
+Default rsnapshot config file:
+
+{{FileBox|filename=/etc/rsnapshot.conf|lang=properties|1=
+# Default config version
+config_version  1.2
+
+# So the hard disk is not polluted in case the backup filesystem is not available
+no_create_root  1
+
+# Standard settings
+cmd_cp                  /bin/cp
+cmd_rm                  /bin/rm
+cmd_rsync               /usr/bin/rsync
+cmd_ssh                 /usr/bin/ssh
+link_dest               1
+
+rsync_long_args         -evaAX --rsync-path=/home/backup/rsync-wrapper.sh
+ssh_args                -i /home/backup/.ssh/id_rsa
+
+# For convenience, so that mount points can be taken as backup starting points
+one_fs                  1
+
+# Store all backups in one directory per machine
+# A useful alternative may be to create a separate directory for each interval
+snapshot_root   /mnt/backup/
+
+# increments, which are kept
+retain  daily   7
+retain  weekly  4
+retain  monthly 12
+
+# Exclude pattern (refer to --exclude-from from rsync man page)
+exclude         /dev
+exclude         /proc
+exclude         /sys
+exclude         /run
+exclude         /var/tmp
+exclude         /var/run
+exclude         /tmp
+exclude         /lost+found
+
+# backup of remote.example.com server
+backup  backup@remote.example.com:/             remote.example.com/
+#backup backup@remote.example.com:/otherdir/       remote.example.com/otherdir 
+}}
+
+This files have such params:
+
+<code>rsync_long_args</code> Parameters, that will directly passed to ''rsync'' command: 
+
+    <code>-e</code> specify the remote shell to use 
+    <code>-v</code> increase verbosity
+    <code>-a</code> archive mode. Cause [[rsync]] to backup file owners and permissions
+    <code>-A</code> acl. This option causes rsync to update the destination extended acl attributes to be the same as the source ones
+    <code>-X</code> xattrs. This option causes rsync to update the destination extended attributes to be the same as the source ones
+    <code>rsync-path</code> Execute on remote server [[rsync]] wrapper script {{Path|/home/backup/rsync-wrapper.sh}}
+
+<code>ssh_args</code> Path to public key, that should be used for remote ssh login
+
+<code>snapshot_root</code> Path to directory, where all backup files will be stored
+
+<code>backup</code> specifies a container directory for the backups, usually referring to the machine (in this case, ''example.com'').  
+This can be changed to any name of your choosing. The final snapshots will be saved under {{Path|/mnt/backup/{daily,weekly,monthly}.[0-9]*/example.com/}}
+
+<code>exclude</code> This directory will be excluded from backup
+
+{{Note|rsnapshot will always take the last daily snapshot to create the first weekly snapshop and the last weekly snapshot to create the first monthly one. It will not take the 7th daily snapshot to create the first weekly snapshot. Therefore, it is possible to keep less or more than 7 daily snapshots, but is this case the first weekly snapshot is not one week old.}}
+
+=== cron jobs ===
+Preserve of permission requires root on backup server.
+{{RootCmd|crontabe -e}}
+If you don't require preserver all permissions and file owners, you can create cron jobs for backup user:
+{{Cmd|prompt=backup|crontabe -e}}
+
+{{FileBox|lang=bash|1=
+#3am each day
+0 3 * * *    ionice -c 3 nice -n +19 /usr/bin/rsnapshot daily
+#4am each week
+0 4 * * 1    ionice -c 3 nice -n +19 /usr/bin/rsnapshot weekly
+#4am each month
+0 4 1 * *    ionice -c 3 nice -n +19 /usr/bin/rsnapshot monthly
+}}
+
+Crontab will run ''rsnapshot'' with minimum CPU and I/O priority.
+
+=== Restoration ===
+
+To restore the ''remote.example.com'' backups specified above, we would use:
+
+{{RootCmd
+|mount /mnt/backup
+|rsync -a /mnt/backup/remote.example.com/monthly.0/remote.example.com/. /mnt/myroot/
+|rsync -a /mnt/backup/remote.example.com/weekly.0/remote.example.com/. /mnt/myroot/
+|rsync -a /mnt/backup/remote.example.com/daily.0/remote.example.com/. /mnt/myroot/
+}}
+
+where {{Path|/mnt/myroot}} is the mount point of the fresh root filesystem. In the paths above ''*.0'' refers to the latest increment.
+
+== Possible improvements ==
+
+* Remote mount of /mnt/backup - TO BE DONE
+* Remote crypt of /mnt/backup - TO BE DONE
+
+== See also ==
+
+* [https://wiki.gentoo.org/wiki/A_simple_backup_scheme_using_rsnapshot] - Simple backup using rsnapshot
+* [http://rsnapshot.org/rsnapshot/docs/docbook/rest.html] - Documentation from rsnapshot site with some help about configuring rsnapshot
+* [http://dev.kprod.net/?q=linux-backup-rsnapshot-no-root] - HOWTO configure the same, but more general
+
+[[Category:Software]]
+[[Category:Backup]]
