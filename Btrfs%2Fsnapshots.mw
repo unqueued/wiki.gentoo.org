@@ -1,0 +1,74 @@
+{{InfoBox stack
+|{{InfoBox homepage|https://wiki.gentoo.org/wiki/Btrfs|header=true}}
+}}
+=== Btrfs ===
+'''Btrfs''' is a copy-on-write (CoW) [[filesystem]] for Linux aimed at implementing advanced features while focusing on fault tolerance, repair and easy administration. Jointly developed at Oracle, Red Hat, Fujitsu, Intel, SUSE, STRATO and many others, Btrfs is licensed under the [https://en.wikipedia.org/wiki/GNU_General_Public_License GPL] and open for contribution from anyone.
+
+== Automatic snapshots == 
+
+This scripts uses '''Btrfs''' <code>subvolume list-new</code> function to create snapshots only when files have changed, which is used to create fewer snapshots.
+
+{{Note|The script assumes the following layout:}}
+* {{Path|/mnt/pool}} - mountpoint for btrfs root volume
+* {{Path|/mnt/pool/volumes/home}} - user homes volume
+* {{Path|/mnt/pool/snapshots/home}} - symlink to latest snapshot
+* {{Path|/mnt/pool/snapshots/home_@GMT_2017.02.11-22.00.01}} - latest snapshot of home
+
+{{FileBox|filename=/mnt/pool/snapshots/snapshot_home.sh|lang=bash|title=Automatic incremental snapshots|1=
+#!/bin/bash
+echo Backup started at `date +%Y.%m.%d-%H.%M.%S`
+time{{=}}@GMT_`date +%Y.%m.%d-%H.%M.%S`
+
+# Mountpoint
+mount{{=}}"/mnt/pool/volumes/home"
+
+## symlink to most recent snapshop
+symlink{{=}}"/mnt/pool/snapshots/home"
+old_snap{{=}}`readlink "/mnt/pool/snapshots/home"`
+
+## New snapshot name
+new_snap{{=}}$symlink"_$time"
+
+## Check for most recent generation ID for most recent snapshot.
+## This is used when looking for changed files.
+if [ -d "$old_snap" ]; then
+        # find-new outputs last generation ID when using a too high value is used for comparing.
+        gen_id{{=}}$(/sbin/btrfs sub find-new "$old_snap" 9999999{{!}}cut -d " " -f 4)
+
+        # Count changed files.
+        count{{=}}`/sbin/btrfs subvolume find-new "$mount" $gen_id {{!}} cut -d " " -f 17-1000 {{!}} sed '/^$/d'{{!}} wc -l`
+        /sbin/btrfs subvolume find-new "$mount" $gen_id {{!}} cut -d " " -f 17-1000
+        # Create a new snapshot if we have changed files.
+        if [[ $count > '0' ]]; then
+                /sbin/btrfs subvolume snapshot -r "$mount" "$new_snap"
+
+                ## Recreate a symnlink to the new snapshot
+                rm "$symlink" && ln -s "$new_snap" "$symlink"
+        else
+                echo "No files changed, skipping creating of a new snapshot"
+        fi
+else
+        echo Something went wrong. Check that symlink $symlink points to a real snapshot
+fi
+echo Backup finished at `date +%Y.%m.%d-%H.%M.%S`
+}}
+
+It is recommended you schedule to run the <code>snapshot.sh</code> with cron.
+{{FileBox|filename=/etc/cron.hourly/autosnap.sh|lang=bash|title=hourly cron script|1=#!/bin/bash
+/mnt/pool/snapshots/snapshot_home.sh >> /mnt/pool/snapshots/snapshot_home.log 2>&1}}
+
+{{Important|1='''Btrfs''' <code>subvolume find-new</code> does not detect all types of changes, for example '''deleted''' files. If you need to ensure maximum time difference since deletion of files, then you need to schedule normal time-based snapshots.}}
+
+For more detailed information on btrfs subvolumes and snapshots see the [https://btrfs.wiki.kernel.org/index.php/SysadminGuide btrfs wiki].
+
+== See also ==
+
+* [[Btrfs/System Root Guide]] - Use the Btrfs filesystem as a collection of subvolumes including one as a system root.
+* [[Btrfs/Native System Root Guide|Btrfs native system root guide]] - An alternative guide on using a subvolume in a Btrfs filesystem as the system's root.
+* [[Snapper]] - A command-line program capable of managing Btrfs filesystem snapshots.
+* [[ext4]] - The default filesystem for most Linux distributions.
+* [[ZFS]] - A filesystem that shares much in common with Btrfs, but has licensing issues.
+
+{{reflist}}
+
+[[Category:Filesystems]]
