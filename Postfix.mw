@@ -4,14 +4,19 @@
 |{{InfoBox homepage|http://www.postfix.org|header=true}}
 |{{InfoBox wikipedia|Postfix (software)}}
 }}
+
 '''Postfix''' is a powerful [[:Category:Mail Transfer Agents|Mail Transfer Agent]] (MTA) and the de facto standard.
 
 == Pre-installation ==
+
 As only one MTA can be installed at the same time on a system, you might be required to unmerge an installed MTA. The package manager will report a block when another MTA is still installed. You can resolve this block by manually unmerging the old mail server. For example you can remove {{Package|mail-mta/ssmtp}} (which might have been installed as the default when a program requested a mail server to be installed) with this command:
+
 {{Emerge|params+=-C|ssmtp}}
 
 == Installation ==
+
 {{Package|mail-mta/postfix}} has several USE flags that may be desired for certain bigger setups. As this article aims at installing and configuring a ''basic'' Postfix setup, none of them will be required initially.
+
 {{USEflag|package=mail-mta/postfix}}
 
 {{Emerge|postfix}}
@@ -19,20 +24,25 @@ As only one MTA can be installed at the same time on a system, you might be requ
 == Configuration ==
 
 === Fully Qualified Domain Name (FQDN) ===
+
 Though not entirely related, for a MTA to function properly, it is imperative that its hostname is set up correctly. Under Gentoo '''/etc/conf.d/hostname''' and '''/etc/conf.d/net''' are the files responsible for this. In this example, the mail server is named <tt>foo</tt> on the domain <tt>example.com</tt>.
 
 {{FileBox|filename=/etc/conf.d/net|title=Setup domain name|lang=bash|1=
 dns_domain_lo="example.com"
 }}
+
 {{FileBox|filename=/etc/conf.d/hostname|title=Setup hostname|lang=bash|1=
 HOSTNAME="foo"
 }}
+
 {{Note|Do not use <tt>mail.example.com</tt> just because it may be externally known as such. Use the actual name of the system.}}
 
 Verifying that the FQDN is setup properly for the domain.
+
 {{Cmd|hostname --fqdn|output=foo.example.com}}
 
 If for any reason the FQDN cannot be set properly, Postfix needs to be told what its FQDN is. Otherwise leave it at its commented out default.
+
 {{FileBox|filename=/etc/postfix/main.cf|title=Inform Postfix of its FQDN|1=
 # INTERNET HOST AND DOMAIN NAMES
 #
@@ -52,17 +62,22 @@ mydomain = example.com
 }}
 
 === Trust and Relay ===
+
 This one is a really important thing to get right. By default, a Postfix installation is pretty tight, only allowing users on the same subnet as the mail server to relay email through Postfix. If this gets messed around with, it can potentially open the door to all users from anywhere. This is called an ''open relay'' and is begging for abuse by spam merchants, likely resulting in your domain to be quickly blacklisted. This defeats the purpose of setting up a personal mail server, if nobody will talk or listen to it.
 
 There are means and ways, like SMTP Authentication, that allow you to secure access to your mail server even further. Depending on the trustworthiness of the users connected to the local network, it might be beneficiary to restrict access even for machines within the own subnet. This also has the benefit of not letting potentially compromised machines in the local network abuse the mail system, but entails additional configuration.
+
 To only allow the mail server itself to relay email without authentication, make a change to <tt>main.cf</tt>
+
 {{FileBox|filename=/etc/postfix/main.cf|title=Trust no-one|1=
 # TRUST AND RELAY CONTROL
 mynetworks_style = host
 }}
+
 {{Note|Internal servers of course don't have to to use this server to relay, they can still use <tt>ssmtp</tt> to send monitoring information if needed.}}
 
 === Address extensions ===
+
 Address extensions allow you to encode additional information besides the recipient in a valid email address. The recipient is separated from the additional information usually by a <tt>+</tt> character, but it is configurable. To enable support for address extensions, edit your <tt>main.cf</tt>:
 
 {{FileBox|filename=/etc/postfix/main.cf|title=Set a delimiter to enable address extensions|1=
@@ -75,19 +90,25 @@ The way this works is, when trying to deliver a message to <tt>testuser+spam@exa
 === Miscellaneous configuration ===
 
 ==== maildir ====
+
 When Postfix completes merging and the <tt>mailbox</tt> USE flag is set, a <tt>home_mailbox</tt>  directive is added at the bottom of the file. To make future updates easier, it's a good idea to move the <tt>home_mailbox = .maildir/</tt> to its appropriate location in the file.
 
 For testing purposes, the following two features can be temporarily enabled:
 
 ==== Soft bounce ====
+
 Soft bounce decreases the chances of endless bounce loops caused by an invalid email setup. To enable soft bouncing, add this to your <tt>main.cf</tt>:
+
 {{FileBox|filename=/etc/postfix/main.cf|title=Soft Bounce|1=
 soft_bounce = yes
 }}
 
 ==== Verbose SMTP ====
+
 {{Note|This often hides problems in a mountain of logs and should only be done as a last resort.  The default logging provides enough information to point you in the right direction.}}
+
 Before testing the basic mail server setup, the verbose flag of the smtp server can be enabled by adding a <tt>-v</tt> to the smtpd daemon invocation in <tt>master.cf</tt>:
+
 {{FileBox|filename=/etc/postfix/master.cf|title=Verbose smtpd|1=
 # ==========================================================================
 # service type  private unpriv  chroot  wakeup  maxproc command + args
@@ -103,13 +124,16 @@ That rounds up basic configuration. Postfix offers a vast amount of other featur
 Optionally, as per the USE flags, there are quite a number of possible databases/mechanisms by which to store address-related rewrite rules and routing information. If you wish to use a database (sqlite, mariadb, etc.) then now is the time to read [http://postfix.cs.utah.edu/DATABASE_README.html the documentation]. If you don't change anything, postfix will still work fine, and you can come back to this later.
 
 == Starting Postfix ==
+
 Before starting Postfix for the first time, the local alias database has to be compiled. If this is not done, Postfix may appear to have started normally, but won't work and the log (usually found in <tt>/var/log/mail.log</tt>) will be spammed with errors:
 <pre>Mar 16 11:40:32 foo postfix/smtpd[18923]: fatal: open database /etc/mail/aliases.db: No such file or directory</pre>
 
 The <tt>alias</tt> database contains default local accounts required by various RFCs and common internet practice, as well as some pseudo accounts. Simply run the <tt>newaliases</tt> command to generate the database:
+
 {{RootCmd|newaliases}}
 
 Now it is time to start postfix for the very first time.
+
 {{RootCmd|/etc/init.d/postfix start}}
 
 It can be very useful to monitor the mail log file using <tt>tail -f</tt>. By default, postfix logs to the syslog but this can be filtered, which will be covered later in this chapter. A successful start looks like this:
@@ -119,9 +143,12 @@ Nov 23 15:26:42 foo postfix/master[13434]: daemon started -- version 2.8.4, conf
 </pre>
 
 == Testing Postfix ==
+
 Postfix should be running properly now and accept connections on port 25, the default SMTP port, and send email anywhere in the world.
 If available, the sendmail compatible program (installed by postfix) can be used to send a test e-mail.
+
 {{Cmd|<tt>echo "test" &brvbar; sendmail &lt;(username)@(validdomain).(tld)&gt;</tt>}}
+
 If not available, or test from a remote machine (which is allowed to relay e-mail) is used, the following can be used also.
 As SMTP is a simple plain-text protocol, you can easily send email manually using a <tt>telnet</tt> client. Replace the example address <tt>&lt;(username)@(validdomain).(tld)&gt;</tt> with a real email address to see it work. This is an example SMTP conversation with the parts the client (in this case that is you) sends are highlighted in yellow:
 
@@ -144,7 +171,8 @@ Testmail to ensure Postfix is working.<br />
 250 2.0.0 Ok: queued as 6705C20E32<br />
 {{Highlight|color=yellow|QUIT}}<br />
 221 2.0.0 Bye<br />
-Connection closed by foreign host.}}
+Connection closed by foreign host.
+}}
 
 Looking at the mail log it can be verified that the message got properly relayed:
 <pre>
@@ -159,6 +187,7 @@ Nov 23 16:13:54 foo postfix/smtpd[28494]: disconnect from foo.example.com[127.0.
 </pre>
 
 Performing the same test from a different host should fail, as it is untrusted:
+
 {{Cmd|telnet foo.example.com 25|output=Trying foo.example.com...<br />
 Connected to foo.example.com.<br />
 Escape character is '^]'.<br />
@@ -171,10 +200,13 @@ Escape character is '^]'.<br />
 454 4.7.1 <(username)@(validdomain).(tld)>: Relay access denied<br />
 {{Highlight|color=yellow|QUIT}}<br />
 221 2.0.0 Bye<br />
-Connection closed by foreign host.}}
+Connection closed by foreign host.
+}}
 
 == Logging ==
+
 By default, syslog does not filter mail logs to a separate file, which can be very usefull on a busy mail server. For syslog-ng we create file to define the filtering.
+
 {{FileBox|filename=/etc/syslog-ng/mail.conf|title=Mail log filter|1=
 <nowiki>
 destination mail {
@@ -241,6 +273,7 @@ log {
 }}
 
 And then include it in the main syslog-ng configuration file
+
 {{FileBox|filename=/etc/syslog-ng/syslog-ng.conf|title=Syslog-ng config|1=
 <nowiki>
 @include "mail.conf"
@@ -250,12 +283,15 @@ And then include it in the main syslog-ng configuration file
 Remember to reload syslog-ng to activate the filter.
 
 == Safety net ==
+
 While testing, you may not want mail get rejected just yet. By default, postfix rejects mails to unknown mailboxes. As a safety feature, it is possible to ask the sender to try again later using error code 450, from the default 550, reject.
+
 {{FileBox|filename=/etc/postfix/main.cf|title=Postfix main|1=
 unknown_local_recipient_reject_code = 450
 }}
 
 == Related Articles ==
+
 You may wish to view a [[Mailfiltering_Gateway/en|full guide for setting up a postfix server with ClamAV, Amavisd-new, Vipul's Razor, DCC, and SpamAssassin]] (also available in [[Mailfiltering_Gateway/ja|Japanese]], [[Mailfiltering_Gateway/ko|Korean]] and [[Mailfiltering_Gateway/ru|Russian]]), though that guide is apparently somewhat dated and misses now common (arguably critical) mail server configuration responsibilities like DKIM and DMARC.
 
 Alternatively, you can selectively add features from the articles below. The non-optional ones are highly recommended, and features are listed in roughly suggested order of implementation:
