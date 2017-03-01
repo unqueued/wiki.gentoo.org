@@ -57,13 +57,13 @@ LDAP can be used for various things. This document focuses on centralised user m
 
 == OpenLDAP Server Configuration  ==
 
-The domain genfic.com is an example in this guide. You will of course want to change this. However, make sure that the top node is an official top level domain (net, com, cc, be, ...).
+=== Common notes ===
 
+The domain genfic.com is an example in this guide. You will of course want to change this. However, make sure that the top node is an official top level domain (net, com, cc, be, ...).
 
 Let's first emerge OpenLDAP. Ensure the USE flags ''berkdb, crypt, gnutls, ipv6, sasl, ssl, syslog, -minimal'' and ''tcpd'' are used.
 
 {{Emerge|openldap}}
-
 
 OpenLDAP has a main user called "rootdn" (Root Distinguished Name), which is hardcoded in the application. Unlike the classic Unix root user, the rootdn user still needs to be assigned with proper permissions. The rootdn user may be used only in the context of the configuration, but it can also be used in the directory definition. In that case a user can authenticate himself as rootdn with either the configuration used password and the tree (directory-based) password.
 
@@ -78,6 +78,7 @@ Re-enter new password: my-password
 </pre>
 }}
 
+=== Legacy configuration (flat config slapd.conf) ===
 
 Now edit the LDAP Server configuration in {{Path|/etc/openldap/slapd.conf}}. The provided {{Path|slapd.conf}} is from the original openLDAP source. Below is a sample configuration file one can use to replace it with to get things started. 
 
@@ -142,20 +143,18 @@ syncprov-checkpoint 100 10
 
 For a more detailed analysis of the configuration file, we suggest that you work through the OpenLDAP Administrator's Guide. 
 
-=== Verifying the configuration ===
-
 After customizing the {{Path|slapd.conf}} file you can check it with the following command.
 
 {{Cmd|slaptest -v -d 1 -f /etc/openldap/slapd.conf}}
 
-Or, if you decide to use OLC:
-
-{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
-
 Vary the debug level (the "-d 1" above) for more info. If all goes well you will see ''config file testing succeeded''.
 If there's an error, <code>slaptest</code> will list the line number to which it applies (of the {{Path|slapd.conf}} file).
 
+By default {{c|slapd}} writes the log events to the ''local4'' syslog facility.
+
 Note that since version 2.4.23, OpenLDAP moved from traditional flat config files ({{Path|slapd.conf}}) to OLC (OnLineConfiguration, also known through its <code>cn=config</code> structure) as default configuration method. One of benefits of using OLC is that the dynamic back-end (cn=config) doesn't require restart of server after updating the configuration. Existing users can migrate to the new configuration method by invoking <code>slaptest</code> setting both -f and -F options. Traditionally OLC is stored in ldif back-end (which keep benefits of human-readability) in the {{Path|/etc/openldap/slapd.d}} directory. In Gentoo it is not required to convert the configuration yet, but support for the currently documented approach will be removed in the future.
+
+=== Migration from slapd.conf to OLC ===
 
 If you want to be able to change OpenLDAP server's configuration, you must define at least write (or normally manage) access to <code>cn=config</code>.
 
@@ -167,6 +166,8 @@ access to *
         by dn.exact="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" manage
         by * none
 }}
+
+Then, we invoke the {{c|slaptest}} utility with the <code>-f</code> and <code>-F</code> options to convert the {{Path|slapd.conf}} file into a configuration directory ({{Path|slapd.d}}).
 
 {{RootCmd|mkdir /etc/openldap/slapd.d}}
 {{RootCmd|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d}}
@@ -188,14 +189,46 @@ Finally, create the {{Path|/var/lib/openldap-data}} structure:
 |chown ldap:ldap /var/lib/openldap-data
 |chmod 700 /var/lib/openldap-data}}
 
-
 Start slapd: 
 
 {{RootCmd|/etc/init.d/slapd start}}
 
-If it does not start then increase the ''loglevel'' variable in {{Path|slapd.conf}} to 4 or more, and look in {{Path|/var/log/messages}} for more information.
+=== Initial setup with OLC ===
 
-==== Example OLC-style update LDIFs ====
+An initial configuration is shipped as a standard LDAP database dump, available as {{Path|slapd.ldif}} or {{Path|config.ldif}}.
+
+It can be loaded (and ''only'' loaded, unlike ordinary LDAP databases) by the <code>slapadd</code> utility:
+
+{{RootCmd|slapadd -d -1 -F /etc/openldap/slapd.d -n 0 -l /etc/openldap/config.ldif}}
+
+{{Warning|The default configuration does not provide permissions to change the server's configuration to anybody.}}
+
+If you need the right to change the configuration database, you must provide the proper permissions. The next example shows how these privileges are granted to the {{c|root}} system user:
+
+{{FileBox|filename=config-access.ldif|1=
+# {0}config, config
+dn: olcDatabase={0}config,cn=config
+objectClass: olcDatabaseConfig
+olcDatabase: {0}config
+olcAccess: {0}to *  by dn.base="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" manage  by * none
+olcAddContentAcl: TRUE
+olcLastMod: TRUE
+olcMaxDerefDepth: 15
+olcReadOnly: FALSE
+olcRootDN: cn=config
+olcSyncUseSubentry: FALSE
+olcMonitoring: FALSE
+}}
+
+See {{Path|man 5 slapd-config}} for more details.
+
+When using OLC, never manually edit the configuration files. The directory files can be used to check the consistency of the configuration through:
+
+{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+
+=== Server management with OLC ===
+
+{{Note|One of the benefits of using OLC-style configuration is that you don't need to restart the LDAP server to apply configuration changes.}}
 
 Some examples of updates on the OLC-style configuration are mentioned below.
 
@@ -253,6 +286,116 @@ olcSpSessionlog: 100
 In order to apply the changes, run the following command:
 
 {{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif}}
+
+=== OpenLDAP logging ===
+
+OpenLDAP produces numerous log events, which might not be obvious to interpret, but are necessary for debugging purposes.
+
+As OpenLDAP by default writes the log events into the system log, it is advisable to reconfigure the system logger to direct OpenLDAP log events into a dedicated log file.
+
+=== Access management (ACLs) ===
+
+The authorizations and access control mechanism used in OpenLDAP is described in the {{Path|slapd.access}} manual page. Its base syntax is as follows:
+
+{{CodeBox|title=ACL syntax in OpenLDAP|1=
+  access to <what> [ by <who> [ <access> ] [ <control> ] ]+}}
+
+The following table shows the access levels available in OpenLDAP:
+
+{| class="table table-striped table-condensed" style="text-align: left;" 
+|- 
+! Access level
+! Privileges
+! Description
+|- 
+| none
+| 0
+| no access
+|- 
+| disclose
+| d
+| needed for information disclosure on error 
+|- 
+| auth
+| dx
+| needed to authenticate (bind)
+|- 
+| compare
+| cdx
+| needed to compare 
+|- 
+| search
+| scdx
+| needed to apply search filters 
+|- 
+| read
+| rscdx
+| needed to read search results 
+|- 
+| {write|add|delete}
+| wrscdx
+| needed to modify/rename 
+|- 
+| manage
+| mwrscdx
+| needed to manage 
+|-
+|}
+
+For details about the exact privilege settings, see the manual pages and official OpenLDAP documentation.
+
+==== Config file ====
+
+ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. For more information, see [http://www.openldap.org/doc/admin24/access-control.html#Access%20Control%20Evaluation Access Control Evaluation].
+
+For example:
+
+{{FileBox|filename=/etc/openldap/slapd.conf|1=
+…
+access to attrs=userPassword
+         by dn="cn=ldapreader,dc=genfic,dc=org" read
+         by self read
+         by anonymous auth
+         by * none
+  
+access to dn.base="cn=Subschema" by users read
+access to dn.base="" by * read
+…
+}}
+
+Remember that the ''rootdn'' user can read and write everything.
+
+==== Config directory ====
+
+ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. This order, when using OLC, is handled through the <code>olcAccess</code> directives.
+
+For example:
+
+{{FileBox|filename=add_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to dn.base="cn=subschema"  by users read
+olcAccess: {1}to dn.base="" by * read
+}}
+
+To insert a new ACL, the following example will add one on top, making the existing <code>olcAccess</code> entries to shift by one:
+
+{{FileBox|filename=insert_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to attrs=userPassword  by dn="cn=ldapreader,dc=genfic,dc=org" read by self read by anonymous auth by * noneby * none
+}}
+
+To delete an ACL:
+
+{{FileBox|filename=delete_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+delete: olcAccess
+olcAccess: {1}
+}}
 
 == Configuring the OpenLDAP Client tools == 
 
