@@ -7,7 +7,7 @@
 Данное руководство знакомит пользователя с основами LDAP и описывает, как можно настроить OpenLDAP для осуществления аутентификации в рамках группы компьютеров.
 
 
-== Введение в OpenLDAP ==
+== Getting started with OpenLDAP ==
 
 === Что такое LDAP? ===
 
@@ -37,7 +37,7 @@ uid: ..   John            ## (Специфические данные OU)
 
 Заинтересованным пользователям рекомендуется прочитать [http://www.openldap.org/doc/admin24/ OpenLDAP Admin Guide].
 
-=== Итак, для чего же его можно использовать? ===
+=== So... what can it be used for? ===
 
 LDAP можно использовать для разнообразных нужд. В этой статье описывается централизованное управление пользователями, хранение всех учетных записей пользователей в одном местонахождении LDAP (что не означает, что оно находится на одном сервере — LDAP поддерживает высокую доступность (high availability) и резервирование (redundancy)), однако LDAP может использоваться и в других целях. 
 
@@ -80,7 +80,7 @@ Re-enter new password: my-password
 
 === Legacy configuration (flat config slapd.conf) ===
 
-Теперь отредактируйте конфигурацию сервера LDAP в файле {{Path|/etc/openldap/slapd.conf}}. Предоставленный файл {{Path|slapd.conf}}, взят из оригинального архива исходного кода openLDAP. Ниже приведен пример файла конфигурации, которым его можно заменить. 
+Теперь отредактируйте конфигурацию сервера LDAP в файле {{Path|/etc/openldap/slapd.conf}}. Предоставленный файл {{Path|slapd.conf}}, взят из оригинального архива исходного кода OpenLDAP. Ниже приведен пример файла конфигурации, которым его можно заменить. 
 
 {{FileBox|filename=/etc/openldap/slapd.conf|1=
 include	/etc/openldap/schema/core.schema
@@ -92,18 +92,18 @@ include	/etc/openldap/schema/misc.schema
 pidfile  /var/run/openldap/slapd.pid
 argsfile /var/run/openldap/slapd.args
  
-## ## ServerID, используемый в случае дублирования
+## ## ServerID used in case of replication
 serverID 0 
 loglevel 0
  
-## ## Раздел Certificate/SSL
+## ## Certificate/SSL Section
 TLSCipherSuite normal
 TLSCACertificateFile /etc/openldap/ssl/ldap.crt
 TLSCertificateFile /etc/openldap/ssl/ldap.pem
 TLSCertificateKeyFile /etc/openldap/ssl/ldap.key
 TLSVerifyClient never
  
-## ## Управление доступом
+## ## Access Controls
 access to dn.base="" by * read
 access to dn.base="cn=Subschema" by * read
 access to *
@@ -111,25 +111,30 @@ access to *
   by users read
   by anonymous read
  
-## ## Определение базы данных
-database hdb
-suffix "dc=genfic,dc=com"
+## ## Database definition
+database mdb
+suffix "dc=genfic,dc=org"
 checkpoint 32 30
-rootdn "cn=Manager,dc=genfic,dc=com"
-## ## rootpwd, сгенерированный ранее с помощью команды slappasswd
+maxsize 10485760
+#Note: It is important to set this to as large a value as possible,
+#(relative to anticipated growth of the actual data over time)
+#since growing the size later may not be practical when the system is under heavy load.
+ 
+rootdn "cn=Manager,dc=genfic,dc=org"
+## ## rootpwd generated earlier via slappasswd command
 rootpw "{SSHA}EzP6I82DZRnW+ou6lyiXHGxSpSOw2XO4" 
 directory "/var/lib/openldap-data"
 index objectClass eq
  
-## ## Синхронизация (с другим сервером LDAP)
+## ## Synchronisation (pull from other LDAP server)
 syncrepl rid=000
-  provider=ldap://ldap2.genfic.com
+  provider=ldap://ldap2.genfic.org
   type=refreshAndPersist
   retry="5 5 300 +"
-  searchbase="dc=genfic,dc=com"
+  searchbase="dc=genfic,dc=org"
   attrs="*,+"
   bindmethod="simple"
-  binddn="cn=ldapreader,dc=genfic,dc=com"
+  binddn="cn=ldapreader,dc=genfic,dc=org"
   credentials="ldapsyncpass"
  
 index entryCSN eq
@@ -141,9 +146,9 @@ overlay syncprov
 syncprov-checkpoint 100 10
 }}
 
-Для более подробного анализа файла конфигурации рекомендуем изучить OpenLDAP Administrator's Guide. 
+For a more detailed analysis of the configuration file, we suggest that you work through the OpenLDAP Administrator's Guide, although {{Path|man 5 slapd.conf}} may be enough. 
 
-После изменения файла {{Path|slapd.conf}}, его можно проверить с помощью следующей команды.
+If it does not start, the first thing you ''must'' do is to check the config file. You can do it with the following command.
 
 {{Cmd|slaptest -v -d 1 -f /etc/openldap/slapd.conf}}
 
@@ -151,13 +156,13 @@ syncprov-checkpoint 100 10
 
 By default {{c|slapd}} writes the log events to the ''local4'' syslog facility.
 
-Обратите внимание, что, начиная с версии 2.4.23, OpenLDAP перешел с традиционных файлов конфигурации ({{Path|slapd.conf}}) на OLC (OnLineConfiguration, также известный по структуре <code>cn=config</code>), в качестве метода конфигурации, используемого по умолчанию. Одно из преимуществ использования OLC в том, что динамический back-end (cn=config) не требует перезапуска сервера после обновления конфигурации. Существующие пользователи могут перейти на новый метод конфигурации, запустив команду <code>slaptest</code> одновременно с параметрами -f и -F. По традиции, OLC хранится в ldif back-end (что сохраняет преимущества удобочитаемости для человека) в каталоге {{Path|/etc/openldap/slapd.d}}. В Gentoo преобразование конфигурации пока не требуется, однако поддержка на данный момент документированного подхода в будущем будет убрана.
+{{Warning|Note that since version 2.4.23, OpenLDAP default finally moved from traditional flat config files (<code>slapd.conf</code>) to OLC (OnLineConfiguration, also known through its <code>cn{{=}}config</code> structure) as default configuration method. One of benefits of using OLC is that the dynamic backend (<code>cn{{=}}config</code>) doesn't require restart of server after updating the configuration. Existing users can migrate to the new configuration method by invoking <code>slaptest</code> setting both -f and -F options. Traditionally OLC is stored in ldif back-end (which keep benefits of human-readability) in the <code>/etc/openldap/slapd.d</code> directory. In Gentoo it is not required to convert the configuration yet, but support for the currently documented approach will be removed in the future.}}
 
 === Migration from slapd.conf to OLC ===
 
 Чтобы иметь возможность изменения конфигурации сервера OpenLDAP, необходимо определить как минимум доступ для записи (или, как правило, для управления) в <code>cn=config</code>.
 
-В нижеследующем примере показано, как можно предоставить доступ для управления к OLC (база данных ''cn=config'') для системного администратора (пользователя root), добавив соответствующие строки в конец файла {{Path|slapd.conf}}:
+The example below shows how to grant manage access on OLC (''cn=config'' database) to the system administrator (root user) by adding the proper lines at the end of the {{Path|slapd.conf}} file:
 
 {{FileBox|filename=/etc/openldap/slapd.conf|title=Предоставление прав управления пользователю Linux root в cn{{=}}config|1=
 database config
@@ -168,9 +173,9 @@ access to *
 
 Then, we invoke the {{c|slaptest}} utility with the <code>-f</code> and <code>-F</code> options to convert the {{Path|slapd.conf}} file into a configuration directory ({{Path|slapd.d}}).
 
-{{RootCmd|mkdir /etc/openldap/slapd.d}}
-{{RootCmd|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d}}
-{{RootCmd|chown -R ldap /etc/openldap/slapd.d}}
+{{RootCmd|mkdir /etc/openldap/slapd.d
+|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d
+|chown -R ldap /etc/openldap/slapd.d}}
 
 Запуск этой команды переместит и преобразует конфигурацию. После этого предполагается обновление конфигурации с помощью специально подготовленных файлов ldif. Лишь в том случае, если вы с ними не знакомы, следует редактировать {{Path|slapd.conf}} и повторно преобразовать его в {{Path|slapd.d/}}. Не забудьте проверить права доступа каталога.
 
@@ -185,8 +190,8 @@ OPTS="-F /etc/openldap/slapd.d -h 'ldaps:// ldap:// ldapi://%2fvar%2frun%2fopenl
 Наконец, создайте структуру {{Path|/var/lib/openldap-data}}: 
 
 {{RootCmd|mkdir -p /var/lib/openldap-data
-|chown ldap:ldap /var/lib/openldap-data
-|chmod 700 /var/lib/openldap-data}}
+|chown -R ldap:ldap /var/lib/openldap-data
+|chmod -R 0700 /var/lib/openldap-data}}
 
 Запустите slapd: 
 
@@ -223,7 +228,7 @@ See {{Path|man 5 slapd-config}} for more details.
 
 When using OLC, never manually edit the configuration files. The directory files can be used to check the consistency of the configuration through:
 
-{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+{{RootCmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
 
 === Server management with OLC ===
 
@@ -231,7 +236,7 @@ When using OLC, never manually edit the configuration files. The directory files
 
 Ниже приводится несколько примеров обновления конфигурации в стиле OLC.
 
-Например, чтобы изменить местонахождение каталога конфигурации OLC:
+For instance, to change the location of the OLC configuration directory (needed after switching from a config file to config directory style):
 
 {{FileBox|filename=fix-configs.ldif|1=
 dn: cn=config
@@ -249,7 +254,7 @@ olcConfigDir: /etc/openldap/slapd.d
 dn: cn=config
 changetype: modify
 replace: olcLogLevel
-olcLogLevel: stats sync
+olcLogLevel: stats stats2 sync
 }}
 
 To add the syncprov overlay:
@@ -284,7 +289,13 @@ olcSpSessionlog: 100
 
 Чтобы применить изменения, запустите следующую команду:
 
-{{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif}}
+{{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif|output=<pre>
+SASL/EXTERNAL authentication started
+SASL username: gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth
+SASL SSF: 0
+modifying entry "cn=config"
+</pre>
+}}
 
 === OpenLDAP logging ===
 
@@ -396,24 +407,24 @@ delete: olcAccess
 olcAccess: {1}
 }}
 
-== Настройка клиентских утилит OpenLDAP == 
+== Configuring the OpenLDAP client tools == 
 
 Отредактируйте файл конфигурации клиента LDAP. Этот файл читается командой ldapsearch и другими ldap-утилитами командной строки.
 
-{{FileBox|filename=/etc/openldap/ldap.conf|title=Добавьте следующее|1=
-BASE         dc=genfic, dc=com
-URI          ldap://ldap.genfic.com:389/ ldap://ldap1.genfic.com:389/ ldap://ldap2.genfic.com:389/
+{{FileBox|filename=/etc/openldap/ldap.conf|title=Add the following|1=
+BASE         dc=genfic, dc=org
+URI          ldap://ldap.genfic.org:389/ ldap://ldap1.genfic.org:389/ ldap://ldap2.genfic.org:389/
 TLS_REQCERT  allow
 TIMELIMIT    2
 }}
 
 Запущенный сервер можно протестировать с помощью следующей команды: 
 
-{{Cmd|ldapsearch -x -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}com" -W}}
+{{Cmd|ldapsearch -x -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -W}}
 
 В случае возникновения ошибки, попробуйте добавить -d 255 для увеличения детализации вывода.
 
-== Настройка клиента для централизованной аутентификации  ==
+== Client configuration for centralized authentication  ==
 
 Существует целый ряд методов/утилит для осуществления удаленной аутентификации. Некоторые дистрибутивы также предоставляют свои собственные конфигурационные утилиты, легкие в использовании. Ниже приводится ряд утилит в произвольном порядке. Существует возможность одновременного сочетания локальных пользователей и центрально авторизованных учетных записей. Это важно, поскольку, например, если LDAP сервер недоступен, по-прежнему можно войти в систему в качестве пользователя root.
 
@@ -444,9 +455,9 @@ filter_users = root,ldap,named,avahi,haldaemon,dbus,radiusd,news,nscd
 [domain/genfic]
 id_provider = ldap
 auth_provider = ldap
-ldap_search_base = dc=genfic,dc=com
+ldap_search_base = dc=genfic,dc=org
 ldap_tls_reqcert = never
-# основной и резервный серверы ldap [первый сервер и],[второй сервер]
+# primary and backup ldap servers below [first server and],[second server]
 ldap_uri = ldap://X.X.X.X,ldap://X.X.X.X
 }}
 
@@ -496,7 +507,7 @@ session     optional      pam_sss.so                                            
 
 Теперь попробуйте войти в систему с другого компьютера.
 
-=== Настройка клиента PAM метод модуль pam_ldap ===
+=== Client PAM configuration the pam_ldap module method ===
 
 Сначала настроим PAM таким образом, чтобы разрешить авторизацию LDAP. Установите {{Package|sys-auth/pam_ldap}}, чтобы PAM поддерживал авторизацию LDAP, и {{Package|sys-auth/nss_ldap}}, чтобы система могла справиться с серверами LDAP для дополнительной информации (используется файлом {{Path|nsswitch.conf}}). 
 
@@ -531,22 +542,22 @@ session    optional     pam_ldap.so                                             
 ## #host 127.0.0.1
 ## #base dc=padl,dc=com
  
-base dc=genfic,dc=com
-## #rootbinddn uid=root,ou=People,dc=genfic,dc=com
+base dc=genfic,dc=org
+## #rootbinddn uid=root,ou=People,dc=genfic,dc=org
 bind_policy soft
 bind_timelimit 2
 ldap_version 3
-nss_base_group ou=Group,dc=genfic,dc=com
-nss_base_hosts ou=Hosts,dc=genfic,dc=com
-nss_base_passwd ou=People,dc=genfic,dc=com
-nss_base_shadow ou=People,dc=genfic,dc=com
+nss_base_group ou=Group,dc=genfic,dc=org
+nss_base_hosts ou=Hosts,dc=genfic,dc=org
+nss_base_passwd ou=People,dc=genfic,dc=org
+nss_base_shadow ou=People,dc=genfic,dc=org
 pam_filter objectclass=posixAccount
 pam_login_attribute uid
 pam_member_attribute memberuid
 pam_password exop
 scope one
 timelimit 2
-uri ldap://ldap.genfic.com/ ldap://ldap1.genfic.com ldap://ldap2.genfic.com
+uri ldap://ldap.genfic.org/ ldap://ldap1.genfic.org ldap://ldap2.genfic.org
 }}
 
 Далее скопируйте файл (OpenLDAP) {{Path|ldap.conf}} с сервера на клиент, чтобы клиенты знали об окружении LDAP: 
@@ -586,28 +597,28 @@ shadow:         files ldap
 
 {| class="wikitable" style="text-align: left;" 
 |- 
-! Ввод
-! Описание
-! Пример
+! Input
+! Description
+! Example
 |- 
 | LDAP BaseDN
-| Базовое местонахождение (root) дерева
-| dc=genfic,dc=com
+| The base location (root) of your tree
+| dc=genfic,dc=org
 |- 
-| Почтовый домен
-| Домен, используемый для адресов электронной почты
-| genfic.com
+| Mail domain
+| Domain used in e-mail addresses
+| genfic.org
 |- 
-| Почтовый хост
-| FQDN инфраструктуры почтового сервера
-| smtp.genfic.com
+| Mail host
+| FQDN of your mail server infrastructure
+| smtp.genfic.org
 |- 
 | LDAP Root DN
-| Информация об административной учетной записи структуры LDAP
-| cn=Manager,dc=genfic,dc=com
+| Administrative account information for your LDAP structure
+| cn=Manager,dc=genfic,dc=org
 |- 
-| Пароль пользователя Root LDAP
-| Пароль для административной учетной записи, cfr ранее команда <code>slappasswd</code>
+| LDAP Root Password
+| Password for the administrative account, cfr earlier <code>slappasswd</code> command
 | 
 |-
 |}
@@ -624,7 +635,7 @@ shadow:         files ldap
 
 Далее эта настройка дублируется, что позволяет вспомогательному серверу LDAP выполнять роль основного. Благодаря внутренней структуре OpenLDAP, если изменения уже присутствуют в структуре LDAP, повторно они не применяются.
 
-=== Настройка дублирования ===
+=== Setting up replication ===
 
 Для того, чтобы настроить дублирование, сначала настройте второй сервер OpenLDAP подобно тому, как описано выше. Однако обратите внимание на то, что в файле конфигурации:
 
@@ -641,7 +652,7 @@ shadow:         files ldap
 </pre>}}
 
 {{Cmd|cat ldapreader.ldif|output=<pre>
-dn: cn=ldapreader,dc=genfic,dc=com
+dn: cn=ldapreader,dc=genfic,dc=org
 userPassword: {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
 objectClass: organizationalRole
 objectClass: simpleSecurityObject
@@ -649,7 +660,7 @@ cn: ldapreader
 description: LDAP reader used for synchronization
 </pre>}}
 
-{{Cmd|ldapadd -x -W -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}com" -f ldapreader.ldif|output=<pre>
+{{Cmd|ldapadd -x -W -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -f ldapreader.ldif|output=<pre>
 Password: ## enter the administrative password
 </pre>}}
 
@@ -675,19 +686,19 @@ access to *
 
 {{FileBox|filename=/etc/openldap/slapd.conf|1=
 access to attrs="userPassword"
-  by dn="uid=root,ou=People,dc=genfic,dc=com" write
-  by dn="uid=John,ou=People,dc=genfic,dc=com" write
+  by dn="uid=root,ou=People,dc=genfic,dc=org" write
+  by dn="uid=John,ou=People,dc=genfic,dc=org" write
   by anonymous auth
   by self write
   by * none
  
 access to *
-  by dn="uid=root,ou=People,dc=genfic,dc=com" write
-  by dn="uid=John,ou=People,dc=genfic,dc=com" write
+  by dn="uid=root,ou=People,dc=genfic,dc=org" write
+  by dn="uid=John,ou=People,dc=genfic,dc=org" write
   by * search
 }}
 
-Этот пример обеспечивает пользователям root и John доступ для чтения/записи/поиска любой информации в дереве под {{Path|dc{{=}}genfic,dc{{=}}com}}. Он также позволяет пользователям изменять свои <code>userPassword</code>'s. Что касается последней строки, у всех остальных есть только возможность поиска, что означает, что они могут заполнить фильтр поиска, но не могут прочитать результат поиска. Теперь у вас есть возможность иметь несколько ACLs, однако общим правилом является обработка снизу вверх, так что верхний уровень должен быть наиболее ограниченным.
+This example gives root and John access to read/write/search for everything in the the tree below {{Path|dc{{=}}genfic,dc{{=}}org}}. This also lets users change their own <code>userPassword</code>'s. As for the ending statement everyone else just has a search ability meaning they can fill in a search filter, but can't read the search results. Now you can have multiple ACLs but the rule of the thumb is it processes from bottom up, so your toplevel should be the most restrictive one.
 
 == Работа с OpenLDAP ==
 
