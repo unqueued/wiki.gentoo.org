@@ -55,15 +55,15 @@ LDAP可以用来做许多不同的事情呢。这篇文档聚焦于如何集中�
 
 * ...
 
-== OpenLDAP服务器配置 ==
+== OpenLDAP server setup  ==
+
+=== Common notes ===
 
 域名“genfic.com”是这份指南中的一个例子，您当然想改变它，但是请确保其顶级节点是官方的合法域名，如net、com、cc、be......
-
 
 我们首先要emerge OpenLDAP。请确保如下USE标记被使用：''berkdb, crypt, gnutls, ipv6, sasl, ssl, syslog, -minimal''
 
 {{Emerge|openldap}}
-
 
 OpenLDAP有一个主要用户，它被称为“rootdn（Root Distinguished Name）”，这个用户已经在应用中被写死，不可更改。但是与Unix中的root用户不同，rootdn仍然需要被指定适当的权限。rootdn用户可能仅在配置的上下文中被使用，也可能被用于目录的定义，相应地，rootdn用户可以使用配置文件里的密码和目录树中的密码来认证他们自己。（译者注：这里不太好理解，我的个人理解是：openldap的服务器采用/etc/slapd.conf来做配置，里面有一个rootdn条目，这里面指定的dn，例如cn=Manager,dc=genfic,dc=com就是ldap里面最牛的管理员，它可以在LDAP里面干任何事儿，另外openldap运行起来之后，它会维护一个用户信息数据库，这个数据库里面是可以没有cn=Manager,dc=genfic,dc=com这个dn的，当没有这个dn时，这个叫Manager的用户就是只可以管理ldap目录及其内容，但不能用这个用户在ldap客户端上登录，也不能保存关于Manager的个人信息，如电话、地址等，因为ldap没有存储这些信息的地方。但是您也可以在数据库中自己加上这个用户的相应节点，这时这个用户就可以像其它用户一样享受在客户端登录，保存个人信息等“福利”了。）
 
@@ -78,6 +78,7 @@ Re-enter new password: my-password
 </pre>
 }}
 
+=== Legacy configuration (flat config slapd.conf) ===
 
 现在我们编辑LDAP服务器的配置文件： {{Path|/etc/openldap/slapd.conf}}。这份 {{Path|slapd.conf}}是从openLDAP原包里来的，下面是一个范例配置，您可以用它替换掉系统中原来的文件来开始您的工作。 
 
@@ -142,20 +143,18 @@ syncprov-checkpoint 100 10
 
 要想深入了解配置文件的含义，我们建议您研读OpenLDAP Administrator's Guide。 
 
-=== 验证配置 ===
-
 在定制化{{Path|slapd.conf}} 配置文件之后，您可以使用下面的命令检查验证其是否配置无误：
 
 {{Cmd|slaptest -v -d 1 -f /etc/openldap/slapd.conf}}
 
-或者您也可以使用OLC风格的配置文件：
-
-{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
-
 改变debug级别（上面的"-d 1"）可以得到更多的信息。如果顺利的话，您会看到“config file testing succeeded”。
 如果发生错误，<code>slaptest</code>将会列出造成错误的行号（位于{{Path|slapd.conf}}）
 
+By default {{c|slapd}} writes the log events to the ''local4'' syslog facility.
+
 需要注意的是：从2.4.23版本开始，OpenLDAP从传统的扁平的配置文件({{Path|slapd.conf}}) 切换到OLC风格的配置文件，并且将是缺省的配置方法。使用OLC风格的配置文件的一大好处是当配置需要被更改时，这一动态的后台配置（cn=config）不需要重启服务就可以生效。老用户可以通过设置了-f和-F参数的命令<code>slaptest</code> 将现有配置迁移到新的OLC风格的配置。传统的OLC是以ldif格式（这样可以保证可读性）保存在{{Path|/etc/openldap/slapd.d}} 目录中的。Gentoo用户目前还不一定需要进行这一配置文件的转换，但是未来老的方法将可能不被支持。
+
+=== Migration from slapd.conf to OLC ===
 
 如果您想改变OpenLDAP服务器的配置，您必须至少要对<code>cn=config</code>赋予写权限（或者管理权限 ）。
 
@@ -167,6 +166,8 @@ access to *
         by dn.exact="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" manage
         by * none
 }}
+
+Then, we invoke the {{c|slaptest}} utility with the <code>-f</code> and <code>-F</code> options to convert the {{Path|slapd.conf}} file into a configuration directory ({{Path|slapd.d}}).
 
 {{RootCmd|mkdir /etc/openldap/slapd.d}}
 {{RootCmd|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d}}
@@ -188,14 +189,46 @@ OPTS="-F /etc/openldap/slapd.d -h 'ldaps:// ldap:// ldapi://%2fvar%2frun%2fopenl
 |chown ldap:ldap /var/lib/openldap-data
 |chmod 700 /var/lib/openldap-data}}
 
-
 启动slapd服务： 
 
 {{RootCmd|/etc/init.d/slapd start}}
 
-如果启动服务没能成功，您可以将 {{Path|slapd.conf}}配置中''loglevel''的值设为4或更大，然后查看 {{Path|/var/log/messages}} 来获取更多的信息。
+=== Initial setup with OLC ===
 
-==== OLC样式的LDIF更新示例 ====
+An initial configuration is shipped as a standard LDAP database dump, available as {{Path|slapd.ldif}} or {{Path|config.ldif}}.
+
+It can be loaded (and ''only'' loaded, unlike ordinary LDAP databases) by the <code>slapadd</code> utility:
+
+{{RootCmd|slapadd -d -1 -F /etc/openldap/slapd.d -n 0 -l /etc/openldap/config.ldif}}
+
+{{Warning|The default configuration does not provide permissions to change the server's configuration to anybody.}}
+
+If you need the right to change the configuration database, you must provide the proper permissions. The next example shows how these privileges are granted to the {{c|root}} system user:
+
+{{FileBox|filename=config-access.ldif|1=
+# {0}config, config
+dn: olcDatabase={0}config,cn=config
+objectClass: olcDatabaseConfig
+olcDatabase: {0}config
+olcAccess: {0}to *  by dn.base="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" manage  by * none
+olcAddContentAcl: TRUE
+olcLastMod: TRUE
+olcMaxDerefDepth: 15
+olcReadOnly: FALSE
+olcRootDN: cn=config
+olcSyncUseSubentry: FALSE
+olcMonitoring: FALSE
+}}
+
+See {{Path|man 5 slapd-config}} for more details.
+
+When using OLC, never manually edit the configuration files. The directory files can be used to check the consistency of the configuration through:
+
+{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+
+=== Server management with OLC ===
+
+{{Note|One of the benefits of using OLC-style configuration is that you don't need to restart the LDAP server to apply configuration changes.}}
 
 一些OLC风格的配置文件升级范例可以参见下文。
 
@@ -253,6 +286,116 @@ olcSpSessionlog: 100
 为了确认这些改变，可以运行下面的命令：
 
 {{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif}}
+
+=== OpenLDAP logging ===
+
+OpenLDAP produces numerous log events, which might not be obvious to interpret, but are necessary for debugging purposes.
+
+As OpenLDAP by default writes the log events into the system log, it is advisable to reconfigure the system logger to direct OpenLDAP log events into a dedicated log file.
+
+=== Access management (ACLs) ===
+
+The authorizations and access control mechanism used in OpenLDAP is described in the {{Path|slapd.access}} manual page. Its base syntax is as follows:
+
+{{CodeBox|title=ACL syntax in OpenLDAP|1=
+  access to <what> [ by <who> [ <access> ] [ <control> ] ]+}}
+
+The following table shows the access levels available in OpenLDAP:
+
+{| class="table table-striped table-condensed" style="text-align: left;" 
+|- 
+! Access level
+! Privileges
+! Description
+|- 
+| none
+| 0
+| no access
+|- 
+| disclose
+| d
+| needed for information disclosure on error 
+|- 
+| auth
+| dx
+| needed to authenticate (bind)
+|- 
+| compare
+| cdx
+| needed to compare 
+|- 
+| search
+| scdx
+| needed to apply search filters 
+|- 
+| read
+| rscdx
+| needed to read search results 
+|- 
+| {write|add|delete}
+| wrscdx
+| needed to modify/rename 
+|- 
+| manage
+| mwrscdx
+| needed to manage 
+|-
+|}
+
+For details about the exact privilege settings, see the manual pages and official OpenLDAP documentation.
+
+==== Config file ====
+
+ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. For more information, see [http://www.openldap.org/doc/admin24/access-control.html#Access%20Control%20Evaluation Access Control Evaluation].
+
+For example:
+
+{{FileBox|filename=/etc/openldap/slapd.conf|1=
+…
+access to attrs=userPassword
+         by dn="cn=ldapreader,dc=genfic,dc=org" read
+         by self read
+         by anonymous auth
+         by * none
+  
+access to dn.base="cn=Subschema" by users read
+access to dn.base="" by * read
+…
+}}
+
+Remember that the ''rootdn'' user can read and write everything.
+
+==== Config directory ====
+
+ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. This order, when using OLC, is handled through the <code>olcAccess</code> directives.
+
+For example:
+
+{{FileBox|filename=add_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to dn.base="cn=subschema"  by users read
+olcAccess: {1}to dn.base="" by * read
+}}
+
+To insert a new ACL, the following example will add one on top, making the existing <code>olcAccess</code> entries to shift by one:
+
+{{FileBox|filename=insert_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to attrs=userPassword  by dn="cn=ldapreader,dc=genfic,dc=org" read by self read by anonymous auth by * noneby * none
+}}
+
+To delete an ACL:
+
+{{FileBox|filename=delete_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+delete: olcAccess
+olcAccess: {1}
+}}
 
 == 配置OpenLDAP客户端工具 == 
 
@@ -511,7 +654,7 @@ description: LDAP reader used for synchronization
 Password: ## enter the administrative password
 </pre>}}
 
-== LDAP 服务器安全设置==
+== LDAP server security settings ==
 
 === OpenLDAP 权限===
 
@@ -522,7 +665,7 @@ access to attrs=userPassword,gecos,description,loginShell
   by self write
   
 access to *
-  by dn="uid=root,ou=People,dc=genfic,dc=com" write
+  by dn="uid=root,ou=People,dc=genfic,dc=org" write
   by users read
   by anonymous auth
 }}
