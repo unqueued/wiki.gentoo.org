@@ -57,13 +57,13 @@ LDAP는 다양한곳에 사용할 수 있습니다. 이 문서는 사용자 관�
 
 == OpenLDAP 서버 설정 ==
 
-이 안내서에서는 genfic.com을 예로 들겠습니다. 물론 이 도메인을 다른 도메인으로 바꿀 수 있습니다. 그러나 공식 상위 도메인(net, com, cc, be, ...)이 상위 노드에 위치했는지 확인하십시오.
+=== Common notes ===
 
+이 안내서에서는 genfic.com을 예로 들겠습니다. 물론 이 도메인을 다른 도메인으로 바꿀 수 있습니다. 그러나 공식 상위 도메인(net, com, cc, be, ...)이 상위 노드에 위치했는지 확인하십시오.
 
 먼저 OpenLDAP를 이머지하겠습니다. ''berkdb, crypt, gnutls, ipv6, sasl, ssl, syslog,-minimal, tcpd'' USE 플래그를 사용했는지 확인하십시오.
 
 {{Emerge|openldap}}
-
 
 OpenLDAP의 주 사용자는 프로그램에 하드코딩한 ''rootdn''(루트 식별 이름) 입니다. 기존의 유닉스 루트 사용자와는 달리, rootdn 사용자는 적당한 권한 할당이 필요합니다. rootdn 사용자는 설정 환경에서만 활용할 수 있지만 디렉터리 정의 범위에서도 사용할 수 있습니다. 이 경우 해당 사용자는 환경 설정에 넣은 암호과 트리(디렉터리 기반) 암호를 사용하여 rootdn으로 자신을 인증 할 수 있습니다.
 
@@ -78,6 +78,7 @@ Re-enter new password: my-password
 </pre>
 }}
 
+=== Legacy configuration (flat config slapd.conf) ===
 
 {{Path|/etc/openldap/slapd.conf}}에 있는 LDAP 서버 설정을 편집하십시오. 제공된 {{Path|slapd.conf}}는 원본 OpenLDAP 소스 코드에 들어있는 파일입니다. 아래 예제 설정 파일은 처음 시작할 때 대체할 내용으로 사용할 수 있습니다. 
 
@@ -142,20 +143,18 @@ syncprov-checkpoint 100 10
 
 더 자세하게 설정 파일을 분석하려면, OpenLDAP 관리자 안내서를 보며 진행하시는게 좋습니다. 
 
-=== 설정 확인 ===
-
 {{Path|slapd.conf}} 파일을 사용자의 취향대로 이리저리 설정하고 난 후, 다음 명령으로 확인할 수 있습니다.
 
 {{Cmd|slaptest -v -d 1 -f /etc/openldap/slapd.conf}}
 
-또는 OLC를 사용한다면:
-
-{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
-
 더 많은 내용을 확인하려면 디버그 레벨("-d 1" 이상)을 바꿔보십시오. 모든 동작이 잘 된다면 "config file testing succeedded"가 보입니다.
 오류가 있다면, <code>slaptest</code>에서 ({{Path|slapd.conf}} 파일에서) 오류가 난 부분의 줄 번호를 표시합니다
 
+By default {{c|slapd}} writes the log events to the ''local4'' syslog facility.
+
 참고로 2.4.23부터는, OpenLDAP의 기본 설정 방식이 기존 {{Path|slapd.conf}} 플랫 설정 파일에서 OLC(OnLineConfiguration, <code>cn=config</code> 구조로 알려짐) 방식으로 바뀌었습니다. OLC를 사용하면 설정을 업데이트한 후 동적 백엔드(cn=config)에서 서버를 재시작할 필요가 없는 장점이 있습니다. 기존의 사용자는 <code>slaptest</code> 명령 실행시 -f 와 -F 옵션 설정을 사용하는 새 설정 방식으로 옮겨갈 수 있습니다. 기존의 OLC는 {{Path|/etc/openldap/slapd.d}} 디렉터리의 ldif 백엔드(사용자가 알아볼 수 있는 장점이 있음) 에 저장했습니다. 젠투에서는 아직 설정을 변환할 필요가 없지만 현재 문서로 정리한 방법은 나중에 제거합니다.
+
+=== Migration from slapd.conf to OLC ===
 
 OpenLDAP 서버 설정을 바꿀 수 있게 하려면 최소한 <code>cn=config</code>에 쓰기(또는 일반 관리) 접근 권한을 정의해야 합니다.
 
@@ -168,9 +167,11 @@ access to *
         by * none
 }}
 
-{{RootCmd|mkdir /etc/openldap/slapd.d}}
-{{RootCmd|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d}}
-{{RootCmd|chown -R ldap /etc/openldap/slapd.d}}
+Then, we invoke the {{c|slaptest}} utility with the <code>-f</code> and <code>-F</code> options to convert the {{Path|slapd.conf}} file into a configuration directory ({{Path|slapd.d}}).
+
+{{RootCmd|mkdir /etc/openldap/slapd.d
+|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d
+|chown -R ldap /etc/openldap/slapd.d}}
 
 이 명령을 실행하면 설정을 보내고 변환합니다. 이 과정이 끝나면 각각 마련된 ldif 파일을 사용하여 설정을 업데이트함니다. 그리고 이 방식에 충분히 익숙하지 않다면, 우선 {{Path|slapd.conf}}를 편집하고, 그 다음에 {{Path|slapd.conf}} 파일을 {{Path|slapd.d/}} 형식에 맞춰 재작성할 수 있습니다. 디렉터리 권한 확인을 잊지 마십시오.
 
@@ -188,14 +189,46 @@ OPTS="-F /etc/openldap/slapd.d -h 'ldaps:// ldap:// ldapi://%2fvar%2frun%2fopenl
 |chown ldap:ldap /var/lib/openldap-data
 |chmod 700 /var/lib/openldap-data}}
 
-
 slapd를 시작하십시오: 
 
 {{RootCmd|/etc/init.d/slapd start}}
 
-데몬이 시작되지 않는다면 {{Path|slapd.conf}}의 ''loglevel'' 변수 값을 4 이상으로 설정하시고, {{Path|/var/log/messages}} 에서 자세한 내용을 확인하십시오.
+=== Initial setup with OLC ===
 
-==== OLC 방식 업데이트 LDIF 예제 ====
+An initial configuration is shipped as a standard LDAP database dump, available as {{Path|slapd.ldif}} or {{Path|config.ldif}}.
+
+It can be loaded (and ''only'' loaded, unlike ordinary LDAP databases) by the <code>slapadd</code> utility:
+
+{{RootCmd|slapadd -d -1 -F /etc/openldap/slapd.d -n 0 -l /etc/openldap/config.ldif}}
+
+{{Warning|The default configuration does not provide permissions to change the server's configuration to anybody.}}
+
+If you need the right to change the configuration database, you must provide the proper permissions. The next example shows how these privileges are granted to the {{c|root}} system user:
+
+{{FileBox|filename=config-access.ldif|1=
+# {0}config, config
+dn: olcDatabase={0}config,cn=config
+objectClass: olcDatabaseConfig
+olcDatabase: {0}config
+olcAccess: {0}to *  by dn.base="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" manage  by * none
+olcAddContentAcl: TRUE
+olcLastMod: TRUE
+olcMaxDerefDepth: 15
+olcReadOnly: FALSE
+olcRootDN: cn=config
+olcSyncUseSubentry: FALSE
+olcMonitoring: FALSE
+}}
+
+See {{Path|man 5 slapd-config}} for more details.
+
+When using OLC, never manually edit the configuration files. The directory files can be used to check the consistency of the configuration through:
+
+{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+
+=== Server management with OLC ===
+
+{{Note|One of the benefits of using OLC-style configuration is that you don't need to restart the LDAP server to apply configuration changes.}}
 
 OLC 방식 설정 업데이트 예제를 아래에 보여드리겠습니다.
 
@@ -253,6 +286,116 @@ olcSpSessionlog: 100
 바뀐 내용을 적용하려면, 다음 명령을 실행하십시오:
 
 {{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif}}
+
+=== OpenLDAP logging ===
+
+OpenLDAP produces numerous log events, which might not be obvious to interpret, but are necessary for debugging purposes.
+
+As OpenLDAP by default writes the log events into the system log, it is advisable to reconfigure the system logger to direct OpenLDAP log events into a dedicated log file.
+
+=== Access management (ACLs) ===
+
+The authorizations and access control mechanism used in OpenLDAP is described in the {{Path|slapd.access}} manual page. Its base syntax is as follows:
+
+{{CodeBox|title=ACL syntax in OpenLDAP|1=
+  access to <what> [ by <who> [ <access> ] [ <control> ] ]+}}
+
+The following table shows the access levels available in OpenLDAP:
+
+{| class="table table-striped table-condensed" style="text-align: left;" 
+|- 
+! Access level
+! Privileges
+! Description
+|- 
+| none
+| 0
+| no access
+|- 
+| disclose
+| d
+| needed for information disclosure on error 
+|- 
+| auth
+| dx
+| needed to authenticate (bind)
+|- 
+| compare
+| cdx
+| needed to compare 
+|- 
+| search
+| scdx
+| needed to apply search filters 
+|- 
+| read
+| rscdx
+| needed to read search results 
+|- 
+| {write|add|delete}
+| wrscdx
+| needed to modify/rename 
+|- 
+| manage
+| mwrscdx
+| needed to manage 
+|-
+|}
+
+For details about the exact privilege settings, see the manual pages and official OpenLDAP documentation.
+
+==== Config file ====
+
+ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. For more information, see [http://www.openldap.org/doc/admin24/access-control.html#Access%20Control%20Evaluation Access Control Evaluation].
+
+For example:
+
+{{FileBox|filename=/etc/openldap/slapd.conf|1=
+…
+access to attrs=userPassword
+         by dn="cn=ldapreader,dc=genfic,dc=org" read
+         by self read
+         by anonymous auth
+         by * none
+  
+access to dn.base="cn=Subschema" by users read
+access to dn.base="" by * read
+…
+}}
+
+Remember that the ''rootdn'' user can read and write everything.
+
+==== Config directory ====
+
+ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. This order, when using OLC, is handled through the <code>olcAccess</code> directives.
+
+For example:
+
+{{FileBox|filename=add_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to dn.base="cn=subschema"  by users read
+olcAccess: {1}to dn.base="" by * read
+}}
+
+To insert a new ACL, the following example will add one on top, making the existing <code>olcAccess</code> entries to shift by one:
+
+{{FileBox|filename=insert_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to attrs=userPassword  by dn="cn=ldapreader,dc=genfic,dc=org" read by self read by anonymous auth by * noneby * none
+}}
+
+To delete an ACL:
+
+{{FileBox|filename=delete_acl.ldif|1=
+dn: olcDatabase={-1}frontend,cn=config
+changetype: modify
+delete: olcAccess
+olcAccess: {1}
+}}
 
 == OpenLDAP 클라이언트 도구 설정 == 
 
