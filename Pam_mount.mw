@@ -1,0 +1,119 @@
+{{DISPLAYTITLE:pam_mount}}
+
+{{InfoBox stack
+|{{InfoBox homepage|http://pam-mount.sourceforge.net/|header=true}}
+}}
+
+The {{Path|pam_mount.so}} PAM module allows systems to automatically mount file systems when a user logs on, and unmount file systems when the user logs off.
+
+__TOC__
+
+== Installation ==
+
+=== USE flags ===
+
+The {{Package|sys-auth/pam_mount}} package has a few USE flags that it supports:
+
+{{USEflag|package=sys-auth/pam_mount}}
+
+=== Emerge ===
+
+To install the package, just emerge it:
+
+{{Emerge|category/package}}
+
+== Configuration ==
+
+No specific configuration is needed for the installation itself. The actual configuration entries are mentioned below under the [#Usage|Usage] section.
+
+== Usage ==
+
+=== Mounting regular file systems ===
+
+Edit the PAM configuration file in which the mount action has to be configured. Add the required call to {{Path|pam_mount.so}} for <code>auth</code> and <code>session</code> as shown in the next example:
+
+{{FileBox|filename=/etc/pam.d/system-auth|title="Enable pam_mount in the proper service"|1=
+auth		required	pam_env.so 
+auth		required	pam_unix.so try_first_pass likeauth nullok 
+auth		optional	pam_permit.so
+auth            optional        pam_mount.so
+ 
+account		required	pam_unix.so 
+account		optional	pam_permit.so
+ 
+password	required	pam_cracklib.so difok=2 minlen=8 dcredit=2 ocredit=2 retry=3 
+password	required	pam_unix.so try_first_pass use_authtok nullok sha512 shadow 
+password	optional	pam_permit.so
+ 
+session		required	pam_limits.so 
+session		required	pam_env.so 
+session		required	pam_unix.so 
+session		optional	pam_permit.so
+session         optional        pam_mount.so
+}}
+
+Next, edit or create the following configuration file:
+
+{{FileBox|filename=/etc/security/pam_mount.conf.xml|title="Configure pam_mount"|1=
+<pam_mount>
+  <volume user="your username" fstype="ext4" path="/dev/sdxn" mountpoint="/somewhere" option="fsck" />
+  <debug enable="1" />
+</pam_mount>
+}}
+
+This file will establish the file systems to mount when a particular user logs on. Of course, replace the example values with actual ones.
+
+=== Mounting LUKS encrypted file systems ===
+
+One might want to mount devices encrypted with cryptsetup. Edit the PAM configuration file of choice (such as {{Path|system-auth}}) and add calls to <code>pam_exec.so</code> in the <code>auth</code> and <code>session</code> sections:
+
+{{FileBox|filename=/etc/pam.d/system-auth|title="Enable pam_exec.so"|1=
+auth		required	pam_env.so 
+auth		required	pam_unix.so try_first_pass likeauth nullok 
+auth		optional	pam_permit.so
+auth            optional        pam_mount.so
+auth            optional        pam_exec.so expose_authtok quiet /sbin/cryptsetup luksOpen /dev/sdxn target
+ 
+account		required	pam_unix.so 
+account		optional	pam_permit.so
+ 
+password	required	pam_cracklib.so difok=2 minlen=8 dcredit=2 ocredit=2 retry=3 
+password	required	pam_unix.so try_first_pass use_authtok nullok sha512 shadow 
+password	optional	pam_permit.so
+ 
+session		required	pam_limits.so 
+session		required	pam_env.so 
+session		required	pam_unix.so 
+session		optional	pam_permit.so
+session         optional        pam_mount.so
+session         optional        pam_exec.so quiet /sbin/luksClose
+}}
+
+The first one opens the encrypted device located in {{Path|/dev/sdxn}} and maps it to {{Path|/dev/mapper/target}}.
+
+The second one calls a script for closing the encrypted device on logout. It may look like this:
+
+{{FileBox|filename=/sbin/luksClose|title="Close encrypted device script"|1=
+#!/bin/bash
+if [ "$PAM_TYPE" = "close_session" ]; then
+  cryptsetup luksClose /dev/mapper/target
+fi
+}}
+
+Do not forget to use the proper map (the one defined in {{Path|/etc/security/pam_mount.conf.xml}}.
+
+=== Unmerge ===
+
+Before removing the package, make sure that no PAM configuration file refers to the module anymore:
+
+{{Cmd|grep pam_mount /etc/pam.d/*}}
+
+If no file refers to it anymore, then the package is safe to unmerge:
+
+{{Unmerge|sys-auth/pam_mount}}
+
+== See also ==
+
+* [[PAM]] - the main PAM article on the Gentoo wiki
+
+[[Category:Software]]
