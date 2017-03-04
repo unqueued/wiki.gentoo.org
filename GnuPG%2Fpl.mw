@@ -1,0 +1,482 @@
+<languages />
+
+{{Dated|date=March 3rd, 2015}}
+{{InfoBox stack
+|{{InfoBox homepage|https://gnupg.org/|header=true}}
+|{{InfoBox wikipedia|GNU_Privacy_Guard|text=Wikipedia}}
+|{{InfoBox odoc|https://www.gnupg.org/documentation/index.html}}
+|{{InfoBox gitweb|https://git.gnupg.org/cgi-bin/gitweb.cgi|raw=true}}
+}}
+
+{{Metadata|abstract=This guide will teach Gentoo Linux users the basics of using GnuPG, a tool for secure communication.}}
+
+This guide will teach Gentoo Linux users the basics of using GnuPG, a tool for secure communication.
+
+== Introduction ==
+
+=== What readers will get from this guide ===
+
+This guide assumes the reader is familiar with public-key cryptography, encryption, and digital signatures. If this is not the case take a look at the [https://www.gnupg.org/documentation/guides.html official GnuPG handbook], specifically the second chapter, and then come back to this article. 
+
+Readers will learn how to install GnuPG, create a key pair, add keys to a keyring, and submit a public key to a key server. Readers will also learn how to sign, encrypt, verify, and decrypt messages and files sent and received.
+
+== Installation ==
+
+=== USE flags ===
+
+{{USEflag|package=app-crypt/gnupg}}
+
+=== Emerge ===
+
+{{Emerge|app-crypt/gnupg}}
+
+=== Other software ===
+
+At the very least, GnuPG must be emerged. Many applications today have some sort of support for PGP, so having <code>crypt</code> as a USE flag is a good idea. When desiring an email client capable of using GnuPG any of the following options are well suited:
+* PinePGP ({{Package|mail-client/pinepgp}}).
+* [[Mutt]] ({{Package|mail-client/mutt}}) - A small but very powerful text-based mail client.
+* [[Thunderbird]] ({{Package|mail-client/thunderbird}}) - Mozilla's e-mail solution.
+* [[Evolution]] ({{Package|mail-client/evolution}}) - A GNOME Microsoft Outlook work alike.
+* [[KMail]] ({{Package|kde-apps/kmail}}) - KDE's mail client. 
+**Installing KGPG ({{Package|kde-apps/kgpg}}) might be of interest when using the KDE desktop environment. This small program allows for the generation of key pairs, importing keys from ASCII files, signing imported keys, exporting keys, among a few other nifty features.
+
+== Usage ==
+
+=== Generating a key and adding keys to a public keyring ===
+
+==== Creating a key ====
+
+To create a key, use the {{c|gpg --full-gen-key}} command. The first time it is run, it will create some directories essential to the correct operation and implementation of GnuPG. Run it again to create the keys: 
+
+{{Cmd|gpg --full-gen-key|output=<pre>
+gpg (GnuPG) 2.1.18; Copyright (C) 2017 Free Software Foundation, Inc.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+ 
+Please select what kind of key you want:
+   (1) RSA and RSA (default)
+   (2) DSA and Elgamal
+   (3) DSA (sign only)
+   (4) RSA (sign only)
+Your selection? 1
+</pre>
+}}
+
+The type of key can be chosen, but most users will go for the default, RSA and RSA. Next is the key size - remember that bigger is better, but do not use a size larger than 2048 with DSA/ElGamal keys. 2048 is generally more than enough for normal email communication.
+
+After size comes the expiration date. Here smaller is better, but users can go for a key that never expires, or for an expiration date of around 2 or 3 years. Remember that you can indefinitely extend the expiry of a key, even after it expired.
+
+{{CodeBox|title=Choosing key size|<nowiki>
+RSA keys may be between 1024 and 4096 bits long.
+What keysize do you want? (2048)
+Requested keysize is 2048 bits       
+Please specify how long the key should be valid.
+         0 = key does not expire
+ <n>= key expires in n days
+ <n>w = key expires in n weeks
+ <n>m = key expires in n months
+ <n>y = key expires in n years
+ Key is valid for? (0) 0
+Key does not expire at all
+</nowiki>}}
+
+Now it is time to enter some personal information about the key's user. When sending a public key to other users it is important that a real email address is used (as opposed to a fake one). 
+
+{{CodeBox|title=Entering user information|
+Is this correct (y/n)? y
+                          
+GnuPG needs to construct a user ID to identify your key.
+  
+Real name: Larry the cow
+Email address: larry@gentoo.org
+Comment: Gentoo's own
+You selected this USER-ID:
+"Larry the cow (Gentoo's own) <larry@gentoo.org>"
+  
+Change (N)ame, (C)omment, (E)mail or (O)kay/(Q)uit? O 
+You need a Passphrase to protect your secret key.    
+  
+Enter passphrase: 
+}}
+
+Now enter a key passphrase twice. It is a good idea to use a strong passphrase. If someone is able to obtain the associated private key and cracks the password they will be able to impersonate the user by sending signed messages just as the user would. The malicious user could dupe the victims contacts into believing the e-mails or messages were sent by the victim. Note: if you have any errors during this process, see the pinentry section below.
+
+Next, GnuPG will generate a key. Moving the mouse, browsing the web, or streaming audio in the background will help speed up the process of generating random data, which is used to increase the security of the key pair.
+
+==== Generating a revocation certificate ====
+
+{{Important|This part is very important and must done ''NOW''.}}
+
+After creating the keys a revocation certificate should be created. Doing this allows the user to revoke the key in case something nasty happens (such as a malicious user gaining control of the key/passphrase). 
+
+{{Cmd|gpg --list-keys|output=<pre>
+/home/humpback/.gnupg/pubring.gpg
+---------------------------------
+pub  1024D/75447B14 2002-12-08 Larry the cow (Gentoo's own) <larry@gentoo.org>
+sub  2048g/96D6CDAD 2002-12-08
+</pre>}}
+
+{{Cmd|gpg --output revoke.asc --gen-revoke 75447B14|output=<pre>
+sec  1024D/75447B14 2002-12-08   Larry the cow (Gentoo's own) <larry@gentoo.org>
+  
+Create a revocation certificate for this key? y
+Please select the reason for the revocation:
+  0 = No reason specified
+  1 = Key has been compromised
+  2 = Key is superseded
+  3 = Key is no longer used
+  Q = Cancel
+(Probably you want to select 1 here)
+Your decision? 1
+Enter an optional description; end it with an empty line:
+> Someone cracked me and got my key and passphrase
+>
+Reason for revocation: Key has been compromised
+Someone cracked me and got my key and passphrase
+Is this okay? y
+  
+You need a passphrase to unlock the secret key for
+user: "Larry the cow (Gentoo's own) <larry@gentoo.org>"
+1024-bit DSA key, ID 75447B14, created 2002-12-08
+  
+ASCII armored output forced.
+Revocation certificate created.
+  
+Please move it to a medium which you can hide away; if Mallory gets
+access to this certificate he can use it to make your key unusable.
+It is smart to print this certificate and store it away, just in case
+your media become unreadable.  But have some caution:  The print system of
+your machine might store the data and make it available to others!
+</pre>
+}}
+
+{{c|gpg --list-keys}} lists the keys in the public keyring. It may be used to see the ID of the key so that a revocation certificate can be created. It is a good idea to copy the entire {{Path|.gnupg}} directory and the revocation certificate (ASCII armored - {{Path|revoke.asc}}) to a secure medium (a CD-R or a USB drive stored in a safe location). Remember that the {{Path|revoke.asc}} file can be used to revoke the keys and make them unusable in the future. 
+
+{{Note|If a user has several email addresses they would like to use with the key, the user can run {{c|gpg --edit-key <nowiki><USER_ID></nowiki>}} then use the {{c|adduid}} command. It will ask the user for the name, email, and comment of the second ID to be used.}}
+
+==== Exporting keys ====
+
+To export a key, run {{c|gpg --armor --output larry.asc --export larry@gentoo.org}}. You can almost always use the key ID or something that identifies the key (in this example an email address was used). Larry now has a {{Path|larry.asc}} that he can send his friends, or place on his web page so that others can safely communicate with him. 
+
+==== Importing keys ====
+
+To add keys to a public keyring the following steps should be taken:
+# Import the key;
+# Check the key fingerprint;
+# After verifying the key fingerprint, validate it.
+
+{{Note|Be careful when verifying keys. This is one of the weak points of public key cryptography.}}
+
+Now we will be adding Luis Pinto's (a friend of mine) public key to our public keyring. After giving him a call and asking him for his key fingerprint, I compare the fingerprint with the output of the {{c|fpr}} command. As the key is authentic, I add it to the public keyring. In this particular case, Luis's key will expire in 2003-12-01 so I am asked if I want my signature on his key to expire at the same time. 
+
+{{Cmd|gpg --import luis.asc|output=<pre>
+gpg: key 462405BB: public key imported
+gpg: Total number processed: 1
+gpg:               imported: 1
+</pre>}}
+
+{{Cmd|gpg --list-keys|output=<pre>
+/home/humpback/.gnupg/pubring.gpg
+---------------------------------
+pub  1024D/75447B14 2002-12-08 Larry the cow (Gentoo's own) <larry@gentoo.org>
+sub  2048g/96D6CDAD 2002-12-08
+  
+pub  1024D/462405BB 2002-12-01 Luis Pinto <lmpinto@student.dei.uc.pt>
+uid                            Luis Pinto <lmpinto@dei.uc.pt>
+sub  4096g/922175B3 2002-12-01 [expires: 2003-12-01]
+</pre>}}
+
+{{Cmd|gpg --edit-key lmpinto@dei.uc.pt|output=<pre>
+gpg (GnuPG) 1.0.7; Copyright (C) 2002 Free Software Foundation, Inc.
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions. See the file COPYING for details.
+  
+gpg: checking the trustdb
+gpg: checking at depth 0 signed=0 ot(-/q/n/m/f/u)=0/0/0/0/0/1
+pub  1024D/462405BB  created: 2002-12-01 expires: 2003-12-01 trust: -/-
+sub  4096g/922175B3  created: 2002-12-01 expires: 2003-12-01
+(1)  Luis Pinto <lmpinto@dei.uc.pt>
+(2). Luis Pinto <lmpinto@student.dei.uc.pt>
+</pre>}}
+
+{{Cmd|fpr|prompt=Command> |output=<pre>
+pub  1024D/462405BB 2002-12-01 Luis Pinto <lmpinto@dei.uc.pt>
+             Fingerprint: F056 3697 ADE3 CF98 B80B  8494 0AD3 E57B 4624 05BB
+</pre>}}
+
+{{Cmd|sign|prompt=Command> |output=<pre>
+Really sign all user IDs? y
+                           
+pub  1024D/462405BB  created: 2002-12-01 expires: 2003-12-01 trust: -/-
+             Fingerprint: F056 3697 ADE3 CF98 B80B  8494 0AD3 E57B 4624 05BB
+  
+     Luis Pinto <lmpinto@dei.uc.pt>
+     Luis Pinto <lmpinto@student.dei.uc.pt>
+  
+This key is due to expire on 2003-12-01.
+Do you want your signature to expire at the same time? (Y/n) Y
+How carefully have you verified the key you are about to sign actually belongs
+to the person named above?  If you don't know what to answer, enter "0".
+  
+   (0) I will not answer. (default)
+   (1) I have not checked at all.
+   (2) I have done casual checking.
+   (3) I have done very careful checking.
+  
+   Your selection? 3
+Are you really sure that you want to sign this key
+with your key: "Larry the cow (Gentoo's own) <larry@gentoo.org>"
+  
+I have checked this key very carefully.
+  
+Really sign? y
+              
+You need a passphrase to unlock the secret key for
+user: "Larry the cow (Gentoo's own) <larry@gentoo.org>"
+1024-bit DSA key, ID 75447B14, created 2002-12-08
+</pre>}}
+
+{{Cmd|check|prompt=Command> |output=<pre>
+uid  Luis Pinto <lmpinto@dei.uc.pt>
+sig!3       462405BB 2002-12-01   [self-signature]
+sig!3       75447B14 2002-12-08   Larry the cow (Gentoo's own) <larry@gentoo.org>
+uid  Luis Pinto <lmpinto@student.dei.uc.pt>
+sig!3       462405BB 2002-12-01   [self-signature]
+sig!3       75447B14 2002-12-08   Larry the cow (Gentoo's own) <larry@gentoo.org>
+</pre>
+}}
+
+=== Exchanging keys with key servers ===
+
+==== Sending keys to key servers ====
+
+Now that a key has been generated, it is probably a good idea to send it to a world key server. There are a lot of key servers in the world and most of them exchange keys. In this next example Larry the cow's key will be sent to the keys.gnupg.net server. Sending keys uses HTTP, so if a proxy is used for HTTP traffic do not forget to set it accordingly ({{c|export http_proxy{{=}}<nowiki>http://proxy_host:port/</nowiki>}}). The command for sending the key is: {{c|gpg --keyserver keys.gnupg.net --keyserver-options honor-http-proxy --send-key 75447B14}} where <code>75447B14</code> is the key ID. If a HTTP proxy is not needed then the <code>--keyserver-options honor-http-proxy</code> option can be removed. 
+
+Sending other people's keys that Larry has signed signed to the key server is also a good idea. We could send Luis Pinto's key to the key server. This way someone who trusts Larry's key can use the signature that he has placed there to trust Luis's key.
+
+==== Getting keys from key servers ====
+
+Now we are going to search for Gustavo Felisberto's (the author of this guide :)) key and add it to the keyring of Larry the cow.
+
+{{Cmd|gpg --keyserver keys.gnupg.net --keyserver-options honor-http-proxy --search-keys humpback@felisberto.net|output=<pre>
+gpg: searching for "humpback@felisberto.net" from hkp server keys.gnupg.net
+(1)	Gustavo Felisberto <humpback@gmail.com>
+	Gustavo Felisberto <humpback@gentoo.org>
+	Gustavo Felisberto <humpback@gentoopt.org>
+	Gustavo Felisberto <gustavo@felisberto.net>
+	Gustavo Felisberto <humpback@gentoo-pt.org>
+	Gustavo Felisberto <humpback@felisberto.net>
+	Gustavo Felisberto <gustavo@student.dei.uc.pt>
+	Gustavo Felisberto <humpback@student.dec.uc.pt>
+	Gustavo Felisberto (apt-get install anarchy) <humpback@felisberto.net>
+	  1024 bit DSA key B9F2D52A, created: 2002-12-06
+(2)	Gustavo Adolfo Silva Ribeiro Felisberto <humpback@altavista.net>
+	  1024 bit DSA key 26471D8F, created: 2001-09-05
+(3)	Gustavo Felisberto <humpback@altavista.net>
+	  1024 bit DSA key E97E0B46, created: 1999-08-04, expires: 2000-08-04 (expired)
+(4)	Gustavo A.S.R. Felisberto <humpback@altavista.net>
+	  1024 bit DSA key B59AB043, created: 1998-12-10
+(5)	Gustavo Adolfo Silva Ribeiro Felisberto <humpback@altavista.net>
+	  1024 bit DSA key 39EB133D, created: 1998-08-27
+(6)	Gustavo Adolfo Silva Ribeiro Felisberto <humpback@altavista.net>
+	  1024 bit DSA key AE02AF87, created: 1998-06-15
+Enter number(s), N)ext, or Q)uit > 1
+gpg: requesting key B9F2D52A from hkp server keys.gnupg.net
+gpg: key B9F2D52A: public key "Gustavo Felisberto <humpback@felisberto.net>" imported
+gpg: 3 marginal(s) needed, 1 complete(s) needed, classic trust model
+gpg: depth: 0  valid:   4  signed:   0  trust: 0-, 0q, 0n, 0m, 0f, 4u
+gpg: next trustdb check due at 2015-06-28
+gpg: Total number processed: 1
+gpg:               imported: 1
+</pre>
+}}
+
+From the server response it is possible to see few keys have been submitted to the key server, however only <code>B9F2D52A</code> is used. Now Larry the cow can get the key and sign it if he trusts it.
+
+=== Using a GPG agent ===
+
+==== What is a GPG agent? ====
+
+Sometimes working with certain applications requires the frequent use of a GPG key, which means that a passphrase must be frequently entered. In the past many applications supported a passphrase caching mechanism. This would make life easier for users because passphrases were automatically entered. However, this disallowed sharing this cache across programs (how secure would that be?) and forced applications to reinvent the wheel over and over again.
+
+A GPG agent is a separate application that GPG uses to cache the passphrase in a standard and secure way. It allows applications to use GPG concurrently: if the passphrase is entered while working in one application, the other application can work with GPG without needing to unlock the key again — if the GPG Agent is configured to allow this, of course. 
+
+Gentoo provides a few GPG agent applications. The {{Package|app-crypt/gnupg}} package contains what could be considered the reference one, and will be the primary choice used in this article.
+
+==== Configuring gpg-agent and pinentry ====
+
+GnuPG includes {{c|gpg-agent}}. Pinentry ({{Package|app-crypt/pinentry}}) is a helper application that {{c|gpg-agent}} uses to request the passphrase in a graphical window. It comes in many flavors including gtk2 and 3, qt4 and 5, tty and curses. It is recommended to always build the ncurses version. Set USE flags accordingly. 
+
+If {{Package|app-crypt/pinentry}} was installed with more than one popup window type, it is possible to choose between the windows with the {{c|eselect pinentry}} command: 
+
+{{RootCmd|eselect pinentry list|output=
+<pre>
+Available pinentry binary implementations:
+  [1]   pinentry-gnome3 *
+  [2]   pinentry-gtk-2
+  [3]   pinentry-curses
+  [4]   pinentry-tty
+</pre>
+}}
+
+{{RootCmd|eselect pinentry set 1}}
+
+Now create a file called {{Path|~/.gnupg/gpg-agent.conf}} and add the following lines to define the default timeout of the passphrase (e.g. 30 minutes) and the application to be called when the passphrase needs to be retrieved (e.g. the GTK+ version of Pinentry). 
+
+{{FileBox|filename=~/.gnupg/gpg-agent.conf|
+pinentry-program /usr/bin/pinentry-gtk-2
+no-grab
+default-cache-ttl 1800
+}}
+
+Now configure GnuPG to use an agent when appropriate. Edit {{Path|~/.gnupg/gpg.conf}} and add the following line: 
+
+{{FileBox|filename=~/.gnupg/gpg.conf|title=Configuring GnuPG to use a GPG agent|
+use-agent
+}}
+
+Now the system is (almost) ready to use the GPG agent.
+
+==== Automatically starting the GPG agent ====
+
+If KDE is used as the desktop environment, edit {{Path|/etc/plasma/startup/10-agent-startup.sh}} (system-wide, for KDE4 {{Path|/etc/kde/startup/agent-startup.sh}}) or {{Path|~/.config/plasma-workspace/env/gpg-agent.sh}} (local user, {{Path|~/.kde4/env/gpg-agent.sh}} in KDE4). Add the following command to the appropriate file to have KDE automatically start the GPG Agent: 
+
+{{FileBox|filename=/etc/plasma/startup/10-agent-startup.sh|title=Make Plasma automatically start the GPG agent|lang=bash|1=
+if [ -x /usr/bin/gpg-agent ]; then
+ eval "$(/usr/bin/gpg-agent --daemon)"
+fi 
+}}
+
+Additionally, uncomment the following lines in {{Path|/etc/plasma/shutdown/10-agent-shutdown.sh}} (system-wide, {{Path|/etc/kde/shutdown/agent-shutdown.sh}} in KDE4) or add it to {{Path|~/.config/plasma-workspace/shutdown/gpg-agent.sh}} (local user, {{Path|~/.kde4/shutdown/gpg-agent.sh}} in KDE4): 
+
+{{FileBox|filename=/etc/plasma/shutdown/10-agent-shutdown.sh|title=Have Plasma shut down the GPG agent|lang=bash|1=
+if [ -n "${GPG_AGENT_INFO}" ]; then
+  kill $(echo ${GPG_AGENT_INFO} {{!}} cut -d':' -f 2) >/dev/null 2>&1
+fi
+}}
+
+When using a desktop environment other than KDE, put the above lines in {{Path|~/.xinitrc}} if {{c|startx}} is used to start X.org or {{Path|~/.xsession}} if XDM, GDM, KDM, etc. are used.
+
+=== Working with documents ===
+
+==== Encrypting and signing ====
+
+Let's say that Larry has a file he wishes to send Luis. Larry can encrypt it, sign it, or encrypt and sign it. Encrypting means that only Luis will be able to open it. The signature tells Luis that it was really Larry who created the file. 
+
+To encrypt:
+{{Cmd|gpg --output doc.gpg --encrypt --recipient lmpinto@dei.uc.pt doc_to_encrypt}}
+
+To sign:
+{{Cmd|gpg --output doc.gpg --sign --recipient lmpinto@dei.uc.pt doc_to_sign}}
+
+To encrypt and sign:
+{{Cmd|gpg --output doc.gpg --encrypt --sign --recipient lmpinto@dei.uc.pt doc_to_encrypt_and_sign}}
+
+This will create binary files. To create ASCII files, just add the <code>--clearsign</code> option to the beginning of the command. 
+
+==== Decrypting and verifying signatures ====
+
+Suppose that Larry has received an encrypted file. The command used to decrypt it is {{c|gpg --output document --decrypt encrypted_doc.gpg}}. This will decrypt the document and verify the signature (if there is one). 
+
+==== Encrypting and decrypting without keys ====
+
+It is possible to encrypt files using passwords instead of keys. The password itself will function ''as'' the key — it will be used as a ''symmetric cipher''. The file can be encrypted using {{c|gpg --symmetric}}; decrypting uses the same command mentioned above.
+
+{{Cmd|gpg --output document.gpg --symmetric document}}
+
+GnuPG will ask for a passphrase and a passphrase verification.
+
+==== Advanced features ====
+
+There are some nice advanced features in GnuPG. To find them, open the {{Path|~/.gnupg/gpg.conf}} file. 
+
+{{FileBox|filename=~/.gnupg/gpg.conf|
+#keyserver x-hkp://keys.gnupg.net
+#keyserver-options auto-key-retrieve include-disabled include-revoked
+}}
+
+Uncomment the two lines above. With this modification, any time GnuPG needs to check a signature and does not find the public key on the local keyring it will contact the key server at [http://keys.gnupg.net:11371/ keys.gnupg.net] in an attempt to fetch the public key from the server. 
+
+Another nice command is {{c|gpg --refresh-keys}}. This will contact the key server defined in the configuration file and refresh the public keys in the local keyring from there. It is capable of searching for revoked keys, new IDs, and new signatures on keys. It is a wise idea to run this command once or twice a month; if a user revokes their key this can provide a notification the key can no longer be trusted.
+
+=== GnuPG interfaces ===
+
+==== About email signatures ====
+
+95% of the time GnuPG is used with email by signing/encrypting outgoing messages or reading signed/encrypted messages.
+
+There are two ways two sign/encrypt a email with GnuPG, the old way and the new way. In the old way messages would appear in plain text, with no possible formatting and attached files would be unsigned/unencrypted. Here is an example of a message signed the old way: 
+
+{{CodeBox|title=A plain text signature|<nowiki>
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+  
+Test message
+  
+-----BEGIN PGP SIGNATURE-----
+Version: PGPfreeware 6.5.8 for non-commercial use
+  
+iQA/AwUBP8461jMX0745gR7AEQIEOwCg011GbufXO3ED3FkLWXmfzg7xm1cAoJD0
+0EU3Kd2EKNCqataEqM5qjpPs
+=LchZ
+-----END PGP SIGNATURE-----
+</nowiki>
+}}
+
+Messages this way are not good in today's world, where there are nice GUIs and email readers that understand HTML. 
+
+To solve this an addition to the MIME (Multipurpose Internet Mail Extensions) was created. This adds a field to the email that tells the mail reader that the full content of the message is signed and/or encrypted. The problem with this is that not all mail readers support such features. Some even mess up the content (Microsoft's Outlook is famous for not working with this). 
+
+==== Kgpg ====
+
+Kgpg ({{Package|kde-base/kmail}}) is a wonderful GUI for GnuPG. The main screen provides an area to paste text to sign or encrypt. The reverse is also true: ASCII armored text to be decrypted can also be entered. 
+
+==== Seahorse ====
+
+Seahorse ({{Package|app-crypt/seahorse}}) aims to be a GnuPG GUI interface for the GNOME desktop. The software has been evolving fast, but it still lacks many important features that can be found in Kgpg or the command line version.
+
+==== KMail ====
+
+If the <code>crypt</code> USE flag is set, KMail will be compiled with gpg support, and will be able to encrypt and decrypt inline PGP mails automatically as well as encrypting OpenPGP/MIME mails. To decrypt OpenPGP/MIME mails (which most users want) a GPG agent must be running.
+
+To verify if KMail is properly configured navigate to {{Path|Settings → Configure KMail → Security → Crypto Backends}}. A GpgME-based backend should be listed and the OpenPGP checkbox should be checked. If it is listed but grayed out, click on {{Path|Rescan}}. If the GpgME-based backend remains grayed out, KMail is not working properly. 
+
+When unable to get KMail to behave, see the [https://userbase.kde.org/KMail/PGP_MIME official KMail PGP page] for more information. 
+
+==== Claws-Mail ====
+
+[[Claws Mail|This mail client]] is ''very'' fast with big mailboxes, has all the nice features one wants in mail readers and works well with GPG. The only problem is that it does not work with the old PGP signatures, so when receiving those kind of mails the signatures must be hand-checked. 
+
+To use a GPG key with [[Claws Mail|Claws-Mail]] navigate to {{Path|account configuration → privacy tab}}. Once there choose which key to use, most users should go with the default key.
+
+==== Thunderbird ====
+
+[[Thunderbird]] users can use the [https://packages.gentoo.org/useflags/crypt crypt] [[USE flag]] to enable Enable [https://gitweb.gentoo.org/proj/mozilla.git/commit/mail-client/thunderbird?id=5e9264914fdbafdb3ef58359b0d29778f485e3af encryption support with enigmail].
+
+== Final thoughts and credits ==
+
+=== Some problems ===
+
+I had some problems with photos in keys. Check the version you are using. If you have GnuPG 1.2.1-r1 and higher you are probably OK; older versions may have problems. Also most key servers do not like keys with photos, so you are better off not adding photos.
+
+The latest versions of GnuPG seem to have broken {{c|gpg --send-keys}}, which was used to send all keys in a keyring to the public server. 
+
+=== What is not here ===
+
+{{c|gpg}} is a very complex tool. It lets users do much more than what has been covered here. This document is for users who are new to GnuPG. For more information check out the [https://www.gnupg.org official GnuPG website]. 
+
+This article does not cover tools such as {{c|pgp4pine}}, {{c|gpgpine}}, {{c|evolution}}, and Windows GPG tools.
+
+=== Credits ===
+
+John Michael Ashley's [https://www.gnupg.org/ GnuPG Handbook] is a very good book for beginners. 
+
+Swift (Sven Vermeulen) for pushing me to re-write this.
+
+Everyone in the {{IRC|gentoo-doc}} team; you guys rock.
+
+Tiago Serra for getting me back on the privacy track.
+
+
+[[Category:Server and Security]] {{Migrated|originalauthors=Gustavo Felisberto, John P. Davis, nightmorph}}
