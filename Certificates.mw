@@ -1,0 +1,339 @@
+{{InfoBox stack
+|{{InfoBox wikipedia|Public_key_certificate}}
+}}
+
+Certificates, also known as SSL certificates or TLS certificates, provide systems and users with a sound method for securely communicating with them or verifying those systems and users' identity. It contains identification information (who or what the certificate belongs to) and a public key, and is signed by a third party called the ''Certificate Authority''.
+
+This article will focus on dealing with certificates on Gentoo Linux. Where needed, a slight introduction will be given to the actions or sections presented. The technical details about certificates are better served on different platforms, such as Wikipedia.
+
+== Certificate authority ==
+
+Certificate authorities (should) verify the identity of a user (or owner of a system) and, when verified, sign the certificate with their own private key. This signature is then used by others to assert that a presented certificate is valid and trustworthy. The idea here is that others trust the signature of a certificate authority, and through that trust also accept the presented certificate.
+
+History has shown however that not all certificate authorities are equally trustworthy (take [[:Wikipedia:DigiNotar|DigiNotar]] as a prime example). Also improvements in crypto-analysis show that some important parts (such as the hashing algorithm) can contain weaknesses. In 2008 for instance, it was proven that MD5 collisions can be used to create [http://www.win.tue.nl/hashclash/rogue-ca/ a rogue CA certificate]. As such, keeping track of the trusted certificates and their current strength is advisable.
+
+Whenever an application (including browsers) connect to systems over an [[:Wikipedia:Transport_Layer_Security|SSL/TLS]] connection, part of the handshake is to verify if the presented certificate is signed by a trusted certificate authority. Hence, systems need to track which CA certificates are trustworthy. The collection of trusted CA certificates is often called a ''truststore''.
+
+Managing the truststores on a Linux system is a complex task as applications can use different approaches for handling their certificate-based operations. In the subsequent few sections the most common CA certificate handling approaches are documented.
+
+=== OpenSSL-compatible ca-certificates ===
+
+OpenSSL-compatible libraries use the {{Path|/etc/ssl/certs}} directory as the (default) truststore. All trusted certificates are listed in this directory (generally through symbolic links to their actual location), together with a single {{Path|ca-certificates.crt}} file which has all the trusted CA certificates listed.
+
+By default, this directory is automatically managed through the {{Package|app-misc/ca-certificates}} package, which uses the CA certificates from [https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/ Mozilla's CA certificate store] and repackages them for use with OpenSSL-based applications.
+
+On most systems, this package will already be installed:
+
+{{Emerge|app-misc/ca-certificates}}
+
+Upon installation, this package 
+# generates the {{Path|/etc/ca-certificates.conf}} configuration file by listing all certificates inside {{Path|/usr/share/ca-certificates}} inside the configuration file
+# calls the {{c|update-ca-certificates}} script which reads in this configuration file and updates the {{Path|/etc/ssl/certs}} directory accordingly
+
+The {{c|update-ca-certificates}} script also checks if any admin-provided certificates are in {{Path|/usr/local/share/ca-certificates}} and adds links to those certificates to the {{Path|/etc/ssl/certs}} directory as well.
+
+Most users will be satisfied with the default certificate handling: it uses the CA certificate store from an upstream project that is actively pursuing the secure state of the certificates, and is automatically updated through Portage. However, administrators who want to have a more fine-grained control over which certificates are accepted for the truststore cannot update the {{Path|/etc/ca-certificates.conf}} file manually.
+
+New installations of the {{Package|app-misc/ca-certificates}} will rewrite this configuration file, and the file is explicitly marked as not governed by Portage' [[Handbook:AMD64/Portage/Variables#Configuration_file_protection|configuration file protection]]:
+
+{{Cmd|emerge --info {{!}} grep ca-certificate|output=<pre>
+CONFIG_PROTECT_MASK="/etc/ca-certificates.conf ..."
+</pre>}}
+
+=== NSS ===
+
+Another popular library is [https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS Mozilla's Network Security Services] or NSS. Unlike the OpenSSL-based certificate support, NSS uses database files as the certificate store.
+
+NSS starts off with a hard-coded list of trusted CA certificates inside the {{Path|libnssckbi.so}} file, installed through the {{Package|dev-libs/nss}} package. This list can be viewed from any of the applications using NSS capable of showing (and manipulating) the trust store, such as Chrome-compatible or Firefox-compatible browsers. However, another approach is to use the {{c|certutil}} application as provided by the {{Package|dev-libs/nss}} package:
+
+{{Cmd|ln -s /usr/lib64/libnssckbi.so $HOME/.pki/nssdb
+|certutil -L -d sql:$HOME/.pki/nssdb/ -h 'Builtin Object Token'|output=<pre>
+Certificate Nickname                                         Trust Attributes
+                                                             SSL,S/MIME,JAR/XPI
+
+Builtin Object Token:GlobalSign Root CA                      C,C,C
+Builtin Object Token:GlobalSign Root CA - R2                 C,C,C
+Builtin Object Token:Verisign Class 1 Public Primary Certification Authority - G3 ,C,  
+...
+</pre>}}
+
+The trust attributes mentioned in the output show what trust level that attribute has and for which purpose. The {{c|certutil}} man page has some information about what each attribute means. The most important ones are:
+
+* <code>c</code>&mdash;Valid certificate authority
+* <code>C</code>&mdash;Trusted certificate authority (implies <code>c</code>)
+* <code>p</code>&mdash;Valid peer certificate (i.e. no need to validate if it is signed by a proper CA)
+* <code>P</code>&mdash;Trusted peer certificate (often used for self-signed certificates that need to be trusted)
+
+The purpose of the trust attributes is for:
+
+* SSL&mdash;Secure communication over SSL/TLS channels
+* S/MIME&mdash;Encryption of messages and e-mail
+* JAR/XPI&mdash;Code signing
+
+Alongside the hard-coded certificates, NSS supports a system-wide NSS databases located at {{Path|/etc/pki/nssdb}}, and user-specific NSS databases located at {{Path|~/.pki/nssdb}}. The system-wide NSS database can contain the additional CA certificates that should be accepted by all users as well as system applications (and daemons) running on the system, while the user-specific database is - as the name implies - for specific user accounts.
+
+{{Note|Some applications that use the NSS library use a different certificate store than the recommended user one. Mozilla's own Firefox is a prime example of this.}}
+
+To query the currently assigned CA certificates:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -L}}
+
+To list a certain certificate information in more detail, add the name:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -L -n "EssentialSSL CA"|output=<pre>
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            40:89:95:44:7e:5f:b1:19:d8:65:73:70:2f:8d:64:fc
+        Signature Algorithm: PKCS #1 SHA-1 With RSA Encryption
+        Issuer: "CN=COMODO Certification Authority,O=COMODO CA Limited,L=Salf
+            ord,ST=Greater Manchester,C=GB"
+        Validity:
+            Not Before: Fri Dec 01 00:00:00 2006
+            Not After : Tue Dec 31 23:59:59 2019
+        Subject: "CN=EssentialSSL CA,O=COMODO CA Limited,L=Salford,ST=Greater
+             Manchester,C=GB"
+...
+</pre>}}
+
+=== Application-specific stores ===
+
+Some applications have their own certificate store.
+
+==== Mozilla Firefox ====
+
+Although Firefox uses the NSS library for handling the secure communications, it does not use the {{Path|~/.pki/nssdb}} location. Instead, it uses (alongside the hard-coded root CA certificates) NSS database files within its own profile ({{Path|~/.mozilla/firefox/*.default/}}), more specifically the {{Path|cert8.db}} file.
+
+For instance, to list the intermediate CA certificates:
+
+{{Cmd|certutil -L -d ~/.mozilla/firefox/*.default/|output=<pre>
+Certificate Nickname                                         Trust Attributes
+                                                             SSL,S/MIME,JAR/XPI
+ 
+DigiCert High Assurance CA-3                                 ,,   
+DigiCert Secure Server CA                                    ,,   
+InCommon Server CA                                           ,,   
+...
+</pre>}}
+
+Raphaël Barrois describes, on his blog, [http://blog.xelnor.net/firefox-systemcerts/ how to get Firefox and Chrome to share the same {{Path|~/.pli/nssdb}} location].
+
+== Adding trusted certificates ==
+
+The most common operation against truststores is to add additional trusted certificates to it. Companies often have their own PKI (Public Key Infrastructure) setup which supports the internal certificate needs, and which might require the master certificate of this PKI to be trusted, or have it as an intermediate certificate deployed across the truststores in the organization. But even end users might want to add in additional trusted certificates who might not have made the "final" list yet as managed by Mozilla.
+
+=== Obtaining the certificate ===
+
+First the certificate itself needs to be obtained. When an organization has its own PKI then this CA certificate can be easily provided by the responsible team, with the necessary additional precautions in place to validate that the certificate is the right one. Other CAs generally distribute their CA certificates on their websites.
+
+End users can also obtain the certificate through the browser by reviewing the SSL/TLS connection information. For instance, with Firefox, this can be obtained through the page information, ''Security'' section, ''View Certificate''.
+
+Whatever the source of the certificate, it is recommended to validate the certificate itself by checking (for instance) the checksum of the certificate. Gentoo's infrastructure uses certificates from [https://www.digicert.com/ DigiCert], who has its CA certificates [https://www.digicert.com/digicert-root-certificates.htm published online] together with the thumbprint information of the certificate.
+
+For instance, the DigiCert High Assurance EV Root CA file has the following information published alongside the certificate itself:
+* ''serial number''&mdash;a unique identifier for the certificate
+* ''thumbprint''&mdash;an (in this case SHA1-based) checksum on the certificate
+
+The downloaded file, which usually has a {{Path|.crt}} or {{Path|.pem}} suffix, can be validated through the {{c|openssl}} command.
+
+To view certificate information (including the serial number):
+
+{{Cmd|openssl x509 -in DigiCertHighAssuranceEVRootCA.crt -text|output=<pre>
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            02:ac:5c:26:6a:0b:40:9b:8f:0b:79:f2:ae:46:25:77
+    Signature Algorithm: sha1WithRSAEncryption
+        Issuer: C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert High Assurance EV Root CA
+        Validity
+            Not Before: Nov 10 00:00:00 2006 GMT
+            Not After : Nov 10 00:00:00 2031 GMT
+        Subject: C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert High Assurance EV Root CA
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+...
+</pre>}}
+
+To view the thumbprint:
+
+{{Cmd|openssl x509 -in DigiCertHighAssuranceEVRootCA.crt -noout -sha1 -fingerprint|output=<pre>
+SHA1 Fingerprint=5F:B7:EE:06:33:E2:59:DB:AD:0C:4C:9A:E6:D3:8F:1A:61:C7:DC:25</pre>}}
+
+=== Including in the ca-certificates store ===
+
+Once the certificate has been validated, store it in the {{Path|/usr/local/share/ca-certificates}} location:
+
+{{Note|Ensure that the certificate uses the {{Path|.crt}} suffix as this is the only suffix checked by the {{c|update-ca-certificates}} script.}}
+
+{{RootCmd|cp DigiCertHighAssuranceEVRootCA.crt /usr/local/share/ca-certificates}}
+
+Run the {{c|update-ca-certificates}} command to update the {{Path|/etc/ssl/certs}} location with the new certificate.
+
+{{RootCmd|update-ca-certificates|output=<pre>
+Updating certificates in /etc/ssl/certs/...
+1 added, 0 removed; done
+Running hooks in /etc/ca-certificates/update.d...
+done.
+</pre>}}
+
+=== Including in the NSS database ===
+
+When applications use the NSS library and honor the {{Path|/etc/pki/nssdb}} location, then the following steps can be taken to include this certificate in this system-wide NSS database.
+
+First, create the directory structure for the system-wide NSS database files:
+
+{{RootCmd|mkdir -p /etc/pki/nssdb}}
+
+Next, create a new database file set. A password will be asked to restrict editing of the database files to people who know the password. If all users on the system (and with access to the backups) are trustworthy, then this password can be kept empty.
+
+{{RootCmd|certutil -d sql:/etc/pki/nssdb -N|output=<pre>
+Enter a password which will be used to encrypt your keys.
+The password should be at least 8 characters long,
+and should contain at least one non-alphabetic character.
+ 
+Enter new password:
+Re-enter new password:
+</pre>}}
+
+Ensure that the database files are readable by everyone:
+
+{{RootCmd|chmod go+r /etc/pki/nssdb/*}}
+
+{{Note|The above instructions only apply if no system-wide NSS database file set exists yet. If one exists already, then it is vital to know the password on this database set (assuming it is password-protected of course).}}
+
+With the NSS database files now available, add the certificate to the store as follows:
+
+{{RootCmd|certutil -d sql:/etc/pki/nssdb -A -i ''certificateFile.crt'' -n "''certificateName''" -t "C,,"}}
+
+The trust bits used in the above example mark the certificate as trustworthy for signing certificates used for SSL/TLS communication. The name used in the command is free to choose, but make sure to have it easily distinguished from other certificates in the store.
+
+Similar instructions can be used to include the certificate only in the NSS database of a particular user:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -A -i ''certificateFile.crt'' -n "''certificateName''" -t "C,,"}}
+
+=== Including in browser stores ===
+
+Most browsers have an intuitive interface to handle the certificates they manage. 
+* In Firefox, go to ''Preferences'', ''Advanced'', ''Certificates'', ''View Certificates''. In the ''Authorities'' tab, click on the ''Import'' button to open the dialog to import a certificate to the store.
+
+== Removing certificates ==
+
+Certificates that were manually added using the instructions above can be removed from the stores easily as well.
+
+=== Removing from ca-certificates store ===
+
+To remove the certificate from the {{Path|/etc/ssl/certs}} location, remove it from the {{Path|/usr/local/share/ca-certificates}} location and run the {{c|update-ca-certificates}} command again.
+
+{{RootCmd|rm /usr/local/share/ca-certificates/''certificateFile.crt''|update-ca-certificates|output=<pre>
+Updating certificates in /etc/ssl/certs/...
+0 added, 1 removed; done
+Running hooks in /etc/ca-certificates/update.d...
+done.
+</pre>}}
+
+=== Removing from NSS database files ===
+
+To remove the certificate from any NSS database, use the {{c|certutil}} command as follows. The example uses the system-wide NSS database location, but can be easily adjusted for the user-specific {{Path|~/.pki/nssdb}} locations.
+
+{{RootCmd|certutil -d sql:/etc/pki/nssdb -D -n "''certificateName''"}}
+
+== Modifying CA trusts ==
+
+Although most administrators will be happy with the default CA handling, there will be situations where one wants to modify the default CA handling approaches. This could be due to
+- company policy requiring a fixed and company-approved list of CAs to be trusted, and nothing more
+- reports about trust issues with a root CA
+- the need or will to start off with an empty trust store and build up
+- requiring different trust stores per application
+
+Whatever the reason, the next few sections will describe how to manipulate the previously discussed trust stores.
+
+=== Modifying the OpenSSL-compatible ca-certificates ===
+
+To handle custom CA lists, a secondary CA certificates configuration file needs to be managed, and after every installation of the {{Package|app-misc/ca-certificates}} package the {{Path|ca-certificates.conf}} file needs to be overwritten and {{c|update-ca-certificates}} needs to be executed again. This can be accomplished through Portage' {{Path|[[:/etc/portage/env]]}} sourcing.
+
+Assuming that the secondary CA certificates configuration file is called {{Path|/etc/custom-ca-certificates.conf}}. To have this file copied over to the {{Path|ca-certificates.conf}} file after every {{Package|app-misc/ca-certificates}} package installation, the following script can be used:
+
+{{FileBox|filename=/etc/portage/env/app-misc/ca-certificates|title=Overwriting the ca-certificates.conf file|lang=bash|1=
+#!/bin/bash
+ 
+# Execute this logic after the installation
+post_pkg_postinst() {
+  local CUSTOMFILE="/etc/custom-ca-certificates.conf"
+  local CACONFIG="/etc/ca-certificates.conf"
+ 
+  if [[ -f "${CUSTOMFILE}" ]] ; then
+    echo "Redeploying custom ca-certificates.conf file."
+    install -o root -g root -m 644 "${CUSTOMFILE}" "${CACONFIG}" && \
+    update-ca-certificates
+  fi
+}
+}}
+
+All that the administrator has to do now is to keep the {{Path|custom-ca-certificates.conf}} file up to date with the certificates of the CAs he wants to trust on this system. For instance, to only trust Verisign:
+
+{{FileBox|filename=/etc/custom-ca-certificates.conf|title=Listing only Verisign's certificates|1=
+mozilla/VeriSign_Class_3_Public_Primary_Certification_Authority_-_G4.crt
+mozilla/VeriSign_Class_3_Public_Primary_Certification_Authority_-_G5.crt
+mozilla/VeriSign_Universal_Root_Certification_Authority.crt
+mozilla/Verisign_Class_1_Public_Primary_Certification_Authority_-_G3.crt
+mozilla/Verisign_Class_2_Public_Primary_Certification_Authority_-_G3.crt
+mozilla/Verisign_Class_3_Public_Primary_Certification_Authority_-_G3.crt
+}}
+
+As was mentioned before, these entries are relative to the {{Path|/usr/share/ca-certificates}} directory. Custom certificates can be added in {{Path|/usr/local/share/ca-certificates}} and do not need to be listed in the {{Path|ca-certificates.conf}} file for {{c|update-ca-certificates}} to take them into account.
+
+=== NSS-based modifications ===
+
+The NSS library has three levels that might require any manipulations:
+# the hard-coded list of trusted CAs
+# the system-wide NSS databases
+# the user- or application-specific NSS databases
+
+==== Manipulating the hard-coded list ====
+
+{{Warning|Although common sense would imply that applications which use the NSS library would also consult the system-wide database, this is more exception than rule. Neither Chromium nor Firefox (or any of the derived browsers) support the system-wide database. Hence, the below instructions are generally ineffective on a system-wide basis, but can be altered to suit per-application specific databases.}}
+
+The recommended method for manipulating the hard-coded list is to change the trust attributes for the selected certificates in the system-wide NSS database. While the certificates are still listed in the {{Path|libnssckbi.so}} file, they are then no longer marked as trusted.
+
+Link in the hard-coded list, and then modify the trust bits for the certificate that needs modifying:
+
+{{RootCmd|ln -s /usr/lib64/libnssckbi.so /etc/pki/nssdb
+|certutil -d sql:/etc/pki/nssdb -M -n "Builtin Object Token:''certificate name''" -t ",,"}}
+
+==== Modifying the NSS databases ====
+
+Any manipulation to an NSS database file can be done through the {{c|certutil}} command. More fancy user interfaces are available as well, but the {{c|certutil}} commands are easy to use and to automate.
+
+To remove a CA certificate from the store:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -D -n "''certificatename''"}}
+
+To add a root CA certificate to the store:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "''certificatename''" -i "''certificate_filename''"}}
+
+To add an intermediate CA certificate to the store:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -A -t ",," -n "''certificatename''" -i "''certificate_filename''"}}
+
+To add a self-signed certificate to the store:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -A -t "P,," -n "''certificatename''" -i "''certificate_filename''"}}
+
+To modify the trust attributes of a certificate:
+
+{{Cmd|certutil -d sql:$HOME/.pki/nssdb -M -n "''certificatename''" -t "''attr1,attr2,attr3''"}}
+
+== See also ==
+
+The following articles on Gentoo's wiki are related to certificates as well.
+
+* [[Complete_Virtual_Mail_Server/SSL_Certificates|SSL Certificates (Complete Virtual Mail Server)]]&mdash;Creating private keys and associated certificates for use in a virtual mail server setup
+
+== External resources ==
+
+* [https://rolandschnabel.de/blog/?p=276 Certificate Authorities (CA) in Google Chrome / Chromium and Firefox on Linux] on [https://rolandschnabel.de/blog/ Roland's Blog]
+* [https://chromium.googlesource.com/chromium/src/+/master/docs/linux_cert_management.md Linux Cert Management] in Chromium's developer documentation
+* [https://wiki.mozilla.org/CA:FAQ Certificate Authority FAQ] on the Mozilla wiki
