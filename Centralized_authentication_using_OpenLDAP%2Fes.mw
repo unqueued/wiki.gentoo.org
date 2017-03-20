@@ -7,7 +7,7 @@
 Esta guía presenta las cuestiones básicas de LDAP y le muestra cómo configurar OpenLDAP para realizar tareas de autenticación entre un grupo de computadoras.
 
 
-== Comenzar con OpenLDAP ==
+== Getting started with OpenLDAP ==
 
 === ¿Qué es LDAP? ===
 
@@ -39,7 +39,7 @@ mayor parte de distribuciones de LDAP (incluyendo OpenLDAP) ya contienen un buen
 
 Se recomienda a los usuarios interesado leer la [http://www.openldap.org/doc/admin24/ Guía de Administración de OpenLDAP].
 
-=== Y bien.. ¿Para qué se utiliza? ===
+=== So... what can it be used for? ===
 
 Se puede usar LDAP para diferentes propósitos. En este documento se trata la administración centralizada de usuarios, manteniendo todas
 las cuentas de usuario en una única ubicación LDAP (lo que no significa que esté albergada en un único servidor, puesto que LDAP ofrece soporte a alta disponibilidad y redundancia). Sin embargo, se puede utilizar LDAP para otros fines. 
@@ -83,69 +83,75 @@ Re-enter new password: mi-contraseña
 
 === Legacy configuration (flat config slapd.conf) ===
 
-Ahora edite la configuración LDAP del servidor en  {{Path|/etc/openldap/slapd.conf}}. El fichero {{Path|slapd.conf}} que se muestra es de los fuentes originales de openLDAP. Abajo se muestra un fichero ejemplo de configuración que se puede utilizar para reemplazarlo de modo que las cosas comiencen a funcionar. 
+Now edit the LDAP Server configuration in {{Path|/etc/openldap/slapd.conf}}. The provided {{Path|slapd.conf}} is from the original OpenLDAP source. Below is a sample configuration file one can use to replace it with to get things started. 
 
 {{FileBox|filename=/etc/openldap/slapd.conf|1=
-include /etc/openldap/schema/core.schema
+include	/etc/openldap/schema/core.schema
 include /etc/openldap/schema/cosine.schema
 include /etc/openldap/schema/inetorgperson.schema
 include /etc/openldap/schema/nis.schema
-include /etc/openldap/schema/misc.schema
-
-pidfile /var/run/openldap/slapd.pid
+include	/etc/openldap/schema/misc.schema
+ 
+pidfile  /var/run/openldap/slapd.pid
 argsfile /var/run/openldap/slapd.args
-
- ## ## ServerID se utiliza cuando haya réplicas
-serverID 0
+ 
+## ## ServerID used in case of replication
+serverID 0 
 loglevel 0
-
-## ## Sección de Certificados y SSL
+ 
+## ## Certificate/SSL Section
 TLSCipherSuite normal
 TLSCACertificateFile /etc/openldap/ssl/ldap.crt
 TLSCertificateFile /etc/openldap/ssl/ldap.pem
 TLSCertificateKeyFile /etc/openldap/ssl/ldap.key
 TLSVerifyClient never
-
-## ## Controles de acceso
+ 
+## ## Access Controls
 access to dn.base="" by * read
 access to dn.base="cn=Subschema" by * read
 access to *
-   by self write
-   by users read
-   by anonymous read
-
-## ## Definición de la base de datos
-database hdb
-suffix "dc=genfic,dc=com"
+  by self write
+  by users read
+  by anonymous read
+ 
+## ## Database definition
+database mdb
+suffix "dc=genfic,dc=org"
 checkpoint 32 30
-rootdn "cn=Manager,dc=genfic,dc=com"
-## ## Contraseña para root generada previamente con la orden slappasswd
-rootpw "{SSHA}EzP6I82DZRnW+ou6lyiXHGxSpSOw2XO4"
+maxsize 10485760
+#Note: It is important to set this to as large a value as possible,
+#(relative to anticipated growth of the actual data over time)
+#since growing the size later may not be practical when the system is under heavy load.
+ 
+rootdn "cn=Manager,dc=genfic,dc=org"
+## ## rootpwd generated earlier via slappasswd command
+rootpw "{SSHA}EzP6I82DZRnW+ou6lyiXHGxSpSOw2XO4" 
 directory "/var/lib/openldap-data"
 index objectClass eq
-
-## ## Sincronización (desde otro servidor LDAP)
+ 
+## ## Synchronisation (pull from other LDAP server)
 syncrepl rid=000
-   provider=ldap://ldap2.genfic.com
-   type=refreshAndPersist retry="5 5 300 +"
-   searchbase="dc=genfic,dc=com"
-   attrs="*,+"
-   bindmethod="simple"
-   binddn="cn=ldapreader,dc=genfic,dc=com"
-   credentials="ldapsyncpass"
-
+  provider=ldap://ldap2.genfic.org
+  type=refreshAndPersist
+  retry="5 5 300 +"
+  searchbase="dc=genfic,dc=org"
+  attrs="*,+"
+  bindmethod="simple"
+  binddn="cn=ldapreader,dc=genfic,dc=org"
+  credentials="ldapsyncpass"
+ 
 index entryCSN eq
 index entryUUID eq
-
+ 
 mirrormode TRUE
-
+ 
 overlay syncprov
 syncprov-checkpoint 100 10
 }}
 
-Para un análisis más detallado del fichero de configuración, le sugerimos que acceda a la guía del administrador de OpenLDAP. 
+For a more detailed analysis of the configuration file, we suggest that you work through the OpenLDAP Administrator's Guide, although {{Path|man 5 slapd.conf}} may be enough. 
 
-Después de configurar el fichero {{Path|slapd.conf}}, puede comprobarlo con la siguiente orden.
+If it does not start, the first thing you ''must'' do is to check the config file. You can do it with the following command.
 
 {{Cmd|slaptest -v -d 1 -f /etc/openldap/slapd.conf}}
 
@@ -153,13 +159,13 @@ Cambie el nivel de depuración (El "-d 1" de arriba) para obtener más informaci
 
 By default {{c|slapd}} writes the log events to the ''local4'' syslog facility.
 
-Observe que a partir de la versión 2.4.23, OpenLDAP cambió sus ficheros de configuración planos ({{Path|slapd.conf}}) a la configuración en línea OLC (OnLineConfiguration también conocida por su estructura <code>cn=config</code>) como su método de configuración por defecto. Una de las ventajas de usar OLC es que el back-end dinámico (cn=config) no necesita reiniciar el servidor después de cambiar la configuración. Los usuarios que utilicen el método anterior pueden migrar al nuevo método de configuración mediante <code>slaptest</code> indicando las opciones -f y -F. Tradicionalmente OLC se almacena en un back-end con formato ldif (que mantiene las ventajas de la legibilidad por parte de los humanos) en el directorio {{Path|/etc/openldap/slapd.d}}. En Gentoo todavía no es necesario convertir la configuración, sin embargo, en el futuro se eliminará el enfoque de documentación actual en este documento.
+{{Warning|Note that since version 2.4.23, OpenLDAP default finally moved from traditional flat config files (<code>slapd.conf</code>) to OLC (OnLineConfiguration, also known through its <code>cn{{=}}config</code> structure) as default configuration method. One of benefits of using OLC is that the dynamic backend (<code>cn{{=}}config</code>) doesn't require restart of server after updating the configuration. Existing users can migrate to the new configuration method by invoking <code>slaptest</code> setting both -f and -F options. Traditionally OLC is stored in ldif back-end (which keep benefits of human-readability) in the <code>/etc/openldap/slapd.d</code> directory. In Gentoo it is not required to convert the configuration yet, but support for the currently documented approach will be removed in the future.}}
 
 === Migration from slapd.conf to OLC ===
 
 Si desea poder cambiar la configuración del servidor OpenLDAP necesita definir al menos el acceso de escritura (o normalmente de gestión) a <code>cn=config</code>.
 
-El ejemplo de abajo muestra como conceder acceso de gestión a OLC (base de datos ''cn=config'') al administrador del sistema (usuario root) añadiendo las líneas adecuadas al final del fichero {{Path|slapd.conf}}:
+The example below shows how to grant manage access on OLC (''cn=config'' database) to the system administrator (root user) by adding the proper lines at the end of the {{Path|slapd.conf}} file:
 
 {{FileBox|filename=/etc/openldap/slapd.conf|title=Conceder derechos de gestión de la cuenta root de Linux a cn{{=}}config|1=
 database config
@@ -171,9 +177,9 @@ dn.exact="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" manage
 
 Then, we invoke the {{c|slaptest}} utility with the <code>-f</code> and <code>-F</code> options to convert the {{Path|slapd.conf}} file into a configuration directory ({{Path|slapd.d}}).
 
-{{RootCmd|mkdir /etc/openldap/slapd.d}}
-{{RootCmd|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d}}
-{{RootCmd|chown -R ldap /etc/openldap/slapd.d}}
+{{RootCmd|mkdir /etc/openldap/slapd.d
+|slaptest -f /etc/openldap/slapd.conf -F /etc/openldap/slapd.d
+|chown -R ldap /etc/openldap/slapd.d}}
 
 Al lanzar esta orden se transferirá y traducirá la configuración. Después de esto, deberá actualizar la configuración utilizando ficheros ldif especialmente preparados. Si no está familiarizado con el formato de estos ficheros puede editar en primero {{Path|slapd.conf}} y después traducir {{Path|slapd.conf}} a {{Path|slapd.d/}}. No olvide comprobar los permisos sobre los directorios.
 
@@ -189,8 +195,8 @@ ldapi://%2fvar%2frun%2fopenldap%2fslapd.sock'"
 Para terminar, cree la estructura {{Path|/var/lib/openldap-data}}: 
 
 {{RootCmd|mkdir -p /var/lib/openldap-data
-|chown ldap:ldap /var/lib/openldap-data
-|chmod 700 /var/lib/openldap-data}}
+|chown -R ldap:ldap /var/lib/openldap-data
+|chmod -R 0700 /var/lib/openldap-data}}
 
 Arranque slapd: 
 
@@ -227,7 +233,7 @@ See {{Path|man 5 slapd-config}} for more details.
 
 When using OLC, never manually edit the configuration files. The directory files can be used to check the consistency of the configuration through:
 
-{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+{{RootCmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
 
 === Server management with OLC ===
 
@@ -235,7 +241,7 @@ When using OLC, never manually edit the configuration files. The directory files
 
 Se muestran abajo algunos ejemplos de actualizaciones a la configuración con el estilo OLC.
 
-Por ejemplo, para cambiar la localización del directorio de configuración de OLC:
+For instance, to change the location of the OLC configuration directory (needed after switching from a config file to config directory style):
 
 {{FileBox|filename=fix-configs.ldif|1=
 dn: cn=config
@@ -253,7 +259,7 @@ Para cambiar el nivel del registro usado por la instancia OpenLDAP:
 dn: cn=config
 changetype: modify
 replace: olcLogLevel
-olcLogLevel: stats sync
+olcLogLevel: stats stats2 sync
 }}
 
 Para añadir el overlay syncprov:
@@ -288,7 +294,13 @@ olcSpSessionlog: 100
 
 Para aplicar los cambios, lance la siguiente orden:
 
-{{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif}}
+{{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif|output=<pre>
+SASL/EXTERNAL authentication started
+SASL username: gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth
+SASL SSF: 0
+modifying entry "cn=config"
+</pre>
+}}
 
 === OpenLDAP logging ===
 
@@ -400,26 +412,24 @@ delete: olcAccess
 olcAccess: {1}
 }}
 
-== Configurar las herramientas cliente de OpenLDAP== 
+== Configuring the OpenLDAP client tools == 
 
 Edite el fichero de configuración del cliente LDAP. Este fichero lo lee ldapsearch y otras herramientas de línea de órdenes ldap.
 
-{{FileBox|filename=/etc/openldap/ldap.conf|title=Añadir lo siguiente|1=
-BASE dc=genfic, dc=com
-URI ldap://ldap.genfic.com:389/ ldap://ldap1.genfic.com:389/ ldap://ldap2.genfic.com:389/
-TLS_REQCERT allow
-TIMELIMIT 2
+{{FileBox|filename=/etc/openldap/ldap.conf|title=Add the following|1=
+BASE         dc=genfic, dc=org
+URI          ldap://ldap.genfic.org:389/ ldap://ldap1.genfic.org:389/ ldap://ldap2.genfic.org:389/
+TLS_REQCERT  allow
+TIMELIMIT    2
 }}
 
 Puede comprobar si el servidor está corriendo con la siguiente orden: 
 
-{{Cmd|ldapsearch -x -D
-"cn{{=}}Manager,dc{{=}}genfic,dc{{=}}com"
--W}}
+{{Cmd|ldapsearch -x -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -W}}
 
 Si obtiene un error, intente añadir <code>-d 255</code> para incrementar el nivel de información mostrada y solucionar el problema que tenga.
 
-== Configuración del cliente para autenticación centralizada ==
+== Client configuration for centralized authentication  ==
 
 Existen varios métodos y herramientas que se pueden utilizar para realizar una autenticación remota. Algunas distribuciones incluso disponen de su propia herramienta de configuración de fácil uso. Abajo se muestran algunas (el orden no es importante). Es posible combinar a la vez usuarios locales y cuentas autorizadas centralmente. Estos es importante ya que, por ejemplo, si el servidor LDAP no es accesible, todavía se podrá acceder como root.
 
@@ -443,17 +453,16 @@ config_file_version = 2
 services = nss, pam
 domains = genfic
 debug_level = 5
-
+  
 [nss]
-filter_users =
-root,ldap,named,avahi,haldaemon,dbus,radiusd,news,nscd
-
+filter_users = root,ldap,named,avahi,haldaemon,dbus,radiusd,news,nscd
+  
 [domain/genfic]
 id_provider = ldap
 auth_provider = ldap
-ldap_search_base = dc=genfic,dc=com
+ldap_search_base = dc=genfic,dc=org
 ldap_tls_reqcert = never
-# Servidores ldap primario y de respaldo [primario y],[secudnario]
+# primary and backup ldap servers below [first server and],[second server]
 ldap_uri = ldap://X.X.X.X,ldap://X.X.X.X
 }}
 
@@ -503,7 +512,7 @@ session optional pam_sss.so                                                     
 
 Ahora intente acceder desde otro equipo.
 
-=== El método de configuración del cliente PAM con el módulo pam_ldap ===
+=== Client PAM configuration the pam_ldap module method ===
 
 En primer lugar configuraremos PAM para permitir la autorización LDAP. Instale {{Package|sys-auth/pam_ldap}} de modo que PAM ofrezca soporte para la autorización LDAP y {{Package|sys-auth/nss_ldap}} de modo que su sistema pueda trabajar con servidores LDAP para información adicional (usado por {{Path|nsswitch.conf}}). 
 
@@ -534,26 +543,26 @@ session optional pam_ldap.so                                                    
 
 Ahora cambie {{Path|/etc/ldap.conf}} para que contenga: 
 
-{{FileBox|filename/etc/ldap.conf|1=
+{{FileBox|filename=/etc/ldap.conf|1=
 ## #host 127.0.0.1
 ## #base dc=padl,dc=com
-
-base dc=genfic,dc=com
-## #rootbinddn uid=root,ou=People,dc=genfic,dc=com 
+ 
+base dc=genfic,dc=org
+## #rootbinddn uid=root,ou=People,dc=genfic,dc=org
 bind_policy soft
 bind_timelimit 2
 ldap_version 3
-nss_base_group ou=Group,dc=genfic,dc=com
-nss_base_hosts ou=Hosts,dc=genfic,dc=com
-nss_base_passwd ou=People,dc=genfic,dc=com
-nss_base_shadow ou=People,dc=genfic,dc=com 
+nss_base_group ou=Group,dc=genfic,dc=org
+nss_base_hosts ou=Hosts,dc=genfic,dc=org
+nss_base_passwd ou=People,dc=genfic,dc=org
+nss_base_shadow ou=People,dc=genfic,dc=org
 pam_filter objectclass=posixAccount
 pam_login_attribute uid
 pam_member_attribute memberuid
 pam_password exop
 scope one
 timelimit 2
-uri ldap://ldap.genfic.com/ ldap://ldap1.genfic.com ldap://ldap2.genfic.com 
+uri ldap://ldap.genfic.org/ ldap://ldap1.genfic.org ldap://ldap2.genfic.org
 }}
 
 A continuación, copie el fichero (OpenLDAP) {{Path|ldap.conf}} desde el servidor al cliente de modo que lo clientes conozcan el entorno LDAP: 
@@ -592,31 +601,31 @@ El siguiente paso es migrar la información de su sistema a OpenLDAP. Esto se re
 
 En el momento de escribir este documento, las herramientas necesarias requieren las siguientes entradas: 
 
-{| class="wikitable" style="text-align: left;"
-|-
-! Entrada
-! Descripción
-! Ejemplo
-|-
+{| class="wikitable" style="text-align: left;" 
+|- 
+! Input
+! Description
+! Example
+|- 
 | LDAP BaseDN
-| La localización base (raíz) de su árbol
-| dc=genfic,dc=com
-|-
-| Dominio de correo electrónico
-| Dominio utilizado en las direcciones de correo electrónico
-| genfic.com
-|-
-| Servidor de correo
-| FQDN se su infraestructura de servidor de correo electrónico
-| smtp.genfic.com
-|-
-| Nombre de dominio raíz LDAP 
-| Información de cuenta administrativa de su estructura LDAP
-| cn=Manager,dc=genfic,dc=com
-|-
-| Contraseña del usuario root de LDAP
-| Contraseña para la cuenta de administración citada anteriormente respecto a la orden <code>slappasswd</code>
-|
+| The base location (root) of your tree
+| dc=genfic,dc=org
+|- 
+| Mail domain
+| Domain used in e-mail addresses
+| genfic.org
+|- 
+| Mail host
+| FQDN of your mail server infrastructure
+| smtp.genfic.org
+|- 
+| LDAP Root DN
+| Administrative account information for your LDAP structure
+| cn=Manager,dc=genfic,dc=org
+|- 
+| LDAP Root Password
+| Password for the administrative account, cfr earlier <code>slappasswd</code> command
+| 
 |-
 |}
 
@@ -634,7 +643,7 @@ privilegios de lectura en el servidor LDAP primario y que toma los cambios reali
 Esta configuración entonces se replica permitiendo al servidor LDAP secundario actuar igual que el primario. Gracias a la estructura interna
 de OpenLDAP, los cambios no se aplican de nuevo si ya están en la estructura LDAP.
 
-=== Configurar la replicación ===
+=== Setting up replication ===
 
 Para configurar la replicación, en primer lugar realice la configuración de un segundo servidor OpenLDAP, del mismo modo que se ha descrito
 arriba. Sin embargo, tenga cuidado de que, en el fichero de configuración:
@@ -653,18 +662,16 @@ LDAP) y lo añadiremos a cada servidor LDAP:
 </pre>}}
 
 {{Cmd|cat ldapreader.ldif|output=<pre>
-dn: cn=ldapreader,dc=genfic,dc=com
+dn: cn=ldapreader,dc=genfic,dc=org
 userPassword: {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
 objectClass: organizationalRole
 objectClass: simpleSecurityObject
 cn: ldapreader
-description: Lector LDAP usado para sincronización
+description: LDAP reader used for synchronization
 </pre>}}
 
-{{Cmd|ldapadd -x -W -D
-"cn{{=}}Manager,dc{{=}}genfic,dc{{=}}com" -f
-ldapreader.ldif|output=<pre>
-Password: ## introduzca la contraseña de administración
+{{Cmd|ldapadd -x -W -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -f ldapreader.ldif|output=<pre>
+Password: ## enter the administrative password
 </pre>}}
 
 == LDAP server security settings ==
@@ -689,19 +696,19 @@ La siguiente ACL es un poco más segura ya que bloquea a los usuarios normales p
 
 {{FileBox|filename=/etc/openldap/slapd.conf|1=
 access to attrs="userPassword"
- by dn="uid=root,ou=People,dc=genfic,dc=com" write
- by dn="uid=John,ou=People,dc=genfic,dc=com" write
- by anonymous auth
- by self write
- by * none
-
+  by dn="uid=root,ou=People,dc=genfic,dc=org" write
+  by dn="uid=John,ou=People,dc=genfic,dc=org" write
+  by anonymous auth
+  by self write
+  by * none
+ 
 access to *
- by dn="uid=root,ou=People,dc=genfic,dc=com" write
- by dn="uid=John,ou=People,dc=genfic,dc=com" write
- by * search
+  by dn="uid=root,ou=People,dc=genfic,dc=org" write
+  by dn="uid=John,ou=People,dc=genfic,dc=org" write
+  by * search
 }}
 
-Este ejemplo le da a root y a Juan acceso para leer, escribir o buscar cualquier cosa en el árbol bajo {{Path|dc{{=}}genfic,dc{{=}}com}}. Esto también permite que los usuarios cambien su propia <code>userPassword</code>. En cuanto a la última sentencia todo el mundo posee la capacidad de buscar indicando que puede escribir en el filtro de búsqueda pero no pueden leer el resultado de la búsqueda. Ahora puede tener múltiples ACLs pero la regla nemotécnica es que se procesa de abajo hacia arriba por lo que su nivel tope debería ser el más restrictivo.
+Este ejemplo le da a root y a Juan acceso para leer, escribir o buscar cualquier cosa en el árbol bajo {{Path|dc{{=}}genfic,dc{{=}}org}}. Esto también permite que los usuarios cambien su propia <code>userPassword</code>. En cuanto a la última sentencia todo el mundo posee la capacidad de buscar indicando que puede escribir en el filtro de búsqueda pero no pueden leer el resultado de la búsqueda. Ahora puede tener múltiples ACLs pero la regla nemotécnica es que se procesa de abajo hacia arriba por lo que su nivel tope debería ser el más restrictivo.
 
 == Trabajar con OpenLDAP ==
 
