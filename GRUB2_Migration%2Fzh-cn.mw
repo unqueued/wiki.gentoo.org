@@ -1,0 +1,155 @@
+<languages />
+
+
+{{Metadata|abstract=The goal of this guide is to provide readers with a smooth migration from GRUB Legacy to GRUB2.}}
+
+The goal of this guide is to provide readers with a smooth migration from [[GRUB Legacy]] to [[GRUB2]].
+
+== Background ==
+
+=== What's GRUB? ===
+
+GRUB is one of the most commonly found boot loaders in use on non-embedded Linux machines. The role of GRUB is to facilitate the Linux kernel being loaded from the disk into memory and start executing the Linux kernel. 
+
+=== Why migrate? ===
+
+Firstly, GRUB Legacy is no longer maintained and as such no longer receives updates. GRUB Legacy was created at a time when the developers felt safe in making several assumptions which no longer hold true today. For example, GRUB Legacy is unable to boot from disks larger than 2 TB and assumes that newer filesystems wouldn't come to replace {{Path|/boot}}. 
+
+GRUB2 aims to be more robust, more portable, more powerful and is maintained with a cleaner code base. GRUB2 supports more hardware configurations, more filesystems and more drive layouts than its predecessor. 
+
+== Migration to GRUB2 ==
+
+Migration to GRUB2 is fairly straightforward: it will be pulled in as part of the regular upgrade process by the package manager. If it is not pulled in automatically, it can always be merged via the <code>sys-boot/grub:2</code> package atom:
+
+{{Emerge|sys-boot/grub:2}}
+
+=== Boot drive ===
+
+The first important part is to understand which drive is bootable. For those who followed the Gentoo Handbook it should be {{Path|/dev/sda}}. For those who are uncertain, the easiest way to find out is to look at the existing GRUB Legacy configuration. Viewing the {{Path|/boot/grub/grub.conf}} file is the main place to check. 
+
+{{Note|Be sure the {{Path|/boot}} partition is mounted to be able to view these files. It should be as simple as
+{{RootCmd|mount /boot}}
+}}
+
+The {{Path|grub.conf}} will look something like this:
+
+{{FileBox|filename=/boot/grub/grub.conf|1=
+default 0
+timeout 30
+splashimage=(hd0,0)/boot/grub/splash.xpm.gz
+  
+title Gentoo Linux 3.2.12
+root (hd0,0)
+kernel /boot/kernel-3.2.12-gentoo root=/dev/sda3 quiet dolvm
+initrd /boot/initramfs-genkernel-x86_64-3.2.12-gentoo
+}}
+
+Based on the above file it is possible to know that <code>(hd0)</code> is the boot drive but we must map this to a real device. To know this, look at the {{Path|/boot/grub/device.map}} file. An example one is provided below. 
+
+{{FileBox|filename=/boot/grub/device.map|1=
+(fd0) /dev/fd0
+(hd0) /dev/sda
+(hd1) /dev/sdb
+}}
+
+{{Note|When suspecting that {{Path|/boot/grub/device.map}} is not accurate, run the following command to recreate the file:
+{{RootCmd|grub-install --recheck /dev/sda}}
+}}
+
+Based on the above file we know that {{Path|/dev/sda}} is the boot drive.
+
+=== Installing and configuring GRUB2 ===
+
+The next step is to install and configure GRUB2 for the {{Path|/boot}} partition without removing GRUB Legacy from the drive's Master Boot Record (MBR). The example below uses {{Path|/dev/sda}} — replace it with the correct boot drive path.
+
+First install the necessary GRUB2 files to {{Path|/boot/grub}}.
+
+{{RootCmd|grub-install --grub-setup{{=}}/bin/true /dev/sda|output=<pre>
+Installation finished. No error reported.
+</pre>}}
+
+{{Warning|The option <code>--grub-setup{{=}}/bin/true</code> tells {{c|grub-install}} to ''not'' install GRUB2 in the MBR. If this option is omitted, GRUB Legacy will be overwritten and [[#Chainloading GRUB2 from GRUB Legacy to test the setup|chainloading GRUB2 from GRUB Legacy later on]] will not be possible.}}
+
+{{Note|If GRUB2 was emerged with the <code>multislot</code> USE flag, the {{c|grub-install}} command will still refer to GRUB Legacy. In this case, use {{c|grub2-install}} instead — and use {{c|grub2-mkconfig}} in place of {{c|grub-mkconfig}} in the next step.}}
+
+Now we can scan the available kernels and generate a suitable config file to {{Path|/boot/grub/grub.cfg}}. Skip this step when using a [[GRUB2_Quick_Start#Manual_configuration|Manual Configuration]].
+
+{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg|output=<pre>
+Generating grub.cfg ...
+Found linux image: /boot/kernel-3.2.12-gentoo
+Found initrd image: /boot/initramfs-genkernel-x86_64-3.2.12-gentoo
+done
+</pre>
+}}
+
+{{Warning|GRUB2 uses the configuration file {{Path|/boot/grub/grub.'''cfg'''}} whereas GRUB Legacy used {{Path|/boot/grub/grub.'''conf'''}} so please make sure not to use the old file by mistake, e.g. by using tab-completion if the old file is still there.}}
+
+{{Note|{{c|grub-mkconfig}} has strict naming requirements for kernels and initramfs images. A kernel must be named <code>kernel-${version}</code> or <code>vmlinuz-${version}</code> while an initramfs must be named <code>initramfs-${version}.img</code>, <code>initramfs-genkernel-${version}</code>, <code>initramfs-genkernel-${arch}-${version}</code>, <code>initrd-${version}.img</code>, <code>initrd.img-${version}</code>, <code>initrd-${version}.gz</code>, or <code>initrd-${version}</code>. These files must be available in {{Path|/boot}}.}}
+
+{{Note|The file {{Path|/etc/default/grub}} controls the operation of {{c|grub-mkconfig}}. If parameters need to be passed on to the kernel (for instance when using genkernel and booting from LVM or software RAID), edit that file before generating {{Path|/boot/grub/grub.cfg}} like so:
+{{RootCmd|nano /etc/default/grub}}
+Have a look at [[GRUB2#Configuration|GRUB2 configuration]] on the Gentoo Wiki or the [http://www.gnu.org/software/grub/manual/html_node/Simple-configuration.html official GRUB2 manual] to decide how to modify the file. Most users will need to change <code>GRUB_CMDLINE_LINUX</code> to specify parameters to be passed on the kernel command line.}}
+
+=== Chainloading GRUB2 from GRUB Legacy to test the setup ===
+
+Because a broken GRUB configuration could mean an unbootable system, we want to test our GRUB2 configuration before making it permanent. To do this we will chainload GRUB2 from GRUB Legacy. This is done by adding a new section into {{Path|/boot/grub/grub.conf}}. An example is shown below. 
+
+{{Note|Be aware that the root partition may be different from <code>(hd0,0)</code> used in the example, and make sure to reuse the same root value from the {{Path|/boot/grub/grub.conf}} configuration file.}}
+
+{{FileBox|filename=/boot/grub/grub.conf|1=
+default 0
+timeout 30
+splashimage=(hd0,0)/boot/grub/splash.xpm.gz
+  
+title GRUB2 Chainload
+root (hd0,0)
+kernel /boot/grub/i386-pc/core.img
+boot
+  
+title Gentoo Linux 3.2.12
+root (hd0,0)
+kernel /boot/kernel-3.2.12-gentoo root=/dev/sda3 quiet dolvm
+initrd /boot/initramfs-genkernel-x86_64-3.2.12-gentoo
+}}
+
+At this point the machine should be rebooted, and <code>GRUB2 Chainload</code> selected from the GRUB menu when the machine begins to boot. Another GRUB menu will be presented which should advertise itself as GRUB 2.0.0 or higher at the top and show the available kernel(s) to boot. Should this not work, simply reboot the system and pick the normal boot option instead of <code>GRUB2 Chainload</code>. 
+
+=== Replacing and removing GRUB Legacy ===
+
+If everything worked successfully, replace GRUB Legacy and remove it from the system. 
+
+{{Warning|Since the system has been rebooted, it might be necessary to mount {{Path|/boot}} again. Make sure to use the right boot drive path instead of {{Path|/dev/sda}} as this is merely an example. If {{Path|/boot}} is not mounted before running {{c|grub-install}}, the system will become unbootable}}
+
+{{Note|As previously mentioned, if GRUB2 was emerged with the <code>multislot</code> USE flag then {{c|grub2-install}} must be used instead of {{c|grub-install}}. In this case, after GRUB Legacy is removed from the system in the next step, GRUB2 should be re-emerged without the <code>multislot</code> USE flag so that {{c|grub-install}} and {{c|grub-mkconfig}} can become GRUB2 commands.}}
+
+{{RootCmd|grub-install /dev/sda|output=<pre>
+Installation finished. No error reported.
+</pre>
+}}
+
+At this point use the package manager to remove <code>sys-boot/grub:0</code>. 
+
+{{RootCmd|emerge -avC "{{=}}sys-boot/grub-0.97*"}}
+
+The migration is now complete.
+
+== Maintaining GRUB2 ==
+
+Whenever a new kernel is installed, perform the next step so that the GRUB2 configuration recognizes the new kernel (except when using a [[GRUB2_Quick_Start#Manual_configuration|manual configuration]]). 
+
+{{Note|Make sure the {{Path|/boot}} partition is mounted for this step.}}
+
+{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg|output=<pre>
+Generating grub.cfg ...
+Found linux image: /boot/kernel-3.3.8-gentoo
+Found initrd image: /boot/initramfs-genkernel-x86_64-3.3.8-gentoo
+Found linux image: /boot/kernel-3.2.12-gentoo
+Found initrd image: /boot/initramfs-genkernel-x86_64-3.2.12-gentoo
+done
+</pre>
+}}
+
+
+[[Category:Bootloaders]]
+
+{{Migrated|originalauthors=Cardoe}}
