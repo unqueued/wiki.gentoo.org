@@ -68,6 +68,12 @@ En primer lugar haga emerge de OpenLDAP. Asegúrese que se usan los ajustes USE 
 
 {{Emerge|openldap}}
 
+OpenLDAP supports two authentication mechanisms:
+# standard user-password (in LDAP terms ''user'' means ''binddn'') named SIMPLE
+# proxying authentication requests to SASL (Simple Authentication and Security Layer)
+
+Although the OpenLDAP default is to use SASL, the initial version of this article used only password-based authentication. With the OLC add-on the article starts to describe the use of the simplest SASL mechanism called EXTERNAL, which relies on the system authentication.
+
 OpenLDAP tiene un usuario principal llamado "rootdn" (Root Distinguished Name o Nombre Distinguido de Root) el cual está definido dentro de la aplicación. Al contrario que el usuario root clásico de Unix, al usuario rootdn se le deben asignar los permisos adecuados. El usuario rootdn solo se puede utilizar en el contexto de la configuración y también en la definición del directorio. En este caso un usuario puede autenticarse a si mismo como rootdn con la contraseña usada en la configuración y la contraseña (basada en el directorio) del árbol.
 
 La contraseñas de usuario (independientemente si son para usuarios rootdn u otros) para propósitos de verificación se pueden almacenar como testo en claro o aplicando un hash. Se dispone de varios algoritmos hash, sin embargo no se recomienda el uso de algoritmos débiles (hasta MD5). Actualmente en criptografía se considera que SHA es suficientemente seguro.
@@ -198,10 +204,6 @@ Para terminar, cree la estructura {{Path|/var/lib/openldap-data}}:
 |chown -R ldap:ldap /var/lib/openldap-data
 |chmod -R 0700 /var/lib/openldap-data}}
 
-Arranque slapd: 
-
-{{RootCmd|/etc/init.d/slapd start}}
-
 === Initial setup with OLC ===
 
 An initial configuration is shipped as a standard LDAP database dump, available as {{Path|slapd.ldif}} or {{Path|config.ldif}}.
@@ -234,6 +236,20 @@ Leer {{Path|man 5 slapd-config}} para obtener más detalles.
 When using OLC, never manually edit the configuration files. The directory files can be used to check the consistency of the configuration through:
 
 {{RootCmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+
+=== Mantener el directorio ===
+
+Arranque slapd:
+
+{{RootCmd|/etc/init.d/slapd start}}
+
+Most users will also want the OpenLDAP daemon to start automatically:
+
+{{RootCmd|rc-update add slapd}}
+
+Puede empezar utilizando el directorio para autenticar usuarios en apache/proftpd/qmail/samba. Puede administrarlo con [https://www.ldap-account-manager.org/lamcms/ LAM (Ldap Account Manager)], phpldapadmin, diradm, jxplorer, o lat, que proporcionan interfaces de administración sencillos.
+
+The directory server can be managed with tools such as {{Package|net-nds/phpldapadmin}}, {{Package|app-admin/diradm}} and {{Package|net-nds/jxplorer}} from the Gentoo ebuild repository, or {{Package|app-misc/ldapexplorertool}} from the poly-c overlay available through layman.
 
 === Server management with OLC ===
 
@@ -302,11 +318,30 @@ modifying entry "cn=config"
 </pre>
 }}
 
+{{Warning|On restart, the init script performs a check of the updated configuration. The {{c|ldapmodify}} command used above blocks only fatal errors. To get info about non-fatal errors using OLC:
+{{RootCmd|slaptest -F /etc/openldap/slapd.d|output=<pre>
+58b7d4c2 olcThreads: value #0: warning, threads=64 larger than twice the default (2*16=32); YMMV.
+config file testing succeeded
+</pre>
+}}}}
+
 === OpenLDAP logging ===
 
 OpenLDAP produces numerous log events, which might not be obvious to interpret, but are necessary for debugging purposes.
 
 As OpenLDAP by default writes the log events into the system log, it is advisable to reconfigure the system logger to direct OpenLDAP log events into a dedicated log file.
+
+It is advisable to use the <code>stats stats2</code> log level in OpenLDAP, which results in session-related information such as the following:
+
+{{RootCmd|grep conn{{=}}1 /var/log/slapd.log|output=<pre>
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 fd=14 ACCEPT from IP=192.168.100.9:55655 (IP=192.168.1.1:389)
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=0 BIND dn="" method=128
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=0 RESULT tag=97 err=0 text=
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SRCH base="ou=People,dc=genfic,dc=org" scope=1 deref=0 filter="(&(objectClass=posixAccount)(uidNumber=1001))"
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SRCH attr=uid userPassword uidNumber gidNumber cn homeDirectory loginShell gecos description objectClass shadowLastChange shadowMax shadowExpire
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 ENTRY dn="uid=larry,ou=People,dc=genfic,dc=org"
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SEARCH RESULT tag=101 err=0 nentries=1 text=
+</pre>}}
 
 === Access management (ACLs) ===
 
@@ -320,44 +355,46 @@ The following table shows the access levels available in OpenLDAP:
 {| class="table table-striped table-condensed" style="text-align: left;" 
 |- 
 ! Access level
-! Privileges
+! style="text-align:right;"| Privileges
 ! Description
 |- 
 | none
-| 0
+| style="text-align:right;"| 0
 | no access
 |- 
 | disclose
-| d
+| style="text-align:right;"| d
 | needed for information disclosure on error 
 |- 
 | auth
-| dx
+| style="text-align:right;"| dx
 | needed to authenticate (bind)
 |- 
 | compare
-| cdx
+| style="text-align:right;"| cdx
 | needed to compare 
 |- 
 | search
-| scdx
+| style="text-align:right;"| scdx
 | needed to apply search filters 
 |- 
 | read
-| rscdx
+| style="text-align:right;"| rscdx
 | needed to read search results 
 |- 
-| {write|add|delete}
-| wrscdx
+| {write&#124;add&#124;delete}
+| style="text-align:right;"| wrscdx
 | needed to modify/rename 
 |- 
 | manage
-| mwrscdx
+| style="text-align:right;"| mwrscdx
 | needed to manage 
 |-
 |}
 
 For details about the exact privilege settings, see the manual pages and official OpenLDAP documentation.
+
+{{Warning|Remember that the ''rootdn'' user can read and write everything.}}
 
 ==== Config file ====
 
@@ -378,7 +415,6 @@ access to dn.base="" by * read
 …
 }}
 
-Remember that the ''rootdn'' user can read and write everything.
 
 ==== Config directory ====
 
@@ -411,6 +447,51 @@ changetype: modify
 delete: olcAccess
 olcAccess: {1}
 }}
+
+== Replicación ==
+
+=== Alta disponibilidad ===
+
+Para configurar la replicación de los cambios a través de múltiples sistemas LDAP. La replicación dentro de OpenLDAP, en esta guía, se configura utilizando una cuenta especial de replicación (<code>ldapreader</code>) la cual posee
+privilegios de lectura en el servidor LDAP primario y que toma los cambios realizados en este servidor LDAP primario al secundario.
+
+Replication within OpenLDAP is, in this guide, set up using a specific replication account ( <code>ldapreader</code> ) which has read rights on the primary LDAP server and which pulls in changes from the primary LDAP server to the secondary. 
+
+Esta configuración entonces se replica permitiendo al servidor LDAP secundario actuar igual que el primario. Gracias a la estructura interna
+de OpenLDAP, los cambios no se aplican de nuevo si ya están en la estructura LDAP.
+
+=== Configurar la replicación ===
+
+Para configurar la replicación, en primer lugar realice la configuración de un segundo servidor OpenLDAP, del mismo modo que se ha descrito
+arriba. Sin embargo, tenga cuidado de que, en el fichero de configuración:
+
+* El ''proveedor de la sincronización de la replicación'' apunta al ''otro'' sistema
+
+* El ''serverID'' de cada sistema OpenLDAP es diferente
+
+{{Note|El uso de una instalación desde un espejo implica que el servicio OpenLDAP se debería configurar como la instalación de un único servidor, de modo que el valor de ''serverID'' en cada uno de los nodos debe ser el mismo. Las instancias se identifican por valores ''rid'', que deben ser únicos.}}
+
+A continuación, cree la cuenta de sincronización. Crearemos un fichero LDIF (el formato utilizado como entrada de datos para los servidores
+LDAP) y lo añadiremos a cada servidor LDAP: 
+
+{{Cmd|slappasswd -s myreaderpassword|output=<pre>
+{SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
+</pre>}}
+
+{{Cmd|cat ldapreader.ldif|output=<pre>
+dn: cn=ldapreader,dc=genfic,dc=org
+userPassword: {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: ldapreader
+description: Lector LDAP utilizado para la sincronización
+</pre>}}
+
+{{Cmd|ldapadd -x -W -D
+"cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -f
+ldapreader.ldif|output=<pre>
+Password: ## introduzca la contraseña de administración
+</pre>}}
 
 == Configurar las herramientas cliente de OpenLDAP == 
 
@@ -635,93 +716,8 @@ La herramienta también le preguntará qué cuentas y ajustes desea migrar.
 
 {{Warning/es| No necesita hacer cambios en pam.d/system-auth}}
 
-== Replicación ==
-
-=== Alta disponibilidad ===
-
-Para configurar la replicación de los cambios a través de múltiples sistemas LDAP. La replicación dentro de OpenLDAP, en esta guía, se configura utilizando una cuenta especial de replicación (<code>ldapreader</code>) la cual posee
-privilegios de lectura en el servidor LDAP primario y que toma los cambios realizados en este servidor LDAP primario al secundario. 
-
-Esta configuración entonces se replica permitiendo al servidor LDAP secundario actuar igual que el primario. Gracias a la estructura interna
-de OpenLDAP, los cambios no se aplican de nuevo si ya están en la estructura LDAP.
-
-=== Configurar la replicación ===
-
-Para configurar la replicación, en primer lugar realice la configuración de un segundo servidor OpenLDAP, del mismo modo que se ha descrito
-arriba. Sin embargo, tenga cuidado de que, en el fichero de configuración:
-
-* El ''proveedor de la sincronización de la replicación'' apunta al ''otro'' sistema
-
-* El ''serverID'' de cada sistema OpenLDAP es diferente
-
-{{Note|El uso de una instalación desde un espejo implica que el servicio OpenLDAP se debería configurar como la instalación de un único servidor, de modo que el valor de ''serverID'' en cada uno de los nodos debe ser el mismo. Las instancias se identifican por valores ''rid'', que deben ser únicos.}}
-
-A continuación, cree la cuenta de sincronización. Crearemos un fichero LDIF (el formato utilizado como entrada de datos para los servidores
-LDAP) y lo añadiremos a cada servidor LDAP: 
-
-{{Cmd|slappasswd -s myreaderpassword|output=<pre>
-{SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
-</pre>}}
-
-{{Cmd|cat ldapreader.ldif|output=<pre>
-dn: cn=ldapreader,dc=genfic,dc=org
-userPassword: {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
-objectClass: organizationalRole
-objectClass: simpleSecurityObject
-cn: ldapreader
-description: Lector LDAP utilizado para la sincronización
-</pre>}}
-
-{{Cmd|ldapadd -x -W -D
-"cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -f
-ldapreader.ldif|output=<pre>
-Password: ## introduzca la contraseña de administración
-</pre>}}
-
-== Ajustes de seguridad del servidor LDAP ==
-
-=== Permisos OpenLDAP ===
-
-Se echa un vistazo a {{Path|/etc/openldap/slapd.conf}} verá que puede especificar las ACL (permisos si lo prefiere) de qué datos los usuarios pueden leer o escribir: 
-
-{{FileBox|filename=/etc/openldap/slapd.conf|1=
-access to attrs=userPassword,gecos,description,loginShell
-  by self write
-
-access to *
-  by dn="uid=root,ou=People,dc=genfic,dc=org" write
-  by users read
-  by anonymous auth
-}}
-
-Esto le da acceso a todo lo que un usuario puede cambiar. Si es su información, entonces obtendrá acceso de escritura a ella, si es otro usuario, entonces podrá leer su información. Los usuarios anónimos puede enviar una petición de acceso y contraseña para entrar. Hay cuatro niveles de menor a mayor:: <code>auth search read write</code>. 
-
-La siguiente ACL es un poco más segura ya que bloquea a los usuarios normales para que no puedan leer las contraseñas ocultas de otras personas: 
-
-{{FileBox|filename=/etc/openldap/slapd.conf|1=
-access to attrs="userPassword"
- by dn="uid=root,ou=People,dc=genfic,dc=org" write
- by dn="uid=John,ou=People,dc=genfic,dc=org" write
- by anonymous auth
- by self write
- by * none
-
-access to *
- by dn="uid=root,ou=People,dc=genfic,dc=org" write
- by dn="uid=John,ou=People,dc=genfic,dc=org" write
- by * search
-}}
-
-Este ejemplo le da a root y a Juan acceso para leer, escribir o buscar cualquier cosa en el árbol bajo {{Path|dc{{=}}genfic,dc{{=}}org}}. Esto también permite que los usuarios cambien su propia <code>userPassword</code>. En cuanto a la última sentencia todo el mundo posee la capacidad de buscar indicando que puede escribir en el filtro de búsqueda pero no pueden leer el resultado de la búsqueda. Ahora puede tener múltiples ACLs pero la regla nemotécnica es que se procesa de abajo hacia arriba por lo que su nivel tope debería ser el más restrictivo.
-
-== Trabajar con OpenLDAP ==
-
-=== Mantener el directorio ===
-
-Puede empezar utilizando el directorio para autenticar usuarios en apache/proftpd/qmail/samba. Puede administrarlo con [https://www.ldap-account-manager.org/lamcms/ LAM (Ldap Account Manager)], phpldapadmin, diradm, jxplorer, o lat, que proporcionan interfaces de administración sencillos.
-
 == Agradecimientos ==
 
 Nos gustaría dar las gracias a Matt Heler por dejarnos su máquina para realizar esta guía. También queremos agradecer a los tíos simpáticos en #ldap @ irc.freenode.net 
 
-[[Category:Server and Security]] {{Migrated|originalauthors=Benjamin Coles, swift, Brandon Hale, Benny Chuang, jokey, nightmorph}}
+[[Category:Server and Security]] {{Migrated|originalauthors=Benjamin Coles, {{Dev|SwifT}}, Brandon Hale, Benny Chuang, jokey, {{Dev|nightmorph}}}}
