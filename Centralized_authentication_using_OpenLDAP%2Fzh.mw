@@ -7,7 +7,7 @@
 这份指南介绍了有关LDAP的一些基础概念并且向您展示了如何配置OpenLDAP来完成一组计算机之间的认证。
 
 
-== 开始使用OpenLDAP ==
+== Getting started with OpenLDAP ==
 
 === LDAP是什么？ ===
 
@@ -37,7 +37,7 @@ uid: ..   John            ## (部门里的数据)
 
 感兴趣的用户推荐阅读 [http://www.openldap.org/doc/admin24/ OpenLDAP Admin Guide]
 
-=== 那么，LDAP能够干什么呢？ ===
+=== So... what can it be used for? ===
 
 LDAP可以用来做许多不同的事情呢。这篇文档聚焦于如何集中管理用户，把所有用户的信息保存在统一的LDAP目录里（统一并不意味着只有一台服务器，LDAP是支持高可用性与高冗余性的），另外还有其它一些目标也可以通过LDAP来实现。 
 
@@ -65,6 +65,12 @@ The domain genfic.org is an example in this guide. You will of course want to ch
 
 {{Emerge|openldap}}
 
+OpenLDAP supports two authentication mechanisms:
+# standard user-password (in LDAP terms ''user'' means ''binddn'') named SIMPLE
+# proxying authentication requests to SASL (Simple Authentication and Security Layer)
+
+Although the OpenLDAP default is to use SASL, the initial version of this article used only password-based authentication. With the OLC add-on the article starts to describe the use of the simplest SASL mechanism called EXTERNAL, which relies on the system authentication.
+
 OpenLDAP有一个主要用户，它被称为“rootdn（Root Distinguished Name）”，这个用户已经在应用中被写死，不可更改。但是与Unix中的root用户不同，rootdn仍然需要被指定适当的权限。rootdn用户可能仅在配置的上下文中被使用，也可能被用于目录的定义，相应地，rootdn用户可以使用配置文件里的密码和目录树中的密码来认证他们自己。（译者注：这里不太好理解，我的个人理解是：openldap的服务器采用/etc/slapd.conf来做配置，里面有一个rootdn条目，这里面指定的dn，例如cn=Manager,dc=genfic,dc=com就是ldap里面最牛的管理员，它可以在LDAP里面干任何事儿，另外openldap运行起来之后，它会维护一个用户信息数据库，这个数据库里面是可以没有cn=Manager,dc=genfic,dc=com这个dn的，当没有这个dn时，这个叫Manager的用户就是只可以管理ldap目录及其内容，但不能用这个用户在ldap客户端上登录，也不能保存关于Manager的个人信息，如电话、地址等，因为ldap没有存储这些信息的地方。但是您也可以在数据库中自己加上这个用户的相应节点，这时这个用户就可以像其它用户一样享受在客户端登录，保存个人信息等“福利”了。）
 
 为了验证目的的用户密码（不管是rootdn的还是其它用户的）都可以被存储为明文或者哈希过的。很多哈希算法都是可用的，但是使用太弱（比MD5更弱）的加密算法是不被推荐的。SHA当前被认为是足够安全的算法。
@@ -80,7 +86,7 @@ Re-enter new password: my-password
 
 === Legacy configuration (flat config slapd.conf) ===
 
-现在我们编辑LDAP服务器的配置文件： {{Path|/etc/openldap/slapd.conf}}。这份 {{Path|slapd.conf}}是从openLDAP原包里来的，下面是一个范例配置，您可以用它替换掉系统中原来的文件来开始您的工作。 
+Now edit the LDAP Server configuration in {{Path|/etc/openldap/slapd.conf}}. The provided {{Path|slapd.conf}} is from the original OpenLDAP source. Below is a sample configuration file one can use to replace it with to get things started. 
 
 {{FileBox|filename=/etc/openldap/slapd.conf|1=
 include	/etc/openldap/schema/core.schema
@@ -112,10 +118,15 @@ access to *
   by anonymous read
  
 ## ## Database definition
-database hdb
-suffix "dc=genfic,dc=com"
+database mdb
+suffix "dc=genfic,dc=org"
 checkpoint 32 30
-rootdn "cn=Manager,dc=genfic,dc=com"
+maxsize 10485760
+#Note: It is important to set this to as large a value as possible,
+#(relative to anticipated growth of the actual data over time)
+#since growing the size later may not be practical when the system is under heavy load.
+ 
+rootdn "cn=Manager,dc=genfic,dc=org"
 ## ## rootpwd generated earlier via slappasswd command
 rootpw "{SSHA}EzP6I82DZRnW+ou6lyiXHGxSpSOw2XO4" 
 directory "/var/lib/openldap-data"
@@ -123,13 +134,13 @@ index objectClass eq
  
 ## ## Synchronisation (pull from other LDAP server)
 syncrepl rid=000
-  provider=ldap://ldap2.genfic.com
+  provider=ldap://ldap2.genfic.org
   type=refreshAndPersist
   retry="5 5 300 +"
-  searchbase="dc=genfic,dc=com"
+  searchbase="dc=genfic,dc=org"
   attrs="*,+"
   bindmethod="simple"
-  binddn="cn=ldapreader,dc=genfic,dc=com"
+  binddn="cn=ldapreader,dc=genfic,dc=org"
   credentials="ldapsyncpass"
  
 index entryCSN eq
@@ -141,9 +152,9 @@ overlay syncprov
 syncprov-checkpoint 100 10
 }}
 
-要想深入了解配置文件的含义，我们建议您研读OpenLDAP Administrator's Guide。 
+For a more detailed analysis of the configuration file, we suggest that you work through the OpenLDAP Administrator's Guide, although {{Path|man 5 slapd.conf}} may be enough. 
 
-在定制化{{Path|slapd.conf}} 配置文件之后，您可以使用下面的命令检查验证其是否配置无误：
+If it does not start, the first thing you ''must'' do is to check the config file. You can do it with the following command.
 
 {{Cmd|slaptest -v -d 1 -f /etc/openldap/slapd.conf}}
 
@@ -152,13 +163,13 @@ syncprov-checkpoint 100 10
 
 By default {{c|slapd}} writes the log events to the ''local4'' syslog facility.
 
-需要注意的是：从2.4.23版本开始，OpenLDAP从传统的扁平的配置文件({{Path|slapd.conf}}) 切换到OLC风格的配置文件，并且将是缺省的配置方法。使用OLC风格的配置文件的一大好处是当配置需要被更改时，这一动态的后台配置（cn=config）不需要重启服务就可以生效。老用户可以通过设置了-f和-F参数的命令<code>slaptest</code> 将现有配置迁移到新的OLC风格的配置。传统的OLC是以ldif格式（这样可以保证可读性）保存在{{Path|/etc/openldap/slapd.d}} 目录中的。Gentoo用户目前还不一定需要进行这一配置文件的转换，但是未来老的方法将可能不被支持。
+{{Warning|Note that since version 2.4.23, OpenLDAP default finally moved from traditional flat config files (<code>slapd.conf</code>) to OLC (OnLineConfiguration, also known through its <code>cn{{=}}config</code> structure) as default configuration method. One of benefits of using OLC is that the dynamic backend (<code>cn{{=}}config</code>) doesn't require restart of server after updating the configuration. Existing users can migrate to the new configuration method by invoking <code>slaptest</code> setting both -f and -F options. Traditionally OLC is stored in ldif backend (which keep benefits of human-readability) in the <code>/etc/openldap/slapd.d</code> directory. In Gentoo it is not required to convert the configuration yet, but support for the currently documented approach will be removed in the future.}}
 
 === Migration from slapd.conf to OLC ===
 
 如果您想改变OpenLDAP服务器的配置，您必须至少要对<code>cn=config</code>赋予写权限（或者管理权限 ）。
 
-下面的例子展示了如何在OLC（“cn=config”数据库）中向系统管理员赋予管理权限 ，我们需要在 {{Path|slapd.conf}} 的末尾添加一行配置：
+The example below shows how to grant manage access on OLC (''cn=config'' database) to the system administrator (root user) by adding the proper lines at the end of the {{Path|slapd.conf}} file:
 
 {{FileBox|filename=/etc/openldap/slapd.conf|title=Granting root Linux account manage rights to cn{{=}}config|1=
 database config
@@ -186,12 +197,8 @@ OPTS="-F /etc/openldap/slapd.d -h 'ldaps:// ldap:// ldapi://%2fvar%2frun%2fopenl
 最后我们创建 {{Path|/var/lib/openldap-data}}目录（用于保存目录的实际数据）。 
 
 {{RootCmd|mkdir -p /var/lib/openldap-data
-|chown ldap:ldap /var/lib/openldap-data
-|chmod 700 /var/lib/openldap-data}}
-
-启动slapd服务： 
-
-{{RootCmd|/etc/init.d/slapd start}}
+|chown -R ldap:ldap /var/lib/openldap-data
+|chmod -R 0700 /var/lib/openldap-data}}
 
 === Initial setup with OLC ===
 
@@ -224,7 +231,21 @@ See {{Path|man 5 slapd-config}} for more details.
 
 When using OLC, never manually edit the configuration files. The directory files can be used to check the consistency of the configuration through:
 
-{{Cmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+{{RootCmd|slaptest -v -d 1 -F /etc/openldap/slapd.d}}
+
+=== 维护目录 ===
+
+启动slapd服务：
+
+{{RootCmd|/etc/init.d/slapd start}}
+
+Most users will also want the OpenLDAP daemon to start automatically:
+
+{{RootCmd|rc-update add slapd}}
+
+您可以在apache/proftpd/qmail/samba中开始用目录来认证用户了。您可以用[https://www.ldap-account-manager.org/lamcms/ LAM (Ldap Account Manager)]，phpldapadmin，diradm，jxplorer或者lat来管理您的目录，它们都提供了方便的接口来实施管理。
+
+The directory server can be managed with tools such as {{Package|net-nds/phpldapadmin}}, {{Package|app-admin/diradm}} and {{Package|net-nds/jxplorer}} from the Gentoo ebuild repository, or {{Package|app-misc/ldapexplorertool}} from the poly-c overlay available through layman.
 
 === Server management with OLC ===
 
@@ -232,7 +253,7 @@ When using OLC, never manually edit the configuration files. The directory files
 
 一些OLC风格的配置文件升级范例可以参见下文。
 
-例如，改变OLC配置文件的存放路径：
+For instance, to change the location of the OLC configuration directory (needed after switching from a config file to config directory style):
 
 {{FileBox|filename=fix-configs.ldif|1=
 dn: cn=config
@@ -250,7 +271,7 @@ olcConfigDir: /etc/openldap/slapd.d
 dn: cn=config
 changetype: modify
 replace: olcLogLevel
-olcLogLevel: stats sync
+olcLogLevel: stats stats2 sync
 }}
 
 To add the syncprov overlay:
@@ -285,13 +306,38 @@ olcSpSessionlog: 100
 
 为了确认这些改变，可以运行下面的命令：
 
-{{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif}}
+{{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif|output=<pre>
+SASL/EXTERNAL authentication started
+SASL username: gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth
+SASL SSF: 0
+modifying entry "cn=config"
+</pre>
+}}
+
+{{Warning|On restart, the init script performs a check of the updated configuration. The {{c|ldapmodify}} command used above blocks only fatal errors. To get info about non-fatal errors using OLC:
+{{RootCmd|slaptest -F /etc/openldap/slapd.d|output=<pre>
+58b7d4c2 olcThreads: value #0: warning, threads=64 larger than twice the default (2*16=32); YMMV.
+config file testing succeeded
+</pre>
+}}}}
 
 === OpenLDAP logging ===
 
 OpenLDAP produces numerous log events, which might not be obvious to interpret, but are necessary for debugging purposes.
 
 As OpenLDAP by default writes the log events into the system log, it is advisable to reconfigure the system logger to direct OpenLDAP log events into a dedicated log file.
+
+It is advisable to use the <code>stats stats2</code> log level in OpenLDAP, which results in session-related information such as the following:
+
+{{RootCmd|grep conn{{=}}1 /var/log/slapd.log|output=<pre>
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 fd=14 ACCEPT from IP=192.168.100.9:55655 (IP=192.168.1.1:389)
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=0 BIND dn="" method=128
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=0 RESULT tag=97 err=0 text=
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SRCH base="ou=People,dc=genfic,dc=org" scope=1 deref=0 filter="(&(objectClass=posixAccount)(uidNumber=1001))"
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SRCH attr=uid userPassword uidNumber gidNumber cn homeDirectory loginShell gecos description objectClass shadowLastChange shadowMax shadowExpire
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 ENTRY dn="uid=larry,ou=People,dc=genfic,dc=org"
+Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SEARCH RESULT tag=101 err=0 nentries=1 text=
+</pre>}}
 
 === Access management (ACLs) ===
 
@@ -305,44 +351,46 @@ The following table shows the access levels available in OpenLDAP:
 {| class="table table-striped table-condensed" style="text-align: left;" 
 |- 
 ! Access level
-! Privileges
+! style="text-align:right;"| Privileges
 ! Description
 |- 
 | none
-| 0
+| style="text-align:right;"| 0
 | no access
 |- 
 | disclose
-| d
+| style="text-align:right;"| d
 | needed for information disclosure on error 
 |- 
 | auth
-| dx
+| style="text-align:right;"| dx
 | needed to authenticate (bind)
 |- 
 | compare
-| cdx
+| style="text-align:right;"| cdx
 | needed to compare 
 |- 
 | search
-| scdx
+| style="text-align:right;"| scdx
 | needed to apply search filters 
 |- 
 | read
-| rscdx
+| style="text-align:right;"| rscdx
 | needed to read search results 
 |- 
-| {write|add|delete}
-| wrscdx
+| {write&#124;add&#124;delete}
+| style="text-align:right;"| wrscdx
 | needed to modify/rename 
 |- 
 | manage
-| mwrscdx
+| style="text-align:right;"| mwrscdx
 | needed to manage 
 |-
 |}
 
 For details about the exact privilege settings, see the manual pages and official OpenLDAP documentation.
+
+{{Warning|Remember that the ''rootdn'' user can read and write everything.}}
 
 ==== Config file ====
 
@@ -363,7 +411,6 @@ access to dn.base="" by * read
 …
 }}
 
-Remember that the ''rootdn'' user can read and write everything.
 
 ==== Config directory ====
 
@@ -385,7 +432,7 @@ To insert a new ACL, the following example will add one on top, making the exist
 dn: olcDatabase={-1}frontend,cn=config
 changetype: modify
 add: olcAccess
-olcAccess: {0}to attrs=userPassword  by dn="cn=ldapreader,dc=genfic,dc=org" read by self read by anonymous auth by * noneby * none
+olcAccess: {0}to attrs=userPassword  by dn="cn=ldapreader,dc=genfic,dc=org" read by self read by anonymous auth by * none
 }}
 
 To delete an ACL:
@@ -397,24 +444,63 @@ delete: olcAccess
 olcAccess: {1}
 }}
 
-== 配置OpenLDAP的客户端工具 == 
+== 复制 ==
+
+=== 高可靠性 ===
+
+设置在多个LDAP服务器之间同步信息。在这份指导中，复制功能会使用一个特别的复制帐号 ( <code>ldapreader</code> ) ，它具有对主LDAP服务器上的读权限 ，然后它会把改变的信息从主LDAP服务器上拉到其它服务器上。
+
+Replication within OpenLDAP is, in this guide, set up using a specific replication account ( <code>ldapreader</code> ) which has read rights on the primary LDAP server and which pulls in changes from the primary LDAP server to the secondary. 
+
+备用LDAP服务器可以反过来充当主服务器，为了达成此目的，配置也要相应的镜像过来。感谢OpenLDAP的内部架构，此时已经被复制过的变更的信息不会再被重新复制回来。
+
+==== Setting up replication ====
+
+为了设置复制，首先要设置备用OpenLDAP服务器，它的大部分配置跟前面的配置相同，但是要注意的区别是：
+
+* ''sync replication provider'' 要指向另外一台机器。
+
+* 每一台OpenLDAP服务器的''serverID'' 是不同的。
+
+{{Note|Using a mirrored installation means that the OpenLDAP service should be configured like a single server installation, so the ''serverID'' value on each of the nodes must be the same. Instances are identified by ''rid'' values, which must be unique.}}
+
+下一步，创建同步帐号。我们创建一个LDIF文件（格式同LDAP服务器做信息导入所需格式），然后将其导入每一台LDAP服务器。 
+
+{{Cmd|slappasswd -s myreaderpassword|output=<pre>
+ {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
+</pre>}}
+
+{{FileBox|filename=ldapreader.ldif|1=<pre>
+dn: cn=ldapreader,dc=genfic,dc=org
+userPassword: {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: ldapreader
+description: LDAP reader used for synchronization
+</pre>}}
+
+{{Cmd|ldapadd -x -W -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -f ldapreader.ldif|output=<pre>
+Password: ## enter the administrative password
+</pre>}}
+
+== Configuring the OpenLDAP client tools == 
 
 编辑LDAP客户端的配置文件。这个文件会被ldapsearch和其它ldap命令行工具读取。
 
 {{FileBox|filename=/etc/openldap/ldap.conf|title=Add the following|1=
-BASE         dc=genfic, dc=com
-URI          ldap://ldap.genfic.com:389/ ldap://ldap1.genfic.com:389/ ldap://ldap2.genfic.com:389/
+BASE         dc=genfic, dc=org
+URI          ldap://ldap.genfic.org:389/ ldap://ldap1.genfic.org:389/ ldap://ldap2.genfic.org:389/
 TLS_REQCERT  allow
 TIMELIMIT    2
 }}
 
 您可以用下面的命令测试运行中的服务器。 
 
-{{Cmd|ldapsearch -x -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}com" -W}}
+{{Cmd|ldapsearch -x -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -W}}
 
 如果您收到错误信息，您可以用 <code>-d 255</code>这个参数来增加debug级别，以便获取更详细的信息用于解决问题。
 
-== 集中化认证的客户端配置  ==
+== Client configuration for centralized authentication  ==
 
 有很多方法/工具可以被用来做远程认证。一些发行版也提供了它们自己的很好用的配置工具。下面列出一些，排名不分先后。把本地用户认证与集中认证同时结合在一起是可行的。这一点非常重要，因为万一LDAP服务器不可用，至少您还可以通过root用户进行本地登录。
 
@@ -445,7 +531,7 @@ filter_users = root,ldap,named,avahi,haldaemon,dbus,radiusd,news,nscd
 [domain/genfic]
 id_provider = ldap
 auth_provider = ldap
-ldap_search_base = dc=genfic,dc=com
+ldap_search_base = dc=genfic,dc=org
 ldap_tls_reqcert = never
 # primary and backup ldap servers below [first server and],[second server]
 ldap_uri = ldap://X.X.X.X,ldap://X.X.X.X
@@ -497,7 +583,7 @@ session     optional      pam_sss.so                                            
 
 好了，现在就可以试着从另外一个终端进行登录了。
 
-=== 客户端PAM配置pam_ldap模块的方法 ===
+=== Client PAM configuration the pam_ldap module method ===
 
 首先我们要配置PAM来允许LDAP认证。安装 {{Package|sys-auth/pam_ldap}}程序包以便让PAM支持LDAP授权，然后是 {{Package|sys-auth/nss_ldap}}以支持您的系统从LDAP服务器获取额外信息为 ({{Path|nsswitch.conf}})所用。 
 
@@ -529,25 +615,25 @@ session    optional     pam_ldap.so                                             
 改变 {{Path|/etc/ldap.conf}}为只读权限。 
 
 {{FileBox|filename=/etc/ldap.conf|1=
-## #host 127.0.0.1
-## #base dc=padl,dc=com
+#host 127.0.0.1
+#base dc=padl,dc=com
  
-base dc=genfic,dc=com
-## #rootbinddn uid=root,ou=People,dc=genfic,dc=com
+base dc=genfic,dc=org
+#rootbinddn uid=root,ou=People,dc=genfic,dc=org
 bind_policy soft
 bind_timelimit 2
 ldap_version 3
-nss_base_group ou=Group,dc=genfic,dc=com
-nss_base_hosts ou=Hosts,dc=genfic,dc=com
-nss_base_passwd ou=People,dc=genfic,dc=com
-nss_base_shadow ou=People,dc=genfic,dc=com
+nss_base_group ou=Group,dc=genfic,dc=org
+nss_base_hosts ou=Hosts,dc=genfic,dc=org
+nss_base_passwd ou=People,dc=genfic,dc=org
+nss_base_shadow ou=People,dc=genfic,dc=org
 pam_filter objectclass=posixAccount
 pam_login_attribute uid
 pam_member_attribute memberuid
 pam_password exop
 scope one
 timelimit 2
-uri ldap://ldap.genfic.com/ ldap://ldap1.genfic.com ldap://ldap2.genfic.com
+uri ldap://ldap.genfic.org/ ldap://ldap1.genfic.org ldap://ldap2.genfic.org
 }}
 
 下一步，把(OpenLDAP) {{Path|ldap.conf}} 文件从服务器拷贝到客户端，这样客户端就可以理解LDAP环境了。 
@@ -587,29 +673,29 @@ shadow:         files ldap
 
 {| class="wikitable" style="text-align: left;" 
 |- 
-! 输入
-! 描述
-! 范例
+! Input
+! Description
+! Example
 |- 
 | LDAP BaseDN
-| LDAP目录树的根
-| dc=genfic,dc=com
+| The base location (root) of your tree
+| dc=genfic,dc=org
 |- 
 | Mail domain
-| e-mail地址所用域名
-| genfic.com
+| Domain used in e-mail addresses
+| genfic.org
 |- 
 | Mail host
-| 邮件服务器系统的FQDN
-| smtp.genfic.com
+| FQDN of your mail server infrastructure
+| smtp.genfic.org
 |- 
 | LDAP Root DN
-| LDAP系统管理员的DN
-| cn=Manager,dc=genfic,dc=com
+| Administrative account information for your LDAP structure
+| cn=Manager,dc=genfic,dc=org
 |- 
 | LDAP Root Password
-| 系统管理员的帐号密码
-|<code>slappasswd</code> command 
+| Password for the administrative account, cfr earlier <code>slappasswd</code> command
+| 
 |-
 |}
 
@@ -617,87 +703,8 @@ shadow:         files ldap
 
 {{Warning| 您不需要改变pam.d/system-auth}}
 
-== 复制 ==
-
-=== 高可靠性 ===
-
-设置在多个LDAP服务器之间同步信息。在这份指导中，复制功能会使用一个特别的复制帐号 ( <code>ldapreader</code> ) ，它具有对主LDAP服务器上的读权限 ，然后它会把改变的信息从主LDAP服务器上拉到其它服务器上。 
-
-备用LDAP服务器可以反过来充当主服务器，为了达成此目的，配置也要相应的镜像过来。感谢OpenLDAP的内部架构，此时已经被复制过的变更的信息不会再被重新复制回来。
-
-=== 设置复制 ===
-
-为了设置复制，首先要设置备用OpenLDAP服务器，它的大部分配置跟前面的配置相同，但是要注意的区别是：
-
-* ''sync replication provider'' 要指向另外一台机器。
-
-* 每一台OpenLDAP服务器的''serverID'' 是不同的。
-
-{{Note|Using a mirrored installation means that the OpenLDAP service should be configured like a single server installation, so the ''serverID'' value on each of the nodes must be the same. Instances are identified by ''rid'' values, which must be unique.}}
-
-下一步，创建同步帐号。我们创建一个LDIF文件（格式同LDAP服务器做信息导入所需格式），然后将其导入每一台LDAP服务器。 
-
-{{Cmd|slappasswd -s myreaderpassword|output=<pre>
- {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
-</pre>}}
-
-{{Cmd|cat ldapreader.ldif|output=<pre>
-dn: cn=ldapreader,dc=genfic,dc=com
-userPassword: {SSHA}XvbdAv6rdskp9HgFaFL9YhGkJH3HSkiM
-objectClass: organizationalRole
-objectClass: simpleSecurityObject
-cn: ldapreader
-description: LDAP reader used for synchronization
-</pre>}}
-
-{{Cmd|ldapadd -x -W -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}com" -f ldapreader.ldif|output=<pre>
-Password: ## enter the administrative password
-</pre>}}
-
-== LDAP server security settings ==
-
-=== OpenLDAP 权限===
-
-如果查看 {{Path|/etc/openldap/slapd.conf}} ，您会发现您可以自定义ACLs(您希望的权限) 来控制什么用户可以读/写什么数据： 
-
-{{FileBox|filename=/etc/openldap/slapd.conf|1=
-access to attrs=userPassword,gecos,description,loginShell
-  by self write
-  
-access to *
-  by dn="uid=root,ou=People,dc=genfic,dc=org" write
-  by users read
-  by anonymous auth
-}}
-
-这个规定了一个用户能够改变的数据。如果数据归您所有，您就有读和写的权利，如果数据是别人的，您就只能读取它（不能改变它），匿名用户可以发送login/pass来登录系统。这些权限有四个等级，按从低到高的顺序排列： <code>auth search read write</code>。 
-
-下一条ACL则更安全一些，因为它阻止了普通用户读取它人的登录密码。 
-
-{{FileBox|filename=/etc/openldap/slapd.conf|1=
-access to attrs="userPassword"
-  by dn="uid=root,ou=People,dc=genfic,dc=com" write
-  by dn="uid=John,ou=People,dc=genfic,dc=com" write
-  by anonymous auth
-  by self write
-  by * none
- 
-access to *
-  by dn="uid=root,ou=People,dc=genfic,dc=com" write
-  by dn="uid=John,ou=People,dc=genfic,dc=com" write
-  by * search
-}}
-
-这个例子给了root用户和john用户在目录树中对 {{Path|dc{{=}}genfic,dc{{=}}com}}以下任何信息的read/write/search权限。配置也允许用户改变他们自己的密码<code>userPassword</code>。最后一条声明其他任何人只具有搜索能力，这意味着他能使用搜索过滤器，但不能读到搜索结果。您是可以设置多个ACL的，但是遍历规则是从下面开始处理，所以您的顶层设置应该是最严格的一条。
-
-== 实际使用 OpenLDAP ==
-
-=== 维护目录 ===
-
-您可以在apache/proftpd/qmail/samba中开始用目录来认证用户了。您可以用[https://www.ldap-account-manager.org/lamcms/ LAM (Ldap Account Manager)]，phpldapadmin，diradm，jxplorer或者lat来管理您的目录，它们都提供了方便的接口来实施管理。
-
 == 知识 ==
 
 我们要感谢Matt Heler租借他的主机来完成这份指南，同样感谢#ldap @ irc.freenode.net的帅哥们。 
 
-[[Category:Server and Security]] {{Migrated|originalauthors=Benjamin Coles, swift, Brandon Hale, Benny Chuang, jokey, nightmorph}}
+[[Category:Server and Security]] {{Migrated|originalauthors=Benjamin Coles, {{Dev|SwifT}}, Brandon Hale, Benny Chuang, jokey, {{Dev|nightmorph}}}}
