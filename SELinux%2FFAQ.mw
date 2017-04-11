@@ -513,4 +513,29 @@ With this done, the <tt>matchpathcon</tt> command should reveal the right contex
 
 See also {{Bug|471718}} for more information.
 
+=== What is the run_init_t domain for? ===
+
+When user domains, such as {{c|sysadm_t}}, want to execute a service script, the script itself should not only run in the {{c|initrc_t}} domain, but also with the full system context (so {{c|system_u:system_r:initrc_t}}).
+
+Now, switching the SELinux user and role to this (privileged) context should only be done by well controlled steps. Hence, we introduce the {{c|run_init_t}} domain, as target for executing any init script, which still runs in the user context ({{c|sysadm_u:sysadm_r:run_init_t}}. Then, the OpenRC code (through the {{c|openrc-run}} command) will transition towards the proper {{c|initrc_t}} domain.
+
+Only the {{c|run_init_t}} domain is capable of transitioning towards the {{c|initrc_t}} domain (and change SELinux user and role). This way, we don't need to grant this privilege to the wide user domain {{c|sysadm_t}}.
+
+{{CodeBox|title=Transition steps with run_init_t|1=
+# rc-service lvm start
+sysadm_r:sysadm_t --[ execute rc-service (bin_t) ]--> sysadm_r:sysadm_t      (no transition)
+
+# rc-service executes the /etc/init.d/lvm script
+sysadm_r:sysadm_t --[ execute initrc_exec_t ]--> sysadm_r:run_init_t         (transition)
+
+# /etc/init.d/lvm script uses openrc-run as interpreter, so executes it
+sysadm_r:run_init_t --[ execute openrc-run (bin_t) ]--> sysadm_r:run_init_t  (no transition)
+
+# openrc-run calls setexeccon() to force transition
+# Next execute is either open_init_pty or the service script again
+sysadm_r:run_init_t --[ through openrc-run ]--> system_r:initrc_t            (transition)
+}}
+
+In the audit logs, a reference can occur about the {{c|open_init_pty}}. That is to be expected, it is the {{c|openrc-run}} command which invokes either {{c|open_init_pty}} to transition to {{c|initrc_t}}, or the service script file itself.
+
 [[Category:SELinux]]
