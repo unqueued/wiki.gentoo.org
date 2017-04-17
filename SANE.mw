@@ -1,33 +1,94 @@
 
-[http://www.sane-project.org/ SANE - Scanner Access Now Easy] provides the Linux scanner library, driver and daemon.
+[http://www.sane-project.org/ SANE - Scanner Access Now Easy] enables the use of scanners on Linux. It provides drivers for many different scanners, a daemon to manage access to all scanners attached to the system, and a command-line frontend application {{c|scanimage}} which implements basic scanning functionality.
 
 == Installation ==
 
-=== media-gfx/sane-backends ===
+=== Backend ===
 
-Verify your scanner is supported by checking the list of supported devices at the SANE project page: http://www.sane-project.org/sane-supported-devices.html
+SANE backends (a.k.a. drivers) are provided by the {{Package|media-gfx/sane-backends}} package.
 
-Then verify that your backend is enabled in the SANE_BACKENDS USE flag:
+The SANE project maintains a [http://www.sane-project.org/sane-supported-devices.html searchable list of supported (and some unsupported) devices]. Find your scanner on that list, and note the values provided for '''Backend''' and (if it's a USB scanner) '''USB id''', which will be needed for configuration.
 
-{{RootCmd|emerge -pv media-gfx/sane-backends}}
-The default backends that my system installs are:
- SANE_BACKENDS="abaton agfafocus apple artec artec_eplus48u as6e avision bh canon canon630u canon_dr cardscan coolscan coolscan2 coolscan3 dc210 dc240 dc25 dell1600n_net dmc epjitsu epson epson2 fujitsu genesys gt68xx hp hp3500 hp3900 hp4200 hp5400 hp5590 hpljm1005 hs2p ibm kodak kodakaio kvs1025 kvs20xx leo lexmark ma1509 magicolor matsushita microtek microtek2 mustek mustek_usb nec net niash p5 pie pixma plustek plustek_pp qcam ricoh rts8891 s9036 sceptre sharp sm3600 sm3840 snapscan sp15c st400 stv680 tamarack teco1 teco2 teco3 {test} u12 umax umax1220u umax_pp xerox_mfp -canon_pp -hpsj5s -kvs40xx -mustek_pp -mustek_usb2 -pnm"
+In {{Path|/etc/portage/make.conf}}, set <var>SANE_BACKENDS</var> to a space-separated list of the backends that need to be installed, as obtained from the list on the SANE project website.
+{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
+SANE_BACKENDS="epson2"
+}}
 
-=== media-gfx/xsane ===
+To see all supported backends, run
+{{Cmd|emerge -pv sane-backends|output=
+<pre>[ebuild   R   ] media-gfx/sane-backends-1.0.25-r1  USE="ipv6 nls threads usb -doc -gphoto2 -snmp -systemd -v4l -xinetd -zeroconf" ABI_X86="(64) -32 (-x32)" SANE_BACKENDS="abaton agfafocus apple artec artec_eplus48u as6e avision bh canon canon630u canon_dr cardscan coolscan coolscan2 coolscan3 dc210 dc240 dc25 dell1600n_net dmc epjitsu epson epson2 fujitsu genesys gt68xx hp hp3500 hp3900 hp4200 hp5400 hp5590 hpljm1005 hs2p ibm kodak kodakaio kvs1025 kvs20xx leo lexmark ma1509 magicolor matsushita microtek microtek2 mustek mustek_usb nec net niash p5 pie pixma plustek plustek_pp qcam ricoh rts8891 s9036 sceptre sharp sm3600 sm3840 snapscan sp15c st400 stv680 tamarack teco1 teco2 teco3 {test} u12 umax umax1220u umax_pp xerox_mfp -canon_pp -hpsj5s -kvs40xx -mustek_pp -mustek_usb2 -pnm"</pre>}}
+or look [http://www.sane-project.org/sane-backends.html on the SANE project's website].
 
-XSane is a graphical scanning frontend that will automatically pull in the various backends required for most scanners. 
+Ensure that the proper <var>USE</var> flags are set to support your scanner's features, e.g. if it is a USB scanner, set the <code>usb</code> flag.
+{{USEflag|package=media-gfx/sane-backends}}
+It may also be necessary to change the kernel configuration to allow it to detect the scanner, e.g. for a USB scanner, USB support needs to be enabled in the kernel.
+
+There is usually no need to explicitly install the backend package since it will be pulled in as a dependency of the frontend, but those who would like to do so anyway can run
+{{RootCmd|emerge -a media-gfx/sane-backends}}
+
+=== Frontend ===
+
+The {{Package|media-gfx/sane-backends}} package provides one frontend application, {{c|scanimage}}. Most users will want to install another one. The SANE project maintains [http://www.sane-project.org/sane-frontends.html a list of frontends], many of which are available in Portage.
+
+XSane is a capable default option. To install XSane or any frontend, check the <var>USE</var> flags
+{{USEflag|package=media-gfx/xsane}}
+and install the package.
 {{RootCmd|emerge -a media-gfx/xsane}}
 
-== Usage ==
+== Configuration ==
 
-To list all available scanners, use
-{{Cmd|scanimage -L|output=<pre>device `plustek:libusb:009:002' is a Canon CanoScan LiDE25 flatbed scanner</pre>}}
+Installing SANE creates the {{c|scanner}} group. Any user account that is to access the scanner needs to get added to this group.
+{{RootCmd|usermod -aG scanner <username>}}
+After changing the group membership, the affected user(s) will need to log out and into the system again.
+{{Note|Users of {{c|systemd}} might not need to add users to the {{c|scanner}} group. See [https://wiki.archlinux.org/index.php/SANE#Permission_problem ArchWiki] for more.}}
 
-The relevant config files are in {{path|/etc/sane.d/}}.
+In many cases, SANE simply works without any further configuration needed. To test this, ensure that the scanner is connected and powered on, and run
+{{Cmd|scanimage -L|output=<pre>device `epson2:libusb:001:009' is a Epson CX3800 flatbed scanner</pre>}}
+If the scanner is identified, as in the example above, everything is fine.
+
+=== Troubleshooting ===
+
+If {{c|scanimage -L}} is unable to identify the scanner, it will look like this:
+{{Cmd|scanimage -L|output=<pre>No scanners were identified. If you were expecting something different,
+check that the scanner is plugged in, turned on and detected by the
+sane-find-scanner tool (if appropriate). Please read the documentation
+which came with this software (README, FAQ, manpages).</pre>}}
+In most cases, the first step to take in resolving this issue is to run <code>sane-find-scanner</code> as root.
+{{RootCmd|sane-find-scanner|output=<pre>
+  # sane-find-scanner will now attempt to detect your scanner. If the
+  # result is different from what you expected, first make sure your
+  # scanner is powered up and properly connected to your computer.
+
+  # No SCSI scanners found. If you expected something different, make sure that
+  # you have loaded a kernel SCSI driver for your SCSI adapter.
+
+could not fetch string descriptor: Pipe error
+found USB scanner (vendor=0x04b8 [EPSON], product=0x0818 [USB MFP]) at libusb:001:008
+could not fetch string descriptor: Pipe error
+could not fetch string descriptor: Pipe error
+could not fetch string descriptor: Pipe error
+  # Your USB scanner was (probably) detected. It may or may not be supported by
+  # SANE. Try scanimage -L and read the backend's manpage.
+
+  # Not checking for parallel port scanners.
+
+  # Most Scanners connected to the parallel port or other proprietary ports
+  # can't be detected by this program.</pre>}}
+If the output does not contain a line saying that the scanner was detected, it probably will not work with SANE.
+
+Assuming {{c|sane-find-scanner}} ''does'' find the scanner, as in the example above, there are a few things to check. First, try running {{c|sane-find-scanner}} as a non-root user. If it fails to detect the scanner when run this way, that means the problem is most likely permissions on the device node. The man page for the device type will have more information on how to handle this: for USB scanners
+{{Cmd|man sane-usb}}
+or for SCSI scanners
+{{Cmd|man sane-scsi}}
+
+Make sure that the correct device was identified, e.g. in the example above, check that the USB vendor and product numbers listed in the output match the '''USB id''' obtained from the SANE website. If not, it means that SANE is detecting something other than the scanner.
+
+If the correct device is detected, it may be necessary to edit the configuration file for the corresponding SANE backend. These configuration files are located in {{Path|/etc/sane.d/}}. Each backend that gets installed has an associated configuration file with the same name, for example {{Path|/etc/sane.d/epson2.conf}}. The man page for the backend will have more information on what edits may be necessary, for example
+{{Cmd|man sane-epson2}}
 
 == Scanning over the network ==
 
-If you want to enable scanning over the network, some configurations have to be adapted both on the server and on the client side.
+SANE includes a daemon, <code>saned</code>, which allows other computers to use attached scanners over the network. To enable this feature, some configuration has to be done on both the server and client.
 
 === Server settings ===
 There are two possible ways to configure your SANE server. The saned approach is the simplest of the two.
