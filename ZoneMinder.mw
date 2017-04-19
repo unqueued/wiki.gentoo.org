@@ -1,5 +1,5 @@
 {{InfoBox stack
-|{{InfoBox homepage|http://www.zoneminder.com|header="true"}}
+|{{InfoBox homepage|https://www.zoneminder.com|header="true"}}
 |{{InfoBox wikipedia}}
 }}
 
@@ -19,9 +19,9 @@
 
 Enable the following USE flags for {{Package|dev-lang/php}} and {{Package|app-eselect/eselect-php}}:
 
-{{RootCmd
-|echo "dev-lang/php apache2 cgi curl fpm inifile pdo mysql mysqli sockets" >> /etc/portage/package.use
-|echo "app-eselect/eselect-php apache2 fpm" >> /etc/portage/package.use
+{{FileBox|filename=/etc/portage/package.use|1=
+dev-lang/php apache2 cgi curl fpm inifile pdo mysql mysqli sockets
+app-eselect/eselect-php apache2 fpm
 }}
 
 === Emerge ===
@@ -31,38 +31,49 @@ Install ZoneMinder:
 {{Emerge|www-misc/zoneminder}}
 
 == Configuration ==
+
 === Apache ===
 
-* Select correct version of PHP
+* Select correct version of PHP:
+
 {{RootCmd|eselect php list apache2|output=<pre>
   [1]   php5.6 *
 </pre>}}
 
-* Edit /etc/php/apache2-php5.6/php.ini to reflect:
+* Edit {{Path|/etc/php/apache2-php5.6/php.ini}} to reflect the following:
+
 {{FileBox|filename=/etc/php/apache2-php5.6/php.ini|lang=ini|1=
 short_open_tag = On
-date.timezone = "YOUR ZONE INFO"
+date.timezone = <Country/City>
 }}
 
-* Edit /etc/conf.d/apache2 and add "'''-D PHP -D PROXY'''" to APACHE2_OPTS
+* Edit {{Path|/etc/conf.d/apache2}} and add <code>-D PHP -D PROXY</code> to <var>APACHE2_OPTS</var>:
+
 {{FileBox|filename=/etc/conf.d/apache2|lang=bash|1=
 APACHE2_OPTS="-D DEFAULT_VHOST -D INFO -D SSL -D SSL_DEFAULT_VHOST -D LANGUAGE -D PHP -D PROXY"
 }}
 
-* Remove Apache startup warning: "...fully qualified domain name..."
-{{RootCmd|echo ServerName localhost >> /etc/apache2/httpd.conf}}
+* Remove Apache startup warning <code>...fully qualified domain name...</code>:
+
+{{FileBox|filename=/etc/apache2/httpd.conf|1=
+ServerName localhost
+}}
 
 === MySQL ===
-* Create ZoneMinder's database, '''zm''', as a standard user
+
+* Create ZoneMinder's database, <code>zm</code>, as a regular user:
+
 {{Cmd|mysql -p|output=<pre>
 mysql> create database zm;
 mysql> exit;
 </pre>}}
 
-* Import the database schema and base data, the .sql script is created by the configure phase above, so make sure you do that first.
+* Import the database schema and base data, the {{Path|.sql}} script is created by the configure phase above, so make sure you do that first.
+
 {{Cmd|mysql -p zm < /usr/share/zoneminder/db/zm_create.sql}}
 
 * Create a MySQL user for ZM to use. If you change the user and/or password from the defaults here, then make sure you set those in the source configure phase.
+
 {{Cmd|mysql -p|output=<pre>
 mysql> use zm;
 Reading table information for completion of table and column names
@@ -79,7 +90,8 @@ mysql> exit;
 </pre>}}
 
 === ZoneMinder ===
-* Edit /etc/zm.conf and add the above MySQL database username and password:
+
+* Edit {{Path|/etc/zm.conf}} and add the above MySQL database username and password:
 
 {{FileBox|filename=/etc/zm.conf|lang=bash|1=
 # ZoneMinder database user
@@ -89,51 +101,86 @@ ZM_DB_USER=zmuser
 ZM_DB_PASS=zmpass
 }}
 
-* By default [https://packages.gentoo.org/packages/www-misc/zoneminder www-misc/zoneminder] installs as a vhost under http://cctvhost.domain/zm/ - this requires PATH_ZMS to be updated in the webui.
+* By default {{Package|www-misc/zoneminder}} installs as a virtual host under {{Path|http://cctvhost.domain/zm/}} - this requires <var>PATH_ZMS</var> to be updated in the webui:
   Options -> Paths -> PATH_ZMS = /zm/cgi-bin/zms
 
 == Init ==
+
 === OpenRC ===
+
 Start the Apache server:
+
 {{RootCmd|/etc/init.d/apache2 start}}
+
 Add Apache to the default runlevel:
+
 {{RootCmd|rc-update add apache2 default}}
+
 Reload the Apache configuration files:
+
 {{RootCmd|/etc/init.d/apache2 reload}}
+
 Start PHP server:
+
 {{RootCmd|/etc/init.d/php-fpm start}}
+
 Add PHP to the default runlevel:
+
 {{RootCmd|rc-update add php-fpm default}}
+
 Start MySQL server:
+
 {{RootCmd|/etc/init.d/mysql start}}
+
 Add MySQL to the default runlevel:
+
 {{RootCmd|rc-update add mysql default}}
+
 Start ZoneMinder server:
+
 {{RootCmd|/etc/init.d/zoneminder start}}
+
 Add ZoneMinder to the default runlevel:
+
 {{RootCmd|rc-update add zoneminder default}}
 
 === systemd ===
+
 Start the Apache server:
+
 {{RootCmd|systemctl start apache2}}
+
 Add Apache to startup:
+
 {{RootCmd|systemctl enable apache2}}
+
 Start the PHP server:
+
 {{RootCmd|systemctl start php-fpm}}
+
 Add PHP to startup:
+
 {{RootCmd|systemctl enable php-fpm}}
+
 Start the MySQL server:
+
 {{RootCmd|systemctl start mysql}}
+
 Add MySQL to startup:
+
 {{RootCmd|systemctl enable mysql}}
+
 Start the ZoneMinder server:
+
 {{RootCmd|systemctl start zoneminder}}
+
 Add ZoneMinder to startup:
+
 {{RootCmd|systemctl enable zoneminder}}
 
 == SELinux ==
 
-When using SELinux, first create a SELinux policy for the application:
+When using [[SELinux]], first create a SELinux policy for the application:
 
 {{FileBox|filename=local_zoneminder.te|title=Type enforcement rules for ZoneMinder|1=
 module local_zoneminder 1.0; 
@@ -157,12 +204,16 @@ allow httpd_t initrc_var_run_t:file { read lock };
 allow httpd_t v4l_device_t:chr_file getattr;
 }}
 
-Now it's time to build the modules:
+Now build the modules:
 
-{{RootCmd|checkmodule -M -m -o local_zoneminder.mod local_zoneminder.te 
+{{RootCmd
+|checkmodule -M -m -o local_zoneminder.mod local_zoneminder.te 
 |semodule_package -o local_zoneminder.pp -m local_zoneminder.mod
-|semodule -i local_zoneminder.pp}}
+|semodule -i local_zoneminder.pp
+}}
 
 == Other ==
+
 Shared memory:
- sysctl kernel.shmmax=536870912
+
+{{RootCmd|sysctl kernel.shmmax{{=}}536870912}}
