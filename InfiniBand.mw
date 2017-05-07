@@ -81,6 +81,121 @@ Mode and mtu can also be changed manually in run time.
 Next commands assume the interface in question is named <code>ib0</code>.
 {{RootCmd|echo connected > /sys/class/net/ib0/mode|echo 65520 > /sys/class/net/ib0/mtu}}
 
+=== Performance testing ===
+There are several ways to test the IP performance. When IP-over-InfiniBand has been set up propely users can use normal performance testing tools for IP networks like {{Package|net-misc/iperf}}. Most users however may want to use {{Package|sys-fabric/qperf}} since it has the capability of testing the RDMA performance too. For example [[nfs-utils|NFS]] can utilize RDMA in conjuction with IP networking<ref>[https://www.kernel.org/doc/Documentation/filesystems/nfs/nfs-rdma.txt NFS over RDMA]</ref>.
+
+==== {{Package|sys-fabric/qperf}} ====
+Start {{c|qperf}} in one of the nodes:{{RootCmd|qperf}}
+
+Run tests on any client that has connection to the node(s) that run {{c|qperf}} in server mode.
+The following example runs tcp, upd and some rdma performance tests and assumes the qperf server node has an ip adress of {{c|10.0.10.1}}:{{RootCmd|qperf 10.0.10.1 ud_lat ud_bw rc_rdma_read_bw rc_rdma_write_bw uc_rdma_write_bw tcp_bw tcp_lat udp_bw udp_lat|output=<pre>ud_lat:
+    latency  =  27.6 us
+ud_bw:
+    send_bw  =  676 MB/sec
+    recv_bw  =  660 MB/sec
+rc_rdma_read_bw:
+    bw  =  855 MB/sec
+rc_rdma_write_bw:
+    bw  =  738 MB/sec
+uc_rdma_write_bw:
+    send_bw  =  768 MB/sec
+    recv_bw  =  735 MB/sec
+tcp_bw:
+    bw  =  656 MB/sec
+tcp_lat:
+    latency  =  51.2 us
+udp_bw:
+    send_bw  =  719 MB/sec
+    recv_bw  =  626 MB/sec
+udp_lat:
+    latency  =  49.2 us</pre>}}
+
+After the needed tests are complete stop the server process(es) just by hitting {{Key|Ctrl}}+{{Key|c}} on the terminal where the server-side {{c|qperf}} runs.
+
+==== {{Package|net-misc/iperf}} ====
+{{c|iperf3}}, like qperf, needs a listening side to be started before actual performance testing.
+Simplest way to start a iperf server process is:{{RootCmd|iperf3 -s}}
+
+However to reduce the output of the statistics on the server side users may want to limit the interval of the status updates. Next example set the interval to 10 seconds from the 1 second default:{{RootCmd|iperf3 -s -i 10}}
+Or suppress all normal output so that only errors are displayed:{{RootCmd|iperf3 -s > /dev/null}}
+
+Next run the client side {{c|iperf3}} - again assuming the server has an ip address of 10.0.10.1:{{RootCmd|iperf3 -c 10.0.10.1 -n 256G -i 60|output=<pre>Connecting to host 10.0.10.1, port 5201
+[  4] local 10.0.10.2 port 37670 connected to 10.0.10.1 port 5201
+[ ID] Interval           Transfer     Bandwidth       Retr  Cwnd
+[  4]   0.00-60.00  sec  40.2 GBytes  5.76 Gbits/sec    0   3.25 MBytes
+[  4]  60.00-120.00 sec  40.2 GBytes  5.75 Gbits/sec    0   3.25 MBytes
+[  4] 120.00-180.00 sec  40.2 GBytes  5.75 Gbits/sec    0   3.25 MBytes
+[  4] 180.00-240.00 sec  40.2 GBytes  5.75 Gbits/sec    0   3.25 MBytes
+[  4] 240.00-300.00 sec  40.2 GBytes  5.76 Gbits/sec    0   3.25 MBytes
+[  4] 300.00-360.00 sec  40.2 GBytes  5.76 Gbits/sec    0   3.25 MBytes
+[  4] 360.00-382.07 sec  14.8 GBytes  5.75 Gbits/sec    0   3.25 MBytes
+- - - - - - - - - - - - - - - - - - - - - - - - -
+[ ID] Interval           Transfer     Bandwidth       Retr
+[  4]   0.00-382.07 sec   256 GBytes  5.76 Gbits/sec    0             sender
+[  4]   0.00-382.07 sec   256 GBytes  5.76 Gbits/sec                  receiver
+
+iperf Done.</pre>}}
+The command above really puts the IP connection to a stress test by transferring 256 '''gigabytes''' of data which took over six minutes on this example. Users who just want quickly to see the bandwidth may run the following:{{RootCmd|iperf3 -c 10.0.10.1 -n 25G -i 5}}... which transfers 25 gigabytes with 5 second interval between statistic reporting.
+
+Refer to the {{c|iperf3 --help}} for more:{{Invocation|iperf3 --help|output=Usage: iperf [-s{{!}}-c host] [options]
+       iperf [-h{{!}}--help] [-v{{!}}--version]
+
+Server or Client:
+  -p, --port      #         server port to listen on/connect to
+  -f, --format    [kmgKMG]  format to report: Kbits, Mbits, KBytes, MBytes
+  -i, --interval  #         seconds between periodic bandwidth reports
+  -F, --file name           xmit/recv the specified file
+  -A, --affinity n/n,m      set CPU affinity
+  -B, --bind      <host>    bind to a specific interface
+  -V, --verbose             more detailed output
+  -J, --json                output in JSON format
+  --logfile f               send output to a log file
+  --forceflush              force flushing output at every interval
+  -d, --debug               emit debugging output
+  -v, --version             show version information and quit
+  -h, --help                show this message and quit
+Server specific:
+  -s, --server              run in server mode
+  -D, --daemon              run the server as a daemon
+  -I, --pidfile file        write PID file
+  -1, --one-off             handle one client connection then exit
+Client specific:
+  -c, --client    <host>    run in client mode, connecting to <host>
+  -u, --udp                 use UDP rather than TCP
+  -b, --bandwidth #[KMG][/#] target bandwidth in bits/sec (0 for unlimited)
+                            (default 1 Mbit/sec for UDP, unlimited for TCP)
+                            (optional slash and packet count for burst mode)
+  --fq-rate #[KMG]          enable fair-queuing based socket pacing in
+                            bits/sec (Linux only)
+  -t, --time      #         time in seconds to transmit for (default 10 secs)
+  -n, --bytes     #[KMG]    number of bytes to transmit (instead of -t)
+  -k, --blockcount #[KMG]   number of blocks (packets) to transmit (instead of -t or -n)
+  -l, --len       #[KMG]    length of buffer to read or write
+                            (default 128 KB for TCP, dynamic or 1 for UDP)
+  --cport         <port>    bind to a specific client port (TCP and UDP, default: ephemeral port)
+  -P, --parallel  #         number of parallel client streams to run
+  -R, --reverse             run in reverse mode (server sends, client receives)
+  -w, --window    #[KMG]    set window size / socket buffer size
+  -C, --congestion <algo>   set TCP congestion control algorithm (Linux and FreeBSD only)
+  -M, --set-mss   #         set TCP/SCTP maximum segment size (MTU - 40 bytes)
+  -N, --no-delay            set TCP/SCTP no delay, disabling Nagle's Algorithm
+  -4, --version4            only use IPv4
+  -6, --version6            only use IPv6
+  -S, --tos N               set the IP 'type of service'
+  -L, --flowlabel N         set the IPv6 flow label (only supported on Linux)
+  -Z, --zerocopy            use a 'zero copy' method of sending data
+  -O, --omit N              omit the first n seconds
+  -T, --title str           prefix every output line with this string
+  --get-server-output       get results from server
+  --udp-counters-64bit      use 64-bit counters in UDP test packets
+
+[KMG] indicates options that support a K/M/G suffix for kilo-, mega-, or giga-
+
+iperf3 homepage at: http://software.es.net/iperf/
+Report bugs to:     https://github.com/esnet/iperf}}
+
+After the needed tests are complete stop the server process(es) just by hitting {{Key|Ctrl}}+{{Key|c}} on the terminal where the server-side {{c|iperf3}} runs.
+
 == References ==
 <references />
 [[Category:Interfaces]]
