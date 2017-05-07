@@ -1,6 +1,7 @@
 {{InfoBox stack
 |{{InfoBox wikipedia|header=true}}
 }}
+
 '''InfiniBand''' is a switched fabric communications link used in high-performance computing and enterprise data centers.
 Its features include high throughput, low latency, quality of service and failover, and it is designed to be scalable. The InfiniBand architecture specification defines a connection between processor nodes and high performance I/O nodes such as storage devices.
 
@@ -50,7 +51,8 @@ The module is named '''ib_ipoib''':
 
 InfiniBand network interfaces are usually named as <code>ib<number></code>:
 
-{{Cmd|ifconfig ib0|output=<pre>ib0: flags=4099<UP,BROADCAST,MULTICAST>  mtu 2044
+{{Cmd|ifconfig ib0|output=<pre>
+ib0: flags=4099<UP,BROADCAST,MULTICAST>  mtu 2044
 Infiniband hardware address can be incorrect! Please read BUGS section in ifconfig(8).
         infiniband 00:00:04:04:FE:80:00:00:00:00:00:00:00:00:00:00:00:00:00:00  txqueuelen 256  (InfiniBand)
         RX packets 0  bytes 0 (0.0 B)
@@ -60,35 +62,50 @@ Infiniband hardware address can be incorrect! Please read BUGS section in ifconf
 </pre>}}
 
 ==== Performance tuning ====
+
 When using IP over InfiniBand ther performance is usually low by default. This is because the default mtu of each InfiniBand IP interface is set to a low value.
 
 ===== Automatic =====
+
 The most conveivent way is to chance mtu automatically when kernel adds the interface to the system. Before mtu can be changed the mode of the interface must be changed to 'connected' from 'datagram'
 Next example uses udev rules to accoplish that.
-{{FileBox|filename=/etc/udev/rules.d/2-InfiniBand.rules|title=udev rules for InfiniBand IP networking interfaces|lang=sh|1=# Rules to set InfiniBand device attributes.
+
+{{FileBox|filename=/etc/udev/rules.d/2-InfiniBand.rules|title=udev rules for InfiniBand IP networking interfaces|lang=sh|1=
+# Rules to set InfiniBand device attributes.
 
 # Change mode to connected and change mtu to maximum for best performance.
-ACTION{{=}}{{=}}"add", KERNEL{{=}}{{=}}"ib[0-9]*", SUBSYSTEM{{=}}{{=}}"net", ATTR{mode}{{=}}"connected", ATTR{mtu}{{=}}"65520"}}
+ACTION{{=}}{{=}}"add", KERNEL{{=}}{{=}}"ib[0-9]*", SUBSYSTEM{{=}}{{=}}"net", ATTR{mode}{{=}}"connected", ATTR{mtu}{{=}}"65520"
+}}
+
 It has been reported<ref>[https://forums.gentoo.org/viewtopic-p-8060796.html#8060796 Gentoo forums - post 8060796] - Udev rules don't work on ib interface</ref><ref>[[User:Zucca/wip/InfiniBand/resources#Udev_rules|Gentoo wiki - User Zucca]] - InfiniBand resources</ref> that the rule above does not work.
 Users with this problem may use the following instead:
+
 {{FileBox|filename=/etc/udev/rules.d/2-InfiniBand.rules|title=udev rules for InfiniBand IP networking interfaces|lang=sh|1=# Rules to set InfiniBand device attributes.
 
 # Change mode to connected and change mtu to maximum for best performance.
-ACTION{{=}}{{=}}"add", KERNEL{{=}}{{=}}"ib[0-9]*", SUBSYSTEM{{=}}{{=}}"net", RUN+{{=}}"/bin/sh -c 'echo connected > /sys/class/net/%k/mode && echo 65520 > /sys/class/net/%k/mtu'"}}
+ACTION{{=}}{{=}}"add", KERNEL{{=}}{{=}}"ib[0-9]*", SUBSYSTEM{{=}}{{=}}"net", RUN+{{=}}"/bin/sh -c 'echo connected > /sys/class/net/%k/mode && echo 65520 > /sys/class/net/%k/mtu'"
+}}
 
 ===== Manual =====
+
 Mode and mtu can also be changed manually in run time.
 Next commands assume the interface in question is named <code>ib0</code>.
+
 {{RootCmd|echo connected > /sys/class/net/ib0/mode|echo 65520 > /sys/class/net/ib0/mtu}}
 
 === Performance testing ===
+
 There are several ways to test InfiniBand performance. When IP-over-InfiniBand has been set up propely users can use normal network performance testing tools for IP networks like {{Package|net-misc/iperf}}. Most users however may want to use {{Package|sys-fabric/qperf}} since it has the capability of testing the RDMA performance too. For example [[nfs-utils|NFS]] can utilize RDMA in conjuction with IP networking<ref>[https://www.kernel.org/doc/Documentation/filesystems/nfs/nfs-rdma.txt NFS over RDMA]</ref>.
 
-==== {{Package|sys-fabric/qperf}} ====
+==== sys-fabric/qperf ====
+
 Start {{c|qperf}} in one of the nodes:{{RootCmd|qperf}}This node now acts as a server.
 
 Run tests on any client that has connection to the node(s) that now runs {{c|qperf}} in server mode.
-The following example runs tcp, upd and some rdma performance tests and assumes the qperf server node has an ip adress of {{c|10.0.10.1}}:{{RootCmd|qperf 10.0.10.1 ud_lat ud_bw rc_rdma_read_bw rc_rdma_write_bw uc_rdma_write_bw tcp_bw tcp_lat udp_bw udp_lat|output=<pre>ud_lat:
+The following example runs tcp, upd and some rdma performance tests and assumes the qperf server node has an ip adress of {{c|10.0.10.1}}:
+
+{{RootCmd|qperf 10.0.10.1 ud_lat ud_bw rc_rdma_read_bw rc_rdma_write_bw uc_rdma_write_bw tcp_bw tcp_lat udp_bw udp_lat|output=<pre>
+ud_lat:
     latency  =  27.6 us
 ud_bw:
     send_bw  =  676 MB/sec
@@ -108,18 +125,23 @@ udp_bw:
     send_bw  =  719 MB/sec
     recv_bw  =  626 MB/sec
 udp_lat:
-    latency  =  49.2 us</pre>}}
+    latency  =  49.2 us
+</pre>}}
 
 After the needed tests are complete stop the server process(es) just by hitting {{Key|Ctrl}}+{{Key|c}} on the terminal where the server-side {{c|qperf}} runs.
 
-==== {{Package|net-misc/iperf}} ====
+==== net-misc/iperf ====
+
 {{c|iperf3}}, like qperf, needs a listening side to be started before actual performance testing.
 Simplest way to start a iperf server process is:{{RootCmd|iperf3 -s}}
 
 However to reduce the output of the statistics on the server side users may want to limit the interval of the status updates. Next example set the interval to 10 seconds from the 1 second default:{{RootCmd|iperf3 -s -i 10}}
 Or suppress all normal output so that only errors are displayed:{{RootCmd|iperf3 -s > /dev/null}}
 
-Next run the client side {{c|iperf3}} - again assuming the server has an ip address of 10.0.10.1:{{RootCmd|iperf3 -c 10.0.10.1 -n 256G -i 60|output=<pre>Connecting to host 10.0.10.1, port 5201
+Next run the client side {{c|iperf3}} - again assuming the server has an ip address of 10.0.10.1:
+
+{{RootCmd|iperf3 -c 10.0.10.1 -n 256G -i 60|output=<pre>
+Connecting to host 10.0.10.1, port 5201
 [  4] local 10.0.10.2 port 37670 connected to 10.0.10.1 port 5201
 [ ID] Interval           Transfer     Bandwidth       Retr  Cwnd
 [  4]   0.00-60.00  sec  40.2 GBytes  5.76 Gbits/sec    0   3.25 MBytes
@@ -134,10 +156,16 @@ Next run the client side {{c|iperf3}} - again assuming the server has an ip addr
 [  4]   0.00-382.07 sec   256 GBytes  5.76 Gbits/sec    0             sender
 [  4]   0.00-382.07 sec   256 GBytes  5.76 Gbits/sec                  receiver
 
-iperf Done.</pre>}}
-The command above really puts the IP connection to a stress test by transferring 256 '''gigabytes''' of data which took over six minutes on this example. Users who just want quickly to see the bandwidth may run the following:{{RootCmd|iperf3 -c 10.0.10.1 -n 25G -i 5}}... which transfers 25 gigabytes with 5 second interval between statistic reporting.
+iperf Done.
+</pre>}}
 
-Refer to the {{c|iperf3 --help}} for more:{{Invocation|iperf3 --help|output=Usage: iperf [-s{{!}}-c host] [options]
+The command above really puts the IP connection to a stress test by transferring 256 '''gigabytes''' of data which took over six minutes on this example. Users who just want quickly to see the bandwidth may run the following:
+
+{{RootCmd|iperf3 -c 10.0.10.1 -n 25G -i 5}} ... which transfers 25 gigabytes with 5 second interval between statistic reporting.
+
+Refer to the {{c|iperf3 --help}} for more:
+
+{{Invocation|iperf3 --help|output=Usage: iperf [-s{{!}}-c host] [options]
        iperf [-h{{!}}--help] [-v{{!}}--version]
 
 Server or Client:
@@ -191,11 +219,14 @@ Client specific:
 
 [KMG] indicates options that support a K/M/G suffix for kilo-, mega-, or giga-
 
-iperf3 homepage at: http://software.es.net/iperf/
-Report bugs to:     https://github.com/esnet/iperf}}
+iperf3 homepage at: <nowiki>http://software.es.net/iperf/</nowiki>
+Report bugs to:     <nowiki>https://github.com/esnet/iperf</nowiki>
+}}
 
 After the needed tests are complete stop the server process(es) just by hitting {{Key|Ctrl}}+{{Key|c}} on the terminal where the server-side {{c|iperf3}} runs.
 
 == References ==
-<references />
+
+{{reflist}}
+
 [[Category:Interfaces]]
