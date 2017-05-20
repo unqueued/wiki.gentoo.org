@@ -1,0 +1,138 @@
+=== Debugging using GDB ===
+
+==== Introduction ====
+
+GDB, or the (G)NU (D)e(B)ugger, is a program used to find run time errors that normally involve memory corruption. First off, let's take a look at what debugging entails. One of the main things you must do in order to debug a program is to {{c|emerge}} the program with <code>FEATURES="nostrip"</code> . This prevents the stripping of debug symbols. Why are programs stripped by default? The reason is the same as that for having gzipped man pages - saving space. Here's how the size of a program varies with and without debug symbol stripping. 
+
+{{CodeBox|title=File size comparison with gdb|1=
+## (debug symbols stripped)
+-rwxr-xr-x  1 chris users 3140  6/28 13:11 bad_code
+## (debug symbols intact)
+-rwxr-xr-x  1 chris users 6374  6/28 13:10 bad_code
+}}
+
+Just for reference, ''bad_code'' is the program we'll be debugging with {{c|gdb}} later on. As you can see, the program without debugging symbols is 3140 bytes, while the program with them is 6374 bytes. The program more than doubles in size! Two more things can be done for debugging. The first is adding <code>-ggdb</code> to the system's CFLAGS and CXXFLAGS. This flag adds more debugging information than is generally included. We'll see what that means later on. This is how {{Path|/etc/portage/make.conf}} ''might'' look with the newly added flags. 
+
+{{FileBox|filename=/etc/portage/make.conf|title=make.conf settings|lang=bash|1=
+CFLAGS="-O1 -pipe -ggdb"
+CXXFLAGS="${CFLAGS}"
+}}
+
+You may also want to consider using <code>-Wall</code> and <code>-g</code> flags as well. <code>-Wall</code> prints compiler warnings, and <code>-g</code> produces debugging information in the operating system's native format which also works with gdb. See [http://gcc.gnu.org/onlinedocs/gcc/Debugging-Options.html#Debugging-Options GCC Debugging Options] for details.
+
+Lastly, add debug to the specific package's USE flags. This can be done with the {{Path|package.use}} file:
+
+{{Cmd|echo "category/package debug" >> /etc/portage/package.use}}
+
+{{Note|The directory {{Path|/etc/portage}} does not exist by default so it may need to be created. If the package already has USE flags set in {{Path|package.use}}, then manually modify them in a favorite text editor.}}
+
+Then we re-emerge the package with the modifications we've done so far as shown below. 
+
+{{RootCmd|FEATURES{{=}}"nostrip" emerge package}}
+
+Now that debug symbols are set it is time to begin debugging the program.
+
+If you need a little more help while debugging, such as being able to see the code within GDB TUI (GDB Text User Interface), install the {{Package|dev-util/debugedit}} package and include <code>FEATURES="installsources"</code>. You also need to specify the source code folder:
+
+{{Cmd|gdb --tui -d /usr/src/debug/app-cdr/my_app/my_app/src my_app}}
+
+Although not really needed for meaningful [[Project:Quality_Assurance/Backtraces|backtraces]], this significantly helps when actively coding.
+
+==== Running the program with GDB ====
+
+Let's say we have a program here called "bad_code". Some person claims that the program crashes and provides an example. You go ahead and test it out:
+
+{{Cmd|/bad_code `perl -e 'print "A"x100'`|output=<pre>
+Segmentation fault
+</pre>}}
+
+It seems this person was right. Since the program is obviously broken, there is now a bug at hand. Now, it is time to use {{c|gdb}} to help solve this matter. First we run {{c|gdb}} with the <code>--args</code> option, then give it the full program with arguments like shown: 
+
+{{Cmd|gdb --args ./bad_code `perl -e 'print "A"x100'`|output=<pre>
+GNU gdb 6.3
+Copyright 2004 Free Software Foundation, Inc.
+GDB is free software, covered by the GNU General Public License, and you are
+welcome to change it and/or distribute copies of it under certain conditions.
+Type "show copying" to see the conditions.
+There is absolutely no warranty for GDB. Type "show warranty" for details.
+This GDB was configured as "i686-pc-linux-gnu"...Using host libthread_db library "/lib/libthread_db.so.1".
+</pre>}}
+
+{{Note|One can also debug with core dumps. These core files contain the same information that the program would produce when run with {{c|gdb}}. In order to debug with a core file with bad_code, you would run {{c|gdb ./bad_code core}} where {{Path|core}} is the name of the core file.}}
+
+You should see a prompt that says "(gdb)" and waits for input. First, run the program. Type {{c|run}} at the command to receive a notice: 
+
+{{Cmd|run|prompt=(gdb) |output=<pre>
+Starting program: /home/chris/bad_code
+
+Program received signal SIGSEGV, Segmentation fault.
+0xb7ec6dc0 in strcpy () from /lib/libc.so.6
+</pre>
+}}
+
+Here we see the program starting, as well as a notification of SIGSEGV, or Segmentation Fault. This is GDB telling us that the program has crashed. It also gives the last run function it could trace when the program crashes. However, this is not too useful, as there could be multiple strcpy's in the program, making it hard for developers to find which one is causing the issue. In order to help them out, we do what's called a backtrace. A backtrace runs backwards through all the functions that occurred upon program execution, to the function at fault. Functions that return (without causing a crash) will not show up on the backtrace. To get a backtrace at the (gdb) prompt type in {{c|bt}}. Something similar to the following message should be returned: 
+
+{{Cmd|bt|prompt=(gdb) |output=<pre>
+#0  0xb7ec6dc0 in strcpy () from /lib/libc.so.6
+#1  0x0804838c in run_it ()
+#2  0x080483ba in main ()
+</pre>
+}}
+
+You can notice the trace pattern clearly. <code>main()</code> is called first, followed by <code>run_it()</code>, and somewhere in <code>run_it()</code> lies the <code>strcpy()</code> at fault. Things such as this help developers narrow down problems. There are a few exceptions to the output. First off is forgetting to enable debug symbols with <code>FEATURES="nostrip"</code>. With debug symbols stripped, the output looks something like this: 
+
+{{Cmd|bt|prompt=(gdb) |output=<pre>
+#0  0xb7e2cdc0 in strcpy () from /lib/libc.so.6
+#1  0x0804838c in ?? ()
+#2  0xbfd19510 in ?? ()
+#3  0x00000000 in ?? ()
+#4  0x00000000 in ?? ()
+#5  0xb7eef148 in libgcc_s_personality () from /lib/libc.so.6
+#6  0x080482ed in ?? ()
+#7  0x080495b0 in ?? ()
+#8  0xbfd19528 in ?? ()
+#9  0xb7dd73b8 in __guard_setup () from /lib/libc.so.6
+#10 0xb7dd742d in __guard_setup () from /lib/libc.so.6
+#11 0x00000006 in ?? ()
+#12 0xbfd19548 in ?? ()
+#13 0x080483ba in ?? ()
+#14 0x00000000 in ?? ()
+#15 0x00000000 in ?? ()
+#16 0xb7deebcc in __new_exitfn () from /lib/libc.so.6
+#17 0x00000000 in ?? ()
+#18 0xbfd19560 in ?? ()
+#19 0xb7ef017c in nullserv () from /lib/libc.so.6
+#20 0xb7dd6f37 in __libc_start_main () from /lib/libc.so.6
+#21 0x00000001 in ?? ()
+#22 0xbfd195d4 in ?? ()
+#23 0xbfd195dc in ?? ()
+#24 0x08048201 in ?? ()
+</pre>
+}}
+
+This backtrace contains a large number of <code>??</code> (question) marks. This is because without debug symbols, {{c|gdb}} does not know how the program was run. Hence, it is crucial that debug symbols are ''not'' stripped. Remember a while ago we mentioned the <code>-ggdb</code> flag was mentioned? Let's see what the output looks like with that flag enabled: 
+
+{{Cmd|bt|prompt=(gdb) |output=<pre>
+#0  0xb7e4bdc0 in strcpy () from /lib/libc.so.6
+#1  0x0804838c in run_it (input=0x0) at bad_code.c:7
+#2  0x080483ba in main (argc=1, argv=0xbfd3a434) at bad_code.c:12
+</pre>
+}}
+
+Here we see that a lot more information is available for developers. Not only is function information displayed, but even the exact line numbers of the source files. This method is the most preferred if you can spare the extra space. Here's how much the file size varies between debug, strip, and -ggdb enabled programs. 
+
+{{CodeBox|title=Filesize differences With -ggdb flag|1=
+## (debug symbols stripped)
+-rwxr-xr-x  1 chris users 3140  6/28 13:11 bad_code
+## (debug symbols enabled)
+-rwxr-xr-x  1 chris users 6374  6/28 13:10 bad_code
+## (-ggdb flag enabled)
+-rwxr-xr-x  1 chris users 19552  6/28 13:11 bad_code
+}}
+
+As you can see, <code>-ggdb</code> adds about ''13178'' more bytes to the file size over the one with debugging symbols. However, as shown above, this increase in file size can be worth it if presenting debug information to developers. The backtrace can be saved to a file by copying and pasting from the terminal (if it's a non-x based terminal, you can use gpm. To keep this article simple, it is recommended users read up on [[GPM]] documentation to understand how to copy and paste with it). Now that we're done with {{c|gdb}}, we can quit. 
+
+{{Cmd|quit|prompt=(gdb) |output=<pre>
+The program is running. Exit anyway? (y or n) y</pre>}}
+
+This ends the walk-through of {{c|gdb}}. Using {{c|gdb}}, we hope that you will be able to use it to create better bug reports. However, there are other types of errors that can cause a program to fail during run time. One of the other ways is through improper file access. We can find those using a nifty little tool called {{c|strace}}.
