@@ -7,6 +7,7 @@ I suddenly found myself with a handfull of omap4430 devices (samsung galaxy tab2
 I have been a gentoo user for almost 10 years, but I have little experience cross compiling beyond distcc for a x86 host so I will document the progress of my project here, so that I can remember later.. please excuse my blatant plagerism from all the sites I read as reference while I concocted a solution that worked. while I hope that this guide will prove useful, [http://www.urbandictionary.com/define.php?term=YMMV ymmv].
 
 == My Hardware ==
+
 My host system is an aging i7 860 with 8 gigs of ddr3 (and a cheap 1tb hdd...) and I was _utterly_ unable to build a static qemu (or qemu-user for that matter). 
 
 I will attach my configs for reference, and that would have helped me a bit..
@@ -153,7 +154,8 @@ rtcm104v3 sirf superstar2 timing tsip tripmate tnt ubx"
 }}
 
 == Isn't a chroot good enough? ==
-Short answer, no. As soon as you try to build python, gcc, or any number of others you begin to see.
+
+Short answer, no. As soon as you try to build python, GCC, or any number of others you begin to see.
 The issue is that many of these programs perform tests to verify function, or use helpers to compile bytecode etc.
 Seems like not an issue, until you think about whats happening here: You are generating binaries for arm that the build
 system then tries to execute to verify they work. Our solution is to use qemu to run them. 
@@ -178,9 +180,11 @@ There's one last thing to resolve: We need a static build of QEMU, so that QEMU 
 Ready? Lets get started..
 
 === Setting the required kernel options ===
+
 In order for binfmt_misc support to work, we need to enable the appropriate kernel drivers. As well, there is some VIRTIO and KVM stuff that will be useful. You all know how to config a kernel, i assume. If not, have a look at the Gentoo Handbook, and come on back when you're ready.
 
-here is the relavent kernel option:
+Here is the relevant kernel option:
+
 {{KernelBox|title=3.2.1-gentoo-r2|<pre>
 Executable file formats / Emulations  --->
  [*] Kernel support for MISC binaries 
@@ -192,17 +196,26 @@ CONFIG_BINFMT_MISC=y {{!}}{{!}} CONFIG_BINFMT_MISC=m
 get that building if needed, and well turn to qemu-user. 
 
 === install static qemu-user ===
+
 I tried for a couple days to get this to compile with static libs. Turns out there are come issues with glib that prevent it. However, debian provides one that'll do nicely. (If this link goes bad, you can browse their current versions [[http://packages.debian.org/sid/qemu-user-static here]].)
+
 {{Cmd|wget "http://http.us.debian.org/debian/pool/main/q/qemu/qemu-user-static_2.0.0+dfsg-7_amd64.deb"}}
 Grab Alien if you dont have it, this will let us easily strip the package off our binary.
+
 {{Emerge|alien }}
+
 unpack it with
+
 {{Cmd|alien -t qemu-user-static_2.0.0+dfsg-7_amd64.deb }}
+
 which will spit out a nice tarball. The only file I cared about was qemu-arm-static which is the arm interpreter. Extract and copy qemu-arm-static to /usr/bin/qemu-arm
-{{Cmd|mkdir qemu-user-static
+
+{{Cmd
+|mkdir qemu-user-static
 |tar xvzpf qemu-user-static-2.0.0+dfsg.tgz -C qemu-user-static
 |cp qemu-user-static/usr/bin/qemu-arm-static usr/bin/qemu-arm
-|echo rm -rf qemu-user-static* }}
+|echo rm -rf qemu-user-static*
+}}
 
 ==== Binfmt_misc Configuration ====
 
@@ -212,52 +225,66 @@ Now mount the binfmt_misc handler if it's not already, then we need to register 
 |[ -f /proc/sys/fs/binfmt_misc/register ] {{!}}{{!}} mount binfmt_misc -t binfmt_misc /proc/sys/fs/binfmt_misc
 }}
 
-Next, register qemu-user-arch to the binfmt_misc module. You don't need to add them one by one and Luca has provided a initscript to get the bin formats registered.
-You can use it:
+Next, register qemu-user-arch to the binfmt_misc module. You don't need to add them one by one and Luca has provided a initscript to get the bin formats registered. You can use it:
+
 {{RootCmd|/etc/init.d/qemu-binfmt start}}
 
 or start the service on bootstrap:
+
 {{RootCmd|rc-update add qemu-binfmt default}}
 
 You could learn more detail of registering bin formats through /usr/portage/app-emulation/qemu-user/files/qemu-binfmt.initd.
 
 === Enter/Exit the Chroot ===
+
 Firstly, you should chose and download a stage3 tarball from [http://www.gentoo.org/main/en/where.xml installation media].
 We take arm arch as an example to show how to enter/exit the chroot.
 
-*Download and unpack arm stage tarball
+*Download and unpack arm stage tarball:
+
 :{{RootCmd|mkdir arm-chroot && cd arm-chroot|wget http:// stage3-armv7a-date.tar.bz2|tar -xvf stage3-armv7a-date.tar.bz2}}
-*Install the static qemu-user into the chroot
+
+*Install the static qemu-user into the chroot:
+
 :{{RootCmd|ROOT{{=}}$PWD/ emerge -K qemu-user}}
-*Mount the required directories
+
+*Mount the required directories:
+
 :{{RootCmd|mkdir -p usr/portage| mount --bind /usr/portage usr/portage | mount --bind /proc proc | mount --bind /sys sys}}
-*Chroot into the environment
+
+*Chroot into the environment:
+
 :{{RootCmd|chroot . /bin/busybox mdev -s | chroot . /bin/bash --login}}
-*Unmount stuff when not in use
+
+*Unmount stuff when not in use:
+
 :{{RootCmd|umount usr/portage | umount sys | umount proc}}
 
 == Setup Crossdev ==
-The first thing that is necessary is the creation of an [[overlay]]. If you have one, emerge the script:
+
+The first thing that is necessary is the creation of an [[ebuild repository]]. If you have one, emerge the script:
+
 {{Emerge|sys-devel/crossdev}}
 
 This will provide you with the crossdev script. This script automates the steps necessary to build a toolchain. These steps are, in short:
 
-#binutils:  Build a cross-binutils, which links and processes for the target architecture.
-#linux-headers:  Install a set of C library and kernel headers for the target architecture.
-#libc-headers:  Additional header files
-#gcc-stage-1:  Build a basic (stage 1) gcc cross-compiler. This will be used to compile the C library. It will be unable to build anything almost else (because it can't link against the C library it doesn't have).
-#libc:  Build the cross-compiled C library (using the stage 1 cross compiler).
-#gcc-stage-2:  Build a full (stage 2) C cross-compiler.
+#binutils: Build a cross-binutils, which links and processes for the target architecture.
+#linux-headers: Install a set of C library and kernel headers for the target architecture.
+#libc-headers: Additional header files
+#gcc-stage-1: Build a basic (stage 1) gcc cross-compiler. This will be used to compile the C library. It will be unable to build anything almost else (because it can't link against the C library it doesn't have).
+#libc: Build the cross-compiled C library (using the stage 1 cross compiler).
+#gcc-stage-2: Build a full (stage 2) C cross-compiler.
 
-All cross toolchains will be kept locally in the [[overlay]], separate from native tools.
+All cross toolchains will be kept locally in the ebuild repository, separate from native tools.
 
 {{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
 source /var/lib/layman/make.conf
 
-PORTDIR_OVERLAY="/usr/local/portage $PORTDIR_OVERLAY"
+PORTDIR_OVERLAY="/usr/local/portage ${PORTDIR_OVERLAY}"
 }}
 
 The script is used like:
+
 {{RootCmd|crossdev -t powerpc-unknown-linux-gnu}}
 
 This will build a cross-compiling toolchain for PowerPC machines.
@@ -272,27 +299,31 @@ By default, the newest stable version of the binutils, libraries, and C compiler
 It is recommended trying older versions, particularly of gcc, if the script fails.
 
 If you want to remove a toolchain, use the clean flag:
+
 {{RootCmd|crossdev -C powerpc-unknown-linux-gnu}}
 
 This will unmerge the packages created by crossdev.
 
 If you got the errors about fortran, use the fellow command:
+
 {{RootCmd|USE{{=}}"-fortran nossp" crossdev -t powerpc-unknown-linux-gnu}}
 
 == Cross Container ==
-The lxc.sh tool can download, configure and create a multi-arch gentoo guest.
-Using this tool, the user build a native gcc in chroot.
-You can download it here: [https://github.com/jinghuang/cross_container_support lxc.sh]
+
+The lxc.sh tool can download, configure and create a multi-arch gentoo guest. Using this tool, the user build a native gcc in chroot. You can download it here: [https://github.com/jinghuang/cross_container_support lxc.sh]
 
 Next, we will take '''armv7a_hardfloat''' as a example to build the native compiler in chroot.
 
 === Install a cross compiler ===
+
 You must install the cross compiler manually:
 
 {{RootCmd|USE{{=}}"-fortran nossp" crossdev -t armv7a-hardfloat-linux-gnueabi}}
 
 === Create the chroot ===
+
 You can create an arm gentoo guest:
+
 {{RootCmd|./lxc.sh create -i ''ip_address'' -g ''gateway'' -n ''guest_name'' -r ''rootfs'' -a arm<br />
 What is the subarch of arm? armv7a}}
 
@@ -305,14 +336,18 @@ You can also start and destroy the arm gentoo guest:
 Additional developers, bug fixes, comments, etc. are welcome.
 
 === Switch to native compiler ===
-In chroot, you can switch to native compiler:
-{{RootCmd|cd /root}}
-{{RootCmd|source switch.sh native}}
 
-Then, you can get the native armv7a-hardfloat-linux-gnueabi-gcc.
-To use it, just specify the '''CC=armv7a-hardfloat-linux-gnueabi-gcc''' in the Makefile.
+In chroot, you can switch to native compiler:
+
+{{RootCmd
+|cd /root}}
+|source switch.sh native
+}}
+
+Then, you can get the native armv7a-hardfloat-linux-gnueabi-gcc. To use it, just specify the '''CC=armv7a-hardfloat-linux-gnueabi-gcc''' in the Makefile.
 
 You also could switch to emulated gcc as well:
+
 {{RootCmd|source switch.sh emu}}
 
 [[Category:Cross building]]
