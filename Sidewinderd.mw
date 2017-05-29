@@ -1,62 +1,111 @@
 {{InfoBox stack
-|{{InfoBox wikify}}
+|{{InfoBox homepage|https://github.com/tolga9009/sidewinderd/|header=true}}
 }}
 
-This is a quick-and-dirty way to make the macro keys on the Logitech G105 keyboard usable on an OpenRC Gentoo system. Perhaps it can be used on a systemd box as well. Please feel free to improve, it should be possible to turn all this into a well-behaved ebuild.
+This article describes how to enable the macro keys on the Logitech G105 keyboard using sidewinderd.
 
-Attach your Logitech G105 keyboard to your Gentoo box. You should see a filesystem object such as this one:
+== Installation ==
 
- /dev/input/by-id/usb-Logitech_Gaming_Keyboard_G105-event-kbd
+=== Kernel ===
 
-If not present, try rebooting. If that does not help then maybe the kernel needs to be reconfigured (TBD: how?).
+{{KernelBox|title=User level driver support|
+    Device Drivers --->
+          Input device support --->
+            [*]   Miscellaneous devices --->
+                    <*>   User level driver support
+}}
 
-Become root and create a source directory somewhere:
+=== Software ===
 
- mkdir -p /opt/local/src/sidewinder
- cd /opt/local/src/sidewinder
+sidewinderd needs to be built manually since no ebuild is available in the Portage tree. First, create a directory to hold the sidewinderd source code:
 
-Download and unpack the "sidewinderd" software from GitHub:
+{{RootCmd
+|mkdir -p /usr/local/src
+|cd /usr/local/src
+}}
 
- wget https://github.com/tolga9009/sidewinderd/archive/master.zip
- unzip master.zip
- cd sidewinderd-master
+Clone the sidewinderd Git repository (requires {{Package|dev-vcs/git}}):
 
-Emerge required dependencies (if not already present):
+{{RootCmd|git clone <nowiki>https://github.com/tolga9009/sidewinderd.git</nowiki>}}
 
- emerge cmake libconfig tinyxml2
+Install the required dependencies:
 
-The following edit seems to be necessary:
+{{Emerge
+|cmake libconfig tinyxml2
+|params+=--noreplace
+}}
 
- sed -i -e s:/dev/input/uinput:/dev/input/by-id/usb-Logitech_Gaming_Keyboard_G105-event-kbd: src/core/virtual_input.cpp
+Build and install sidewinderd:
 
-Build and install sidewinderd (warning: this is a dirty step since proper Portage tools are not being used):
+{{RootCmd
+|cd sidewinderd
+|mkdir build
+|cd build
+|cmake -DCMAKE_INSTALL_PREFIX:PATH{{=}}/usr ..
+|make
+|make install
+}}
 
- mkdir build
- cd build
- cmake ..
- make
- mkdir -p /usr/local/lib/systemd/system
- make install
+== Configuration ==
 
-Edit the configuration file (replace MYUSERNAME with your login name)
+Specify the username to run sidewinderd as:
 
- sed -i -e '/user = /s:root:MYUSERNAME:' /etc/sidewinderd.conf
+{{FileBox|filename=/etc/sidewinderd.conf|
+user {{=}} "larry";
+}}
 
-Start the daemon:
+{{Important|It highly recommended to '''''not''''' run sidewinderd as {{c|root}}.}}
 
- /usr/local/bin/sidewinderd
+To record macros without delays set <var>capture_delays</var> to <code>false</code>:
 
-If all went well you should now be able to use the MR, M1, M2, M3 and G1 through G6 keys. To record a macro for G1 press MR, G1, the wanted key sequence, and MR again. Three separate sets of definitions can be switched between using the M1, M2, M3 keys.
+{{FileBox|filename=/etc/sidewinderd.conf|
+capture_delays {{=}} false;
+}}
 
-Macros are recorded with delays by default. To get fast playback change the capture_delays setting to false in the configuration file. Using capture_delays = false may not be fully robust however.
+=== Service ===
 
-To have sidewinderd start at bootup add some simple scripts to /etc/local.d:
+==== OpenRC ====
 
- cd /etc/local.d
- echo "sidewinderd -d" >sidewinderd.start
- echo "pkill sidewinderd" >sidewinderd.stop
- chmod +x sidewinderd.start sidewinderd.stop
+Create the following init.d file:
 
-Uninstalling can be done manually by removing /etc/local.d/sidewinderd.*, /usr/local/bin/sidewinderd, /etc/sidewinderd.conf and /usr/local/lib/systemd/system/sidewinderd.service.
+{{FileBox|filename=/etc/init.d/sidewinderd|lang=bash|
+#!/sbin/openrc-run
+
+command{{=}}"/usr/bin/sidewinderd"
+command_args{{=}}"-c /etc/sidewinderd.conf -d"
+}}
+
+Start sidewinderd:
+
+{{RootCmd|rc-service sidewinderd start}}
+
+Start sidewinderd at boot:
+
+{{RootCmd|rc-update add sidewinderd default}}
+
+==== systemd ====
+
+Start sidewinderd:
+
+{{RootCmd|systemctl start sidewinderd}}
+
+Start sidewinderd at boot:
+
+{{RootCmd|systemctl enable sidewinderd}}
+
+== Usage ==
+
+If sidewinderd started successfully, the {{Key|MR}}, {{Key|M1}}, {{Key|M2}}, {{Key|M3}} and {{Key|G1}} through {{Key|G6}} keys should now be usable. To record a macro for {{Key|G1}} press {{Key|MR}}, {{Key|G1}}, the desired key sequence, and {{Key|MR}} again. Three separate sets of definitions can be switched between using the {{Key|M1}}, {{Key|M2}}, {{Key|M3}} keys.
+
+== Removal ==
+
+To uninstall sidewinderd, delete the following files:
+
+{{RootCmd
+|rm /etc/init.d/sidewinderd
+|rm /etc/sidewinderd.conf
+|rm /usr/bin/sidewinderd
+|rm /usr/lib/systemd/system/sidewinderd.service
+}}
 
 [[Category:Input devices]]
