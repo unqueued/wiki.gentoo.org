@@ -97,33 +97,71 @@ However, if passing an initramfs as a boot parameter is still desired, the only 
 
 === Installation ===
 
-Now build the kernel and copy the image to the EFI partition as {{Path|EFI/Boot/bootx64.efi}}. The following example shows the EFI partition mounted to {{Path|/mnt/EFI}}):
+Still from the kernel directory, build the kernel and install the modules:
 
 {{RootCmd
 |cd /usr/src/linux
 |make -jN
-|make install modules_install
+|make modules_install
 }}
 
-* Create the ESP directory structure.
+Have the ESP mounted at {{path|/boot}}:
+
+{{RootCmd|mount /dev/sda1 /boot}}
+
+ (tree -L 3 /boot)
+ /boot
+ └── EFI
+     └── Microsoft
+         ├── Boot
+         └── Recovery
+ 
+ (Here the Microsoft subtree was created by an earlier installation of Windows 10 Creators Update)
+
+Run the install command:
 
 {{RootCmd
-|mkdir -p /mnt/EFI/EFI/Boot
-<!-- |cp /boot/vmlinuz-3.7.9-gentoo /mnt/EFI/EFI/Boot/bootx64.efi -->
+|make install 
 }}
 
-* Copy the kernel to the EFI partition.
+ (tree -L 3 /boot)
+ /boot
+ ├── config-4.9.16-gentoo
+ ├── EFI
+ │   └── Microsoft
+ │       ├── Boot
+ │       └── Recovery
+ ├── System.map-4.9.16-gentoo
+ └── vmlinuz-4.9.16-gentoo
 
-{{RootCmd|cp /boot/vmlinuz-3.14.14-gentoo /mnt/EFI/EFI/Boot/bootx64.efi
-|cp /boot/initramfs-3.14.14-gentoo.img /mnt/EFI/EFI/Boot/initramfs.img
-|efibootmgr --create --part 1 --label "Gentoo" --loader '\efi\boot\bootx64.efi' -u initrd{{=}}'\efi\boot\initramfs.img'}}
+Move {{path|vmlinuz}} to the right place adding the {{path|.efi}} suffix and delete the copies of config and System.map:
 
-{{Note|Keeping kernels in {{path|/boot}} as shown here ({{path|/boot/vmlinuz-3.14.14-gentoo}}) should not be needed for plain EFI boot but only [https://forums.gentoo.org/viewtopic-t-1063530-start-16.html for old-school].}}
-
-{{Note|
-* EFI uses {{Path|\}} (backslash) as path separators.
-* The system tested on required the kernel arguments to be passed as Unicode text (<code>-u</code> option). YMMV.
+{{RootCmd|mkdir -p /boot/EFI/Gentoo
+|mv /boot/vmlinuz-4.9.16-gentoo /boot/EFI/Gentoo/vmlinuz-4.9.16-gentoo.efi
+|rm /boot/config-4.9.16-gentoo /boot/System.map-4.9.16-gentoo
 }}
+
+ (tree -L 3 /boot)
+ /boot
+ └── EFI
+     ├── Gentoo
+     │   └── vmlinuz-4.9.16-gentoo.efi
+     └── Microsoft
+         ├── Boot
+         └── Recovery
+
+Alternatively the fallback directory {{path|/boot/EFI/Boot}} could be used additionally to or instead of {{path|/boot/EFI/Gentoo}}.
+
+Next, tell the UEFI firmware that a boot entry called "Gentoo" is to be created, which has the freshly compiled EFI stub kernel: 
+
+{{RootCmd|efibootmgr --create --disk /dev/sda --part 1 --label "Gentoo" --loader '\efi\gentoo\vmlinuz-4.9.16-gentoo.efi'}}
+
+In case an (optional) [[#Optional:_Initramfs|initramfs]] is needed, it also needs to be copied to the same place.
+
+{{RootCmd|mv /boot/initramfs-4.9.16-gentoo.img /boot/EFI/Gentoo/initramfs.img
+|efibootmgr --create --part 1 --label "Gentoo" --loader '\efi\gentoo\vmlinuz-4.9.16-gentoo.efi' -u initrd{{=}}'\efi\gentoo\initramfs.img'}}
+
+
 
 {{Note|This guide was created with the x64 architecture in mind. According the specification, UEFI is rich enough to cover a range of contemporary processor designs.<br />
 UEFI image's name is composed by the machine type defined in the PE32+ format <ref>[http://www.uefi.org/sites/default/files/resources/UEFI%20Spec%202_6.pdf#page=68 UEFI Specification Version 2.6, Section 2.1.1 UEFI Images, p.18], January 2016. ''[http://www.uefi.org UEFI Forum]''. Retrieved on October 10, 2016.</ref> <ref>[http://www.uefi.org/sites/default/files/resources/UEFI%20Spec%202_6.pdf#page=140 UEFI Specification Version 2.6, Section 3.5.1.1 Removable Media Boot Behavior, p.90], January 2016. ''[http://www.uefi.org UEFI Forum]''. Retrieved on October 10, 2016.</ref>. For example, a UEFI OS loader for the x86 architecture is bootIA32.efi}}
