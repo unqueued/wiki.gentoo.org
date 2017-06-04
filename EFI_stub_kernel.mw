@@ -32,15 +32,27 @@ If the {{C|mkfs.vfat}} command is not present (part of {{Package|sys-fs/dosfstoo
 
 === Configuration ===
 
-In order to boot directly from UEFI, the kernel needs to have <var>CONFIG_EFI</var> and <var>CONFIG_EFI_STUB</var> support enabled. It is also a good idea to enable <var>CONFIG_EFI_VARS</var> so that the system firmware can be manipulated via {{c|[[efibootmgr]]}}.
+In order to boot directly from UEFI, the kernel needs to have these options enabled:
+
+Enable GPT partition label support if that was used previously when partitioning the disk (<var>CONFIG_PARTITION_ADVANCED</var> and <var>CONFIG_EFI_PARTITION</var>):
+
+{{KernelBox|title=Enable support for GPT|1=
+-*- Enable the block layer --->
+   Partition Types --->
+      [*] Advanced partition selection
+      [*] EFI GUID Partition support
+}}
+Enable <var>CONFIG_EFI</var> and <var>CONFIG_EFI_STUB</var> support enabled. It is also a good idea to enable <var>CONFIG_EFI_VARS</var> so that the system firmware can be manipulated via {{c|[[efibootmgr]]}}. <var>CONFIG_EFI_MIXED</var> as proposed by [[Handbook:AMD64/Installation/Kernel#Architecture_specific_kernel_configuration|Gentoo Handbook]] is not suitable for the EFI boot stub.
 
 {{KernelBox|title=Enable EFI stub support|1=
 Processor type and features  --->
     [*] EFI runtime service support 
     [*]   EFI stub support
+    [ ]     EFI mixed-mode support
+
 Firmware Drivers  --->
-   EFI (Extensible Firmware Interface) Support  --->
-       <*> EFI Variable Support via sysfs
+    EFI (Extensible Firmware Interface) Support  --->
+        <*> EFI Variable Support via sysfs
 }}
 
 UEFI does not pass kernel parameters to the kernel during normal boot, so they must be hard-coded them via <var>CONFIG_CMDLINE</var> values. In order to boot a root partition located at {{Path|/dev/sda2}} input the following text in the kernel configuration:
@@ -51,18 +63,21 @@ Processor type and features  --->
     (root=/dev/sda2)
 }}
 
-For GPT systems, using <code>root=PARTUUID=</code> might be preferable. To find out use {{C|gdisk}}:
+Using <code>root=PARTUUID=</code> might be preferable. To find out use {{C|blkid}}:
 
-{{RootCmd|gdisk /dev/sda|output=<pre>
-Command (? for help): i
-Partition number (1-5): 2
-Partition unique GUID: (pass the ID that is shown here to the kernel)
-Command (? for help): q
+{{RootCmd|blkid {{!}} grep sda2|output=<pre style="white-space: pre;">
+/dev/sda2: UUID="d1e0c1e0-3a40-42c5-8931-cfa2c7deae32" TYPE="ext4" PARTUUID="adf55784-15d9-4ca3-bb3f-56de0b35d88d"
 </pre>}}
 
-{{Note|The ''partition's'' UUID is distinct from the ''filesystem's'' UUID.}}
+{{KernelBox|title=Enable built-in kernel parameters|1=
+Processor type and features  --->
+    [*] Built-in kernel command line
+    (root=PARTUUID=adf55784-15d9-4ca3-bb3f-56de0b35d88d)
+}}
 
-=== Initramfs ===
+{{Note|The ''partition's'' PARTUUID is distinct from the ''filesystem's'' UUID.}}
+
+=== Optional: Initramfs ===
 
 The EFI stub can load an initramfs and pass it to the kernel, but this requires passing a parameter from the EFI bootloader (ie. <code>initrd=\efi\boot\myinitrd.img</code>). This parameter cannot be built into <var>CONFIG_CMDLINE</var> as outlined above. This may defeat the purpose of using EFI stub since many users prefer it as a way to avoid the necessity of a bootloader and/or dealing with {{c|efibootmgr}}.  Another possibility is to embed the initramfs directly into the kernel image. In order to do this:
 
