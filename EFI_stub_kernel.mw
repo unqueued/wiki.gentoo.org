@@ -1,34 +1,8 @@
 {{InfoBox stack|{{InfoBox homepage|https://www.kernel.org/doc/Documentation/efi-stub.txt|header=true}}|{{InfoBox wikipedia|EFI system partition}}}}
 
-The (U)EFI firmware present in many computers can function as [[bootloader]], allowing systems to boot without needing an additional software bootloader. This article shows how to [[#Configuration|configure]] and [[#Installation|install]] an unsigned kernel in the EFI System Partition (ESP) of a computer running in EFI mode with [[wikipedia:secureboot|secureboot]] turned off and how it shares the ESP with another OS for multiboot. 
+The (U)EFI firmware present in many computers can function as [[bootloader]], allowing systems to boot without needing an additional software bootloader. This article shows how to [[#Configuration|configure]] and [[#Installation|install]] an unsigned kernel in the [[EFI System Partition|EFI System Partition (ESP)]] of a computer running in EFI mode with [[wikipedia:secureboot|secureboot]] turned off and how it shares the ESP with another OS for multiboot. 
 
-== Partitioning ==
-
-Create a [[partition]] of type "EFI System partition", which is <code>EF00</code> on GPT and <code>EF</code> on MBR. Using {{C|gdisk}}:
-
-{{RootCmd|gdisk /dev/sda|output=<pre>
-Command (? for help): n
-Partition number (1-128, default 1): 1
-First sector: (enter desired start sector and size, 100 MB should be plenty)
-Command (? for help): t
-Partition number (1-2): 1
-Hex code or GUID (L to show codes, Enter = 8300): EF00
-Command (? for help): w
-</pre>}}
-
-Create a FAT32 filesystem inside:
-
-{{RootCmd|mkfs.vfat -F 32 /dev/sda1}}
-
-If the {{C|mkfs.vfat}} command is not present (part of {{Package|sys-fs/dosfstools}}), the Busybox version can be used instead:
-
-{{RootCmd|busybox mkfs.vfat /dev/sda1}}
-
-{{Note|The {{C|gdisk}} utility comes with the {{Package|sys-apps/gptfdisk}} package.}}
-
-== Kernel ==
-
-=== Configuration ===
+== Kernel configuration ==
 
 In order to boot directly from UEFI, the kernel needs to have these options enabled:
 
@@ -75,27 +49,7 @@ Processor type and features  --->
     (root=PARTUUID=adf55784-15d9-4ca3-bb3f-56de0b35d88d)
 }}
 
-=== Optional: Initramfs ===
-
-{{Important|It should be noted that EFI stub kernels can '''''not''''' load an initramfs if it is specified in <var>CONFIG_CMDLINE</var>. Check out [[efibootmgr]], <var>CONFIG_INITRAMFS_SOURCE</var>, or separate bootloaders like ([[gummiboot]] or [[GRUB2]]) if an initramfs is a must-have.}}
-
-The EFI stub can load an initramfs and pass it to the kernel, but this requires passing a parameter from the EFI bootloader (ie. <code>initrd=\efi\boot\myinitrd.img</code>). This parameter cannot be built into <var>CONFIG_CMDLINE</var> as outlined above. This may defeat the purpose of using EFI stub since many users prefer it as a way to avoid the necessity of a bootloader and/or dealing with {{c|efibootmgr}}.  Another possibility is to embed the initramfs directly into the kernel image. In order to do this:
-
-* Generate the initramfs using a preferred method ([[Genkernel]], [[Dracut]], etc.).
-* Ensure the image is not compressed (just a cpio archive). Genkernel and Dracut both have command line switches for this.
-* Rename the initramfs with a {{Path|.cpio}} extension, the kernel requires this in order to embed a cpio archive. The kernel image (with the cpio archive within it) will still be compressed as usual.
-* Ensure that the initramfs has the correct read-permissions for the user building the kernel. Most users build the kernel as the root user and may skip this step. 
-** Be aware that Dracut makes the initramfs image readable only by the root user, so if the kernel was built as any other user adjust its permissions as needed. Failing to do so (and ignoring the kernel build warnings) will result in a kernel with no embedded initramfs which will leave the system potentially unbootable.
-
-{{KernelBox|title=Build in the initramfs CPIO archive|1=
-General setup  --->
-    [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
-    (/boot/initramfs-3.12.21-gentoo-r1.cpio) Initramfs source file(s)
-}}
-
-However, if passing an initramfs as a boot parameter is still desired, the only way it can be done is by using {{C|efibootmgr}} ([[GRUB2]] will not work). An external initramfs has some advantages over building the initramfs directly into the kernel (see the kernel help on on the <var>CONFIG_INITRAMFS_SOURCE</var> variable for details on its limitations). In fact, both a built-in and external initramfs can be used simultaneously. Create and install the initramfs with Genkernel, Dracut, by hand, etc. Install the kernel as outlined in the Installation section below. Then:
-
-=== Installation ===
+== Installation ==
 
 Still in the kernel directory, build the kernel and install the modules:
 
@@ -105,7 +59,7 @@ Still in the kernel directory, build the kernel and install the modules:
 |make modules_install
 }}
 
-Have the ESP mounted at {{path|/boot}}:
+Have the [[EFI System Partition|ESP]] mounted at {{path|/boot}}:
 
 {{RootCmd|mount /dev/sda1 /boot}}
 
@@ -168,10 +122,30 @@ Optionally, additional kernels can be installed in {{path|EFI/Gentoo}} and made 
 
 {{Note|EFI uses {{Path|\}} (backslash) as path separators.}}
 
+== Optional: Initramfs ==
+
 In case an (optional) [[#Optional:_Initramfs|initramfs]] is needed, it also needs to be copied to the same place.
 
 {{RootCmd|mv /boot/initramfs-4.9.16-gentoo.img /boot/EFI/Gentoo/initramfs.img
 |efibootmgr --create --part 1 --label "Gentoo" --loader '\efi\gentoo\vmlinuz-4.9.16-gentoo.efi' -u initrd{{=}}'\efi\gentoo\initramfs.img'}}
+
+{{Important|It should be noted that EFI stub kernels can '''''not''''' load an initramfs if it is specified in <var>CONFIG_CMDLINE</var>. Check out [[efibootmgr]], <var>CONFIG_INITRAMFS_SOURCE</var>, or separate bootloaders like ([[gummiboot]] or [[GRUB2]]) if an initramfs is a must-have.}}
+
+The EFI stub can load an initramfs and pass it to the kernel, but this requires passing a parameter from the EFI bootloader (ie. <code>initrd=\efi\boot\myinitrd.img</code>). This parameter cannot be built into <var>CONFIG_CMDLINE</var> as outlined above. This may defeat the purpose of using EFI stub since many users prefer it as a way to avoid the necessity of a bootloader and/or dealing with {{c|efibootmgr}}.  Another possibility is to embed the initramfs directly into the kernel image. In order to do this:
+
+* Generate the initramfs using a preferred method ([[Genkernel]], [[Dracut]], etc.).
+* Ensure the image is not compressed (just a cpio archive). Genkernel and Dracut both have command line switches for this.
+* Rename the initramfs with a {{Path|.cpio}} extension, the kernel requires this in order to embed a cpio archive. The kernel image (with the cpio archive within it) will still be compressed as usual.
+* Ensure that the initramfs has the correct read-permissions for the user building the kernel. Most users build the kernel as the root user and may skip this step. 
+** Be aware that Dracut makes the initramfs image readable only by the root user, so if the kernel was built as any other user adjust its permissions as needed. Failing to do so (and ignoring the kernel build warnings) will result in a kernel with no embedded initramfs which will leave the system potentially unbootable.
+
+{{KernelBox|title=Build in the initramfs CPIO archive|1=
+General setup  --->
+    [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
+    (/boot/initramfs-3.12.21-gentoo-r1.cpio) Initramfs source file(s)
+}}
+
+However, if passing an initramfs as a boot parameter is still desired, the only way it can be done is by using {{C|efibootmgr}} ([[GRUB2]] will not work). An external initramfs has some advantages over building the initramfs directly into the kernel (see the kernel help on on the <var>CONFIG_INITRAMFS_SOURCE</var> variable for details on its limitations). In fact, both a built-in and external initramfs can be used simultaneously. Create and install the initramfs with Genkernel, Dracut, by hand, etc. Install the kernel as outlined in the Installation section below. Then:
 
 {{Note|This guide was created with the x64 architecture in mind. According the specification, UEFI is rich enough to cover a range of contemporary processor designs.<br />
 UEFI image's name is composed by the machine type defined in the PE32+ format <ref>[http://www.uefi.org/sites/default/files/resources/UEFI%20Spec%202_6.pdf#page=68 UEFI Specification Version 2.6, Section 2.1.1 UEFI Images, p.18], January 2016. ''[http://www.uefi.org UEFI Forum]''. Retrieved on October 10, 2016.</ref> <ref>[http://www.uefi.org/sites/default/files/resources/UEFI%20Spec%202_6.pdf#page=140 UEFI Specification Version 2.6, Section 3.5.1.1 Removable Media Boot Behavior, p.90], January 2016. ''[http://www.uefi.org UEFI Forum]''. Retrieved on October 10, 2016.</ref>. For example, a UEFI OS loader for the x86 architecture is bootIA32.efi}}
