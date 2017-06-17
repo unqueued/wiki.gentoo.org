@@ -5,7 +5,7 @@
 |{{InfoBox ohloh}}
 }}
 
-{{c|runit}} is [[Article description::an init replacement with service monitoring/supervision.]] It can be used in conjunction with OpenRC as an alternative to sysvinit or even replacing OpenRC as service manager.
+Runit is [[Article description::a [[daemontools|daemontools-inspired]] process supervision suite that also provides a program suitable for running as process 1]]. It can be used as alternative to [https://packages.gentoo.org/packages/sys-apps/sysvinit sysvinit] or [[systemd]], either by itself or in conjunction with [[OpenRC]]. It can also be used as a helper for supervising OpenRC services.
 
 == Installation ==
 
@@ -17,38 +17,368 @@
 
 {{Emerge|sys-process/runit}}
 
+{{Note|>{{=}}sys-process/runit-2.1.2 is currently on the testing branch. The above command will install runit version 2.1.1 for systems on the stable branch; users who want a more recent version will need to add the package to {{Path|/etc/portage/package.accept_keywords}} (if using Portage). While it is generally not advised to mix packages of stable and testing branches, this package only depends on the libc, so in this case it should be safe}}
+
 == Configuration ==
 
-=== PID 1 - init replacement ===
+=== Environment variables ===
 
-runit can be used as the system init. To do this, simply add <code>init=/sbin/runit-init</code> to the bootloader's kernel command-line and reboot. OpenRC (sysvinit) will remain installed and you go back to it at any time by reverting the change.
+* <var>SVDIR</var> - Directory {{C|sv}} will search for the services specified as arguments.
+* <var>SVWAIT</var> - Time {{C|sv}} will wait for a service to reach its desired state before timing out or killing it with a <code>SIGKILL</code> signal.
 
-Out of the box {{c|runit-init}} has a very minimal configuration which will only get to a console login. Although it would be optimal to have all the daemons started up in a single consistent way, users are free to mix and match between runit and OpenRC as desired. Init scripts can be found in the "default" runlevel, which can be started  automatically on boot with the existing "local" service:
+=== Files ===
 
-{{FileBox|filename=/etc/local.d/rc-default.start|title=Start up the default runlevel after boot|lang=bash|1=
+* {{Path|/service}} - Directory {{C|sv}} will search for the services specified as arguments if <var>SVDIR</var> is empty of unset.
+* {{Path|/etc/runit/1}} - File {{C|runit}} will execute when the machine boots.
+* {{Path|/etc/runit/2}} - File {{C|runit}} will execute and supervise when {{Path|/etc/runit/1}} exits.
+* {{Path|/etc/runit/3}} - File {{C|runit}} will execute when the machine shuts down.
+* {{Path|/etc/runit/ctrlaltdel}} - File {{C|runit}} will execute when receiving a <code>SIGINT</code> signal.
+* {{Path|/etc/runit/stopit}} - Used by {{C|runit}} to decide whether it should initiate machine shutdown when receiving a <code>SIGCONT</code> signal or not.
+* {{Path|/etc/runit/reboot}} - Used by {{C|runit}} to decide whether it should halt or reboot the machine.
+* {{Path|/etc/runit/runsvdir/current}} - Symbolic link to {{C|runsvdir}}'s scan directory when using <sys-process/runit-2.1.2.
+* {{Path|/etc/runit/runsvdir/default}} - {{C|runsvdir}}'s initial scan directory when using <sys-process/runit-2.1.2.
+* {{Path|/etc/runit/runsvdir/all}} - Service directory repository when using <sys-process/runit-2.1.2.
+* {{Path|/etc/service}} - {{C|runsvdir}}'s scan directory when using >=sys-process/runit-2.1.2.
+* {{Path|/etc/sv}} - Service directory repository when using >=sys-process/runit-2.1.2.
+* {{Path|/run/openrc/sv}} - {{C|runsvdir}}'s scan directory when using OpenRC's [[#runitintegration|runit integration feature]].
+* {{Path|/var/service}} - Symbolic link to {{C|runsvdir}}'s scan directory when using <sys-process/runit-2.1.2.
+
+=== Service ===
+
+==== OpenRC ====
+
+See [[#openrclaunch|here]].
+
+== Usage ==
+
+=== Process supervision ===
+
+For in-depth information about the process supervision aspects of runit, see [[daemontools-encore]]. A summary follows.
+
+{| style="border:solid thin"
+! style="border:solid thin;text-align:center;" | runit program !! style="border-bottom:solid thin" | daemontools program with similar functionality
+|-
+| <code>runsv</code> || style="border-left:solid thin" | <code>supervise</code>
+|-
+| <code>runsvdir</code> || style="border-left:solid thin" | <code>svscan</code> plus <code>readproctitle</code> functionality
+|-
+| <code>svlogd</code> || style="border-left:solid thin" | <code>multilog</code>
+|-
+| <code>sv down</code> || style="border-left:solid thin" | <code>svc -d</code>
+|-
+| <code>sv up</code> || style="border-left:solid thin" | <code>svc -u</code>
+|-
+| <code>sv once</code> || style="border-left:solid thin" | <code>svc -o</code>
+|-
+| <code>sv exit</code> || style="border-left:solid thin" | <code>svc -dx</code>
+|-
+| <code>sv status</code> || style="border-left:solid thin" | <code>svstat</code>
+|-
+| <code>chpst -e</code> || style="border-left:solid thin" | <code>envdir</code>
+|-
+| <code>chpst -U</code> || style="border-left:solid thin" | <code>envuidgid</code>
+|-
+| <code>chpst -P</code> || style="border-left:solid thin" | <code>pgrphack</code>
+|-
+| <code>chpst -l</code> || style="border-left:solid thin" | <code>setlock -N</code> ({{C|setlock}}'s default behaviour)
+|-
+| <code>chpst -L</code> || style="border-left:solid thin" | <code>setlock -n</code>
+|-
+| <code>chpst -u</code> || style="border-left:solid thin" | <code>setuidgid</code>
+|-
+| <code>chpst -m</code> || style="border-left:solid thin" | <code>softlimit -m</code>
+|-
+| <code>chpst -d</code> || style="border-left:solid thin" | <code>softlimit -d</code>
+|-
+| <code>chpst -o</code> || style="border-left:solid thin" | <code>softlimit -o</code>
+|-
+| <code>chpst -p</code> || style="border-left:solid thin" | <code>softlimit -p</code>
+|-
+| <code>chpst -f</code> || style="border-left:solid thin" | <code>softlimit -f</code>
+|-
+| <code>chpst -c</code> || style="border-left:solid thin" | <code>softlimit -c</code>
+|-
+| <code>chpst -r</code> || style="border-left:solid thin" | <code>softlimit -r</code>
+|}
+
+
+The program implementing the supervisor features in runit is {{C|runsv}}, and just like daemontools' {{C|supervise}}, it takes the (absolute or relative to the working directory) pathname of a ''service directory'' (or ''servicedir'') as an argument. A runit service directory must contain at least an executable file named {{Path|run}}, and can contain an optional, regular file named {{Path|down}}, and an optional subdirectory or symbolic link to directory named {{Path|log}}, all of which work like their daemontools counterparts. The service directory can also contain an optional, executable file named {{Path|finish}}, that can be used to perfom cleanup actions each time the supervised process stops, possibly dependening on its exit status information. {{C|runsv}} calls {{Path|finish}} with two arguments: the first one is {{Path|run}}'s exit code, or -1 if {{Path|run}} didn't exit normally, and the second one is the least significant byte of the exit status as determined by POSIX {{C|waitpid()}}. For instance, the second argument is 0 if {{Path|run}} exited normally, and the signal number if {{Path|run}} was terminated by a signal. If {{Path|run}} or {{Path|finish}} exit immediately, {{C|runsv}} waits 1 second before starting {{Path|finish}} or restarting {{Path|run}}, so that it does not loop too quickly. A supervised process will run in its {{C|runsv}} parent's session; making it a session leader requires using the {{C|chpst}} program with a <code>-P</code> option inside {{Path|run}}. If {{C|runsv}} receives a <code>SIGTERM</code> signal, it behaves as if an <kbd>sv exit</kbd> command naming the corresponding service directory had been used (see later).
+
+Just like daemontools' {{C|supervise}}, {{C|runsv}} keeps control files in a subdirectory of the servicedir, named {{Path|supervise}}, and if it finds a simbolic link to directory with that name, {{C|runsv}} will follow it and use the linked-to directory for its control files. Unlike daemontools, {{C|runsv}} also keeps human-readable files in the {{Path|supervise}} directory, named {{Path|stat}} and {{Path|pid}}, containing status information about the supervised process. For further information please consult the {{C|runsv}} man page.
+
+The {{C|runsvdir}} program allows supervising a set of processes running in parallel using a ''scan directory'' (or ''scandir''), just like daemontools' {{C|svscan}}, so it will be the supervision tree's root. It also checks at least every 5 seconds the time of last modification, the inode, or the device, of the scandir, and performs a ''scan'' if any of them has changed, launching {{C|runsv}} child processes for each new servicedir it finds, or old servicedir for which it finds its {{C|runsv}} process has exited, and sending a <code>SIGTERM</code> signal to all {{C|runsv}} children for which their corresponding servicedir is no longer present. Unlike daemontools' {{C|svscan}}, {{C|runsvdir}} accepts a second argument after the scan directory's pathname, that must be at least seven characters long, and works like daemontools {{C|readproctitle}}'s last argument: it sets the number of characters of an automatically rotated log that {{C|runsvdir}} keeps in memory, and can be seen in the output of the {{C|ps}} utility. The first 5 characters will remain as specified in the argument, the rest will right shift as new messages are sent to {{C|runsvdir}}'s standard error. {{C|runsvdir}} also writes a dot to the log every 15 minutes so that old messages expire. If a <code>-P</code> option is passed as an argument, {{C|runsvdir}} makes its {{C|runsv}} children leaders of new sessions using the POSIX {{C|setsid()}} call. For further information please consult the {{C|runsvdir}} man page.
+
+{{C|svlogd}} is the logger program provided by the runit package. It supports automatically rotated ''logging directories'' (or ''logdirs'') in the same way daemontool's {{C|multilog}} program does, but its user interface is quite different. Logging directory pathnames are supplied as arguments and don't need to start with a dot ('.') or slash ('/'). To prepend a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format] to logged lines, {{C|svlogd}} must be invoked with a <code>-t</code> option. A <code>-tt</code> option prepends a UTC timestamp of the form ''YYYY-MM-DD_HH:MM:SS.xxxxx'', and a <code>-ttt</code> option prepends a UTC timestamp of the form ''YYYY-MM-DDTHH:MM:SS.xxxxx''. Other actions performed by {{C|svlogd}} on text lines read on its standard input can be specified in a file inside the logging directory, named {{Path|config}}. Empty lines in {{Path|config}} or lines that start with '#' are ignored, every other line specifies a single action. Actions are carried out sequentially in line order. Actions starting with '''s''', '''n''', '''!''', '''+''' and '''-''' behave like their daemontools' {{C|multilog}} counterparts. Patterns in '''+''' and '''-''' actions have the same syntax as those from Bernstein daemontools' {{C|multilog}}, except that runit's {{C|svlogd}} also accepts a plus sign ('+') as a special character that matches the next character in the pattern one or more times, and that prepended timestamps are not considered for matching against the patterns. {{C|svlogd}} can be forced to perform a rotation if it receives a <code>SIGALRM</code> signal, and rereads the {{Path|config}} files in the logdirs (after closing and reopening all logs) if it receives a <code>SIGHUP</code> signal. For the full description of {{C|svlogd}}'s functionality please consult the respective man page.
+
+{{C|chpst}} is a chain loading program that can be used to modify a supervised process' execution state. It accepts a set of options that specify what to do; some of them work like daemontools' {{C|envdir}}, {{C|envuidgid}}, {{C|pgrphack}}, {{C|setloc}}, {{C|setuidgid}} and {{C|softlimit}}, and others are runit-specific. For example, <kbd>chpst -n</kbd> increments or decrements the nice value of the process (using POSIX {{C|nice()}}), <kbd>chpst -/</kbd> changes the root directory before executing the next program in the chain (using Linux {{C|chroot()}} on Gentoo), and <kbd>chpst -b newname</kbd> executes the next 
+program in the chain as if it was invoked with the name ''newname'' (i.e. performs <code>argv[0]</code> substitution). This is useful for programs that have different behaviours depending on the name they are invoked with. If {{C|chpst}} itself is invoked with the names {{C|envdir}}, {{C|envuidgid}}, {{C|pgrphack}}, {{C|setloc}}, {{C|setuidgid}} or {{C|softlimit}}, it behaves as those daemontools programs. For the full description of {{C|chpst}}'s functionality please consult the respective man page.
+
+{{C|sv}} is runit's program for controlling supervised processes and querying status information about them. It accepts a ''subcommand'' and a set of service directory pathnames as arguments. Unless a pathname starts with a dot ('.') or slash ('/'), it is asumed to be relative to the directory specified as the value of the <var>SVDIR</var> environment variable, or to {{Path|/service}} if <var>SVDIR</var> is empty or unset. The subcommand tells {{C|sv}} what to do. The '''up''', '''down''', '''once''' and '''exit''' subcommands behave like daemontools' <kbd>svc -u</kbd> <kbd>svc -d</kbd> <kbd>svc -o</kbd> and <kbd>svc -dx</kbd> commands, respectively. The '''status''' subcommand is similar to daemontools' {{C|svstat}}, it displays whether the supervised process is running ('run') or not ('down'), or if its {{Path|finish}} file is currently running ('finish'), whether it is transitioning to the desired state or already there ('want up' or 'want down'), its process ID (PID) if it is up (or {{Path|finish}}'s PID if it is currently running), how long it has been in the current state, and whether its current up or down status matches the presence or absence of a {{Path|down}} file in the servicedir ('normally up' or 'normally down'). If also shows if the supervised process is paused (because of a <code>SIGSTOP</code> signal) or has been sent a <code>SIGTERM</code> signal and {{C|runsv}} is waiting for its effect. Other {{C|sv}} subcommands allow reliably sending signals to the supervised process. In particular, <kbd>sv alarm</kbd> can be used to send a <code>SIGALRM</code> signal to a supervised {{C|svlogd}} process to force it to perform a rotation, and <kbd>sv hup</kbd> can be used to send it a <code>SIGHUP</code> signal to make it reread the logging directories' {{Path|config}} files.
+
+{{C|sv}} also accepts a set of subcommands resembling LSB init script actions <ref>Linux Standard Base Core Specification 5.0.0, Generic Part, Chapter 22, "System Initialization", [https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/iniscrptact.html 22.2, "Init Script Actions"]. Retrieved on June 4th, 2017.</ref>:
+
+* The <kbd>sv start</kbd>, <kbd>sv stop</kbd> and <kbd>sv shutdown</kbd> commands behave like <kbd>sv up</kbd>, <kbd>sv down</kbd> and <kbd>sv exit</kbd>, respectively, except that they wait for their actions to be completed, and then print the process' status as if an <kbd>sv status</kbd> command had been used. The wait period's duration is the value of the <var>SVWAIT</var> environment variable (in seconds), or 7 seconds if <var>SVWAIT</var> is empty or unset. It can also be specified in a <code>-w</code> option passed as argument to {{C|sv}}. The status line starts with 'ok:' if the supervised process reached the desired state during the wait period, and with 'timeout:' if it did not.
+* The <kbd>sv force-stop</kbd> and <kbd>sv force-shutdown</kbd> commands behave like <kbd>sv stop</kbd> and <kbd>sv shutdown</kbd>, respectively, except that if the supervised process didn't reach the desired state during the wait period, it will be sent a <code>SIGKILL</code> signal as if an <kbd>sv kill</kbd> command had been used. The status line will start with 'kill:' in that case.
+* The <kbd>sv reload</kbd> command behaves like <kbd>sv hup</kbd> (i.e. sends a <code>SIGHUP</code> signal to the supervised process), except that it prints the status line afterwards.
+* The <kbd>sv try-restart</kbd> command behaves like <kbd>sv term</kbd> followed by <kbd>sv cont</kbd> (i.e. sends a <code>SIGTERM</code> signal and then a <code>SIGCONT</code> signal), except that it waits for its actions to be completed, timing out after the wait period expires if they didn't, and prints the status line afterwards, just like <kbd>sv start</kbd>, <kbd>sv stop</kbd> and <kbd>sv shutdown</kbd> do.
+* The <kbd>sv restart</kbd> command behaves like <kbd>sv term</kbd> followed by <kbd>sv cont</kbd> followed by <kbd>sv up</kbd>, except that it waits for its actions to be completed, timing out after the wait period expires if they didn't, and prints the status line afterwards. That is, it behaves like <kbd>sv try-restart</kbd>, but with an extra <kbd>sv up</kbd> action.
+* The <kbd>sv force-reload</kbd> and <kbd>sv force-restart</kbd> commands behave like <kbd>sv try-restart</kbd> and <kbd>sv restart</kbd>, except that the supervised process will be sent a <code>SIGKILL</code> signal if it didn't reach the desired state during the wait period, just like <kbd>sv force-stop</kbd> and <kbd>sv force-shutdown</kbd> do.
+
+{{C|sv}}'s LSB init script action-like subcommands consider that the effect of their actions is complete based on the state {{C|runsv}} considers the supervised process to be in (as <kbd>sv status</kbd> would report it). This behaviour can be extended by including an executable file named {{Path|check}} in the service directory. Subcommands that include in their actions the equivalent of an <kbd>sv up</kbd>, <kbd>sv term</kbd> or <kbd>sv kill</kbd> command will make {{C|sv}} execute the {{Path|check}} file. The supervised process is considered to be up if {{C|runsv}} considers it to be up, and if {{Path|check}}'s exit code is 0. {{C|sv}} also supports a '''check''' subcommand, that performs no action on the supervised process, but makes {{C|sv}} execute the {{Path|check}} file. If its exit code is 0, it will print a status line starting with 'ok:', otherwise, it will print a status line starting with 'timeout:' after the wait period expires.
+
+For the full description of {{C|sv}}'s functionality please consult the respective man page.
+
+Sample runit scan directory with {{Path|down}} and {{Path|finish}} files, as well as a symbolic link to a {{Path|supervise}} directory elswhere:
+{{Cmd|ls -l *|
+output=<pre>test-service1:
+total 4
+-rwxr-xr-x 1 user user 28 Jun  3 12:00 run
+lrwxrwxrwx 1 user user 24 Jun  3 12:00 supervise -> ../../external-supervise
+
+test-service2:
+total 4
+-rwxr-xr-x 1 user user 28 Jun  3 12:00 run
+
+test-service3:
+total 8
+-rw-r--r-- 1 user user  0 Jun  3 12:00 down
+-rwxr-xr-x 1 user user 63 Jun  3 12:00 finish
+-rwxr-xr-x 1 user user 56 Jun  3 12:00 run
+
+test-service4:
+total 8
+-rw-r--r-- 1 user user  0 Jun  3 12:00 down
+-rwxr-xr-x 1 user user 54 Jun  3 12:00 finish
+-rwxr-xr-x 1 user user 33 Jun  3 12:00 run</pre>}}
+
+{{FileBox|lang=bash|filename=test-service1/run|1=#!/bin/sh
+exec test-daemon1}}
+
+{{FileBox|lang=bash|filename=test-service2/run|1=#!/bin/sh
+exec test-daemon2}}
+
+{{FileBox|lang=bash|filename=test-service3/run|1=#!/bin/sh
+echo Starting test-service3/run
+exec sleep 10}}
+
+{{FileBox|lang=bash|filename=test-service3/finish|1=#!/bin/sh
+echo Executing test-service3/finish $@
+exec sleep 10}}
+
+{{FileBox|lang=bash|filename=test-service4/run|1=#!/bin/sh
+exec test-daemon-ignoreterm}}
+
+{{FileBox|lang=bash|filename=test-service4/finish|1=#!/bin/sh
+exec echo Executing test-service4/finish $@}}
+
+It is assumed {{C|test-daemon-ignoreterm}} is a program that ignores the <code>SIGTERM</code> signal.
+
+Resulting supervision tree when is run on this scandir as a background process in an interactive shell, assuming it is a subdirectory named {{Path|scan}} in the working directory (i.e. launched with <kbd>runsvdir scan &</kbd>): 
+{{Cmd|ps xf -o pid,ppid,pgrp,euser,args|
+output=<pre>  PID  PPID  PGRP EUSER    COMMAND
+ ...
+ 1776  1763  1776 user     -bash
+ 2471  1776  2471 user      \_ runsvdir scan
+ 2472  2471  2471 user          \_ runsv test-service4
+ 2473  2471  2471 user          \_ runsv test-service3
+ 2474  2471  2471 user          \_ runsv test-service1
+ 2476  2474  2471 user          |   \_ test-daemon1
+ 2475  2471  2471 user          \_ runsv test-service2
+ 2477  2475  2471 user              \_ test-daemon2
+ ...</pre>}}
+
+{{Important|Since processes in a supervision tree are created using the POSIX {{C|fork()}} call, all of them will inherit {{C|runsvdir}}'s enviroment, which, in the context of this example, is the user's login shell environment. If {{C|runsvdir}} is launched in some other way (see later), the environment will likely be completely different. This must be taken into account when trying to debug a supervision tree with an interactive shell.}}
+
+{{Path|supervise}} subdirectory contents:
+{{Cmd|ls -l */supervise|
+output=<pre>lrwxrwxrwx 1 user user   24 Jun  3 12:00 test-service1/supervise -> ../../external-supervise
+
+test-service2/supervise:
+total 12
+prw------- 1 user user  0 Jun  3 12:05 control
+-rw------- 1 user user  0 Jun  3 12:05 lock
+prw------- 1 user user  0 Jun  3 12:05 ok
+-rw-r--r-- 1 user user  5 Jun  3 12:05 pid
+-rw-r--r-- 1 user user  4 Jun  3 12:05 stat
+-rw-r--r-- 1 user user 20 Jun  3 12:05 status
+
+test-service3/supervise:
+total 8
+prw------- 1 user user  0 Jun  3 12:05 control
+-rw------- 1 user user  0 Jun  3 12:05 lock
+prw------- 1 user user  0 Jun  3 12:05 ok
+-rw-r--r-- 1 user user  0 Jun  3 12:05 pid
+-rw-r--r-- 1 user user  5 Jun  3 12:05 stat
+-rw-r--r-- 1 user user 20 Jun  3 12:05 status
+
+test-service4/supervise:
+total 8
+prw------- 1 user user  0 Jun  3 12:05 control
+-rw------- 1 user user  0 Jun  3 12:05 lock
+prw------- 1 user user  0 Jun  3 12:05 ok
+-rw-r--r-- 1 user user  0 Jun  3 12:05 pid
+-rw-r--r-- 1 user user  5 Jun  3 12:05 stat
+-rw-r--r-- 1 user user 20 Jun  3 12:05 status</pre>}}
+
+{{Cmd|ls -l ../external-supervise|
+output=<pre>total 12
+prw------- 1 user user  0 Jun  3 12:05 control
+-rw------- 1 user user  0 Jun  3 12:05 lock
+prw------- 1 user user  0 Jun  3 12:05 ok
+-rw-r--r-- 1 user user  5 Jun  3 12:05 pid
+-rw-r--r-- 1 user user  4 Jun  3 12:05 stat
+-rw-r--r-- 1 user user 20 Jun  3 12:05 status</pre>}}
+
+Messages sent by the supervised processes to {{C|runsvdir}}'s standard output when manually starting {{C|test-service3/run}}:
+{{Cmd|sv up ./scan/test-service3|
+output=<pre>Starting test-service3/run
+Executing test-service3/finish 0 0
+Starting test-service3/run
+Executing test-service3/finish 0 0
+Starting test-service3/run
+...</pre>}}
+
+{{Cmd|sv status ./scan/*|
+output=<pre>run: ./scan/test-service1: (pid 2518) 80s
+run: ./scan/test-service2: (pid 2519) 80s
+run: ./scan/test-service3: (pid 2534) 7s, normally down
+down: ./scan/test-service4: 80s</pre>}}
+
+After enough seconds have elapsed:
+{{Cmd|sv status ./scan/*|
+output=<pre>run: ./scan/test-service1: (pid 2518) 86s
+run: ./scan/test-service2: (pid 2519) 86s
+finish: ./scan/test-service3: (pid 2537) 13s, normally down
+down: ./scan/test-service4: 86s</pre>}}
+
+Reliably sending a <code>SIGTSOP</code> signal to {{C|test-service3/run}}:
+{{Cmd|sv pause ./scan/test-service3|sv status ./scan/test-service3|
+output=<pre>run: ./scan/test-service3: (pid 2689) 100s, normally down, paused</pre>}}
+
+Reliably sending a <code>SIGTERM</code> signal afterwards:
+{{Cmd|sv term ./scan/test-service3|sv status ./scan/test-service3|
+output=<pre>run: ./scan/test-service3: (pid 2689) 139s, normally down, paused, got TERM</pre>}}
+
+The signal doesn't have any efect yet because the supervised process is stopped. To resume it a <code>SIGCONT</code> signal is needed:
+{{Cmd|sv cont ./scan/test-service3|
+output=<pre>Executing test-service3/finish -1 15
+Starting test-service3/run
+Executing test-service3/finish 0 0
+Starting test-service3/run</pre>}}
+
+Since the process is supervised, after being killed {{C|runsv}} executes {{Path|test-service3/finish}}, and then restarts the process by executing {{Path|test-service3/run}}.
+
+Messages sent by the supervised processes to {{C|runsvdir}}'s standard output when manually stopping {{Path|test-service3/run}}:
+{{Cmd|sv down ./scan/test-service3|output=<pre>Executing test-service3/finish -1 15</pre>}}
+
+This shows that {{C|runsv}} stopped {{Path|test-service3/run}} by killing it with a <code>SIGTERM</code> signal (signal 15).
+
+Manually starting {{C|test-service4/run}} using the {{C|sv}}'s LSB-like interface:
+{{Cmd|sv start ./scan/test-service4|output=<pre>ok: run: ./scan/test-service4: (pid 2771) 1s, normally down</pre>}}
+
+Manually stopping {{C|test-service2/run}} and {{C|test-service4/run}} using the {{C|sv}}'s LSB-like interface:
+{{Cmd|sv stop ./scan/test-service2 ./scan/test-service4|
+output=<pre>ok: down: ./scan/test-service2: 1s, normally up
+timeout: run: ./scan/test-service4: (pid 2771) 141s, normally down, want down, got TERM</pre>}}
+
+This shows that {{C|test-service2/run}} could be stopped ('ok:') but {{C|test-service4/run}} couldn't (because it ignores <code>SIGTERM</code>), so after the default 7 seconds wait period, {{C|sv}} gives up ('timeout:'). Forcibly stopping {{C|test-service4/run}} using the {{C|sv}}'s LSB-like interface:
+{{Cmd|sv force-stop ./scan/test-service4|
+output=<pre>kill: run: ./scan/test-service4: (pid 2771) 274s, normally down, want down, got TERM
+Executing test-service4/finish -1 9</pre>}}
+
+This shows that because {{C|test-service4/run}} didn't stop during the default 7 seconds wait, {{C|sv}} sends it a <code>SIGKILL</code> signal (signal 9), so it is now stopped:
+{{Cmd|sv status ./scan/test-service4|output=<pre>down: ./scan/test-service4: 21s</pre>}}
+
+=== Starting the supervision tree ===
+
+{{anchor|openrclaunch}}
+==== From OpenRC ====
+
+As of version 0.22, [[OpenRC]] provides a service script that can launch {{C|runsvdir}} with {{C|readproctitle}}-style logging, also named {{Path|runsvdir}}. On Gentoo, the scan directory will be {{Path|/run/openrc/sv}}. This script exists to support the [[#runitintegration|OpenRC-runit integration]] feature, but can be used to just launch a runit supervision tree. Thus, it can be started when the machine boots by adding it to an OpenRC runlevel using {{C|rc-update}}:
+{{RootCmd|rc-update add runsvdir default}}
+
+Or it can also be started manually:
+{{RootCmd|rc-service runsvdir start}}
+
+Because the service script calls {{C|runsvdir}} using absolute path {{Path|/usr/bin/runsvdir}}, a symlink to the correct path must be created if using >=sys-process/runit-2.1.2:
+{{RootCmd|ln -s /bin/runsvdir /usr/bin/runsvdir}}
+
+{{Note|The service script launches {{C|runsvdir}} using OpenRC's {{C|start-stop-daemon}} program, so it will run unsupervised. Also, its standard input and output will be redirected to {{Path|/dev/null}}. Its standard error will be redirected to the {{C|readproctitle}}-style log, though.}}
+
+Alternatively, OpenRC's {{C|local}} service could be used to start the supervision tree when entering OpenRC's 'default' runlevel, by placing '.start' and '.stop' files in {{Path|/etc/local.d}} (please read {{Path|/etc/local.d/README}} for more details) that perform actions similar to those of the {{Path|runsvdir}} service script:
+{{FileBox|filename=/etc/local.d/runsvdir.start|lang=bash|1=
 #!/bin/sh
-rc default}}
-{{RootCmd|chmod u+x /etc/local.d/rc-default.start}}
-{{RootCmd|rc-update add local boot}}
-
-Alternatively, add <code>RUNLEVEL=S /sbin/rc default</code> to {{Path|/etc/runit/1}} as seen below:
-
-{{FileBox|filename=/etc/runit/1|1=
-RUNLEVEL=S /sbin/rc sysinit
-RUNLEVEL=S /sbin/rc boot
-RUNLEVEL=S /sbin/rc default
+# Remember to add --user if you don't want to run as root
+# Remember to change /usr/bin/runsvdir to /bin/runsvdir if using >=sys-process/runit-2.1.2
+start-stop-daemon --start --background --make-pidfile \
+   --pidfile /run/runsvdir.pid \
+   --exec /usr/bin/runsvdir -- -P /path/to/scandir readproctitle-like-log-argument
 }}
 
-Or, for those who prefer to do it manually:
+{{FileBox|filename=/etc/local.d/runsvdir.stop|lang=bash|1=
+#!/bin/sh
+start-stop-daemon --stop --retry SIGHUP/5 --pidfile /run/runsvdir.pid
+}}
 
-{{RootCmd|rc default}}
+The <code>SIGHUP</code> signal makes {{C|runsvdir}} send a <code>SIGTERM</code> signal to all its {{C|runsv}} children before exiting, which, in turn, makes them stop their supervised processes and exit. The <code>SIGTERM</code> signal that {{C|start-stop-daemon}} sends by default would just make {{C|runsvdir}} exit.
+
+==== From sysvinit ====
+
+Following upstream's suggestion <ref>[http://smarden.org/runit/useinit.html#sysv Using runit with sysvinit and inittab]. Retrieved on May 28th, 2017.</ref>, Gentoo's packaging of runit provides a {{Path|/sbin/runsvdir-start}} symbolic link to {{Path|/etc/runit/2}}, that allows {{C|runsvdir}} to be launched and supervised by [https://packages.gentoo.org/packages/sys-apps/sysvinit sysvinit] by adding a 'respawn' line for it in {{Path|/etc/inittab}}. Used in this way, the supervision tree becomes rooted in process 1, which cannot die without crashing the machine.
+
+Gentoo users wanting to use {{C|runsvdir-start}} in this way will need to manually edit {{Path|/etc/inittab}}, and then call {{C|telinit}}:
+{{FileBox|filename=/etc/inittab|1=SV:12345:respawn:/sbin/runsvdir-start}}
+
+{{RootCmd|telinit q}}
+
+This will make sysvinit launch and supervise {{C|runsvdir}} when entering runlevels 1 to 5.
+
+=== The logging chain ===
+
+A supervision tree where all leaf processes have a logger can be arranged into what the author of [[s6]] calls ''the logging chain'' <ref>Laurent Bercot, [https://www.skarnet.org/software/s6/s6-log.html#loggingchain the logging chain], Retrieved on May 1st, 2017.</ref>, which he considers to be technically superior to the traditional syslog-based centralized approach <ref>Laurent Bercot, [https://www.skarnet.org/software/s6/s6-log.html#diesyslogdiedie on the syslog design], Retrieved on May 1st, 2017.</ref>.
+
+Since processes in a supervision tree are created using the POSIX {{C|fork()}} call, all of them will inherit {{C|runsvidir}}'s standard input, output and error. A logging chain arrangement using runit is as follows:
+
+* Leaf processes should normally have a logger, so their standard output and error connect to their logger's standard input. Therefore, all their messages are collected and stored in dedicated, per-service logs by their logger. Some programs might need to be invoked with certain options passed as arguments to make them send messages to their standard error, and redirection of stderr to stdout (i.e. '''2>&1''' in a shell script) must be performed in the servicedir's {{Path|run}} file.
+* Leaf processes with a controlling terminal are an exception: their standard input, output and error connect to the terminal.
+* {{C|runsv}}, the loggers, and leaf processes that exceptionally don't have logger for some reason, inherit their standard input, output and error from {{C|runsvdir}}, so their messages are sent wherever the ones from {{C|runsvdir}} are.
+* Leaf processes that still unavoidably report their messages using {{C|syslog()}} have them collected and logged by a (possibly supervised) syslog server.
+
+If runit [[#runitinit|is used as the init system]], and {{C|runsvdir}} was invoked with no second argument, its standard input, output and error will be redirected to {{Path|/dev/console}}. If {{C|runsvdir}} was invoked with a second argument, {{C|readproctitle}}-like logging is turned on and messages sent to {{C|runsvdir}}'s standard error will go to the log and can be seen using {{C|ps}}.
+
+{{anchor|runitinit}}
+=== Runit as the init system ===
+
+{{Warning|While Gentoo does offer a runit package in its official repository, it is not completely supported as an init system. Gentoo users wanting to use runit as their machine's init system might need to use [[Ebuild_repository|alternative ebuild repositories]] and/or do some local tweaking. See [[#External_resources|"External resources"]]}}
+
+The runit package provides a program capable of running as process 1, also called {{C|runit}}, and a helper program, {{C|runit-init}}. If {{C|runit-init}} detects it is running as process 1, it replaces itself with {{C|runit}} using the POSIX {{C|execve()}} call. Therefore, to use {{C|runit}} as the system's init, a <code>init=/sbin/runit-init</code> parameter can be added to kernel's command line using the [[Bootloader|bootloader's]] available mechanisms (e.g. a {{C|linux}} command in some 'Gentoo with runit' menu entry for [[GRUB2]]). It is possible to go back to sysvinit + OpenRC at any time by reverting the change.
+
+When the machine starts booting (if an [[initramfs]] is being used, after it passes control to the 'main' init), {{C|runit}} executes the {{Path|/etc/runit/1}} file as a child process, in a foreground process group with {{Path|/dev/console}} as the controlling terminal, and waits for it to finish. This file is usually a shell script, and is expected to perform all one time initialization tasks needed to bring the machine to its stable, normal 'up and running' state. Gentoo's {{Path|/etc/runit/1}} file is quite minimal, it only calls the {{C|openrc}} program to enter OpenRC's 'sysinit' runlevel, and then its 'boot' runlevel, emulating Gentoo's sysvinit {{C|/etc/inittab}} setup.
+{{Note|This setup means that any long-lived processes launched by a service script upon entering OpenRC's 'sysinit' and 'boot' runlevels won't be supervised}}
+
+When {{Path|/etc/runit/1}} exits, {{C|runit}} then executes the {{Path|/etc/runit/2}} file as a child process, makes it a session leader with the POSIX {{C|setsid()}} call, and ''supervises'' it: if {{Path|/etc/runit/2}} is killed by a signal or its exit code is '''111''', then {{C|runit}} will restart it, after sending a <code>SIGKILL</code> signal to every remaining process in its process group. Gentoo's {{Path|/etc/runit/2}} file is upstream's suggested one with minimal modifications. It is a shell script that uses the {{C|exec}} builtin utility to replace itself with {{C|runsvdir}}, so this creates a supervision tree rooted in process 1. The scan directory will be {{Path|/var/service}} for <sys-process/runit-2.1.2, and {{Path|/etc/service}} for >=sys-process/runit-2.1.2. The enviroment will be empty, except for the PATH variable, set to a known value in the script. {{C|runsvdir}} will use {{C|readproctitle}}-like logging, and, for >=sys-process/runit-2.1.2, is also passed the <code>-P</code> option.
+
+Gentoo's packaging of runit expects {{Path|/etc/runit/runsvdir/all}} for <sys-process/runit-2.1.2, or {{Path|/etc/sv}} for >=sys-process/runit-2.1.2, to be a repository of service directories. Services that need to be started when the machine boots require a symbolic link in the scan directory to the corresponding servicedir in that repository. Gentoo only provides service directories for 6 parallel supervised {{C|getty}} processes (with their symlinks in the scan directory); this allow users to get to a text console login, like with Gentoo's sysvinit {{C|/etc/inittab}} setup. Service directories for anything else must be created by the administrator, either from scratch or taken from somewhere else (e.g. alternative ebuild repositories).
+
+Runit doesn't directly support any runlevel-like concept, but if the machine contains a set of directories, each one with a scan directory structure, then it is possible to have a behaviour similar to 'changing runlevels' if the scan directory argument of {{C|runsvdir}} is actually a symbolic link. The software package's author proposes<ref>[http://smarden.org/runit/runlevels.html runit - runlevels]. Retrieved on June 10th, 2017.</ref> creating a symbolic link to directory pointing to one of the aforementioned directories, which then becomes the ''current scan dirrectory''. Runit provides a {{C|runsvchdir}} program that can atomically modify this symlink, thereby changing the current scan directory, and {{C|runsvdir}}'s next periodic rescan would take care of starting and killing the appropriate {{C|runsv}} processes. For further details on {{C|runsvchdir}}, please consult the respective man page. Gentoo's packaging of runit version 2.1.1 supports this model: {{C|runsvdir}}'s scan directory argument is symbolic link {{Path|/var/service}}, that points to {{Path|/etc/runit/runsvdir/current}}. The latter in turn is also a symlink that points to {{Path|/etc/runit/runsvdir/default}}, but can be modified later using {{C|runsvchdir}}. Gentoo's packaging of more recent versions of runit does away with this runlevel-like setup.
+
+If {{C|runit}} receives a <code>SIGCONT</code> signal, and the file {{Path|/etc/runit/stopit}} exists and has the execute by owner permission set, it will kill {{Path|/etc/runit/2}} (first by sending it a <code>SIGTERM</code> signal and waiting, then by sending it a <code>SIGKILL</code> signal) and then execute the {{Path|/etc/runit/3}} file. This file is usually a shell script, and is expected to perform all tasks needed to shut the machine down. If {{Path|/etc/runit/1}} is killed by a signal or its exit code is '''100''', {{C|runit}} skips execution of {{Path|/etc/runit/2}} and executes {{Path|/etc/runit/3}}. {{C|runit}} will also execute {{Path|/etc/runit/3}} if {{Path|/etc/runit/2}} exits (with an exit code other than 111). If {{Path|/etc/runit/3}} exits, {{C|runit}} will send a <code>SIGKILL</code> signal to all remaining processes, and then check if the file {{Path|/etc/runit/reboot}} exists, to decide what to do next. If the file exists and has the execute by owner permission set, it reboots the machine. In any other case, it will poweroff the machine, or halt it if it can't power it off.
+
+Gentoo's {{Path|/etc/runit/3}} file performs an <kbd>sv shutdown</kbd> for <sys-process/runit-2.1.2, or an <kbd>sv force-shutdown</kbd> for >=sys-process/runit-2.1.2, on every servicedir of {{C|runsvdir}}'s scan directory, and then calls the {{C|openrc}} program to enter OpenRC's 'shutdown' or 'reboot' runlevels, depending on whether a poweroff or reboot operation was requested to {{C|runit}} via {{Path|/etc/runit/reboot}}.
+
+If {{C|runit}} receives a <code>SIGINT</code> signal (which is usually configured to happen when key combination {{Key|Ctrl}}+{{Key|Alt}}+{{Key|Del}} is pressed), and the file {{Path|/etc/runit/ctrlaltdel}} exists and has the execute by owner permission set, it will execute it as a child process, and when it exits, behave as if it had received a <code>SIGCONT</code> signal. Gentoo's {{Path|/etc/runit/ctrlaltdel}} prints a "''System is going down in 14 seconds...''" message using the {{C|wall}} utility, makes sure file {{Path|/etc/runit/stopit}} exists and has the execute by owner permission set, waits 14 seconds and then exits. The result being that <code>SIGINT</code> will either halt or reboot the machine after 14 seconds, depending on {{Path|/etc/runit/reboot}}.
+
+All {{C|runit}}'s children run initially with their standard input, output and error redirected to {{Path|/dev/console}}.
 
 ==== Reboot and shutdown ====
 
-Runit is not directly compatible with sysvinit's {{c|telinit}}, {{c|halt}}, {{c|poweroff}}, {{c|reboot}}, and {{c|shutdown}} commands, however many programs (e.g. desktop environments) expect to be able to call some of these during operation.
+The {{C|runit-init}} program can be used to shut the machine down when {{C|runit}} is running as process 1. Unless {{C|runit-init}} is running as process 1, it accepts one argument, which can be either '''0''' or '''6''':
+* If it is 0, it will create the {{Path|/etc/runit/stopit}} and {{Path|/etc/runit/reboot}} files if any of them does not exist, set the execute by owner permission for the former, unset it for the latter, and send a <code>SIGCONT</code> signal to process 1.
+* If it is 6, it will create the {{Path|/etc/runit/stopit}} and {{Path|/etc/runit/reboot}} files if any of them does not exist, set the execute by owner permission for both of them, and send a <code>SIGCONT</code> signal to process 1.
 
-sysvinit's functionality can be restored using some one-liner, workaround shell scripts:
+Therefore, if process 1 is {{C|runit}}, then <kbd>runit-init 0</kbd> will poweroff the machine, and <kbd>runit-init 6</kbd> will reboot it.
 
+This means that {{C|runit}} is not directly compatible with sysvinit's {{c|telinit}}, {{c|halt}}, {{c|poweroff}}, {{c|reboot}}, and {{c|shutdown}} commands. However, many programs (e.g. desktop environments) expect to be able to call programs with those names during operation, so if such thing is needed, it is possible to use compatibility shell scripts:
 {{FileBox|filename=$PATH/shutdown|lang=bash|1=
 #!/bin/sh
 runit-init 0
@@ -59,54 +389,189 @@ runit-init 0
 runit-init 6
 }}
 
-=== Init and service manager ===
+==== Runit and service management ====
 
-Runit can also replace OpenRC as the service manager. To achieve this, delete all lines starting with <code>RUNLEVEL=S</code> in {{Path|/etc/runit/1}}. However, one will have to replace the boot scripts and OpenRC's service scripts with it's own (or [https://github.com/powerman/powerman-overlay use an overlay]) that do the same tasks (to see what tasks are being executed by OpenRC, one could run {{c|rc-status sysinit}} and {{c|rc-status boot}}).
+Runit doesn't have service manager features, i.e. it does not provide mechanisms for specifiying dependencies, service ordering constraits, etc. like OpenRC does using <code>depend()</code> functions in service scripts. If such things are needed, the wanted behaviour must be explicitly enforced in the code of {{Path|run}} files; the software package's author provides some tips on how to do that <ref>[http://smarden.org/runit/dependencies.html runit - service dependencies]. Retrieved on June 10th, 2017.</ref>. Sometimes, just doing nothing ''might'' be enough: if {{Path|run}} simply exits with an error status when there is an unmet required condition, and, perhaps with help from a {{Path|finish}} files that analyzes the exit code, the state the machine was in before {{Path|run}} was executed is restored, the supervisor would just keep restarting the service until, after some convergence period, all its required conditions are met. The author of [[nosh]] calls this "''the thundering herd solution''" <ref>Jonathan de Boyne Pollard, the nosh Guide, [https://jdebp.eu/Softwares/nosh/guide/introduction.html Introduction], section "Differentiation from other systems", bullet "No daemontools-style thundering herds". Retrieved on June 10th, 2017.</ref>.
 
-=== OpenRC supervision service ===
+Nevertheless, OpenRC and runit do not interfere with each other, so it is possible to use OpenRC-managed services on a machine where the init system is runit. In particular, once the supervision tree rooted in process 1 is launched, it is still possible to manually start individual OpenRC services using {{C|rc-service}}, or even entering OpenRC's 'default' runlevel manually:
+{{RootCmd|openrc default}}
 
-Runit can supervise processes without running as init, or even necessarily as root:
-
-{{Cmd|mkdir /path/to/service-dir/}}
-
-{{GenericCmd|(Create your service directories and run scripts here, using the same layout as /etc/runit/runsvdir/all/)}}
-
-{{Cmd|chmod a+x /path/to/service-dir/*/run}}
-
-==== Local service ====
-
-OpenRC can start this for you using {{Path|/etc/init.d/local}} (see {{Path|/etc/local.d/README}} for more details):
-
-{{FileBox|filename=/etc/local.d/runsvdir.start|lang=bash|1=
+Services from OpenRC's 'default' runlevel could be started automatically on boot using the existing {{C|local}} service, moving it to the 'boot' runlevel:
+{{FileBox|filename=/etc/local.d/rc-default.start|lang=bash|title=Enter OpenRC's 'default' runlevel|lang=bash|1=
 #!/bin/sh
-# Remember to add --user if you don't want to run as root!
-start-stop-daemon --start --background --make-pidfile \
-    --pidfile /run/runsvdir.pid \
-    --exec /usr/bin/runsvdir -- /path/to/service-dir/
-}}
+openrc default}}
 
-{{FileBox|filename=/etc/local.d/runsvdir.stop|lang=bash|1=
-#!/bin/sh
-start-stop-daemon --stop --pidfile /run/runsvdir.pid
-}}
+{{RootCmd|rc-update del local default|rc-update add local boot}}
 
-==== OpenRC service ====
+Alternatively, {{Path|/etc/runit/1}} can be modified to add the corresponding {{C|openrc}} invocation:
+{{FileBox|filename=/etc/runit/1|1=RUNLEVEL{{=}}S /sbin/openrc default}}
 
-This does the same as the {{Path|local.d}} script above, but using OpenRC proper. As such, you can use the extra features it provides like init script multiplexing.
+Note however that OpenRC services will not be supervised by runit.
 
-{{FileBox|filename=/etc/init.d/runsvdir|lang=bash|1=
-#!/sbin/openrc-run
-command="runsvdir"
-command_args="/etc/service"
-pidfile="/run/${SVCNAME}.pid"
-command_background="true"
-description="starts and monitors a collection of runsv(8) processes"
-retry="SIGHUP/5"
+Runit can be used without OpenRC's service management, but this requires alternative implementation of the functionality of its service scripts, especially those executed upon entering the 'sysinit', 'boot' and 'shutdown' runlevels, and replacing the Gentoo-provided {{Path|/etc/runit/1}} and {{Path|/etc/runit/3}} files with custom ones, since they call the {{C|openrc}} program. It can be be useful to study those from runit-based distributions (e.g. see Void Linux's ones in [https://github.com/voidlinux/void-runit their void-runit package sources]).
+
+{{anchor|runitintegration}}
+=== OpenRC's runit integration feature ===
+
+Starting with version 0.22, OpenRC can launch supervised long-lived processes using the runit package as a helper <ref>[https://github.com/OpenRC/openrc/blob/master/runit-guide.md Using runit with OpenRC]. Retrieved on June 15th, 2017.</ref>. This is an alternative to 'classic' unsupervised long-lived processes launched using the {{C|start-stop-daemon}} program. It should be noted that service scripts that don't contain <code>start()</code> and <code>stop()</code> functions implicitly use {{C|start-stop-daemon}}.
+
+OpenRC services that want to use runit supervision need both a service script in {{Path|/etc/init.d}} and a runit service directory. The service script must contain a <code>supervisor=runit</code> variable assignment to turn the feature on, and must have a 'need' dependency on the {{C|runsvdir}} service in its <code>depend()</code> function, to make sure the {{C|runsvdir}} program is launched (see [[#openrclaunch|here]]). It can contain neither a <code>start()</code> function, nor a <code>stop()</code> function (but their <code>_pre()</code> and <code>_post()</code> variants are OK), nor a <code>status()</code> function; OpenRC internally invokes {{C|sv}} when the service script is called with a 'start', 'stop' or 'status' argument.
+
+The runit service directory can be placed anywhere in the filesystem, and have any name, as long as the service script (or the service-specific configuration file in {{Path|/etc/conf.d}}) assigns the servicedir's absolute path to the <var>runit_service</var> variable. If <var>runit_service</var> is not assigned to, the runit servicedir must have the same name as the OpenRC service script, and will be searched in the >=sys-process/runit-2.1.2 service directory repository, {{Path|/etc/sv}}. The scan directory when using this feature is {{Path|/run/openrc/sv}}, and OpenRC will create a symlink to the service directory when the service is started, and delete it when the service is stopped.
+
+{{Warning|OpenRC does not integrate as expected when runit is used as the init system, since there will be two {{C|runsvdir}} processes: the one supervised by {{C|runit}} with {{Path|/etc/service}} or {{Path|/var/service}} as the scan directory, and the unsupervised one launched by OpenRC with {{Path|/run/openrc/sv}} as the scan directory. So the result will be two independent supervision trees.}}
+
+Sample setup for a hypothetical supervised ''test-daemon'' service, with and without a dedicated logger.
+{{FileBox|lang=bash|filename=/etc/init.d/test-service|title=OpenRC service script|1=#!/sbin/openrc-run
+
+description="A supervised test service"
+supervisor=runit
+runit_service=/home/user/test/svc-repo/test-service
 
 depend() {
-    need localmount
-}
-}}
+   need localmount runsvdir
+} }}
+
+{{Cmd|/sbin/rc-service test-service describe|
+output=<pre>* A supervised test service
+* cgroup_cleanup: Kill all processes in the cgroup</pre>}}
+
+{{FileBox|lang=bash|filename=/etc/init.d/test-service-logged|title=OpenRC service script|1=#!/sbin/openrc-run
+
+description="A supervised test service with a logger"
+supervisor=runit
+runit_service=/home/user/test/svc-repo/test-service-logged
+
+depend() {
+   need localmount runsvdir
+} }}
+
+{{Cmd|/sbin/rc-service test-service-logged describe|
+output=<pre>* A supervised test service with a logger
+* cgroup_cleanup: Kill all processes in the cgroup</pre>}}
+
+The service directories:
+{{Cmd|ls -l /home/user/test/svc-repo/test-service* /home/user/test/svc-repo/test-service*/log|
+output=<pre>test-service:
+total 4
+-rwxr-xr-x 1 user user 96 Jun 17 12:00 run
+
+test-service-logged:
+total 8
+drwxr-xr-x 2 user user 4096 Jun 17 12:00 log
+-rwxr-xr-x 1 user user  101 Jun 17 12:00 run
+
+test-service-logged/log:
+total 4
+-rwxr-xr-x 1 user user 62 Jun 17 12:00 run</pre>}}
+
+{{FileBox|lang=bash|filename=test-service/run|1=#!/bin/sh
+exec \
+chpst -o 5 \
+chpst -u daemon \
+/home/user/test/test-daemon}}
+
+This launches program {{C|test-daemon}} with effective user ''daemon'' and the maximum number of open file descriptors set to 5. This is the same as if {{C|test-daemon}} performed a <code>setrlimit(RLIMIT_NOFILE, &rl)</code> call itself with <code>rl.rlim_cur</code> set to 5, provided that value does not exceed the corresponding hard limit. The program also periodically sends a message of the form "''Logged message #N''" to its standard error.
+{{FileBox|lang=bash|filename=test-service-logged/run|1=#!/bin/sh
+exec chpst -o 5 \
+chpst -u daemon \
+/home/user/test/test-daemon 2>&1}}
+
+{{FileBox|lang=bash|filename=test-service-logged/log/run|1=#!/bin/sh
+exec chpst -u user \
+svlogd -tt /home/user/test/logdir}}
+
+The redirection of {{C|test-daemon}}'s standard error to standard output allows logging its messages using runit's {{C|svlogd}}. An automatically rotated logging directory named ''logdir'' will be used, and messages will have a UTC timestamp prepended to them.
+
+Manually starting {{C|test-service-logged}}:
+{{RootCmd|rc-service test-service-logged start|
+output=<pre>* /run/openrc/sv: creating directory
+* Starting runsvdir ...                       [ ok ]
+* Starting test-service-logged ...
+* Failed to start test-service-logged         [ !! ]
+* ERROR: test-service-logged failed to start</pre>}}
+
+{{Warning|There's currently a bug in the implementation of service startup; OpenRC calls <kbd>sv start</kbd> immediately after creating the servicedir symlink in the scan directory, instead of waiting for {{C|runsvdir}}'s next rescan. Because no {{C|runsv}} process has been launched yet, <kbd>sv start</kbd> will fail. However, after the next rescan, and unless there is a {{Path|down}} file in the service directory, the service will go up regardless, when the corresponding {{C|runsv}} process is launched.}}
+
+{{RootCmd|rc-service test-service-logged status|output=<pre>run: /run/openrc/sv/test-service-logged: (pid 1959) 24s; run: log: (pid 1958) 24s</pre>}}
+
+Make OpenRC's notion of the service's state catch up:
+{{RootCmd|rc-service test-service-logged start|output=<pre>* Starting test-service-logged ...            [ ok ]</pre>}}
+
+The resulting supervision tree so far:
+{{Cmd|ps axf -o pid,ppid,pgrp,euser,args|
+output=<pre>  PID  PPID  PGRP EUSER    COMMAND
+ ...
+ 1931     1  1931 root     /usr/bin/runsvdir -P /run/openrc/sv log: ...................................................
+ 2153  1931  2153 root      \_ runsv test-service-logged
+ 2154  2153  2153 user          \_ svlogd -tt /home/user/test/logdir
+ 2155  2153  2153 daemon        \_ /home/user/test/test-daemon
+ ...</pre>}}
+
+Messages from the {{C|test-daemon}} process with PID 2155 go to the logging directory:
+{{Cmd|ls -l /home/user/test/logdir|
+output=<pre>total 12
+-rwxr--r-- 1 user user 441 Jun 17 12:19 @4000000059454877288a41fc.s
+-rwxr--r-- 1 user user 264 Jun 17 12:19 @400000005945489513993834.s
+-rw-r--r-- 1 user user 706 Jun 17 12:20 current
+-rw------- 1 user user   0 Jun 17 12:04 lock</pre>}}
+
+{{Cmd|cat logdir/current|
+output=<pre>2017-06-17_12:19:42.20404 Logged message #1
+2017-06-17_12:19:47.20759 Logged message #2
+2017-06-17_12:19:52.21598 Logged message #3
+2017-06-17_12:19:57.21806 Logged message #4
+2017-06-17_12:20:02.22180 Logged message #5
+2017-06-17_12:20:07.22399 Logged message #6</pre>}}
+
+Manually starting {{C|test-service}}:
+{{RootCmd|rc-service test-service start|
+output=<pre>
+* Starting test-service ...
+* Failed to start test-service                [ !! ]
+* ERROR: test-service failed to start
+</pre>}}
+
+Make OpenRC's notion of the service's state catch up because of the service startup bug:
+{{RootCmd|rc-service test-service start|output=<pre>* Starting test-service ...                   [ ok ]</pre>}}
+
+{{Cmd|rc-status|
+output=<pre>Runlevel: default
+...
+Dynamic Runlevel: needed/wanted
+runsvdir                                                          [  started  ]
+...
+Dynamic Runlevel: manual
+test-service-logged                                               [  started  ]
+test-service                                                      [  started  ]</pre>}}
+
+The scan directory:
+{{Cmd|ls -l /run/openrc/sv|
+output=<pre>total 0
+lrwxrwxrwx 1 root root 46 Jun 17 12:25 test-service -> /home/user/test/svc-repo/test-service
+lrwxrwxrwx 1 root root 53 Jun 17 12:12 test-service-logged -> /home/user/test/svc-repo/test-service-logged</pre>}}
+
+Final supervision tree:
+{{Cmd|ps axf -o pid,ppid,pgrp,euser,args|
+output=<pre>  PID  PPID  PGRP EUSER    COMMAND
+ ...
+ 1931     1  1931 root     /usr/bin/runsvdir -P /run/openrc/sv log: ged message #8 Logged message #9 Logged message #10
+ 2153  1931  2153 root      \_ runsv test-service-logged
+ 2154  2153  2153 user      |   \_ svlogd -tt /home/user/test/logdir
+ 2155  2153  2153 daemon    |   \_ /home/user/test/test-daemon
+ 2249  1931  2249 root      \_ runsv test-service
+ 2250  2249  2249 daemon        \_ /home/user/test/test-daemon
+ ...</pre>}}
+
+Since the {{C|test-daemon}} process with PID 2250 doesn't have a dedicated logger, its messages go to {{C|runsvdir}}'s standard error, which are logged {{C|readproctitle}}-style and show up in {{C|ps}}' output (for process 1931 in this case).
+
+== Removal ==
+
+=== Unmerge ===
+
+{{Unmerge|sys-process/runit}}
+
+All scan directories, service directories, the {{Path|/usr/bin/runsvdir}} symlink to {{Path|/bin/runsvdir}}, etc. must be manually deleted if no longer wanted after uninstalling the package. Also, all modifications to sysvinit's {{Path|/etc/inittab}} must be manually reverted: lines for {{C|runsvdir-start}} must be deleted, and a <kbd>telinit q</kbd> command must be used afterwards. And obviously, if runit is being used as the init system, an alternative one must be installed in parallel, and the machine rebooted to use it (possibly by reconfiguring the bootloader), before the package is uninstalled, or otherwise the machine will become unbootable.
 
 == See also ==
 
@@ -114,11 +579,16 @@ depend() {
 
 == External resources ==
 
-* [https://wiki.archlinux.org/index.php/runit Arch Linux Wiki]
-* [https://forums.gentoo.org/viewtopic-p-7605220.html Gentoo Forums]
-* [https://wiki.voidlinux.eu/Runit Void Linux Wiki]
-* [https://bitbucket.org/avery_payne/supervision-scripts/ supervision-scripts]: a large, modular collection of scripts that can be used with runit.
-* [https://github.com/powerman/powerman-overlay powerman-overlay]: an overlay which contains many runit service files.
+* [https://wiki.voidlinux.eu/Runit Runit article on the Void Linux Wiki] (a runit-based GNU/Linux distribution).
+* [https://wiki.archlinux.org/index.php/runit Runit article on the Arch Linux Wiki].
+* [https://forums.gentoo.org/viewtopic-p-7605220.html A thread about runit on the Gentoo Forums].
+* [https://gitlab.com/flussence/overlay The flussence overlay], providing an alternative runit packaging, and accompanying [https://gitlab.com/flussence/runit-scripts runit-scripts repository].
+* [https://github.com/powerman/powerman-overlay The powerman overlay], providing an alternative runit packaging, service directory {{Path|run}} files for many services, and runit boot scripts.
+* [https://bitbucket.org/avery_payne/supervision-scripts Avery Payne's supervision-scripts project], compatible with runit.
+
+== References ==
+
+{{reflist}}
 
 [[Category:Init systems]]
 [[Category:Process Supervision]]
