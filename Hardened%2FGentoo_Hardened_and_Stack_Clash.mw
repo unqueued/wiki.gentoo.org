@@ -1,0 +1,64 @@
+==Executive summary==
+With Gentoo Hardened no ebuilds compiled with a hardened toolchain with {{Package|sys-devel/gcc}} version 4.8 or higher should be affected by this issue as {{C|-fstack-check{{=}}specific}} is enabled by default. The only known exceptions are {{Package|media-video/vlc}} and (on HPPA) {{Package|dev-lang/tcl}} wich disable this feature.
+
+==Introduction==
+The Gentoo Hardened team has been made aware of a set of vulnerabilities known as Stack Clash.
+
+These vulnerabilities involve the process overflowing its stack onto other memory regions allowing the attacker to either modify the contents of the stack itself or the memory region on which the stack overflows. As a result, an attacker may be able to modify the data of affected programs or their execution flow and trigger the execution of arbitrary code.
+
+The existence of such issues has been known since at least  2005 when Gael Delalleau presented an example of such an issue affecting mod_php in apache.
+
+==Requirements to perform the attack==
+* The attacker needs to be able to make the stack pointer overflow onto an adjacent memory region without accessing the stack guard page.
+* The attacker needs to be able overwrite either the stack or the adjacent section in a meaningful way, for example overwriting the return address of a function to take control of the execution flow.
+
+==Effect of Gentoo Hardened protections==
+As a way to make exploitation of such issues harder vanilla Linux kernels introduced a 4kiB gap between the stack and the other regions
+called guard page, on PaX based kernels like hardened-sources this gap defaults at 64kiB and can be modified using {{Path|/proc/sys/vm/heap_stack_gap}}.  As shown by Qualys' advisory, such gap isn't large enough for all allocations and can be jumped over in some cases.
+
+It should be noted that increasing the size of this gap will not deter all exploitation attempts as large enough allocations may still be able to jump over the gap. It will though affect the processes running on the system and limit the amount of virtual memory space available to them. Although this might not be a problem on 64 bit architectures where the virtual memory space is quite large, on 32 bit architectures this may still be problematic and should be taken into account before using a large heap_stack_gap value.
+
+The Gentoo Hardened toolchain also makes use of {{Package|sys-devel/gcc}}'s Stack Checking feature using {{C|-fstack-check{{=}}specific}} since {{Package|sys-devel/gcc}} 4.8. This makes {{C|gcc}} add stack probing code when large allocations are made ensuring that the guard page or the stack gap are accessed. This will then prevent the attack by killing the process.
+
+To be fully effective, {{C|-fstack-check{{=}}specific}} requires that all the source files used by the process have been compiled making use of this feature. This is because {{C|gcc}} may optimize away some of the checks that are considered redundant.
+
+An assesment over the Gentoo Portage tree hints that only two packages disable this feature. Some ebuilds for {{Package|media-video/vlc}} disable the flag to address {{Bug|499996}}. On the other hand, some ebuilds for {{Package|dev-lang/tcl}} disables this feature on HPPA builds to address {{Bug|280934}}.
+
+It is possible to check the version of the compiler used on a specific ELF binary by checking the value of the {{C|.comment}} section as long as it was not stripped. For this the command {{C|readelf -p .comment}} can be used, for example to check {{Path|/usr/bin/whoami}} run the following command: {{Cmd|readelf -p .comment /usr/bin/whoami|output=<pre>String dump of section '.comment':
+  [     0]  GCC: (Gentoo Hardened 4.9.4 p1.0, pie-0.6.4) 4.9.4</pre>}}
+Users of the {{C|split-debug}} portage feature should instead check the debug file on {{Path|/usr/lib/debug/}}. For example the prior example for {{Path|/usr/bin/whoami}} would be: {{Cmd|readelf -p .comment /usr/lib/debug/usr/bin/whoami.debug|output=<pre>String dump of section '.comment':
+  [     0]  GCC: (Gentoo Hardened 4.9.4 p1.0, pie-0.6.4) 4.9.4</pre>}}
+
+Prior versions of the toolchain make use of {{C|-fstack-protector-all}} which, although not preventing the issue, will make it harder for an attacker to take control of the execution flow of the program as depending on how the attack is performed the attacker may need to find out the value of the canary in the stack.
+
+In this case caution is advised because the amount of ebuilds disabling SSP is much larger and the attacker will be able to overwrite
+the return pointer if the frame of any function provided by the binaries generated using these ebuilds ends up on the overflowed into memory section.
+
+Most of the binaries in Gentoo Hardened are also compiled as PIE binaries, this allows using ASLR which both vanilla and PaX kernels
+provide with the second being noticeably stronger. This will make it harder for an attacker to figure out a valid address on which to return.
+
+Additionally PaX can prevent RWX mappings including the stack itself, this makes it more difficult for the attacker to introduce new code
+forcing him to use executable code already present on the process at the time of the attack. Keep in mind though that most programs making use of JIT compilers will have this feature disabled.
+
+Finally, {{Package|sys-kernel/hardened-sources}} allows enabling ''Deter exploit bruteforcing''. This feature limits the number of unsuccessful attack attempts that can be made against SUID binaries making exploitation noticeably harder.
+
+==Conclusion==
+With the exception of exploits able to make use of {{Package|media-video/vlc}} to jump over the thread gap or (on HPPA systems) {{Package|dev-lang/tcl}} users of Gentoo Hardened who have recompiled their userspaces using {{Package|sys-devel/gcc}} 4.8 or higher are protected against stack overflow issues.
+
+Users of prior versions of {{Package|sys-devel/gcc}} have also partial protection against some of the exploits thanks to PIE and SSP although they should reconsider rebuilding their userspace with a more modern version of the hardened toolchain.
+
+==Further reading reading and sources==
+* [https://www.qualys.com/2017/06/19/stack-clash/stack-clash.txt Advisory by Qualys]
+* [https://gcc.gnu.org/ml/gcc-patches/2017-06/msg01343.html Jeff Law on -fstack-check needing full coverage to be effective]
+* [https://grsecurity.net/an_ancient_kernel_hole_is_not_closed.php Grsecurity's project comments on the issue]
+* {{Bug|CVE-2017-1000377}}
+* [https://gcc.gnu.org/onlinedocs/gccint/Stack-Checking.html GCC's Stack Checking]
+* {{Bug|499996}}
+* {{Bug|280934}}
+
+==Thanks==
+The Gentoo Hardened team would like to thank the PaX Team for its outstanding work and its support whilst writting this statement.
+
+We'd also like to thank [[User:Zorry|Zorry]] for his hard work introducing {{C|-fstack-check{{=}}specific}} on the toolchain.
+
+The latest version of this statement can be found on [https://wiki.gentoo.org/wiki/Hardened/Gentoo_Hardened_and_Stack_Clash]
