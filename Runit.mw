@@ -301,10 +301,19 @@ As of version 0.22, [[OpenRC]] provides a service script that can launch {{C|run
 Or it can also be started manually:
 {{RootCmd|rc-service runsvdir start}}
 
+{{Note|The service script launches {{C|runsvdir}} using OpenRC's {{C|start-stop-daemon}} program, so it will run unsupervised. Also, its standard input and output will be redirected to {{Path|/dev/null}}. Its standard error will be redirected to the {{C|readproctitle}}-style log, though.}}
+
 Because the service script calls {{C|runsvdir}} using absolute path {{Path|/usr/bin/runsvdir}}, a symlink to the correct path must be created if using >=sys-process/runit-2.1.2:
 {{RootCmd|ln -s /bin/runsvdir /usr/bin/runsvdir}}
 
-{{Note|The service script launches {{C|runsvdir}} using OpenRC's {{C|start-stop-daemon}} program, so it will run unsupervised. Also, its standard input and output will be redirected to {{Path|/dev/null}}. Its standard error will be redirected to the {{C|readproctitle}}-style log, though.}}
+And because {{Path|/run}} is a tmpfs, and therefore volatile, servicedir symlinks must be created in the scan directory each time the machine boots, before {{C|runsvdir}} starts. The [https://www.freedesktop.org/software/systemd/man/tmpfiles.d.html tmpfiles.d] interface, which is supported by OpenRC using [https://packages.gentoo.org/packages/sys-apps/opentmpfiles package opentmpfiles], can be used for this:
+
+{{FileBox|filename=/etc/tmpfiles.d/runsvdir.conf|1=#Type Path Mode UID GID Age Argument
+d /run/openrc/sv
+L /run/openrc/sv/service1 - - - - /path/to/servicedir1
+L /run/openrc/sv/service2 - - - - /path/to/servicedir2
+L /run/openrc/sv/service3 - - - - /path/to/servicedir3
+...}}
 
 Alternatively, OpenRC's {{C|local}} service could be used to start the supervision tree when entering OpenRC's 'default' runlevel, by placing '.start' and '.stop' files in {{Path|/etc/local.d}} (please read {{Path|/etc/local.d/README}} for more details) that perform actions similar to those of the {{Path|runsvdir}} service script:
 {{FileBox|filename=/etc/local.d/runsvdir.start|lang=bash|1=
@@ -322,14 +331,6 @@ start-stop-daemon --stop --retry SIGHUP/5 --pidfile /run/runsvdir.pid
 }}
 
 The <code>SIGHUP</code> signal makes {{C|runsvdir}} send a <code>SIGTERM</code> signal to all its {{C|runsv}} children before exiting, which, in turn, makes them stop their supervised processes and exit. The <code>SIGTERM</code> signal that {{C|start-stop-daemon}} sends by default would just make {{C|runsvdir}} exit.
-
-Because {{Path|/run}} is a tmpfs, and therefore volatile, servicedir symlinks must be created in the scan directory each time the machine boots, before {{C|runsvdir}} starts. The [https://www.freedesktop.org/software/systemd/man/tmpfiles.d.html tmpfiles.d] interface, which is supported by OpenRC using [https://packages.gentoo.org/packages/sys-apps/opentmpfiles package opentmpfiles], can be used for this:
-
-{{FileBox|filename=/etc/tmpfiles.d/runsvdir.conf|1=#Type Path Mode UID GID Age Argument
-d /run/openrc/sv
-L /run/openrc/sv/service1 - - - - /path/to/servicedir1
-L /run/openrc/sv/service2 - - - - /path/to/servicedir2
-L /run/openrc/sv/service3 - - - - /path/to/servicedir3}}
 
 ==== From sysvinit ====
 
@@ -365,7 +366,7 @@ The runit package provides a program capable of running as process 1, also calle
 When the machine starts booting (if an [[initramfs]] is being used, after it passes control to the 'main' init), {{C|runit}} executes the {{Path|/etc/runit/1}} file as a child process, in a foreground process group with {{Path|/dev/console}} as the controlling terminal, and waits for it to finish. This file is usually a shell script, and is expected to perform all one time initialization tasks needed to bring the machine to its stable, normal 'up and running' state. Gentoo's {{Path|/etc/runit/1}} file is quite minimal, it only calls the {{C|openrc}} program to enter OpenRC's 'sysinit' runlevel, and then its 'boot' runlevel, emulating Gentoo's sysvinit {{C|/etc/inittab}} setup.
 {{Note|This setup means that any long-lived processes launched by a service script upon entering OpenRC's 'sysinit' and 'boot' runlevels won't be supervised}}
 
-When {{Path|/etc/runit/1}} exits, {{C|runit}} then executes the {{Path|/etc/runit/2}} file as a child process, makes it a session leader with the POSIX <code>setsid()</code> call, and ''supervises'' it: if {{Path|/etc/runit/2}} is killed by a signal or its exit code is '''111''', then {{C|runit}} will restart it, after sending a <code>SIGKILL</code> signal to every remaining process in its process group. Gentoo's {{Path|/etc/runit/2}} file is upstream's suggested one with minimal modifications. It is a shell script that uses the {{C|exec}} builtin utility to replace itself with {{C|runsvdir}}, so this creates a supervision tree rooted in process 1. The scan directory will be {{Path|/var/service}} for <sys-process/runit-2.1.2, and {{Path|/etc/service}} for >=sys-process/runit-2.1.2. The enviroment will be empty, except for the PATH variable, set to a known value in the script. {{C|runsvdir}} will use {{C|readproctitle}}-like logging, and, for >=sys-process/runit-2.1.2, is also passed the <code>-P</code> option.
+When {{Path|/etc/runit/1}} exits, {{C|runit}} then executes the {{Path|/etc/runit/2}} file as a child process, makes it a session leader with the POSIX <code>setsid()</code> call, and ''supervises'' it: if {{Path|/etc/runit/2}} is killed by a signal or its exit code is '''111''', then {{C|runit}} will restart it, after sending a <code>SIGKILL</code> signal to every remaining process in its process group. Gentoo's {{Path|/etc/runit/2}} file is upstream's suggested one with minimal modifications. It is a shell script that uses the {{C|exec}} builtin utility to replace itself with {{C|runsvdir}}, so this creates a supervision tree rooted in process 1. The scan directory will be {{Path|/var/service}} for <sys-process/runit-2.1.2, and {{Path|/etc/service}} for >=sys-process/runit-2.1.2. The enviroment will be empty, except for the <var>PATH</var> variable, set to a known value in the script. {{C|runsvdir}} will use {{C|readproctitle}}-like logging, and, for >=sys-process/runit-2.1.2, is also passed the <code>-P</code> option.
 
 Gentoo's packaging of runit expects {{Path|/etc/runit/runsvdir/all}} for <sys-process/runit-2.1.2, or {{Path|/etc/sv}} for >=sys-process/runit-2.1.2, to be a repository of service directories. Services that need to be started when the machine boots require a symbolic link in the scan directory to the corresponding servicedir in that repository. Gentoo only provides service directories for 6 parallel supervised {{C|agetty}} processes (with their symlinks in the scan directory); this allow users to get to a text console login, like with Gentoo's sysvinit {{C|/etc/inittab}} setup. Service directories for anything else must be created by the administrator, either from scratch or taken from somewhere else (e.g. alternative ebuild repositories).
 
@@ -406,7 +407,7 @@ Nevertheless, OpenRC and runit do not interfere with each other, so it is possib
 {{RootCmd|openrc default}}
 
 Services from OpenRC's 'default' runlevel could be started automatically on boot using the existing {{C|local}} service, moving it to the 'boot' runlevel:
-{{FileBox|filename=/etc/local.d/rc-default.start|lang=bash|title=Enter OpenRC's 'default' runlevel|lang=bash|1=
+{{FileBox|filename=/etc/local.d/rc-default.start|title=Enter OpenRC's 'default' runlevel|lang=bash|1=
 #!/bin/sh
 openrc default}}
 
