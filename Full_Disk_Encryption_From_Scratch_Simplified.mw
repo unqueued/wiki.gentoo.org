@@ -1,0 +1,90 @@
+This article discusses several aspects of using Dm-crypt for full disk encryption with LVM (with some notes for SSD) for daily usage from scratch.
+
+Most of details you can find on great article here: https://wiki.gentoo.org/wiki/Sakaki%27s_EFI_Install_Guide/Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key
+
+untar archive with command:
+tar xvjpf stage3-*.tar.bz2 --xattrs --numeric-owner
+
+Mount all required filesystem:
+mount -t proc /proc /mnt/gentoo/proc
+mount --rbind /sys /mnt/gentoo/sys
+mount --make-rslave /mnt/gentoo/sys
+mount --rbind /dev /mnt/gentoo/dev
+mount --make-rslave /mnt/gentoo/dev 
+
+Copy resolv.conf
+cp -a /etc/resolv.conf /mnt/gentoo/etc
+
+Entering temporary environment
+root #chroot /mnt/gentoo /bin/bash
+root #source /etc/profile
+root #export PS1="(chroot) $PS1"
+
+Now, we are chrooted into temporary gentoo. sk gentoo to fetch all ebuilds for our temporary system:
+emerge --sync
+
+And now, install required programs for further disk configuration:
+emerge -av parted sys-fs/cryptsetup lvm2 dosfstools
+
+Create 2 partitions on disk: one as gpt for grub (EFI) and another for encrypted system:
+parted -l
+
+parted -a optimal /dev/sdb
+unit mib
+mklabel gpt
+mkpart primary fat32 0% 512
+set 1 BOOT on
+name 1 grub
+
+mkpart primary 512 -1
+name 2 lvm
+
+quit
+
+Next, create fat32 filesystem. First, install required package:
+mkfs.vfat -F32 /dev/sdb1
+
+Configure DM-CRYPT for /dev/sdb2
+Note, if you use Ubuntu live cd, execute this command:
+sudo modprobe dm-crypt
+
+# Crypt the partition we named lvm (in my case that would be /dev/sdb2)
+cryptsetup luksFormat -c aes-cbc-essiv:sha256 -s 256 /dev/sdb2 
+
+Next, we will open encrypted device:
+cryptsetup luksOpen /dev/sdb2 lvm
+
+And create lvm structure for future partition mapping:
+# Setup a LVM physical volume 
+lvm pvcreate /dev/mapper/lvm
+
+And create all partitions for lvm
+https://wiki.gentoo.org/wiki/LVM
+
+vgcreate vg0 /dev/mapper/lvm
+
+Next, we will create root, var and home lvm LV: Logical Volume
+root@ubuntu:~#  lvcreate -L 25G -n root vg0
+  Logical volume "root" created.
+root@ubuntu:~# lvcreate -L 40G -n var vg0
+  Logical volume "var" created.
+root@ubuntu:~# lvcreate -l 100%FREE -n home vg0
+  Logical volume "home" created.
+
+
+Next, create ext4 filesystem on all partitions:
+mkfs.ext4 /dev/mapper/vg0-root
+mkfs.ext4 /dev/mapper/vg0-var
+mkfs.ext4 /dev/mapper/vg0-home
+
+Create mountpoint for permanent gentoo:
+mkdir /mnt/gentoo
+
+mount /dev/mapper/vg0-root /mnt/gentoo
+
+copy stage3 to /mnt/gentoo
+cd to /mnt/gentoo
+
+tar xvjpf stage3-*.tar.bz2 --xattrs --numeric-owner
+
+mount mount /dev/mapper/vg0-root /mnt/gentoo/var
