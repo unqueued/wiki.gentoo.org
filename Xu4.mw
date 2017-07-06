@@ -7,29 +7,39 @@ This guide is based off of https://wiki.gentoo.org/wiki/Installation_alternative
 
 Specific hardware needed: A sd-card to USB device.
 
-Steps:
+===Steps:===
 
-1) Put the sd-card into a sd-card-to-USB device and begin to partition it. If it is a fresh sd-card from hardkernel then there should be plenty of room to split the first partition in 2(my card is 16gb).<br>
+====Partitioning ====
+
+Put the sd-card into a sd-card-to-USB device and begin to partition it. If it is a fresh sd-card from hardkernel then there should be plenty of room to split the first partition in 2(my card is 16gb).<br>
 My favorite way to do this is using Gparted.<br>
 
-2) Boot into the system currently installed onto the XU4, Ubuntu/Debian/other it doesn’t really matter(Does it work?). 
+====Boot the current distro====
+
+Boot into the system currently installed onto the XU4, Ubuntu/Debian/other it doesn’t really matter(Does it work?). 
 On the current OS of the XU4, mount the empty partition to /mnt (mine is mmcblk0p2, yours is whatever partition you made)
 
 {{RootCmd|mount /dev/mmcblk0p2 /mnt
 |cd /mnt
 }}
 
-3) Get the stage3 tarball from www.gentoo.org, you will need the ARMv7a|HardFP and change the filename/date accordingly
+====Get the appropriate stage3====
+
+Get the stage3 tarball from www.gentoo.org, you will need the ARMv7a|HardFP and change the filename/date accordingly
 
 {{RootCmd|wget http://distfiles.gentoo.org/releases/arm/autobuilds/20160523/stage3-armv7a_hardfp-20160523.tar.bz2}}
 
-4) Extract the tarball, we now have a root file system that we can start working with
+====Extract stage3====
+
+Extract the tarball, we now have a root file system that we can start working with
 
 {{RootCmd|tar -xjvf stage3-armv7a_hardfp-20160523.tar.bz2
 |rm stage3-armv7a_hardfp-20160523.tar.bz2
 }}
 
-5) Once extracted, go to the / directory then chroot into the partition
+====chroot to the new environment====
+
+Once extracted, go to the / directory then chroot into the partition
 
 {{RootCmd|cd /
 |mount -t proc none /mnt/proc
@@ -41,7 +51,9 @@ On the current OS of the XU4, mount the empty partition to /mnt (mine is mmcblk0
 |source /etc/profile
 }}
 
-6) We need to get the portage snapshot, before we can do this we must set the date (emerge-webrsync didn’t work on my machine for some reason)
+====Get a portage snapshot====
+
+We need to get the portage snapshot, before we can do this we must set the date (emerge-webrsync didn’t work on my machine for some reason)
 
 {{RootCmd|date MMDDHHMMYYYY
 |cd /usr
@@ -51,7 +63,9 @@ On the current OS of the XU4, mount the empty partition to /mnt (mine is mmcblk0
 |rm portage-latest.tar.bz2
 }}
 
-7) Before we do anything we must alter the make.config file, if we don’t compilations will take a long time on a single arm core. Be sure to add <code>makeopts=”-j9”</code>. Use flags are up to you, for the purpose of this guide I kept them as small as possible. Future experimentation would be switching -march=armv7-a to native, though that will cause problems for distcc, but that’s for another guide.
+====Set up make.config====
+
+Before we do anything we must alter the make.config file, if we don’t compilations will take a long time on a single arm core. Be sure to add <code>makeopts=”-j9”</code>. Use flags are up to you, for the purpose of this guide I kept them as small as possible. Future experimentation would be switching -march=armv7-a to native, though that will cause problems for distcc, but that’s for another guide.
 
 {{RootCmd|nano /etc/portage/make.conf}}
 
@@ -73,10 +87,12 @@ PKGDIR="/usr/portage/packages"
 LC_MESSAGES=C
 
 USE="-bindist"
-MAKEOPTS="-j9"
+MAKEOPTS="-j3"
 }}
 
-8) Before we compile a kernel we must update the system, note this will take a while(several hours, gcc takes about half of the time, be sure you have makeopts=”-j9”), be sure that the date was set correctly before running emerge:
+====Update the system====
+
+Before we compile a kernel we must update the system, note this will take a while(several hours, gcc takes about half of the time, be sure you have makeopts=”-j3”, as bigger values tend to saturate memory), be sure that the date was set correctly before running emerge:
 
 {{RootCmd|emerge --sync
 |emerge --update --deep --newuse @world
@@ -85,7 +101,9 @@ MAKEOPTS="-j9"
 |revdep-rebuild
 }}
 
-9) Time to compile the kernel, unfortunately the official gentoo sources do not work for the odroid-xu4 SoC. If one tries to compile with gentoo-sources and configure the XU4 to boot, it will fail. If one tries to boot the XU4 with a non-gentoo kernel/different config, the system will boot however there will be problems(network interfaces not being detected for example). What needs to happen is one must git clone hardkernel’s official kernel and then compile it with any features one might want. There are 2 ways to do this, manual and automatically with genkernel. Below is how to do it with genkernel.
+====Build the kernel====
+
+Time to compile the kernel, unfortunately the official gentoo sources do not work for the odroid-xu4 SoC. If one tries to compile with gentoo-sources and configure the XU4 to boot, it will fail. If one tries to boot the XU4 with a non-gentoo kernel/different config, the system will boot however there will be problems(network interfaces not being detected for example). What needs to happen is one must git clone hardkernel’s official kernel and then compile it with any features one might want. There are 2 ways to do this, manual and automatically with genkernel. Below is how to do it with genkernel.
 
 {{RootCmd|nano /etc/fstab (ensure that partitions are correctly mapped)
 |mount /dev/mmcblk0p2 /boot
@@ -97,53 +115,216 @@ MAKEOPTS="-j9"
 |genkernel --kernel-config≠/usr/src/linux/arch/arm/configs/odroidxu4_defconfig kernel (this Wiki is not accepting the "equal" sign, so substitute the "≠" for an "equal" sign)
 }}
 
-10) Modify boot loader to boot new kernel and filesystem
+====Set up the boot loader====
+
+Modify boot loader to boot new kernel and filesystem
 
 {{RootCmd|cd /boot|nano boot.ini}}
 
-Below is my boot.ini, adjust the setenv zimage kernel line and setenv bootrootfs line<br>
+Below is my boot.ini, adjust the line with
+
+{{CodeBox|title=original|1=
+fatload mmc 0:1 0x40008000 zImage
+}}
+
+to
+
+{{CodeBox|title=new|1=
+fatload mmc 0:1 0x40008000 kernel-genkernel-arm-4.9.34
+}}
+<br>
+
+{{CodeBox|title=Complete boot.ini|1=
 ODROIDXU-UBOOT-CONFIG
 
-{{CodeBox|1=
-# U-Boot Parameters (DO NOT MODIFY)
-setenv version 4.9.34
-#setenv zimage vmlinuz-${version}
-setenv zimage kernel-genkernel-arm-${version}
-setenv uinitrd uInitrd-${version}
-setenv fdtbin exynos5422-odroidxu4-${version}.dtb
-
-setenv zimage_addr_r 0x40008000
-setenv initrd_addr_r 0x42000000
-setenv fdtbin_addr_r 0x44000000
-
+# U-Boot Parameters
 setenv initrd_high "0xffffffff"
 setenv fdt_high "0xffffffff"
 
-# Default boot argument
-setenv bootrootfs "root=/dev/mmcblk0p2 rootwait rw"
-setenv console "console=ttySAC2,115200n8"
+# Mac address configuration
+setenv macaddr "00:1e:06:61:7a:39"
 
-setenv bootargs "${bootrootfs} ${console}"
+#------------------------------------------------------------------------------------------------------
+# Basic Ubuntu Setup. Don't touch unless you know what you are doing.
+# --------------------------------
+setenv bootrootfs "console=tty1 console=ttySAC2,115200n8 root=UUID=e139ce78-9841-40fe-8823-96a304a09859 rootwait ro fsck.repair=yes net.ifnames=1"
 
-# boot commands
-fatload mmc 0:1 ${zimage_addr_r} ${zimage}
-fatload mmc 0:1 ${initrd_addr_r} ${uinitrd}
-fatload mmc 0:1 ${fdtbin_addr_r} ${fdtbin}
-bootz ${zimage_addr_r} ${initrd_addr_r} ${fdtbin_addr_r}"
+# --- Screen Configuration for HDMI --- #
+# ---------------------------------------
+# Uncomment only ONE line! Leave all commented for automatic selection.
+# Uncomment only the setenv line!
+# ---------------------------------------
+# ODROID-VU forced resolution
+# setenv videoconfig "video=HDMI-A-1:1280x800@60"
+# -----------------------------------------------
+# ODROID-VU forced EDID
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1280x800.bin"
+# -----------------------------------------------
+# 1920x1200 60hz without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1920x1200_60hz.bin"
+# -----------------------------------------------
+# 1920x1200 30hz without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1920x1200_30hz.bin"
+# -----------------------------------------------
+# 1920x1080 (1080P) with monitor provided EDID information. (1080p-edid)
+# setenv videoconfig "video=HDMI-A-1:1920x1080@60"
+# -----------------------------------------------
+# 1920x1080 (1080P) without monitor data using generic information (1080p-noedid)
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1920x1080.bin"
+# -----------------------------------------------
+# 1920x1080 50hz (1080P) with monitor provided EDID information. (1080p 50hz-edid)
+# setenv videoconfig "video=HDMI-A-1:1920x1080@50"
+# -----------------------------------------------
+# 1920x1080 50hz (1080P) without monitor data using generic information (1080p 50hz-noedid)
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1920x1080_50hz.bin"
+# -----------------------------------------------
+# 1680x1050 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1680x1050.bin"
+# -----------------------------------------------
+# 1600x1200 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1600x1200.bin"
+# -----------------------------------------------
+# 1600x900 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1600x900.bin"
+# -----------------------------------------------
+# 1440x900 with monitor provided EDID information.
+# setenv videoconfig "video=HDMI-A-1:1440x900@60"
+# -----------------------------------------------
+# 1440x900 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1440x900.bin"
+# -----------------------------------------------
+# 1366x768 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1366x768.bin"
+# -----------------------------------------------
+# 1360x768 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1360x768.bin"
+# -----------------------------------------------
+# 1280x1024 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1280x1024.bin"
+# -----------------------------------------------
+# 1280x720 (720P) with monitor provided EDID information. (720p-edid)
+# setenv videoconfig "video=HDMI-A-1:1280x720@60"
+# -----------------------------------------------
+# 1280x720 (720P) without monitor data using generic information (720p-noedid)
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1280x720.bin"
+# -----------------------------------------------
+# 1024x768 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1024x768.bin"
+# -----------------------------------------------
+# 1024x600 without monitor data using generic information (ODROID VU7+)
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/1024x600.bin"
+# -----------------------------------------------
+# 800x600 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/800x600.bin"
+# -----------------------------------------------
+# 800x480 without monitor data using generic information (ODROID 7")
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/800x480.bin"
+# -----------------------------------------------
+# 720x576 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/720x576.bin"
+# -----------------------------------------------
+# 720x480 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/720x480.bin"
+# -----------------------------------------------
+# 640x480 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/640x480.bin"
+# -----------------------------------------------
+# 480x800 without monitor data using generic information
+# setenv videoconfig "drm_kms_helper.edid_firmware=edid/480x800.bin"
+
+# --- HDMI / DVI Mode Selection ---
+# ------------------------------------------
+# - HDMI Mode
+setenv vout "hdmi"
+# - DVI Mode (disables sound over HDMI as per DVI compat)
+# setenv vout "dvi"
+
+# --- HDMI CEC Configuration ---
+# ------------------------------------------
+setenv cecenable "false" # false or true
+# set to true to enable HDMI CEC
+
+# Enable/Disable ODROID-VU7 Touchsreen
+setenv disable_vu7 "true" # false
+
+# CPU Governor Selection
+# Available governos: conservative, userspace, powersave, ondemand, performance, schedutil
+setenv governor "performance"
+
+# External watchdog board enable
+setenv external_watchdog "false"
+# debounce time set to 3 ~ 10 sec, default 3 sec
+setenv external_watchdog_debounce "3"
+
+
+#------------------------------------------------------------------------------
+#
+# HDMI Hot Plug detection
+#
+#------------------------------------------------------------------------------
+#
+# Forces the HDMI subsystem to ignore the check if the cable is connected or
+# not.
+# false : disable the detection and force it as connected.
+# true : let cable, board and monitor decide the connection status.
+#
+# default: true
+#
+#------------------------------------------------------------------------------
+setenv HPD "true"
+
+setenv hdmi_phy_control "HPD=${HPD} vout=${vout}"
+
+# Load kernel, initrd and dtb in that sequence
+fatload mmc 0:1 0x40008000 kernel-genkernel-arm-4.9.34
+fatload mmc 0:1 0x42000000 uInitrd
+if test "${board_name}" = "xu4"; then fatload mmc 0:1 0x44000000 exynos5422-odroidxu4.dtb; setenv fdtloaded "true"; fi
+if test "${board_name}" = "xu3"; then fatload mmc 0:1 0x44000000 exynos5422-odroidxu3.dtb; setenv fdtloaded "true"; fi
+if test "${board_name}" = "xu3l"; then fatload mmc 0:1 0x44000000 exynos5422-odroidxu3-lite.dtb; setenv fdtloaded "true"; fi
+#failsafe
+if test "${fdtloaded}" != "true"; then fatload mmc 0:1 0x44000000 exynos5422-odroidxu4.dtb; fi
+
+fdt addr 0x44000000
+
+if test "${cecenable}" = "false"; then fdt rm /cec@101B0000; fi
+if test "${disable_vu7}" = "false"; then setenv hid_quirks "usbhid.quirks=0x0eef:0x0005:0x0004"; fi
+if test "${external_watchdog}" = "true"; then setenv external_watchdog "external_watchdog=${external_watchdog} external_watchdog_debounce=${external_watchdog_debounce}"; fi
+
+# final boot args
+setenv bootargs "${bootrootfs} ${videoconfig} ${hdmi_phy_control} ${hud_quirks} smsc95xx.macaddr=${macaddr} ${external_watchdog} governor=${governor}"
+
+# Boot the board
+bootz 0x40008000 0x42000000 0x44000000
 }}
 
-11)
-Set a root password
+====Set a root password====
 
 {{RootCmd|passwd}}
 
-12) Boot the new kernel and into the new Gentoo environment and that’s it! You should be able to boot without problem! Welcome to Gentoo on the Odroid-XU4 !
+====Reboot====
 
-Extras)
+Boot the new kernel and into the new Gentoo environment and that’s it! You should be able to boot without problem! Welcome to Gentoo on the Odroid-XU4 !
 
+===Extras===
 
-Create a non-root user
+====X11====
+Willing for a graphical environment, X11 is a classical - although there is a pretty interesting article in a recent <b>Odroid Magazine</b> about Wayland - so there is the need for the specific driver. Emerge <b>layman</b> and add the <b>hossie</b> overlay:
+
+{{RootCmd|emerge -vD --quiet-build layman && layman -S && layman -a hossie}}
+
+Emerge the <b>exynos armsoc</b> X11 driver:
+
+{{RootCmd|emerge -vuDN --quiet-build x11-drivers/xf86-video-armsoc}}
+
+Emerge all <b>xorg/X11</b> stuff according to the usual Gentoo_Handbook at https://wiki.gentoo.org/wiki/Handbook:Main_Page
+
+The original Ubuntu image has a "<b>xorg.conf</b>" configuration file and "<b>xorg.conf.d</b>" directory for extra configurations in /etc/X11, copy both to Gentoo. Then, it should be possible to get a graphical desktop like fluxbox or WindowMaker, for instance.
+
+====Create a non-root user====
+
 https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Finalizing
+
+====Networking====
 
 Networking hasn’t been declared yet, please verify the interfaces have been detected before the below commands are executed
 
@@ -151,6 +332,8 @@ Networking hasn’t been declared yet, please verify the interfaces have been de
 |ln -s net.lo net.eth0
 |rc-update add net.eth0 default
 }}
+
+====SSH for remote access====
 
 Adding SSHD as a default service
 
@@ -164,6 +347,8 @@ If on a switch it’s necessary to declare a static ip
 |routes_eth0=("default gw 10.0.0.1")
 }}
 
+====Name server====
+
 Since everything is being define manually, resolv.conf must have a nameserver in it
 
 {{RootCmd|cd /etc
@@ -173,7 +358,8 @@ Since everything is being define manually, resolv.conf must have a nameserver in
 
 Start installing all necessary software that you need!
 
-Fan/Temperature Control
+====Fan/Temperature Control====
+
 Gentoo puts all of the temperature monitors in the
 
 {{Path|/sys/devices/virtual/thermal}}
