@@ -2,44 +2,63 @@ This article discusses several aspects of using Dm-crypt for full disk encryptio
 
 Most of details you can find on great article here: https://wiki.gentoo.org/wiki/Sakaki%27s_EFI_Install_Guide/Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key
 
-untar archive with command:
-tar xvjpf stage3-*.tar.bz2 --xattrs --numeric-owner
 
-Mount all required filesystem:
-mount -t proc /proc /mnt/gentoo/proc
-mount --rbind /sys /mnt/gentoo/sys
-mount --make-rslave /mnt/gentoo/sys
-mount --rbind /dev /mnt/gentoo/dev
-mount --make-rslave /mnt/gentoo/dev 
+= Prepare required partitions =
+In this HOWTO used GPT disk partition schema and grub boot loader. Disk schema creates with help of gparted
 
-Copy resolv.conf
-cp -a /etc/resolv.conf /mnt/gentoo/etc
+{{Note| For more information about GPT and EFI, see handbook https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Disks}}
 
-Entering temporary environment
-root #chroot /mnt/gentoo /bin/bash
-root #source /etc/profile
-root #export PS1="(chroot) $PS1"
+Partition schema are:
+ /dev/sdX
+ |--> GRUB BIOS (2Mb)
+ |--> Boot partitions (512Mb, contain kernel)
+ |--> LVM volume encrypted (All free space, rootfs and home)
+     |--> /
+     |--> /var
+     |--> /home
 
-Now, we are chrooted into temporary gentoo. sk gentoo to fetch all ebuilds for our temporary system:
-emerge --sync
 
-And now, install required programs for further disk configuration:
-emerge -av parted sys-fs/cryptsetup lvm2 dosfstools
+Create grub BIOS
+{{RootCmd
+|prompt=root@localhost #
+|parted -a optimal /dev/sdX}}
 
-Create 2 partitions on disk: one as gpt for grub (EFI) and another for encrypted system:
-parted -l
+Setup default units to MegaBits
+{{RootCmd
+|prompt=(parted)
+|unit mib}}
 
-parted -a optimal /dev/sdb
-unit mib
-mklabel gpt
-mkpart primary fat32 0% 512
-set 1 BOOT on
-name 1 grub
+Create GPT partition table
+{{RootCmd
+|prompt=(parted)
+|mklabel gpt}}
 
-mkpart primary 512 -1
-name 2 lvm
+Create BIOS partition
+{{RootCmd
+|prompt=(parted)|mkpart primary 1 3
+|prompt=(parted)|name 1 grub
+|prompt=(parted)|set 1 bios_grub on
+|prompt=(parted)
+}}
 
-quit
+Create Boot partition. This partition will contain grub files, plain (unencrypted) kernel and kernel initrd
+{{RootCmd
+|prompt=(parted)|mkpart primary fat32 3 515
+|prompt=(parted)|name 2 boot
+|prompt=(parted)|set 2 BOOT on
+}}
+
+{{RootCmd
+|prompt=(parted)|mkpart primary 515 -1
+|prompt=(parted)|name 3 lvm
+|prompt=(parted)|set 3 lvm on
+}}
+
+Everything is done, exit from parted
+{{RootCmd
+|prompt=(parted)|quit
+}}
+
 
 Next, create fat32 filesystem. First, install required package:
 mkfs.vfat -F32 /dev/sdb1
