@@ -13,12 +13,13 @@ Partition schema are:
  
  --------------------------------------------------------------------------------
  /dev/sdX
- |--> GRUB BIOS                2   MB       no fs       grub loader itself
- |--> /boot          boot      512 Mb       fat32       grub and kernel
- |--> LVM volume encrypted     100%         lvm         
-     |--> /          root      24  Gb       ext4        rootfs
-     |--> /var       var       40  Gb       ext4        var files
-     |--> /home      home      100%         ext4        user files
+ |--> GRUB BIOS                       2   MB       no fs       grub loader itself
+ |--> /boot                 boot      512 Mb       fat32       grub and kernel
+ |--> LUKS encrypted                  100%         encrypted   encrypted binary block 
+      |-->  LVM             lvm       100%                  
+            |--> /          root      25  Gb       ext4        rootfs
+            |--> /var       var       40  Gb       ext4        var files
+            |--> /home      home      100%         ext4        user files
 
 Create grub BIOS
 {{RootCmd
@@ -70,47 +71,163 @@ Create filesystem for /dev/sdX2, that will contain grub and kernel files. This p
 }}
 
 
-Configure DM-CRYPT for /dev/sdb2
-Note, if you use Ubuntu live cd, execute this command:
-sudo modprobe dm-crypt
+== Prepare encrypted partition ==
 
-# Crypt the partition we named lvm (in my case that would be /dev/sdb2)
-cryptsetup luksFormat -c aes-cbc-essiv:sha256 -s 256 /dev/sdb2 
+In next step configure DM-CRYPT for /dev/sdX3
 
-Next, we will open encrypted device:
-cryptsetup luksOpen /dev/sdb2 lvm
+{{Note| For Ubuntu live cd, execute this command
+{{RootCmd
+|prompt=root@localhost #
+|modprobe dm-crypt
+}}
+}}
 
-And create lvm structure for future partition mapping:
-# Setup a LVM physical volume 
-lvm pvcreate /dev/mapper/lvm
+Crypt LVM partition /dev/sdX3 with LUKS
+{{RootCmd
+|prompt=root@localhost #
+|cryptsetup luksFormat -c aes-cbc-essiv:sha256 -s /dev/sdX3
+}}
 
-And create all partitions for lvm
-https://wiki.gentoo.org/wiki/LVM
+{{Note|Type in UPPERCASE '''YES'''}}
 
-vgcreate vg0 /dev/mapper/lvm
+== Create LVM inside encrypted block ==
 
-Next, we will create root, var and home lvm LV: Logical Volume
-root@ubuntu:~#  lvcreate -L 25G -n root vg0
-  Logical volume "root" created.
-root@ubuntu:~# lvcreate -L 40G -n var vg0
-  Logical volume "var" created.
-root@ubuntu:~# lvcreate -l 100%FREE -n home vg0
-  Logical volume "home" created.
+=== LVM creation ===
+Open encrypted device
+{{RootCmd
+|prompt=root@localhost #
+|cryptsetup luksOpen /dev/sdX3 lvm
+}}
 
+{{Note|For more information about LVM see https://wiki.gentoo.org/wiki/LVM}}
 
-Next, create ext4 filesystem on all partitions:
-mkfs.ext4 /dev/mapper/vg0-root
-mkfs.ext4 /dev/mapper/vg0-var
-mkfs.ext4 /dev/mapper/vg0-home
+Create lvm structure for partition mapping (/root, /var, /home):
+
+Crypte physical volume group
+{{RootCmd
+|prompt=root@localhost #
+|lvm pvcreate /dev/mapper/lvm
+}}
+
+Create volume group vb0
+{{RootCmd
+|prompt=root@localhost #
+|vgcreate vg0 /dev/mapper/lvm
+}}
+
+Create logical volume for /root fs
+{{RootCmd
+|prompt=root@localhost #
+|lvcreate -L 25G -n root vg0
+}}
+
+Create logical volume for /var fs
+{{RootCmd
+|prompt=root@localhost #
+|lvcreate -L 40G -n var vg0
+}}
+
+Create logical volume for /home fs
+{{RootCmd
+|prompt=root@localhost #
+|lvcreate -l 100%FREE -n home vg0
+}}
+
+=== File Systems ===
+{{RootCmd
+|prompt=root@localhost #
+|mkfs.ext4 /dev/mapper/vg0-root
+}}
+
+{{RootCmd
+|prompt=root@localhost #
+|mkfs.ext4 /dev/mapper/vg0-var
+}}
+
+{{RootCmd
+|prompt=root@localhost #
+|mkfs.ext4 /dev/mapper/vg0-home
+}}
+
+= Gentoo installation = 
 
 Create mountpoint for permanent gentoo:
-mkdir /mnt/gentoo
+{{RootCmd
+|prompt=root@localhost #
+| mkdir /mnt/gentoo && mkdir /mnt/gentoo/var
+}}
 
-mount /dev/mapper/vg0-root /mnt/gentoo
+Mount rootfs from encrypted LVM partition
+{{RootCmd
+|prompt=root@localhost #
+|mount /dev/mapper/vg0-root /mnt/gentoo
+}}
 
-copy stage3 to /mnt/gentoo
-cd to /mnt/gentoo
+Mount var from encrypted LVM partition
+{{RootCmd
+|prompt=root@localhost #
+|mount /dev/mapper/vg0-var /mnt/gentoo/var
+}}
 
-tar xvjpf stage3-*.tar.bz2 --xattrs --numeric-owner
+And cd into /mnt/gentoo
+{{RootCmd
+|prompt=root@localhost #
+|cd /mnt/gentoo
+}}
 
-mount mount /dev/mapper/vg0-root /mnt/gentoo/var
+== rootfs install ==
+
+=== Stage 3 install ===
+Download stage3 to /mnt/gentoo from https://www.gentoo.org/downloads/mirrors .
+For example:
+{{RootCmd
+|prompt=root@localhost:/mnt/gentoo#
+|wget http://linux.rz.ruhr-uni-bochum.de/download/gentoo-mirror/releases/amd64/autobuilds/current-stage3-amd64/stage3-amd64-20170706.tar.bz2
+}}
+
+Unzip downloaded archive
+{{RootCmd
+|prompt=root@localhost:/mnt/gentoo#
+|tar xvjpf stage3-*.tar.bz2 --xattrs --numeric-owner
+}}
+
+{{Note|For more details see https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Stage}}
+
+=== Configuring compile options ===
+Open with nano /mnt/gentoo/etc/portage/make.conf and setup required flags. See https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Stage
+
+=== Repos configuration ===
+{{RootCmd
+|prompt=root@localhost:/mnt/gentoo#
+|cp /mnt/gentoo/usr/share/portage/config/repos.conf /mnt/gentoo/etc/portage/repos.conf/gentoo.conf
+}}
+
+=== chroot prepare ===
+Copy DNS info
+{{RootCmd
+|prompt=root@localhost:/mnt/gentoo#
+|cp /mnt/gentoo/usr/share/portage/config/repos.conf /mnt/gentoo/etc/portage/repos.conf/gentoo.conf
+}}
+
+Mount all required fs into chroot
+{{RootCmd
+|prompt=root@localhost:/mnt/gentoo#|mount -t proc /proc /mnt/gentoo/proc
+|prompt=root@localhost:/mnt/gentoo#|mount --rbind /sys /mnt/gentoo/sys
+|prompt=root@localhost:/mnt/gentoo#|mount --make-rslave /mnt/gentoo/sys
+|prompt=root@localhost:/mnt/gentoo#|mount --rbind /dev /mnt/gentoo/dev
+|prompt=root@localhost:/mnt/gentoo#|mount --make-rslave /mnt/gentoo/dev 
+}}
+
+Mount shm fs
+{{RootCmd
+|prompt=root@localhost:/mnt/gentoo#|test -L /dev/shm && rm /dev/shm && mkdir /dev/shm
+|prompt=root@localhost:/mnt/gentoo#|mount -t tmpfs -o nosuid,nodev,noexec shm /dev/shm
+|prompt=root@localhost:/mnt/gentoo#|chmod 1777 /dev/shm
+}}
+
+Enter chroot
+{{RootCmd
+|prompt=root@localhost:/mnt/gentoo#|chroot /mnt/gentoo /bin/bash
+|prompt=root@localhost:/mnt/gentoo#|source /etc/profile
+|prompt=root@localhost:/mnt/gentoo#|export PS1="(chroot) $PS1"
+}}
