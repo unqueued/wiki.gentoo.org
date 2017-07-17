@@ -279,35 +279,45 @@ This command will ask for a valid passphrase before continuing. Or one can pass 
 <!--T:69-->
 {{RootCmd|cryptsetup luksKillSlot -d /etc/keys/enc.key /dev/vdb2 2}}
 
-== Boot setup of additional disks ==
+== Automate mounting encrypted file systems ==
 
-It is possible to have a secondary encrypted disk mounted during boot.
+Until now, the article focused on manual setup and mounting/unmounting of encrypted file systems. An init service {{Path|dmcrypt}} exists which automates the decrypting and mounting of encrypted file systems.
 
-To make this happen, it is necessary to configure dm-crypt, configure fstab, and make dmcrypt start during boot.
+=== Configuring dm-crypt ===
 
-=== Configure dm-crypt ===
-Edit /etc/conf.d/dmcrypt adding an entry specifying:
-*source - the device to decrypt
-*key - the keyfile used to unlock the device. This can be located on an encrypted root disk, as that will already be decrypted when dm-crypt starts
-*target - the name to give the decrypted device (will be created in /dev/mapper/):
-{{FileBox|filename=/etc/conf.d/dmcrypt|1=
+Edit the {{Path|/etc/conf.d/dmcrypt}} file and add in entries for each file system. The supported entries are well documented in the file, the below example is just that - an example:
+
+{{FileBox|filename=/etc/conf.d/dmcrypt|title=Automatically enabling two encrypted file systems|1=
+# Definition for /dev/mapper/home (for /home)
+target=home
 source=UUID="abcdef12-321a-a324-a88c-cac412befd98"
-key=/root/keys_for_encrypted_devices/my_device
-target=decrypted_device
+key=/etc/keys/home.key
+ 
+# Definition for /dev/mapper/local (for /usr/local)
+target=local
+source=UUID="fedcba34-4823-b423-a94c-cadbefda2943"
+key=/etc/keys/local.key
 }}
 
-=== Configure fstab ===
-Identified the UUID of the decrypted device using the blkid command:
-{{RootCmd|blkid /dev/mapper/decrypted_device|
-/dev/mapper/decrypted_device: UUID="4321421a-4321-a6c9-de52-ba6421efab76" TYPE="ext4"}}
+=== Configuring fstab ===
 
+The next step is to configure {{Path|/etc/fstab}} to automatically mount the (decrypted) file systems when they become available. It is recommended to first obtain the UUID of the decrypted (mounted) file system:
 
-Edit /etc/fstab adding the entry to mount as you normally would, using the UUID which was just found:
-{{FileBox|filename=/etc/fstab|1=
-UUID="4321421a-4321-a6c9-de52-ba6421efab76"   /my_files/   ext4   defaults   0   0}}
+{{RootCmd|blkid /dev/mapper/home|output=<pre>
+/dev/mapper/home: UUID="4321421a-4321-a6c9-de52-ba6421efab76" TYPE="ext4"
+</pre>}}
+
+Then, update the {{Path|/etc/fstab}} file accordingly:
+
+{{FileBox|filename=/etc/fstab|title=Automounting the decrypted file systems|1=
+UUID="4321421a-4321-a6c9-de52-ba6421efab76"   /home        ext4   defaults   0   0
+UUID="bdef2432-3bd1-4ab4-523d-badcf234a342"   /usr/local   ext4   defaults   0   0
+}}
 
 === Add initscript to bootlevel ===
-Finally execute the following command to have dm-crypt startup during the boot phase:
+
+Don't forget to have the {{Path|dmcrypt}} init service launched at boot:
+
 {{RootCmd|rc-update add dmcrypt boot}}
 
 == Additional resources == <!--T:70-->
