@@ -27,6 +27,8 @@ CXXFLAGS="${CFLAGS}"
 
 Como vimos no exemplo anterior, a variável <var>CXXFLAGS</var> é definida para usar todas as opções presentes na <var>CFLAGS</var>. A maioria dos sistemas devem ser configurados desta maneira. Opções adicionais para as <var>CXXFLAGS</var> são menos comuns e usualmente não são aplicáveis de forma geral o suficiente para merecer colocá-los globalmente.
 
+{{Tip|[[Safe_CFLAGS|Safe CFLAGS]] article might help beginners start optimizing their systems.}}
+
 === Equívocos ===
 
 While compiler optimizations enabled by various <var>CFLAGS</var> can be an effective means of producing smaller and/or faster binaries, they can also impair the function of the code, bloat its size, slow down its execution time, or simply cause a build failure. The point of diminishing performance returns is reached rather quickly when dealing with <var>CFLAGS</var>. Don't set them arbitrarily.
@@ -47,13 +49,21 @@ The goal behind <var>CFLAGS</var> and <var>CXXFLAGS</var> is to create code tail
 
 === -march ===
 
-A primeira e mais importante opção é <code>-march</code>. Isto informa ao compilador que código deve produzir para a [https://en.wikipedia.org/wiki/Microarchitecture arquitetura do processador] (ou "arch"); ele informa ao GCC que deverá produzir código para um determinado tipo de CPU. Diferentes CPUs tem diferentes capacidades, suporta diferentes conjuntos de instruções e tem maneiras diferentes de execução de código. A flag <code>-march</code> irá instruir o compilador para produzir um código específico para a CPU do sistema, com todas as suas capacidades, recursos, conjunto de instruções, particularidades e assim por diante. 
+A primeira e mais importante opção é <code>-march</code>. Isto informa ao compilador que código deve produzir para a [https://en.wikipedia.org/wiki/Microarchitecture arquitetura do processador] (ou "arch"); ele informa ao GCC que deverá produzir código para um determinado tipo de CPU. Diferentes CPUs tem diferentes capacidades, suporta diferentes conjuntos de instruções e tem maneiras diferentes de execução de código. A flag <code>-march</code> irá instruir o compilador para produzir um código específico para a CPU do sistema, com todas as suas capacidades, recursos, conjunto de instruções, particularidades e assim por diante.
+
+<code>-march=</code> is an ISA selection option; it tells the compiler that it may use the instructions from the ISA. On an Intel/AMD64 platform with <code>-march=native -O2</code> or lower OPT level, the code will likely end up with AVX instructions used but using shorter SSE XMM registers. To take full advantage of AVX YMM registers, the <code>-ftree-vectorize</code>, <code>-O3</code> or <code>-Ofast</code> options should be used as well<ref>GNU GCC Bugzilla, [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57952#c8 AVX/AVX2 no ymm registers used in a trivial reduction]. Retrieved on 2017/07/18.</ref>.
+
+<code>-ftree-vectorize</code> is an optimization option (default at <code>-O3</code> and <code>-Ofast</code>), which attempts to vectorize loops using the selected ISA if possible.  The reason it isn't enabled at <code>-O2</code> is that it doesn't always improve code, it can make code slower as well, and usually makes the code larger; it really depends on the loop etc. 
 
 Even though the <var>CHOST</var> variable in {{Path|/etc/portage/make.conf}} specifies the general architecture used, <code>-march</code> should still be used so that programs can be optimized for the system specific processor. x86 and x86-64 CPUs (among others) should make use of the <code>-march</code> flag. 
 
 Que tipo de CPU o sistema tem? Para encontrar, execute o seguinte comando: 
 
 {{Cmd|cat /proc/cpuinfo}}
+
+or even install {{Package|app-portage/cpuinfo2cpuflags}} and add the available CPU-specific options to the {{Path|make.conf}} file, which the tool does through e.g. the [[CPU FLAGS X86|CPU_FLAGS_X86]] variable:
+
+{{Cmd|cpuinfo2cpuflags-x86 >> /etc/portage/make.conf}}
 
 Para obter maiores detalhes, incluindo os valores <code>march</code> e <code>mtune</code>, dois comandos podem ser usados.
 
@@ -95,7 +105,7 @@ Apenas em CPUs não x86/x86-64 (como Sparc, Alpha e PowerPC) pode exigir <code>-
 
 Next up is the <code>-O</code> variable. This variable controls the overall level of optimization. Changing this value will make the code compilation take more time and will use much more memory, especially as the level of optimization is increased. 
 
-There are seven <code>-O</code> settings: <code>-O0</code>, <code>-O1</code>, <code>-O2</code>, <code>-O3</code>, <code>-Os</code>, <code>-Og</code>, and <code>-Ofast</code>. Only use one of them in {{Path|/etc/portage/make.conf}}
+There are seven <code>-O</code> settings: <code>-O0</code>, <code>-O1</code>, <code>-O2</code>, <code>-O3</code>, <code>-Os</code>, <code>-Og</code>, and <code>-Ofast</code>. Only use one of them in {{Path|/etc/portage/make.conf}}.
 
 With the exception of <code>-O0</code>, the <code>-O</code> settings each activate several additional flags, so be sure to read the GCC manual's chapter on [https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html#Optimize-Options optimization options] to learn which flags are activated at each <code>-O</code> level, as well as some explanations as to what they do. 
 
@@ -105,9 +115,9 @@ Let us examine each optimization level:
 
 *  <code>-O1</code>: the most basic optimization level. The compiler will try to produce faster, smaller code without taking much compilation time. It is basic, but it should get the job done all the time.
 
-*  <code>-O2</code>: A step up from <code>-O1</code>. The ''recommended'' level of optimization unless the system has special needs. <code>-O2</code> will activate a few more flags in addition to the ones activated by <code>-O1</code>. With <code>-O2</code>, the compiler will attempt to increase code performance without compromising on size, and without taking too much compilation time.
+*  <code>-O2</code>: A step up from <code>-O1</code>. The ''recommended'' level of optimization unless the system has special needs. <code>-O2</code> will activate a few more flags in addition to the ones activated by <code>-O1</code>. With <code>-O2</code>, the compiler will attempt to increase code performance without compromising on size, and without taking too much compilation time. SSE or AVX may be be utilized at this level but no YMM registers will be used unless <code>-ftree-vectorize</code> is also enabled.
 
-*  <code>-O3</code>: the highest level of optimization possible. It enables optimizations that are expensive in terms of compile time and memory usage.  Compiling with <code>-O3</code> is not a guaranteed way to improve performance, and in fact, in many cases, can slow down a system due to larger binaries and increased memory usage. <code>-O3</code> is also known to break several packages. Using <code>-O3</code> is not recommended.
+*  <code>-O3</code>: the highest level of optimization possible. It enables optimizations that are expensive in terms of compile time and memory usage.  Compiling with <code>-O3</code> is not a guaranteed way to improve performance, and in fact, in many cases, can slow down a system due to larger binaries and increased memory usage. <code>-O3</code> is also known to break several packages. Using <code>-O3</code> is not recommended. However, it also enables <code>-ftree-vectorize</code> so that loops in the code get vectorized and will use AVX YMM registers.
 
 *  <code>-Os</code>: optimizes code for size. It activates all <code>-O2</code> options that do not increase the size of the generated code. It can be useful for machines that have extremely limited disk storage space and/or CPUs with small cache sizes.
 
@@ -131,7 +141,7 @@ In particular, it makes troubleshooting applications written in Java much harder
 
 === -msse, -msse2, -msse3, -mmmx, -m3dnow ===
 
-These flags enable the [https://en.wikipedia.org/wiki/Streaming_SIMD_Extensions Streaming SIMD Extentions] (SSE), [https://en.wikipedia.org/wiki/SSE2 SSE2], [https://en.wikipedia.org/wiki/SSSE3 SSE3], [https://en.wikipedia.org/wiki/MMX_(instruction_set) MMX], and [https://en.wikipedia.org/wiki/3DNow! 3DNow!] instruction sets for x86 and x86-64 architectures. These are useful primarily in multimedia, gaming, and other floating point-intensive computing tasks, though they also contain several other mathematical enhancements. These instruction sets are found in more modern CPUs. 
+These flags enable the [https://en.wikipedia.org/wiki/Streaming_SIMD_Extensions Streaming SIMD Extensions] (SSE), [https://en.wikipedia.org/wiki/SSE2 SSE2], [https://en.wikipedia.org/wiki/SSSE3 SSE3], [https://en.wikipedia.org/wiki/MMX_(instruction_set) MMX], and [https://en.wikipedia.org/wiki/3DNow! 3DNow!] instruction sets for x86 and x86-64 architectures. These are useful primarily in multimedia, gaming, and other floating point-intensive computing tasks, though they also contain several other mathematical enhancements. These instruction sets are found in more modern CPUs. 
 
 {{Important|Be sure to see if the CPU supports these instruction sets by running {{c|cat /proc/cpuinfo}}. The output will include any supported additional instruction sets. Note that '''pni''' is just a different name for SSE3.}}
 
@@ -207,21 +217,27 @@ The Gentoo developers have already set basic, safe <var>LDFLAGS</var> in the bas
 
 Information on how to use per-package environment variables (including <var>CFLAGS</var>) is described in the [[Handbook:AMD64/Portage/Advanced#Per-package_environment_variables|Gentoo Handbook, "Per-Package Environment Variables"]].
 
-== Resources ==
+== See also ==
+
+* [[Handbook:AMD64/Installation/Stage#Configuring_compile_options|Configuring compile options]] (AMD64 Handbook)
+
+== External resources ==
 
 The following resources are of some help in further understanding optimization: 
 
 * The [https://gcc.gnu.org/onlinedocs/ GCC online documentation] 
 
-* Gentoo Handbook - [[Handbook:AMD64/Installation/Stage#Configuring_compile_options|Configuring compile options]]
-
-* <kbd>man make.conf</kbd>
+* {{c|man make.conf}}
 
 * [https://en.wikipedia.org/ Wikipedia]
 
 * The [https://forums.gentoo.org/ Gentoo Forums]
 
-{{Migrated|originalauthors=nightmorph}}
+== References ==
+
+{{reflist}}
+
+{{Migrated|originalauthors={{Dev|nightmorph}}}}
 
 
 [[Category:Compilation]]
