@@ -1,9 +1,12 @@
 == Abstract ==
+
 This article shows how to set up OpenRC to act as a convenient, transparent and flexible networking client which supports roaming as an alternative to [[Network management|other solutions]] often used on notebooks.
 
 == Requirements ==
-The currently stable version of these packages are all that is needed (no *kit software required)
-* [[OpenRC]]({{Package|sys-apps/openrc}}) - management of services
+
+The currently stable version of these packages are all that is needed (no *kit software required):
+
+* [[OpenRC]] ({{Package|sys-apps/openrc}}) - management of services
 ** have the netifrc USE flag enabled if you want the good old net.* style network management
 * {{See also|wpa_supplicant}}({{Package|net-wireless/wpa_supplicant}})
 ** enable the qt5 USE flag if you want to have a GUI for the Wi-FI client
@@ -13,20 +16,30 @@ The currently stable version of these packages are all that is needed (no *kit s
 ** other compatible DHCP clients exist (dhclient provided by {{Package|net-misc/dhcp}} or udhcp provided by {{Package|sys-apps/busybox}}), but dhcpcd is the recommended solution as it works well with often reconfigured wireless interfaces (so the wireless interface doesn't need hotplugging)
 
 == Configuration and setup ==
+
 Before you start configuring the interfaces, make sure that they work (meaning you have the required drivers installed) and that you know their names. A convenient way is to make a [[Udev#NIC_assigned_eth0.2C_but_is_moved_to_eth1|Udev rule to give them human-readable names]] like ethernet0, wireless0.
+
 === OpenRC service management ===
+
 For each interface an init script must be created for OpenRC to manage that interface by making a symlink to net.lo
+
 {{RootCmd|ln -s /etc/init.d/net.lo /etc/init.d/net.${INTERFACE_NAME} }}
+
 where '''${INTERFACE_NAME}''' is the name of the interface, e.g. eth0, wlan0, ethernet0, wireless0
 
 If simple roaming is required, any [[network interface]] will satisfy the virtual '''net''' service. Therefore it is recommended to set rc_depend_strict="NO" in {{Path|/etc/rc.conf}}.
-{{FileBox|filename=/etc/rc.conf|1=
+
+{{FileBox|filename=/etc/rc.conf|lang=bash|1=
 rc_depend_strict="NO"
 }}
+
 The services responsible for managing the interfaces must be added to one or more runlevel. This makes it possible to have network profiles by having most services in the default runlevel and then adding the interfaces to [[OpenRC/StackedRunlevel|stacked runlevels]] and having different configuration files in {{Path|/etc/conf.d/}} for each runlevel as {{Path|/etc/conf.d/net.${RUNELEVEL}}}
 The options and syntax of {{Path|/etc/conf.d/net}} is described in the [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part=4 Gentoo Handbook] which shows how to set up more complicated networks (this how-to assumes that all connections are initiated via DHCP)
+
 ==== Suspend to RAM example ====
+
 With most services in the default runlevel and network services in a runlevel "network", which is [[OpenRC/StackedRunlevel|stacked]] on top of the default runlevel, a PM hook for {{Package|sys-power/pm-utils}} can be crated which transparently stops network services before suspending, thus preventing timeouts and other problems.
+
 {{RootCmd
 |mkdir /etc/runlevels/network/
 |rc-update --stack add default network   # include init scripts form the default runlevel in the network runelvel
@@ -37,6 +50,7 @@ With most services in the default runlevel and network services in a runlevel "n
 |rc-update del netmount default  # remove dependent networking services from the default runlevel
 |rc-update add netmount network  # which would start the networking scripts because of "need net" stanza
 }}
+
 {{FileBox|filename=/etc/pm/sleep.d/00network|title=PM hook example|lang=bash|1=
 #!/bin/bash
 
@@ -51,7 +65,6 @@ else
     exit $NA
 fi
 
-
 case "$1" in
    	hibernate{{!}}suspend)
 		exec rc default
@@ -63,16 +76,16 @@ case "$1" in
 		;;
 esac
 }}
-The hook must be executable
-{{RootCmd|chmod a+x /etc/pm/sleep.d/00network}}
-To boot into the network runlevel rather than the default one, {{Path|/etc/inittab}} must be changed as explained in [[Complete_Handbook/Configuring_the_boot_process#Init|the Handbook]]
-{{FileBox|filename=/etc/inittab|1=
-...
 
+The hook must be executable:
+
+{{RootCmd|chmod a+x /etc/pm/sleep.d/00network}}
+
+To boot into the network runlevel rather than the default one, {{Path|/etc/inittab}} must be changed as explained in [[Complete_Handbook/Configuring_the_boot_process#Init|the Handbook]]
+
+{{FileBox|filename=/etc/inittab|1=
 # Default runlevel.
 id:4:initdefault:         #was 3 - can still be 3, it only depends which runlevel is assigned to network below
-
-...
 
 l0:0:wait:/sbin/rc shutdown 
 l0s:0:wait:/sbin/halt -dhp
@@ -83,9 +96,10 @@ l4:4:wait:/sbin/rc network      # was default
 l5:5:wait:/sbin/rc default
 l6:6:wait:/sbin/rc reboot
 l6r:6:wait:/sbin/reboot -dk
-...
 }}
-The bootloader can also support multiple options for different setups
+
+The bootloader can also support multiple options for different setups:
+
 {{FileBox|filename=/boot/grub/grub.conf|title=Grub v1 example|1=
 default 0
 timeout 30
@@ -102,7 +116,9 @@ initrd /boot/initramfs-genkernel-x86-2.6.24-gentoo-r5
 }}
 
 ==== Exclusive network interface example ====
+
 It may be desirable to have always only one [[network interface|networking interface]] configured. This can be done by the postup or postdown functions defined in {{Path|/etc/conf.d/net}}<ref name=handbook-functions>[http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part=4&chap=5 Gentoo Handbook, Adding Functionality]</ref>
+
 {{FileBox|filename=/etc/conf.d/net|lang=bash|1=
 postup_wireless0() {
      rc-service net.ethernet0 stop
@@ -122,7 +138,8 @@ postdown_ethernet0() {
 }}
 
 ==== Network specific log-in procedure example ==== 
-The postup or postup_${ESSID} (this function would be triggered only after successful connection to the given ${ESSID}) functions defined in {{Path|/etc/conf.d/net}}<ref name=handbook-functions></ref> can be used to submit data to e.g. a web log-in form
+
+The postup or postup_${ESSID} (this function would be triggered only after successful connection to the given ${ESSID}) functions defined in {{Path|/etc/conf.d/net}}<ref name=handbook-functions></ref> can be used to submit data to e.g. a web log-in form.
 
 {{FileBox|filename=/etc/conf.d/net|lang=bash|1=
 postup_someESSID() {
@@ -132,22 +149,26 @@ postup_someESSID() {
 }
 }}
 
-=== Wi-Fi management ===
+=== WiFi management ===
 
 See [[wpa_supplicant]].
 
 === Ethernet management ===
-OpenRC automatically hotplugs all interfaces if configured in /etc/rc.conf
-{{FileBox|filename=/etc/rc.conf|1=
+
+OpenRC automatically hotplugs all interfaces if configured in /etc/rc.conf:
+
+{{FileBox|filename=/etc/rc.conf|lang=bash|1=
 rc_hotplug="*"
 }}
 
 so the respective services will be started if that interface becomes available and ifplugd will be automatically started for every ethernet interface to ensure that the device gets configured when a carrier is acquired (e.g. a cable is plugged in). Ifplugd will emit beeps on state change which can be disabled in {{Path|/etc/conf.d/net}}
-{{FileBox|filename=/etc/conf.d/net|title=disabling ifplugd beeping for interface ethernet0|1=
+
+{{FileBox|filename=/etc/conf.d/net|title=disabling ifplugd beeping for interface ethernet0|lang=bash|1=
 ipfplugd_ethernet0="--no-beep"
 }}
 
 == References ==
+
 <references/>
 
 [[Category:Network management]]
