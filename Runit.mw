@@ -133,77 +133,59 @@ Example runit scan directory with {{Path|down}} and {{Path|finish}} files, as we
 {{Cmd|ls -l *|
 output=<pre>test-service1:
 total 4
--rwxr-xr-x 1 user user 28 Jun  3 12:00 run
+-rwxr-xr-x 1 user user 27 Jun  3 12:00 run
 lrwxrwxrwx 1 user user 24 Jun  3 12:00 supervise -> ../../external-supervise
 
 test-service2:
-total 4
--rwxr-xr-x 1 user user 28 Jun  3 12:00 run
+total 8
+-rw-r--r-- 1 user user  0 Jun  3 12:00 down
+-rwxr-xr-x 1 user user 78 Jun  3 12:00 finish
+-rwxr-xr-x 1 user user 56 Jun  3 12:00 run
 
 test-service3:
 total 8
 -rw-r--r-- 1 user user  0 Jun  3 12:00 down
--rwxr-xr-x 1 user user 63 Jun  3 12:00 finish
--rwxr-xr-x 1 user user 56 Jun  3 12:00 run
-
-test-service4:
-total 8
--rw-r--r-- 1 user user  0 Jun  3 12:00 down
--rwxr-xr-x 1 user user 54 Jun  3 12:00 finish
--rwxr-xr-x 1 user user 33 Jun  3 12:00 run</pre>}}
+-rwxr-xr-x 1 user user 69 Jun  3 12:00 finish
+-rwxr-xr-x 1 user user 38 Jun  3 12:00 run</pre>}}
 
 {{FileBox|lang=bash|filename=test-service1/run|1=#!/bin/sh
-exec test-daemon1}}
+exec test-daemon}}
 
 {{FileBox|lang=bash|filename=test-service2/run|1=#!/bin/sh
-exec test-daemon2}}
+echo Starting test-service2/run
+exec sleep 10}}
+
+{{FileBox|lang=bash|filename=test-service2/finish|1=#!/bin/sh
+echo Executing test-service2/finish with arguments $@
+exec sleep 10}}
 
 {{FileBox|lang=bash|filename=test-service3/run|1=#!/bin/sh
-echo Starting test-service3/run
-exec sleep 10}}
-
-{{FileBox|lang=bash|filename=test-service3/finish|1=#!/bin/sh
-echo Executing test-service3/finish $@
-exec sleep 10}}
-
-{{FileBox|lang=bash|filename=test-service4/run|1=#!/bin/sh
 exec test-daemon-ignoreterm}}
 
-{{FileBox|lang=bash|filename=test-service4/finish|1=#!/bin/sh
-exec echo Executing test-service4/finish $@}}
+{{FileBox|lang=bash|filename=test-service3/finish|1=#!/bin/sh
+exec echo Executing test-service3/finish with arguments $@}}
 
 It is assumed {{C|test-daemon-ignoreterm}} is a program that ignores the <code>SIGTERM</code> signal.
 
 Resulting supervision tree when {{C|runsvdir}} is run on this scandir as a background process in an interactive shell, assuming it is a subdirectory named {{Path|scan}} in the working directory (i.e. launched with <kbd>runsvdir scan &</kbd>): 
 {{Cmd|ps xf -o pid,ppid,pgrp,euser,args|
-output=<pre>  PID  PPID  PGRP EUSER    COMMAND
- ...
- 1776  1763  1776 user     -bash
- 2471  1776  2471 user      \_ runsvdir scan
- 2472  2471  2471 user          \_ runsv test-service4
- 2473  2471  2471 user          \_ runsv test-service3
- 2474  2471  2471 user          \_ runsv test-service1
- 2476  2474  2471 user          |   \_ test-daemon1
- 2475  2471  2471 user          \_ runsv test-service2
- 2477  2475  2471 user              \_ test-daemon2
- ...</pre>}}
+output=<pre> PID  PPID  PGRP EUSER    COMMAND
+...
+1834  1821  1834 user     -bash
+2072  1834  2072 user      \_ runsvdir scan
+2073  2072  2072 user          \_ runsv test-service3
+2074  2072  2072 user          \_ runsv test-service1
+2076  2074  2072 user          |   \_ test-daemon
+2075  2072  2072 user          \_ runsv test-service2
+...</pre>}}
 
 {{Important|Since processes in a supervision tree are created using the POSIX <code>fork()</code> call, all of them will inherit {{C|runsvdir}}'s enviroment, which, in the context of this example, is the user's login shell environment. If {{C|runsvdir}} is launched in some other way (see later), the environment will likely be completely different. This must be taken into account when trying to debug a supervision tree with an interactive shell.}}
 
 {{Path|supervise}} subdirectory contents:
 {{Cmd|ls -l */supervise|
-output=<pre>lrwxrwxrwx 1 user user   24 Jun  3 12:00 test-service1/supervise -> ../../external-supervise
+output=<pre>lrwxrwxrwx 1 user user 24 Jun  3 12:00 test-service1/supervise -> ../../external-supervise
 
 test-service2/supervise:
-total 12
-prw------- 1 user user  0 Jun  3 12:05 control
--rw------- 1 user user  0 Jun  3 12:05 lock
-prw------- 1 user user  0 Jun  3 12:05 ok
--rw-r--r-- 1 user user  5 Jun  3 12:05 pid
--rw-r--r-- 1 user user  4 Jun  3 12:05 stat
--rw-r--r-- 1 user user 20 Jun  3 12:05 status
-
-test-service3/supervise:
 total 8
 prw------- 1 user user  0 Jun  3 12:05 control
 -rw------- 1 user user  0 Jun  3 12:05 lock
@@ -212,7 +194,7 @@ prw------- 1 user user  0 Jun  3 12:05 ok
 -rw-r--r-- 1 user user  5 Jun  3 12:05 stat
 -rw-r--r-- 1 user user 20 Jun  3 12:05 status
 
-test-service4/supervise:
+test-service3/supervise:
 total 8
 prw------- 1 user user  0 Jun  3 12:05 control
 -rw------- 1 user user  0 Jun  3 12:05 lock
@@ -230,65 +212,85 @@ prw------- 1 user user  0 Jun  3 12:05 ok
 -rw-r--r-- 1 user user  4 Jun  3 12:05 stat
 -rw-r--r-- 1 user user 20 Jun  3 12:05 status</pre>}}
 
-Messages sent by {{Path|test-service3/run}} to {{C|runsvdir}}'s standard output when manually started:
-{{Cmd|sv up ./scan/test-service3|
-output=<pre>Starting test-service3/run
-Executing test-service3/finish 0 0
-Starting test-service3/run
-Executing test-service3/finish 0 0
-Starting test-service3/run
+Messages sent by {{Path|test-service2/run}} to {{C|runsvdir}}'s standard output when manually started:
+{{Cmd|sv up ./test-service2|
+output=<pre>Starting test-service2/run
+Executing test-service2/finish with arguments 0 0
+Starting test-service2/run
+Executing test-service2/finish with arguments 0 0
+Starting test-service2/run
 ...</pre>}}
 
-{{Cmd|sv status ./scan/*|
-output=<pre>run: ./scan/test-service1: (pid 2518) 80s
-run: ./scan/test-service2: (pid 2519) 80s
-run: ./scan/test-service3: (pid 2534) 7s, normally down
-down: ./scan/test-service4: 80s</pre>}}
+As shown by the output of {{Path|test-service2/finish}}, {{Path|test-service2/run}} exits each time with an exit code of 0.
+
+{{Cmd|sv status ./*|
+output=<pre>run: ./test-service1: (pid 2076) 220s
+run: ./test-service2: (pid 2106) 7s, normally down
+down: ./test-service3: 220s</pre>}}
 
 After enough seconds have elapsed:
-{{Cmd|sv status ./scan/*|
-output=<pre>run: ./scan/test-service1: (pid 2518) 86s
-run: ./scan/test-service2: (pid 2519) 86s
-finish: ./scan/test-service3: (pid 2537) 13s, normally down
-down: ./scan/test-service4: 86s</pre>}}
+{{Cmd|sv status ./*|
+output=<pre>run: ./test-service1: (pid 2076) 230s
+finish: ./test-service2: (pid 2110) 17s, normally down
+down: ./test-service3: 230s</pre>}}
 
-Reliably sending a <code>SIGSTOP</code> signal to {{Path|test-service3/run}}:
-{{Cmd|sv pause ./scan/test-service3|sv status ./scan/test-service3|
-output=<pre>run: ./scan/test-service3: (pid 2689) 100s, normally down, paused</pre>}}
+Reliably sending a <code>SIGSTOP</code> signal to {{Path|test-service2/run}}:
+{{Cmd|sv pause ./test-service2|sv status ./test-service2|
+output=<pre>run: ./test-service2: (pid 2129) 17s, normally down, paused</pre>}}
 
-Reliably sending a <code>SIGTERM</code> signal afterwards:
-{{Cmd|sv term ./scan/test-service3|sv status ./scan/test-service3|
-output=<pre>run: ./scan/test-service3: (pid 2689) 139s, normally down, paused, got TERM</pre>}}
+The output of <kbd>sv status</kbd> shows that {{Path|test-service2/run}} is stopped indeed ('paused'). Reliably sending a <code>SIGTERM</code> signal afterwards:
+{{Cmd|sv term ./test-service2|sv status ./test-service2|
+output=<pre>run: ./test-service2: (pid 2129) 52s, normally down, paused, got TERM</pre>}}
 
-The signal doesn't have any efect yet because the supervised process is stopped. To resume it a <code>SIGCONT</code> signal is needed:
-{{Cmd|sv cont ./scan/test-service3|
-output=<pre>Executing test-service3/finish -1 15
-Starting test-service3/run
-Executing test-service3/finish 0 0
-Starting test-service3/run</pre>}}
+The output of <kbd>sv status</kbd> shows that {{Path|test-service2/run}} received a <code>SIGTERM</code> signal indeed ('got TERM'), but it doesn't have any efect yet because the supervised process is stopped. To resume it a <code>SIGCONT</code> signal is needed:
+{{Cmd|sv cont ./test-service2|
+output=<pre>Executing test-service2/finish with arguments -1 15
+Starting test-service2/run
+Executing test-service2/finish with arguments 0 0
+Starting test-service2/run</pre>}}
 
-Since the process is supervised, after being killed {{C|runsv}} executes {{Path|test-service3/finish}}, and then restarts {{Path|test-service3/run}}.
+The output of {{Path|test-service2/finish}} shows that after resuming execution, {{Path|test-service2/run}} was killed by the <code>SIGTERM</code> signal that was awaiting delivery (signal 15), and since that process is supervised, after being killed and after {{Path|test-service2/finish}} completes its execution, {{C|runsv}} restarts {{Path|test-service2/run}}.
 
-Messages sent by {{Path|test-service3/run}} to {{C|runsvdir}}'s standard output when manually stopped:
-{{Cmd|sv down ./scan/test-service3|output=<pre>Executing test-service3/finish -1 15</pre>}}
+Messages sent by {{Path|test-service2/run}} to {{C|runsvdir}}'s standard output when manually stopped:
+{{Cmd|sv down ./test-service2|output=<pre>Executing test-service2/finish with arguments -1 15</pre>}}
 
-This shows that {{C|runsv}} stopped {{Path|test-service3/run}} by killing it with a <code>SIGTERM</code> signal (signal 15).
+{{Cmd|sv status ./*|
+output=<pre>run: ./test-service1: (pid 2076) 506s
+finish: ./test-service2: (pid 2172) 17s, normally down, want down
+down: ./test-service3: 506s</pre>}}
+
+As shown by {{Path|test-service2/finish}}, {{C|runsv}} stopped {{Path|test-service2/run}} by killing it with a <code>SIGTERM</code> signal (signal 15). The output of <kbd>sv status</kbd> shows that {{Path|test-service2/run}} is executing the {{Path|test-service2/finish}} script, and that when it exits, the service will stay down ('want down').
 
 Manually starting {{C|test-daemon-ignoreterm}} using {{C|sv}}'s LSB-like interface:
-{{Cmd|sv start ./scan/test-service4|output=<pre>ok: run: ./scan/test-service4: (pid 2771) 1s, normally down</pre>}}
+{{Cmd|sv start ./test-service3|output=<pre>ok: run: ./test-service3: (pid 2198) 0s, normally down</pre>}}
 
-Manually stopping {{C|test-daemon2}} and {{C|test-daemon-ignoreterm}} using {{C|sv}}'s LSB-like interface:
-{{Cmd|sv stop ./scan/test-service2 ./scan/test-service4|
-output=<pre>ok: down: ./scan/test-service2: 1s, normally up
-timeout: run: ./scan/test-service4: (pid 2771) 141s, normally down, want down, got TERM</pre>}}
+The resulting supervision tree:
+{{Cmd|ps xf -o pid,ppid,pgrp,euser,args|
+output=<pre> PID  PPID  PGRP EUSER    COMMAND
+1834  1821  1834 user     -bash
+2072  1834  2072 user      \_ runsvdir scan
+2073  2072  2072 user          \_ runsv test-service3
+2198  2073  2072 user          |   \_ test-daemon-ignoreterm
+2074  2072  2072 user          \_ runsv test-service1
+2076  2074  2072 user          |   \_ test-daemon
+2075  2072  2072 user          \_ runsv test-service2
+...</pre>}}
 
-This shows that {{C|test-daemon2}} could be stopped ('ok:') but {{C|test-daemon-ignoreterm}} couldn't (because it ignores <code>SIGTERM</code>), so after the default 7 seconds wait period, {{C|sv}} gives up ('timeout:'). Forcibly stopping {{C|test-daemon-ignoreterm}} using {{C|sv}}'s LSB-like interface:
-{{Cmd|sv force-stop ./scan/test-service4|
-output=<pre>kill: run: ./scan/test-service4: (pid 2771) 274s, normally down, want down, got TERM
-Executing test-service4/finish -1 9</pre>}}
+Manually stopping {{C|test-daemon}} and {{C|test-daemon-ignoreterm}} using {{C|sv}}'s LSB-like interface:
+{{Cmd|sv stop ./test-service1 ./test-service3|
+output=<pre>ok: down: ./test-service1: 0s, normally up
+timeout: run: ./test-service3: (pid 2198) 81s, normally down, want down, got TERM</pre>}}
 
-This shows that because {{C|test-daemon-ignoreterm}} didn't stop during the default 7 seconds wait, {{C|sv}} sends it a <code>SIGKILL</code> signal (signal 9), so it is now stopped:
-{{Cmd|sv status ./scan/test-service4|output=<pre>down: ./scan/test-service4: 21s</pre>}}
+This shows that {{C|test-daemon}} could be stopped ('ok:') but {{C|test-daemon-ignoreterm}} couldn't ('want down, got TERM'), because it ignores <code>SIGTERM</code>). So after the default 7 seconds wait period, {{C|sv}} gives up ('timeout:'). Forcibly stopping {{C|test-daemon-ignoreterm}} using {{C|sv}}'s LSB-like interface:
+{{Cmd|sv force-stop ./test-service3|
+output=<pre>kill: run: ./test-service3: (pid 2198) 161s, normally down, want down, got TERM
+Executing test-service3/finish with arguments -1 9</pre>}}
+
+As shown by the message {{Path|test-service3/finish}} sent to {{C|runsvdir}}'s standard output, because {{C|test-daemon-ignoreterm}} didn't stop during the default 7 seconds wait period, {{C|sv}} asks {{C|runsv}} to send it a <code>SIGKILL</code> signal (signal 9), so it is now stopped:
+{{Cmd|sv status ./*|
+output=<pre>down: ./test-service1: 96s, normally up
+down: ./test-service2: 328s
+down: ./test-service3: 9s</pre>}}
 
 === Starting the supervision tree ===
 
@@ -503,7 +505,7 @@ output=<pre>* /run/openrc/sv: creating directory
 
 {{Warning|There's currently a bug in the implementation of service startup; OpenRC calls <kbd>sv start</kbd> immediately after creating the servicedir symlink in the scan directory, instead of waiting for {{C|runsvdir}}'s next periodic scan. Because no {{C|runsv}} process has been launched yet, <kbd>sv start</kbd> will fail. However, if there is no {{Path|down}} file in the service directory, after the next scan the service will go up regardless, when the corresponding {{C|runsv}} process is launched.}}
 
-{{RootCmd|rc-service test-service-logged status|output=<pre>run: /run/openrc/sv/test-service-logged: (pid 1959) 24s; run: log: (pid 1958) 24s</pre>}}
+{{RootCmd|rc-service test-service-logged status|output=<pre>run: /run/openrc/sv/test-service-logged: (pid 2155) 24s; run: log: (pid 2154) 24s</pre>}}
 
 Make OpenRC's notion of the service's state catch up:
 {{RootCmd|rc-service test-service-logged start|output=<pre>* Starting test-service-logged ...            [ ok ]</pre>}}
