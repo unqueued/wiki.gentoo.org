@@ -1,0 +1,101 @@
+== Intro ==
+While there's a fair bit of documentation on how others have installed Devuan/Arch on this computer, there's very little information in the Gentoo realm on the C201/C100p (or other devices with a RK3288).
+I'll be slowly documenting my steps on how I managed to get Gentoo working on the Asus C201 Chromebook. In my case, I went the Libreboot route, but that's up to you.
+
+Specs:
+* Internal name: veyron/speedy
+* SoC: Rockchip RK3288 
+* CPU: Quad-core ARM Cortex-A17 @ 1.8 GHz
+* GPU: Mali T764 
+* Audio: Rockchip I2S
+* 11.6" screen 
+* Ram: 2 or 4 GB
+
+== What works ==
+* Suspend/resume
+* Wireless (on newer kernels, with patch)
+* X w/ randr (HDMI assumed to work, not tested)
+* ACPI events (lid, buttons, charger)
+* Audio
+* Touchpad
+* Everything else!
+
+== What doesn't ==
+
+* No GL. Apparently you can get OpenGLES/EGL working with the Mali T764, but I had no such luck (nor did I try very hard - there is no acceleration for X at the moment, and the blobs are closed source). Future progress in this area likely to come from  https://notabug.org/cafe/chai
+* Bluetooth - Bluetooth works, but if you load the module at any time, it will crash both itself and wireless if you attempt to suspend. More to come...
+* Wireless without blobs - brcmfmac requires non-free firmware here.
+
+== Considerations ==
+* You'll likely want a USB ethernet dongle until you get Gentoo running. Ensure the module is included with your kernel or built-in if you're using the Devsus script to create a bootable USB.<br />
+* This laptop is speedy for its size, but still takes a long time to emerge larger packages. I made heavy use of distcc and crossdev's armv7a-hardfloat-linux-gnueabi target.
+* There is only 16GB of internal storage space available. I use an SD card for my /home and a decent USB flash drive to compile larger packages on (firefox/libreoffice).
+* You can decide on using either the ChromeOS kernel (linux 3.14) or mainline with patches. Despite a large majority claiming you will lose functionality on newer kernels, this was not the case for me; in fact, it fixed several issues from harmless warning messages in logs to X locking up entirely. See below how I recommend building a newer kernel.
+* I recommend adding the arm_support overlay
+* DO NOT disable cros' developer mode until you are ready! If you cannot boot your kernel, you will not be able to boot from your install medium and will be forced to powerwash your Chromebook. Even if you can, you will need crossystem/mosys to change these flags. [https://lists.gnu.org/archive/html/libreboot/2016-06/msg00023.html This] is the solution if this happens to you on Libreboot, though wait for partition 5 to complete instead.
+
+== Starting out == 
+First, you must enable developer mode, unsigned boot and booting from external mediums. Look [https://libreboot.org/docs/depthcharge/#configuring-verified-boot-parameters here] for more information.<br />
+This laptop uses a depthcharge payload to boot, thus standard minimal ISOs will not work here.
+I recommend creating a [https://notabug.org/dimkr/devsus Devsus] image and writing it to a flash drive to use for your installation medium. If you do so, modify the config file to include your<br />
+I also highly recommend you backup your ChromeOS partition (mmcblk0), however you can easily restore ChromeOS if you mess up. You can create one through desktop Chrome or download the files manually to write to a USB drive.<br />
+{{Note|Devsus uses Google's 3.14 kernel. This is out of date and caused some issues for me. I recommend following the 4.13+ kernel configuration below.}}
+Once you're booted into your minimal enviroment and have obtained an internet connection via either wifi or an ethernet dongle, obtain vboot-utils from whatever distro you're on. We will now wipe ChromeOS and setup a partition for our kernel, and leave the rest for root.
+
+{{Warning|Run lsblk before doing anything! On Google's 3.14 kernel, the eMMC storage is presented as mmcblk0, and the SD is presented as mmcblk2. On newer kernels, this can be reversed, with internal storage being mmcblk2. Needless to say this can cause an issue if you partition or dd a device you don't want to!}}
+{{Important|If you plan on using firmware blobs, copy them from ChromeOS's root partition to your flash medium for later use!}}
+
+{{RootCmd
+|parted /dev/mmcblk0 mklabel gpt
+|cgpt create -z /dev/mmcblk0
+|cgpt create /dev/mmcblk0
+|cgpt add -i 1 -t kernel -b 8192 -s 65536 -l Kernel -S 1 -T 5 -P 10 /dev/mmcblk0 # 32mb
+|sync}}
+
+Partition the rest of the free space how you wish with gdisk. Put your root filesystem directly after the kernel partition.
+
+If you plan to use the kernel on your USB drive, simply dd the kernel on your flash drive to the internal storage and copy all modules from it:
+{{RootCmd
+|dd if=/dev/sda1 of=/dev/mmcblk0p1 conv=notrunc
+|cp -R /lib/modules/* /mnt/gentoo/lib/modules}}
+Optionally, you can copy the firmware blobs you backed up earlier to lib/firmware on your internal storage root. 
+
+
+At this point, you should follow generic stage3 install steps. Mount your root filesystem wherever and setup stage3/Portage:
+{{Note|Exchange /mnt/gentoo with your mountpoint}}
+{{RootCmd
+|wget -O - http://distfiles.gentoo.org/releases/arm/autobuilds/$(wget -O - http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt 2>/dev/zero {{!}}  tail -n1) {{!}}  tar xjvp -C /mnt/gentoo/
+|wget -O - http://distfiles.gentoo.org/releases/snapshots/current/portage-latest.tar.bz2 {{!}}  tar xvjp -C /mnt/gentoo/usr/}}
+
+{{CodeBox|title=make.conf flags|lang=bash|1=
+CFLAGS="-O2 -pipe -march=armv7-a -mtune=cortex-a12 -mfpu=neon -mfloat-abi=hard -pipe  -fomit-frame-pointer -fstack-protector-strong"
+CXXFLAGS="${CFLAGS}"
+CHOST="armv7a-hardfloat-linux-gnueabi"
+INPUT_DEVICES="synaptics evdev"
+VIDEO_CARDS="fbdev" #fbturbo also works if you're using an overlay
+}}
+
+== 4.13+ kernel configuration ==
+TODO: paste kernel creation script, copy to usb/scp kernel and modules to chromebook, +wifi patch
+
+== Suspend ==
+{{Note|Device wakes upon plugging the charger in...}}
+TODO: suspend with lid
+
+== ALSA/Pulse quirks ==
+TODO: alsa mute speakers/unmute on headphone plug, pulse config
+
+== Keybinds ==
+TODO: sound and brightness keys, power button as delete key, reassigning other keys
+
+== Other quirks ==
+TODO: cpu temp location, acpi-tools broke/upower for battery time remaining
+
+== Resources ==
+https://notabug.org/dimkr/devsus<br />
+https://github.com/Miouyouyou/RockMyy<br />
+http://www.synkhronix.com/journal/gentoo-chromebook<br />
+https://wiki.debian.org/InstallingDebianOn/Asus/C201<br />
++ Archlinuxarm and the Rockchip devs for their contributions.
+
+[[Category:Laptops]]
