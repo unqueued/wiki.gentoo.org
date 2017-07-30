@@ -21,13 +21,16 @@ Install {{Package|www-apps/collectd-web}}:
 
 You need also a [[:Category:Web Servers|web server]].
 
+The CGI scripts have to be executable:
+
+{{RootCmd|chmod +x /usr/share/webapps/collectd-web/*/hostroot/cgi-bin/*.cgi}}
+
 ==== Built-in web server ====
 
 The collectd-web project offers a simple web server to process the CGI scripts:
 
 {{RootCmd
 |cd /usr/share/webapps/collectd-web/*/hostroot/
-|chmod +x cgi-bin -R
 |wget https://raw.github.com/httpdss/collectd-web/0.4.1/runserver.py
 |python2 runserver <ip> <port>
 }}
@@ -46,9 +49,37 @@ It is possible to use [[Apache|Apache]] to serve the pages. Configuration of the
 </VirtualHost>
 }}
 
-Additionally, cgi scripts have to be executable:
+==== nginx ====
+This is an example server section for [[nginx|nginx]] using [[fcgiwrap|fcgiwrap]]. This setup does not require using the built-in webserver and downloading the extra python script.
+{{Emerge|fcgiwrap}}
+{{RootCmd
+|systemctl enable fcgiwrap.socket
+|systemctl start fcgiwrap.socket
+}}
 
-{{RootCmd|chmod +x /var/www/localhost/cgi-bin/*}}
+{{FileBox|filename=/etc/nginx/conf.d/collectd-web.conf|title=Example nginx confiugration for collectd|lang=nginx|1=
+server {
+    listen 80;
+    large_client_header_buffers 4 16k; # for large cookies and headers
+
+    location / {
+        root  /usr/share/webapps/collectd-web/0.4.0/htdocs; # this serves the static files
+    }
+
+    location /cgi-bin/ {
+        gzip off;
+        root  /usr/share/webapps/collectd-web/0.4.0/hostroot; # this is the parent directory of cgi-bin
+        fastcgi_pass  unix:/var/run/fcgiwrap.sock;
+        include /etc/nginx/fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME  $document_root$fastcgi_script_name;
+    }
+}
+}}
+
+Save this as a separate file as suggested above and include it in {{Path|/etc/nginx/nginx.conf}} and restart nginx:
+{{RootCmd|systemctl restart nginx}}
+
+The web interface is then available on <code>http://localhost</code>.
 
 == Configuration ==
 
