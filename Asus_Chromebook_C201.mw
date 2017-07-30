@@ -10,7 +10,7 @@ Specs:
 * Audio: Rockchip I2S
 * 11.6" screen @ 1366x768
 * Ram: 2 or 4gb
-I ''highly'' recommend the 4gb variant, especially if you're going to be compiling things ;)
+I ''highly'' recommend the 4gb variant, especially if you're going to be compiling things :>
 
 == What works ==
 * Suspend/resume
@@ -23,7 +23,7 @@ I ''highly'' recommend the 4gb variant, especially if you're going to be compili
 
 == What doesn't ==
 
-* No GPU hardware acceleration. Apparently you can get OpenGLES/EGL working with the Mali T764, but I had no such luck (nor did I try very hard - I don't particularly need this, support in X/various compositors is minimal, and the blobs are closed source). Future progress in this area likely to come from  https://notabug.org/cafe/chai
+* No GPU hardware acceleration. Apparently you can get OpenGLES/EGL working with the Mali T764, but I had no such luck (nor did I try very hard - I don't particularly need this, support in X/various compositors is minimal, and the blobs are closed source). Future progress in this area likely to come from https://notabug.org/cafe/chai
 * Bluetooth - Bluetooth works, but if you load the module at any time, it will crash both itself and wireless if you attempt to suspend. More to come...
 * Wireless without blobs - brcmfmac requires non-free firmware here.
 
@@ -75,37 +75,155 @@ CHOST="armv7a-hardfloat-linux-gnueabi"
 INPUT_DEVICES="synaptics evdev"
 VIDEO_CARDS="fbdev" #fbturbo also works if you're using an overlay
 }}
-{{Note|CFLAGS partially picked from Google's. There could be better options out there...}}
 
 == 4.13+ kernel configuration ==
+{{Note|There is currently no linux-libre 4.13, but 4.12 should work, if you wish.}}
 Requirments:
 * crossdev, armv7a-hardfloat-linux-gnueabi target
 * vboot-utils
-Create a file namd cmdline in the current directory.
+Clone the RockMyy repo:
+{{RootCmd
+|git clone https://github.com/Miouyouyou/RockMyy.git
+|cd RockMyy
+}}
+
+Download the following gist:<br />
+https://gist.github.com/anonymous/317d574515d22e0384f74e4275a40aeb<br />
+
+Save 0007-brcmfmac-wififix.patch to patches/kernel/v4.13<br />
+Save kerngen.sh & kernel.its to ./<br />
+Save config-latest to ./config/v4.13/<br /><br />
+Create a file named cmdline in the current directory.<br />
 Put the following in it, replace rootfstype:
+{{CodeBox|title=cmdline|lang=bash|1=
 console=tty1 init=/sbin/init root=PARTUUID=%U/PARTNROFF=1 rootfstype=[ext4/f2fs/etc] rootwait rw quiet
-This uses 
+}}
+The CPU governor defaults to conservative. If you want ondemand, or other modules, set MAKE_CONFIG=menuconfig to enter menuconfig.<br />
+Otherwise:
+{{RootCmd
+|sh c201_kerngen.sh}}
 
-TODO: paste kernel creation script, copy to usb/scp kernel and modules to chromebook, +wifi patch
+If all goes well, this will put the kernel as ./kernel and the modules in ./modules<br />
+You can now scp/copy this file and folder to the C201. Once you've done this, or if you're compiling on the C201, install them:
+{{RootCmd
+|dd if{{=}}kernel of{{=}}/dev/mmcblk[ID]p1 conv{{=}}notrunc
+|cp -Rv ./modules/lib /}}
 
-== Suspend ==
-{{Note|Device wakes upon plugging the charger in...}}
-TODO: suspend with lid
+You can use this kernel with the Devsus USB as well.
+
+== ACPI ==
+{{CodeBox|title=/etc/acpi/default.sh|lang=bash|1=
+#!/bin/sh
+# /etc/acpi/default.sh
+# Default acpi script that takes an entry for all actions
+
+set $*
+
+group=${1%%/*}
+action=${1#*/}
+device=$2
+id=$3
+value=$4
+
+log_unhandled() {
+	logger "ACPI event unhandled: $*"
+}
+
+case "$group" in
+	jack)
+		case "$id" in
+			'plug')
+				amixer -D hw:0 cset name='Left Speaker Mixer Left DAC Switch' off
+				amixer -D hw:0 cset name='Right Speaker Mixer Right DAC Switch' off
+				amixer -D hw:0 cset name='Left Headphone Switch' on
+                                amixer -D hw:0 cset name='Right Headphone Switch' on
+				;;
+			'unplug')
+				amixer -D hw:0 cset name='Left Speaker Mixer Left DAC Switch' on
+                                amixer -D hw:0 cset name='Right Speaker Mixer Right DAC Switch' on
+				amixer -D hw:0 cset name='Left Headphone Switch' off
+                                amixer -D hw:0 cset name='Right Headphone Switch' off
+				;;
+			*) uhd $+;;
+		esac
+		log_unhandled $*
+	;;
+	button)
+		case "$action" in
+			#power)
+					#pm-suspend
+			#		log_unhandled $*
+			#	;;
+
+			lid)
+				case "$id" in
+					close) if [ $(cat /sys/class/power_supply/gpio-charger/online) -eq 0 ]; then
+                                                        pm-suspend
+                                                fi;;
+					open) :;;
+					*) uhd $*;;
+				esac
+				log_unhandled $*
+				;;
+
+			*)	log_unhandled $* ;;
+		esac
+		;;
+
+	*)	log_unhandled $* ;;
+esac
+}}
+This handles alternating between speaker and headphone jack when one is plugged in, as well as lid suspend when the charger is unplugged. You can add power button support if you wish, though keep in mind the device will simply turn on again when you close the lid.
 
 == ALSA/Pulse quirks ==
-TODO: alsa mute speakers/unmute on headphone plug, pulse config
+Add the following if you use Pulseaudio:
+{{CodeBox|title=/etc/pulse/default.pa|lang=bash|1=
+load-module module-alsa-sink device=sysdefault
+load-module module-alsa-source device=sysdefault}}
+See [https://wiki.debian.org/InstallingDebianOn/Asus/C201#Audio InstallingDebianOn/Asus/C201#Audio] for further information. VEYRON-I2S shipped with alsa, so it's unlikely you need to add Google's UCM files. <br />
+I have not tested HDMI, but presume it to work.
 
 == Keybinds ==
-TODO: sound and brightness keys, power button as delete key, reassigning other keys
+xbacklight doensn't work, however, a backlight device exists. You can use this in tandem with xbindkeys as a replacement for xbacklight:
+{{CodeBox|title=c201_backlight.sh|lang=bash|1=
+#!/bin/bash
+if [ "$(($(cat /sys/devices/platform/backlight/backlight/backlight/brightness)+$1))" -gt "255" ];then
+        echo 255 > /sys/devices/platform/backlight/backlight/backlight/brightness
+        exit
+fi
+if [ "$(($(cat /sys/devices/platform/backlight/backlight/backlight/brightness)+$1))" -lt "0" ]; then
+        echo 0 > /sys/devices/platform/backlight/backlight/backlight/brightness
+        exit
+fi
+
+echo $(($(cat /sys/devices/platform/backlight/backlight/backlight/brightness)+$1)) > /sys/devices/platform/backlight/backlight/backlight/brightness}}
+Provide the delta for the backlight as an argument, positive or negative.<br />
+
+If you'd like to reassign your function keys to their purpose, you can do this by editing /usr/share/X11/xkb/symbols/pc.
+{{CodeBox|title=/usr/share/X11/xkb/symbols/pc example
+|    key <LWIN> {        [ Caps_Lock             ]       };
+    key <FK01>   {      [ Home                  ]       };
+    key <FK02>   {      [ End                   ]       };
+    key <FK03>   {      [ Page_Up               ]       };
+    key <FK04>   {      [ Page_Down             ]       };}}
+Here, I've remapped the search key (LWIN) to Caps and set some of the function keys to much-needed movement keys. I also remapped my power button to the Delete key:
+{{CodeBox|title=/usr/share/X11/xkb/symbols/inet
+|    key <POWR>   {      [ Delete                ]       };}}
 
 == Google tools ==
 TODO: vboot-tools, u-boot-utils, crossystem, mosys
 
 == Web browser ==
-TODO: firefox 45 patch for arm
+Midori and Firefox 45 both work fine here, with the +jit flag enabled.
+This is important, as both browsers will act up or segfault without it.<br />
+To get Firefox to compile, [https://bug1358776.bmoattachments.org/attachment.cgi?id=8861046 this] patch was required.
 
 == Other quirks ==
-TODO: cpu temp location, acpi-tools broke/upower for battery time remaining
+lm_sensors does not work here. You can query /sys/devices/virtual/thermal/thermal_zoneX/temp to get temperatures.<br />
+This will average the two CPU sensors up and output in a sane format:
+{{Cmd
+|echo "$((($(cat /sys/devices/virtual/thermal/thermal_zone1/temp)+$(cat /sys/devices/virtual/thermal/thermal_zone2/temp))/2000))"}}
+
 
 == Resources ==
 https://notabug.org/dimkr/devsus<br />
@@ -113,5 +231,5 @@ https://github.com/Miouyouyou/RockMyy<br />
 http://www.synkhronix.com/journal/gentoo-chromebook<br />
 https://wiki.debian.org/InstallingDebianOn/Asus/C201<br />
 + Archlinuxarm, Rockchip git
-
+''Thanks to  [https://github.com/Miouyouyou Miouyouyou] and [https://notabug.org/dimkr dimkr] for creating their scripts!''
 [[Category:Laptops]]
