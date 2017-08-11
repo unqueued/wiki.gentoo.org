@@ -579,6 +579,8 @@ To setup replication, first setup a second OpenLDAP server, similarly as above. 
 <!--T:154-->
 {{Note|Using a mirrored installation means that the OpenLDAP service should be configured like a single server installation, so the ''serverID'' value on each of the nodes must be the same. Instances are identified by ''rid'' values, which must be unique.}}
 
+===== Synchronisation account =====
+
 <!--T:49-->
 Next, create the synchronisation account. We will create an LDIF file (the format used as data input for LDAP servers) and add it to each LDAP server: 
 
@@ -601,6 +603,116 @@ description: LDAP reader used for synchronization
 {{Cmd|ldapadd -x -W -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -f ldapreader.ldif|output=<pre>
 Password: ## enter the administrative password
 </pre>}}
+
+===== Enabling syncprov overlay =====
+
+Overlay can be linked statically and dynamically. When it is built dynamivally, you\'ll need to load module. For now in Gentoo it's usually buils statically. To enshure type:
+
+{{RootCmd|/usr/lib64/openldap/slapd -VVV|output=<pre>
+@(#) $OpenLDAP: slapd 2.4.44 (Feb 28 2017 10:07:46) $
+	@larry:/var/tmp/portage/net-nds/openldap-2.4.44/work/openldap-2.4.44-abi_x86_64.amd64/servers/slapd
+
+Included static overlays:
+    syncprov
+Included static backends:
+    config
+    ldif
+    bdb
+    hdb
+</pre>}}
+
+If you need to load syncprov module, you should use the following ldif file:
+
+{{FileBox|filename=syncprov-module-load.ldif |1=
+#Load the syncprov module.
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: syncprov
+}}
+
+Next step, mandatory for everybody, is to setup replication for database (must be done on both nodes):
+
+{{FileBox|filename=syncprov-add-overlay.ldif |1=
+# syncrepl Provider for primary db
+dn: olcOverlay=syncprov,olcDatabase={1}mdb,cn=config
+changetype: add
+objectClass: olcOverlayConfig
+objectClass: olcSyncProvConfig
+olcOverlay: syncprov
+olcSpNoPresent: TRUE
+olcSpCheckpoint: 100 10
+olcSpSessionlog: 100
+}}
+
+{{Warning|One of poorly-documented feature of <code>ldif</code>-backend is that it doesn't permit file deletion. So, you can add overlay, but cannot remove it.}}
+
+Finally, you need to add replication's definition. 
+
+On node 1:
+
+{{FileBox|filename=add-replication-node1.ldif |1=
+dn: cn=config
+changetype: modify
+add: olcServerID
+olcServerID: 1
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcSyncrepl
+olcSyncrepl: 
+  rid=001 
+  provider=ldap://ldap-2.genfic.org 
+  binddn="cn=ldapreader,dc=genfic,dc=org" 
+  bindmethod=simple 
+  credentials="secret" 
+  searchbase="dc=genfic,dc=org" 
+  type=refreshAndPersist 
+  timeout=0 
+  network-timeout=0 
+  retry="60 +"
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcMirrorMode
+olcMirrorMode: TRUE
+}}
+
+<code>secret</code> traditionally means the password string.
+
+On node 2:
+
+{{FileBox|filename=add-replication-node2.ldif |1=
+add-replication-node2.ldif 
+dn: cn=config
+changetype: modify
+add: olcServerID
+olcServerID: 1
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcSyncrepl
+olcSyncrepl:
+  rid=002
+  provider=ldap://ldap-1.genfic.org
+  binddn="cn=ldapreader,dc=genfic,dc=org"
+  bindmethod=simple
+  credentials="secret"
+  searchbase="dc=genfic,dc=org"
+  type=refreshAndPersist
+  timeout=0
+  network-timeout=0
+  retry="60 +"
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcMirrorMode
+olcMirrorMode: TRUE
+}}
+
+The only difference is in server's ident (rid) and provider uri.
+
+{{Note|You need to load ldap database only on one node of cluster and should not load on another. The database will be replicated automatically after adding quoted definition.}}
 
 == Configuring the OpenLDAP client tools == <!--T:116--> 
 
