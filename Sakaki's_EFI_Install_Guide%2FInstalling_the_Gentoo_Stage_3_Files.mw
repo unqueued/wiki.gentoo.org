@@ -213,57 +213,69 @@ The second (lower level) way is invoke the {{c|ebuild}} directly; for example, y
 which will clean Portage's temporary build directories, and then perform all the steps of the ebuild workflow, providing detailed output as it does so (you can also use the {{c|ebuild}} command to perform only certain steps, if you wish, and it can also create {{c|Manifest}} files; see the [http://dev.gentoo.org/~zmedico/portage/doc/man/ebuild.1.html {{c|ebuild}} manpage] for details).
 {{Note|Unlike the {{c|emerge}} invocation, this will ''not'' add {{Package|dev-util/diffstat}} to the [[World set (Portage){{!}}@world]] set (see [[#about_sets{{!}}below]] for an explanation of what this means).}}
 
-=== <span id="nwipe_ebuild">A More Complex {{c|ebuild}} ({{c|nwipe}})</span> ===
+=== <span id="nwipe_ebuild">A More Complex {{c|ebuild}} ({{c|sign}})</span> ===
 
 The {{c|diffstat}} example above is about as simple as a real-world ebuild gets!
 
-However, one common additional requirement is the need to apply [[:Wikipedia:Patch_(computing)#In_software_development|patches]]. To do this, an ebuild will typically override the [http://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/index.html {{c|src_prepare}}] ebuild 'hook' function (invoked by the standard {{c|ebuild}} flow after the source tarball has been successfully unpacked), and then use the [http://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/epatch/index.html epatch] utility function to apply patches held in the {{c|files}} directory.
+However, one common additional requirement is the need to apply [[:Wikipedia:Patch_(computing)#In_software_development|patches]]. To do this, an ebuild will typically override the default [http://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/index.html {{c|src_prepare}}] ebuild 'hook' function (invoked by the standard {{c|ebuild}} flow after the source tarball has been successfully unpacked), and in the overridden version use the [http://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/epatch/index.html epatch] utility function to apply patches held in the {{c|files}} directory.
 
-For example, consider the {{c|nwipe}} package, which provides tools to securely wipe disks. It lives in the {{c|app-crypt}} category. Looking in its corresponding directory ({{Path|/usr/portage/app-crypt/nwipe}}) we notice a number of interesting differences from {{c|diffstat}}:
-* there are quite a number of ebuilds (at the time of writing, {{c|nwipe-0.12.ebuild}}, {{c|nwipe-0.12-r1.ebuild}}, {{c|nwipe-0.13.ebuild}} and {{c|nwipe-0.14.ebuild}});
-* there is a {{c|files}} subdirectory, containing a single patch ({{c|nwipe-0.12-ncurses.patch}}).
+{{Note|However, from EAPI 6 the default {{c|src_prepare}} function is no-longer a no-op, it will automatically apply any patches listed in the {{c|PATCHES}} array variable (and call {{c|eapply_user}}, to apply user patches)<ref>Gentoo Development Guide: [http://devmanual.gentoo.org/ebuild-writing/eapi/index.html "EAPI Usage and Description"]</ref>. The ebuild we're about to look at however uses EAPI 5, so has to apply its required patches using {{c|epatch}} directly.}}
 
-Now let's look at the version 0.12-r1 of the {{c|ebuild}}:
-{{FileBox|filename=/usr/portage/app-crypt/nwipe/nwipe-0.12-r1.ebuild|title=A slightly more complex ebuild, illustrating patching and dependencies|lang=bash|1=
-# Copyright 1999-2013 Gentoo Foundation
+For example, consider the {{c|sign}} package, which provides a file signing and signature verification utility. It lives in the {{c|app-crypt}} category. Looking in its corresponding directory ({{Path|/usr/portage/app-crypt/sign}}) we notice immediately that unlike {{c|diffstat}}, there is a {{c|files}} subdirectory, containing two patches ({{c|1.0.7-as-needed.patch}} and {{c|1.0.7-openssl-0.9.8.patch}}).
+
+Let's examine version 1.0.7 of the {{c|ebuild}}:
+
+{{FileBox|filename=/usr/portage/app-crypt/sign/sign-1.0.7.ebuild|title=A slightly more complex ebuild, illustrating patching and conditional dependencies|lang=bash|1=
+# Copyright 1999-2017 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# $Header: /var/cvsroot/gentoo-x86/app-crypt/nwipe/nwipe-0.12-r1.ebuild,v 1.1 2013/02/02 22:59:24 alonbl Exp $
 
-EAPI=5
+EAPI{{=}}5
 
-inherit eutils autotools
+inherit toolchain-funcs eutils
 
-DESCRIPTION="Securely erase disks using a variety of recognized methods"
-HOMEPAGE="http://sourceforge.net/projects/nwipe/"
-SRC_URI="mirror://sourceforge/${PN}/${P}.tar.gz"
+DESCRIPTION{{=}}"File signing and signature verification utility"
+HOMEPAGE{{=}}"http://swapped.cc/sign/"
+SRC_URI{{=}}"http://swapped.cc/${PN}/files/${P}.tar.gz"
 
-LICENSE="GPL-2"
-SLOT="0"
-KEYWORDS="~amd64 ~x86"
-IUSE=""
+LICENSE{{=}}"BZIP2"
+SLOT{{=}}"0"
+KEYWORDS{{=}}"amd64 ppc x86 ~amd64-linux ~x86-linux ~ppc-macos"
+IUSE="libressl"
 
-RDEPEND=">=sys-block/parted-2.3
-	>=sys-libs/ncurses-5.7-r7"
-DEPEND="${RDEPEND}
-	virtual/pkgconfig"
-
-DOCS="README"
+RDEPEND{{=}}"
+	!libressl? ( dev-libs/openssl:0{{=}} )
+	libressl? ( dev-libs/libressl:0{{=}} )"
+DEPEND{{=}}"${RDEPEND}"
 
 src_prepare() {
-	epatch "${FILESDIR}/${P}-ncurses.patch"
-	eautoreconf
+	epatch "${FILESDIR}"/${PV}-openssl-0.9.8.patch
+	epatch "${FILESDIR}"/${PV}-as-needed.patch
+	# remove -g from CFLAGS, it happens to break the build on ppc-macos
+	sed -i -e 's/-g//' src/Makefile {{!}}{{!}} die
+}
+
+src_compile() {
+	emake CC{{=}}"$(tc-getCC)"
+}
+
+src_install() {
+	dobin ${PN}
+	doman man/${PN}.1
+	dodoc README
+	dosym ${PN} /usr/bin/un${PN}
 }
 }}
 
 Most of this should be familiar enough from the {{c|diffstat}} example, but there are some new elements too. Specifically:
-* the {{c|inherit}} command is used to pull in two useful 'eclasses': [http://devmanual.gentoo.org/eclass-reference/eutils.eclass/ eutils] (which supplies the {{c|epatch}} function discussed shortly) and [http://devmanual.gentoo.org/eclass-reference/autotools.eclass/index.html autotools] (which supplies {{c|eautoreconf}});
+* the {{c|inherit}} command is used to pull in two useful 'eclasses': [http://devmanual.gentoo.org/eclass-reference/eutils.eclass/ eutils] (which supplies the {{c|epatch}} function discussed shortly) and [https://devmanual.gentoo.org/eclass-reference/toolchain-funcs.eclass/ toolchain-funcs] (which supplies {{c|tc-getCC}}, the name of the C compiler);
 * the {{c|SRC_URI}} makes use of the {{c|${PN}}} variable, which expands out to the package name, ''without'' version (a full list of these convenience variables may be found [http://devmanual.gentoo.org/ebuild-writing/variables/index.html here]);
-* the blank {{c|IUSE}} definition specifies that there are no ebuild-specific USE flags (see [[#use_flags|below]] for a brief introduction to USE flags);
-* the {{c|RDEPEND}} variable specifies a set of runtime dependencies, and the {{c|DEPEND}} a set of build/install time dependencies, for the package. This is used by Portage to ensure that all prerequisites are also installed, when you ask to {{c|emerge app-crypt/nwipe}};
-* the {{c|DOCS}} variable is used to notify the default [http://devmanual.gentoo.org/ebuild-writing/functions/src_install/index.html {{c|src_install}}] 'hook' function of additional documentation files (in addition to those the {{c|make}} itself may copy over, such as manpages) which it should install;
-* the [http://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/index.html {{c|src_prepare}}] 'hook' function (which by default is a no-op) is overridden to perform two custom tasks:
-** to patch the source using the {{c|epatch}} utility, using a patch file in {{Path|/usr/portage/app-crypt/nwipe/files/nwipe-0.12-ncurses.patch}} (the {{c|${P}}} expansion excludes revision tags). As described [http://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/epatch/index.html here], {{c|epatch}} intelligently attempts to apply patches using different {{c|-p}} levels etc.
-** to invoke [https://www.gnu.org/savannah-checkouts/gnu/autoconf/manual/autoconf-2.69/html_node/autoreconf-Invocation.html {{c|autoreconf}}], which updates the [[:Wikipedia:GNU_build_system|'Autotools']] {{c|configure}} scripts after the patch has been applied.
+* the {{c|IUSE}} definition is not blank: there is one optional USE flag here, {{c|libressl}} (which switches to that SSL library, as we shall discuss next; see [[#use_flags|below]] for a brief introduction to USE flags);
+* the {{c|RDEPEND}} variable specifies a set of runtime dependencies, and the {{c|DEPEND}} a set of build/install time dependencies, for the package. This is used by Portage to ensure that all prerequisites are also installed, when you ask to {{c|emerge app-crypt/sign}}. Notice that this build pulls in {{Package|dev-libs/openssl}} by default, unless the {{c|libressl}} USE flag is specified, in which case {{Package|dev-libs/libressl}} is pulled in instead;
+* the [https://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/index.html {{c|src_prepare}}] 'hook' function (which by default is a no-op at EAPI 5) is overridden to perform two custom tasks:
+** to patch the source using the {{c|epatch}} utility, using patch files {{Path|/usr/portage/app-crypt/sign/files/1.0.7-openssl-0.9.8.patch}} and {{Path|/usr/portage/app-crypt/sign/files/1.0.7-as-needed.patch}} ({{c|${PV}}} expands to the package version, without name or revision tags). As described [http://devmanual.gentoo.org/ebuild-writing/functions/src_prepare/epatch/index.html here], {{c|epatch}} intelligently attempts to apply patches using different {{c|-p}} levels etc.
+** to invoke a small {{c|sed}} script to modify the Makefile slightly.
+* the [https://devmanual.gentoo.org/ebuild-writing/functions/src_compile/index.html {{c|src_compile}}] 'hook' function (which by default will simply invoke {{c|emake}} after some pre-preprocessing) is overridden to ensure that the C compiler is set correctly (the upstream Makefile not supporting environment-set {{c|CC}} values in this case);
+* the [https://devmanual.gentoo.org/ebuild-writing/functions/src_install/index.html {{c|src_install}}] 'hook' function (which by default will invoke {{c|emake DESTDIR{{=}}"${D}" install}} and then further install any documentation specified via the {{c|DOCS}} array variable) is overridden to perform a manual install using some helper [https://devmanual.gentoo.org/function-reference/install-functions/index.html install functions]; this is sometimes necessary if the upstream Makefile does not support the use of {{c|DESTDIR}}, or does not support the {{c|install}} target.
 
 {{Note|Of course, ebuilds can be much more complex than either of the above two examples, but they should give you a basic idea of how the system works. For more details, I'd refer you to the Gentoo Development Guide [http://devmanual.gentoo.org/ebuild-writing/index.html "Ebuild Writing"] section.}}
 
