@@ -549,17 +549,75 @@ Right, let's get going. First, we'll need to build ourselves a toolchain! We'll 
 |cd /usr/portage/scripts
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
-then
+then:
 {{RootCmd
 |./bootstrap.sh --pretend
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
+|output=<pre>
+... additional output suppressed ...
+These are the packages that would be merged, in order:
+
+Calculating dependencies... done!
+[ebuild   R    ] sys-apps/baselayout-2.3
+[ebuild   R    ] sys-libs/zlib-1.2.11
+[ebuild   R    ] virtual/libc-1
+[ebuild   R    ] sys-devel/gettext-0.19.8.1  USE="-acl* -ncurses* -openmp*"
+[ebuild   R    ] sys-devel/binutils-2.28-r2
+[ebuild   R    ] sys-devel/gcc-5.4.0-r3  USE="-fortran* -openmp* -sanitize* -vtv*"
+[ebuild   R    ] sys-kernel/linux-headers-4.4
+[ebuild   R    ] sys-apps/texinfo-6.3
+-------------------------------------------------------------------------------
+</pre>
+}}
+The exact versions shown in your output may differ.
+{{Note|The most direct way to make sense of the reported set of packages (and build order) output by the {{c|./bootstrap.sh --pretend}} command, is to look at a minimal, ground-up Linux installation like ''Linux from Scratch'' - this has an excellent handbook, which runs though the process you'd be going through by hand, if Portage didn't exist!<ref>Beekmans, Gerard. [http://www.linuxfromscratch.org/lfs/view/stable/ ''Linux from Scratch'']. Burgess, Matthew et. al. eds. 2017</ref>}}
+
+The Gentoo [[FAQ#How_do_I_Install_Gentoo_Using_a_Stage1_or_Stage2_Tarball?|FAQ]] suggests you may wish to edit the {{Path|/usr/portage/scripts/bootstrap.sh}} script after reviewing it - and indeed, we will do so, because there's one 'gotcha' lurking in the above proposed {{c|emerge}} list. Specifically, the [[:Wikipedia:C_standard_library|C standard library]] that the bootstrap intends to rebuild is a [https://devmanual.gentoo.org/general-concepts/virtuals/ ''virtual''] ({{Package|virtual/libc}}); however, in Portage, emerging a virtual package does ''not'', by default, cause any already-installed package that satisfies that virtual (in our case, {{Package|sys-libs/glibc}}) to be rebuilt - which we want.
+
+We'll edit {{Path|bootstrap.sh}} so that it builds the underlying C library instead. Issue:
+{{RootCmd
+|nano -w bootstrap.sh
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
 }}
 
-{{Note|The most direct way to make sense of the reported set of packages (and build order) output by the {{c|./bootstrap.sh --pretend}} command, is to look at a minimal, ground-up Linux installation like ''Linux from Scratch'' - this has an excellent handbook, which runs though the process you'd be going through by hand, if Portage didn't exist!<ref>Beekmans, Gerard. [http://www.linuxfromscratch.org/lfs/view/stable/ ''Linux from Scratch'']. Burgess, Matthew et. al. eds. 2013</ref>}}
+Once {{c|nano}} opens, issue {{Key|ctrl}}{{Key|w}} to start a search, and then type <kbd>should never fail</kbd> and press {{Key|Enter}}. Navigate down to the line setting {{c|myLIBC}} and modify it so the block now reads:
+{{FileBox|filename=/usr/portage/scripts/bootstrap.sh|title=Ensuring glibc gets rebuilt during bootstrap|1=
+# This stuff should never fail but will if not enough is installed.
+[[ -z ${myBASELAYOUT} ]] && myBASELAYOUT=">=$(portageq best_version / sys-apps/baselayout)"
+[[ -z ${myPORTAGE}    ]] && myPORTAGE="portage"
+[[ -z ${myBINUTILS}   ]] && myBINUTILS="binutils"   
+[[ -z ${myGCC}        ]] && myGCC="gcc"
+[[ -z ${myGETTEXT}    ]] && myGETTEXT="gettext"
+[[ -z ${myLIBC}       ]] ; myLIBC="$(portageq expand_virtual / virtual/libc)"
+[[ -z ${myTEXINFO}    ]] && myTEXINFO="sys-apps/texinfo"
+[[ -z ${myZLIB}       ]] && myZLIB="zlib"
+[[ -z ${myNCURSES}    ]] && myNCURSES="ncurses"
+}}
+You only need modify the one line, replacing "{{c|&&}}" with "{{c|;}}" as shown above (this makes the following statement execute unconditionally). Leave the rest of the file as-is. When done, save and exit {{c|nano}}.
 
-{{Note|The Gentoo [[FAQ#How_do_I_Install_Gentoo_Using_a_Stage1_or_Stage2_Tarball?|FAQ]] suggests you may wish to edit the {{Path|/usr/portage/scripts/bootstrap.sh}} script; however for a vanilla bootstrap like this, there is no need to. By all means look through the code to get an idea of what it does though.}}
+{{Note|As this file exists as part of the main Gentoo ebuild repository, your changes will be overwritten next time you sync. As we only want to bootstrap our system now, that's not a problem (but you can of course make a copy of the modified {{Path|bootstrap.sh}} file at this point, should you wish).}}
 
-Start the build for real this time:
+Ensure that will do what we intended:
+{{RootCmd
+|./bootstrap.sh --pretend
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
+|output=<pre>
+... additional output suppressed ...
+These are the packages that would be merged, in order:
+
+Calculating dependencies... done!
+[ebuild   R    ] sys-apps/baselayout-2.3 
+[ebuild   R    ] sys-libs/zlib-1.2.11 
+[ebuild   R    ] sys-devel/gettext-0.19.8.1  USE="-acl* -ncurses* -openmp*" 
+[ebuild   R    ] sys-devel/binutils-2.28-r2 
+[ebuild   R    ] sys-kernel/linux-headers-4.4 
+[ebuild   R    ] sys-apps/texinfo-6.3 
+[ebuild   R    ] sys-devel/gcc-5.4.0-r3  USE="-fortran* -openmp* -sanitize* -vtv*" 
+[ebuild   R    ] sys-libs/glibc-2.23-r4  USE="-rpc*" 
+-------------------------------------------------------------------------------
+</pre>
+}}
+(The exact versions in your output may differ.) Looks good, so let's start the bootstrap for real:
 {{RootCmd
 |./bootstrap.sh
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
@@ -579,14 +637,12 @@ You can now switch back and forward between the two windows as you like (using {
 |}
 {{Note|The output you see will most likely be slightly different from the screenshots above, as new versions of software get released etc.}}
 
-Assuming the {{c|bootstrap.sh}} script completes successfully, you next need to check your GCC configuration (since we just rebuilt the compiler, and possibly upgraded it too). Switch back to the first console (hit {{Key|Ctrl}}{{Key|a}} then {{Key|0}}), and issue:
+Assuming the {{c|bootstrap.sh}} script completes successfully, you next need to check your GCC configuration (since we just rebuilt the compiler, and possibly upgraded it too). Switch back to the first console (hit {{Key|Ctrl}}{{Key|a}} then {{Key|0}}; {{c|screen}} indexes consoles from zero), and issue:
 
 {{RootCmd
-|gcc-config -l
+|gcc-config --list-profiles
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
 }}
-
-(That's an 'ell' by the way, not a one!)
 
 If (and ''only'' if) the output tells you your current config is invalid, per [[Upgrading GCC|these notes]], issue the following to fix it:
 {{RootCmd
@@ -600,7 +656,7 @@ Would you like to merge these packages? [Yes/No] <press y, then Enter>
 </pre>
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
 }}
-(That's a one as an argument to {{c|gcc-config}} this time by the way, not an 'ell'!)
+(That's a one as an argument to {{c|gcc-config}} by the way, not an 'ell'!)
 
 {{Warning|It is '''very important''' that you ensure your GCC profile is correct. Failure to do so can break subsequent builds in a mildly spectacular fashion.}}
 {{Note|If you did find it necessary to update {{c|gcc-config}}, you may then also, at this point, wish to switch to your second virtual console with {{Key|Ctrl}}{{Key|a}} then {{Key|n}}, stop any running {{c|showem}} with {{Key|Ctrl}}{{Key|c}}, then issue:
@@ -608,19 +664,8 @@ Would you like to merge these packages? [Yes/No] <press y, then Enter>
 |source /etc/profile && export PS1{{=}}"(chroot:2) $PS1"
 |prompt=<span style{{=}}"color:gray;">(chroot:2)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
 }}
-finally restarting {{c|showem}} if desired, then switching back to the first virtual console again with {{Key|Ctrl}}{{Key|a}} then {{Key|p}}.<br>However, provided you are only going to run {{c|emerge}} operations from the ''first'' virtual console, using the second to run {{c|showem}}, sourcing {{Path|/etc/profile}} in the second virtual console may safely be omitted, as I have done in the main body of the text.}}
-
-Now, we must {{c|emerge}} the [[:Wikipedia:C_standard_library|C standard library]]. You may have noticed that the bootstrap ''already'' emerged the [https://devmanual.gentoo.org/general-concepts/virtuals/ virtual] package {{Package|virtual/libc}}; however, in Portage, emerging a virtual package does ''not'', by default, cause any already-installed package that satisfies that virtual (in our case, {{Package|sys-libs/glibc}}) to be rebuilt - which we want. Therefore, we must build it explicitly. Issue:
-{{RootCmd
-|emerge --ask --verbose --oneshot sys-libs/glibc
-|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
-|output=<pre>
-... additional output suppressed ...
-Would you like to merge these packages? [Yes/No] <press y, then Enter>
-... additional output suppressed ...
-</pre>
-}}
-{{Note|When this command completes, you may see the following output:
+finally restarting {{c|showem}} if desired, then switching back to the first virtual console again with {{Key|Ctrl}}{{Key|a}} then {{Key|p}}.<br>However, provided you are only going to run {{c|emerge}} operations from the ''first'' virtual console, using the second to run {{c|showem}}, sourcing {{Path|/etc/profile}} in the second virtual console may safely be omitted, as I have done in the main body of the text.<br><br>
+Also, note that after emerging {{c|libtool}}, you may see the following output:
 {{GenericCmd|<pre>
 ... additional output suppressed ...
  * IMPORTANT: config file '/etc/locale.gen' needs updating.
@@ -651,7 +696,7 @@ Now, just as above, you can switch back and forth between the two {{c|screen}} c
 Once the toolchain bootstrap has completed (for the second time), we're ready to rebuild all the other binaries using it. You shouldn't need to reset the GCC profile this time around, but just to be on the safe side, double-check it is valid:
 
 {{RootCmd
-|gcc-config -l
+|gcc-config --list-profiles
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">scripts #</span>
 }}
 
