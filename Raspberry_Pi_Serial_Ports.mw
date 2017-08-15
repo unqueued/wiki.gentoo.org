@@ -1,0 +1,133 @@
+In Gentoo, the serial rules are a bit different from Raspbian. The default serial port configuration in Raspbian assigns the serial ports to the dialout group. Udev rules under Raspbian also create symlinks serial0 and serial1, which point to ttyAMA0 and ttyS0 respectively.
+
+In the default Gentoo stage3 configuration, however, the dialout group and the Udev rules which create the serial0/serial1 symlinks do not exist. Instead, the serial ports are assigned to the uucp group. In both Gentoo and Raspbian, Udev rules assign the console serial port to the tty group instead.
+
+In Raspbian, serial console UART assignment is done through raspi-config and does have an /etc/inittab file since it runs Systemd. When the console is enabled on ttyS0 in Raspbian, console=ttyS0,115200 is added to the kernel command line in cmd.txt.
+
+Gentoo does not have a configuration application like Raspbian does. Gentoo also runs OpenRC and uses the /etc/inittab file. The serial port console assignmetn is done in /etc/inittab as well as by passing console=ttyS0,115200 to the kernel command line in cmdline.txt. Out of the box, /etc/inittab assigns ttyAMA0 as the console UART.
+
+While this is suitable for non-wireless/Bluetooth Raspberry Pi units, Pi 3 and Pi Zero W are equipped with wireless/Bluetooth. On these modes, ttyAMA0 defaults to the Bluetooth hardware while ttyS0 defaults to pins GPIO14:15. With the console on ttyAMA0, this conflicts with the Bluetooth hardware.
+
+If you're using a wireless/Bluetooth equipped Raspberry Pi, you will need to follow these instructions to get your serial ports working under Gentoo. We will configure them using standard Raspberry Pi conventions (such as /dev/serial0 and /dev/serial1 and assigning eligible users to the dialout group) so that any code written under Raspbian using their conventions will work under Gentoo.
+
+== UART General Information ==
+
+All Raspberry Pi models use an ARM Cortex processor with two UARTs on chip -
+
+*PrimeCell PL011 UART
+*16550-like Mini UART
+
+The PrimeCell PL011 is a full featured hardware UART while the mini UART is a secondary low-throughput feature limited UART intended to be used as a console output. In Linux, the PL011 UART appears as /dev/ttyAMA0 while the mini UART appears as /dev/ttyS0. The PL011 UART is clocked off of the ARM system clock while the mini UART is clocked by the VP core clock on the VPU. This creates an issue as the baud rate changes when the VP core clock changes. Adding enable_uart=1 to the config.txt file locks the VPU core clock at 250MHz to maintain a consistent baud rate.
+
+The default configuration on Raspberry Pi 3 Model B connects the PL011 UART (ttyAMA0) to the Bluetooth module while connecting the mini UART to GPIO14:15 (ttyS0). There exist two device tree overlays that can switch this configuration. pi3-miniuart-bt places ttyAMA0 on GPIO14:15 while assigning ttyS0 to the Bluetooth module. pi3-disable-bt places ttyAMA0 on GPIO14:15 while disabling Bluetooth altogether.
+
+So there are several ways we can configure the serial ports based on what we're trying to do. We can place either serial port on GPIO14:15, enable the console on either serial port, as well as assign either serial port to the Bluetooth module.
+
+== UART Setup ==
+
+In order to set up Gentoo such that it follows the Raspbian configuration, we need to do a few things -
+
+*Unassign ttyAMA0 as the console UART and assign ttyS0 as the console UART in /etc/inittab
+*Create the dialout group
+*Create udev rules that assign the serial ports to the dialout group and create the proper serial0 and serial1 symlinks
+*Edit the config.txt and cmdline.txt files for your desired operation
+
+=== Changing Console Assignment ===
+
+Open up /etc/inittab -
+
+{{RootCmd| nano -w /etc/inittab}}
+
+Find the line below and comment it out by appending a # at the beginning of the line -
+
+{{FileBox|filename=/etc/inittab|f0:12345:respawn:/sbin/agetty 9600 ttyAMA0 vt100}}
+
+If you don't need the serial console and you wish to use the UART for other purposes, you can save and exit the file here and skip to "Create The Dialout Group".
+
+Find the line below and uncomment it out by removing the # at the beginning of the line -
+
+{{FileBox|filename=/etc/inittab|#s0:12345:respawn:/sbin/agetty -L 9600 ttyS0 vt100}}
+
+Save the file.
+
+=== Create The Dialout Group ===
+
+Create the dialout group with a GID of 20 -
+
+{{RootCmd| groupadd -g 20 dialout}}
+
+=== Create Udev Rules ===
+
+In Raspbian Jessie, there is a custom Udev rule in /etc/udev/rules.d called 99-com.rules. This rule is responsible for ensuring that the serial0 symlink always points to the GPIO14:15 UART. I've made a slight modification to it to assign the serial hardware to the dialout group.
+
+Open the empty file 99-com.rules -
+
+{{RootCmd| nano -w /etc/udev/rules.d/99-com.rules}}
+
+Copy this text and paste it into the file.
+
+{{FileBox|filename=/etc/udev/rules.d/99-com.rules|
+<nowiki>
+SUBSYSTEM=="input", GROUP="input", MODE="0660"
+SUBSYSTEM=="i2c-dev", GROUP="i2c", MODE="0660"
+SUBSYSTEM=="spidev", GROUP="spi", MODE="0660"
+SUBSYSTEM=="bcm2835-gpiomem", GROUP="gpio", MODE="0660"
+
+SUBSYSTEM=="gpio*", PROGRAM="/bin/sh -c '\
+        chown -R root:gpio /sys/class/gpio && chmod -R 770 /sys/class/gpio;\
+        chown -R root:gpio /sys/devices/virtual/gpio && chmod -R 770 /sys/devices/virtual/gpio;\
+        chown -R root:gpio /sys$devpath && chmod -R 770 /sys$devpath\
+'"
+
+KERNEL=="ttyAMA[01]", GROUP="dialout", PROGRAM="/bin/sh -c '\
+        ALIASES=/proc/device-tree/aliases; \
+        if cmp -s $ALIASES/uart0 $ALIASES/serial0; then \
+                echo 0;\
+        elif cmp -s $ALIASES/uart0 $ALIASES/serial1; then \
+                echo 1; \
+        else \
+                exit 1; \
+        fi\
+'", SYMLINK+="serial%c"
+
+KERNEL=="ttyS0", GROUP="dialout", PROGRAM="/bin/sh -c '\
+        ALIASES=/proc/device-tree/aliases; \
+        if cmp -s $ALIASES/uart1 $ALIASES/serial0; then \
+                echo 0; \
+        elif cmp -s $ALIASES/uart1 $ALIASES/serial1; then \
+                echo 1; \
+        else \
+                exit 1; \
+        fi \
+'", SYMLINK+="serial%c"</nowiki>}}
+
+Save and exit the file.
+
+=== Modify The Boot Files ===
+
+Mount the boot partition -
+{{RootCmd| mount /boot}}
+
+Open up config.txt -
+
+{{RootCmd| nano -w /boot/config.txt}}
+
+Add the following at the end of the file -
+
+{{FileBox|filename=/boot/config.txt|enable_uart{{=}}1}}
+
+Save and exit the file.
+
+Open up cmdline.txt -
+
+{{RootCmd| nano -w /boot/cmdline.txt}}
+
+Add console=ttyS0,115200 to the kernel command line in the file. An example kernel command line is shown below -
+
+{{FileBox|filename=/boot/cmdline.txt|dwc_otg.lpm_enable{{=}}0 console{{=}}tty1 console{{=}}ttyS0,115200 root{{=}}/dev/mmcblk0p7 rootfstype{{=}}ext4 elevator{{=}}deadline fsck.repair{{=}}yes rootwait}}
+
+Save and exit the file, then reboot the Pi -
+
+{{RootCmd| reboot}}
+
+===Checking Your Configuration
