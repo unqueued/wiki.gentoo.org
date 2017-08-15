@@ -1,35 +1,15 @@
-In Gentoo, the serial rules are a bit different from Raspbian. The default serial port configuration in Raspbian assigns the serial ports to the dialout group. Udev rules under Raspbian also create symlinks serial0 and serial1, which point to ttyAMA0 and ttyS0 respectively.
+The Gentoo Stage3 at the time of this writing is missing a couple of things to make the serial ports behave as they do in Raspbian Jessie. There is no Udev rule to create the serial0 and serial1 symlinks that point to the serial ports. In Raspbian, the serial0 symlink always points to the serial port assigned to GPIO14:15 while serial1 always points to the other serial port. Raspbian has a custom Udev rule that is responsible for this, but missing in the arm64 Gentoo Stage 3.
 
-In the default Gentoo stage3 configuration, however, the dialout group and the Udev rules which create the serial0/serial1 symlinks do not exist. Instead, the serial ports are assigned to the uucp group. In both Gentoo and Raspbian, Udev rules assign the console serial port to the tty group instead.
-
-In Raspbian, serial console UART assignment is done through raspi-config and does have an /etc/inittab file since it runs Systemd. When the console is enabled on ttyS0 in Raspbian, console=ttyS0,115200 is added to the kernel command line in cmd.txt.
-
-Gentoo does not have a configuration application like Raspbian does. Gentoo also runs OpenRC and uses the /etc/inittab file. The serial port console assignmetn is done in /etc/inittab as well as by passing console=ttyS0,115200 to the kernel command line in cmdline.txt. Out of the box, /etc/inittab assigns ttyAMA0 as the console UART.
-
-While this is suitable for non-wireless/Bluetooth Raspberry Pi units, Pi 3 and Pi Zero W are equipped with wireless/Bluetooth. On these modes, ttyAMA0 defaults to the Bluetooth hardware while ttyS0 defaults to pins GPIO14:15. With the console on ttyAMA0, this conflicts with the Bluetooth hardware.
-
-If you're using a wireless/Bluetooth equipped Raspberry Pi, you will need to follow these instructions to get your serial ports working under Gentoo. We will configure them using standard Raspberry Pi conventions (such as /dev/serial0 and /dev/serial1 and assigning eligible users to the dialout group) so that any code written under Raspbian using their conventions will work under Gentoo.
-
-== UART General Information ==
-
-All Raspberry Pi models use an ARM Cortex processor with two UARTs on chip -
-
-*PrimeCell PL011 UART
-*16550-like Mini UART
-
-The PrimeCell PL011 is a full featured hardware UART while the mini UART is a secondary low-throughput feature limited UART intended to be used as a console output. In Linux, the PL011 UART appears as /dev/ttyAMA0 while the mini UART appears as /dev/ttyS0. The PL011 UART is clocked off of the ARM system clock while the mini UART is clocked by the VP core clock on the VPU. This creates an issue as the baud rate changes when the VP core clock changes. Adding enable_uart=1 to the config.txt file locks the VPU core clock at 250MHz to maintain a consistent baud rate.
-
-The default configuration on Raspberry Pi 3 Model B connects the PL011 UART (ttyAMA0) to the Bluetooth module while connecting the mini UART to GPIO14:15 (ttyS0). There exist two device tree overlays that can switch this configuration. pi3-miniuart-bt places ttyAMA0 on GPIO14:15 while assigning ttyS0 to the Bluetooth module. pi3-disable-bt places ttyAMA0 on GPIO14:15 while disabling Bluetooth altogether.
-
-So there are several ways we can configure the serial ports based on what we're trying to do. We can place either serial port on GPIO14:15, enable the console on either serial port, as well as assign either serial port to the Bluetooth module.
+The other issue at hand is the console serial port assignment in /etc/inittab. By default, /etc/inittab assigns ttyAMA0 as the console serial port. For non-wireless/Bluetooth Pi units, it works perfectly fine as ttyAMA0 is the console serial port. However, on wireless/Bluetooth equipped units such as the Pi 3 and the Pi Zero W, ttyAMA0 defaults to the Bluetooth module. This cannot work as the console takes over ttyAMA0, creating a conflict.
 
 == UART Setup ==
 
 In order to set up Gentoo such that it follows the Raspbian configuration, we need to do a few things -
 
-*Unassign ttyAMA0 as the console UART and assign ttyS0 as the console UART in /etc/inittab
+*Unassign ttyAMA0 as the console UART
+*Assign ttyS0 as the console UART in /etc/inittab (optional)
 *Create the dialout group
-*Create udev rules that assign the serial ports to the dialout group and create the proper serial0 and serial1 symlinks
+*Create udev rules file which handles the serial symlinks and assigns the serial ports to the dialout group
 *Edit the config.txt and cmdline.txt files for your desired operation
 
 === Changing Console Assignment ===
@@ -42,7 +22,7 @@ Find the line below and comment it out by appending a # at the beginning of the 
 
 {{FileBox|filename=/etc/inittab|f0:12345:respawn:/sbin/agetty 9600 ttyAMA0 vt100}}
 
-If you don't need the serial console and you wish to use the UART for other purposes, you can save and exit the file here and skip to "Create The Dialout Group".
+If you don't need the serial console and you wish to use the UART for other purposes, you can save and exit the file here and skip to [[Create The Dialout Group]].
 
 Find the line below and uncomment it out by removing the # at the beginning of the line -
 
