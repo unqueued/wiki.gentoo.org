@@ -2,20 +2,6 @@
 
 이 글은 KDE 사용자 시스템의 문제 해결을 돕는 다양한 섹션으로 구성했습니다.
 
-== 다른 사용자로 접속했을 때 GUI 프로그램을 루트 권한으로 열기 ==
-
-{{Warning|루트 권한으로 GUI 프로그램을 시작하는건 ''매우'' 안 좋을 수 있습니다. 꼭 필요할 때만 <tt>kdesu</tt> 명령을 사용하십시오!}}
-
-다른 데스크톱 환경과 마찬가지로 KDE에도 루트 권한으로 그래픽 프로그램을 시작하는 특별한 명령이 있습니다. KDE에서는 <tt>kdesu</tt>입니다. 다음과 같은 방법으로 활용하 수 있습니다:
-
-{{Cmd|kdesu <program>}}
-
-위 명령에서 <code><program></code> 부분을 프로그램 이름으로 바꾸었는지 확인하십시오. 화면에 텍스트 상자가 들어간 창이 떠서 루트 암호를 요구해야 합니다. 암호를 입력하고 빵! 치십시오. 행복하죠<nowiki>*-_-*</nowiki>?
-
-== KResource 이전 도구 팝업 없애기 ==
-
-KResource 이전 도구가 로그인할 때마다 뜬다는 이야기가 있습니다. 아직 제대로 된 해결책은 없지만 {{Bug|353200}} 버그에 회피 방안은 있습니다.
-
 == 프로그램 데이터베이스 재구성 ==
 
 KMenu에 어떤 프로그램이나 전체 프로그램 목록이 빠졌다면 KDE 프로그램 데이터베이스를 다시 구성해야 할 지도 모릅니다. 아이콘이 빠진 문제와 같은 KMenu 관련 문제를 수정하려면 이 방법으로도 처리됩니다.
@@ -33,77 +19,69 @@ KMenu에 어떤 프로그램이나 전체 프로그램 목록이 빠졌다면 KD
 
 오류를 해결하지 못했다면, akonadi 설정을 열고 MySQL 기본 설정으로 바꾸십시오. 시스템 표시줄 아이콘이 동작하지 않으면 {{c|akonaditray}}를 시작하고, "Akonadi 서버 설정"을 선택한 후, "내부 MySQL 서버 사용"을 활성화하고 시험 단추를 누르십시오. MySQL 서버를 사용하고 자체 실행 프로그램을 사용하지 않으려면 MySQL이 동작중인지 확인하십시오.
 
-== KDM 시동 실패 ==
+== Unable to mount devices using KDE Plasma Device Notifier ==
 
-{{Path|/usr/share/config}} 권한 점검부터 시작하십시오. ''700''으로 되어 있으면 ''755''로 바꾸십시오. 이전 섹션을 확인하십시오. 
+If the error message "''You are not authorized to mount this device.''" is being displayed when trying to mount devices by clicking on them in the KDE Plasma Device Notifier (USB-stick-like icon in the system tray), add the following file to the configuration:
 
-이 방법으로 오류를 해결하지 못하면 KDM이 다음과 같은 메시지를 보여주며 시작하지 못하는지 확인하십시오:
-
-{{CodeBox|title=/var/log/messages의 KDM 오류 메시지|1=
-gentoo kdm[2116]: X server startup timeout, terminating
+{{FileBox|filename=/etc/polkit-1/rules.d/10-udisks.rules|lang=c|1=
+polkit.addRule(function(action, subject) {
+	if (action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") == 0 && subject.isInGroup("plugdev")) {
+		return polkit.Result.YES;
+	}
+});
 }}
 
-이 경우 다음과 같이 시스템에 들어갈 수 있는 {{Path|kdmrc}} 파일의 <var>ServerTimeout</var> 줄 주석을 해제하십시오:
+This will allow all users who are members of the {{c|plugdev}} group to mount devices using the Device Notifier. 
 
-{{RootCmd|grep kdmrc /var/db/pkg/kde-base/kdm-4.3.1/CONTENTS {{!}} cut -f2 -d " "}}
+Use the following command to add users to this group:
 
-제한 시간을 늘려가며 확인하십시오. 60일 때 동작해야합니다.
+{{RootCmd|gpasswd -a <var>&lt;username&gt;</var> plugdev}}
 
-또한 다음 서비스를 시작했는지 확인하십시오:
+{{Note|A reboot may be required for the changes to take effect.}}
 
-{{RootCmd
-|/etc/init.d/dbus status
-|/etc/init.d/consolekit status
+== Black screen after login ==
+
+Make sure {{Path|~/.bash_profile}} does not have any interactive components like [[keychain]]. Check {{Path|~/.xsession-errors}} for the prompt for input.
+
+== Screen Tearing/Flicker when using Radeon graphics drivers ==
+
+If there is severe flickering or "tearing" when using Radeon based graphics cards, it may be necessary to change the Compositor sync settings to something other than the default "Automatic":
+
+{{CodeBox|title=Modifying Compositor sync settings|1=
+System Settings --> Display Monitor --> Compositor --> VSync
 }}
 
-시작하지 않았다면 ''status''를 ''start''로 바꿔 서비스를 활성화하시고 {{c|rc-update}} 명령으로 기본 런레벨에 추가하십시오:
+== Delayed response of KMenu, krunner etc. ==
 
+Remove <code>gles2</code> USE flag and rebuild affected packages, most importantly the (installed) packages from the <code>dev-qt</code> category, as well as {{Package|kde-frameworks/plasma}} and {{Package|kde-plasma/kwin}}.
+
+== Missing shutdown/reboot/suspend/hibernate buttons (with consolekit) ==
+
+Make sure that {{package|kde-plasma/powerdevil}} and {{package|sys-power/upower}} are installed. Also check that the user is in the {{c|users}} group.
+
+If {{package|x11-misc/sddm}} is used, run the following command and make sure it matches the output including <code>nox11</code>:
+
+{{Cmd
+|grep pam_ck_connector /etc/pam.d/system-login|output=<pre>
+session         optional        pam_ck_connector.so nox11
+</pre>}}
+
+Another option is to create the following [[polkit]] rule for suspend (as per [https://bugs.kde.org/show_bug.cgi?id=344456#c38 this comment from the KDE bugzilla]):
+
+{{FileBox|filename=/etc/polkit-1/rules.d/10-suspend.rules|lang=javascript|1=
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.upower.suspend") {
+        return polkit.Result.YES;
+    }
+});
+}}
+
+Also ensure dbus is added to the default runlevel so that it is started before logging in with sddm:
 {{RootCmd
 |rc-update add dbus default
-|rc-update add consolekit default
 }}
 
-마지막으로, [[xorg.conf]]에 기록하는 오류 때문에 KDM 시작에 실패할 수도 잇습니다. {{Path|/var/log/Xorg.0.log}} 파일과 {{Path|/var/log/kdm.log}} 파일 로그를 살펴보고  {{Path|xorg.conf}} 설정을 바로 수정하십시오. 추가 도움은 프리노드의 {{IRC|gentoo-kde}} 대화방에 있는 젠투 KDE 팀에 요청하시면 됩니다.
-
-== 배터리 프로그램 또는 고정 알림에서 관련 정보가 나타나지 않음 ==
-
-D-Bus와 ConsoleKit을 이미 실행하여 배터리 프로그램과 고정 알림에서 관련 정보를 나타낼 수 있는지 확인하십시오:
-
-{{RootCmd
-|/etc/init.d/dbus status
-|/etc/init.d/consolekit status
-}}
-
-실행 중이 아니라면 ''status'' 대신 ''start''를 넣어 활성화하신 후 {{c|rc-update}} 명령을 활용하여 이들 서비스를 기본 런레벨에 추가하십시오:
-
-{{RootCmd
-|rc-update add dbus default
-|rc-update add consolekit default
-}}
-
-== 최대 절전 모드에 들어갔는데 또 되거나 깨집니다 ==
-
-KDE 4.6에서는 "대기 단추" 이벤트를 자체적으로 처리하며 시스템을 최대 절전 모드로 제대로 둡니다. 이 이벤트를 처리할 지도 모르는 다른 프로그램({{c|acpid}}?)은 최대 절전 모드로 중복 진입하거나 시스템을 불안정하게 만들 수 있으니 비활성화하십시오.
-
-{{Bug|363363}} 버그 보고서도 참고하십시오.
-
-== 전원 끄기, 다시 시작, 로그아웃 이 안돼요 ==
-
-사운드 시스템과 로그아웃 기능 동작 간에 이상한 연동 동작이 있긴 합니다. 시스템 설정을 여시고 "로그아웃 재생음"을 비활성화하시면, 원하시는대로 동작합니다.
-
-{{Bug|326393}}  버그 보고서도 참고하십시오.
-
-== 데스크톱 배경이 온갖 창으로 뒤덮임 ==
-
-드문 경우, 여러 화면에서 작업한 후에 데스크톱 설정 정리가 제대로 안됩니다. 결국 데스크톱 배경에 온갖 창으로 뒤덮이게 됩니다. 자세한 내용과 해결 설명서는 {{Bug|260360|site=kde}} 버그 보고서에서 찾을 수 있습니다.
-
-{{Bug|365623}}  버그 보고서도 참고하십시오.
-
-== 시작 화면에서 멈춰 로그인이 안돼요 ==
-
-불안정한 그놈 프로그램을 함께 사용하고 나면, {{Package|net-libs/glib-networking}}을 설치한 이후로 KDE 로그온에 계속 실패하는 비호환성이 나타납니다. 해당 꾸러미를 언머지하여 상황을 해결하십시오.
-
-{{Bug|365637}}  버그 보고서도 참고하십시오.
+If all else fails, try {{package|x11-misc/lightdm}} instead.
 
 == 추가 참조 ==
 
