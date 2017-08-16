@@ -2,7 +2,7 @@
 
 {{Metadata|abstract=В этом документе подробно рассказывается, как превратить старый компьютер с системой Gentoo в маршрутизатор для соединения домашней сети с интернетом.}}
 
-В этом документе подробно рассказывается, как превратить старый компьютер с системой Gentoo в маршрутизатор для соединения домашней сети с интернетом.
+This document details [[Article description::how to turn an old Gentoo machine into a router for connecting a home network to the Internet.]]
 
 == Введение ==
 
@@ -10,24 +10,19 @@
 
 Это руководство рассказывает, как настроить преобразование сетевых адресов (NAT) на пользовательском маршрутизаторе (ядро и iptables), как добавить и настроить распространённые сервисы (вроде системы доменных имён (DNS) с помощью {{Package|net-dns/dnsmasq}}, DHCP с помощью {{Package|net-misc/dhcpcd}}, ADSL с помощью {{Package|net-dialup/ppp}}). Статья завершается более сложными и интересными вещами на которые способен пользовательский маршрутизатор (проброс портов (port forwarding), шейпинг (traffic shaping), прокси/кэширование и т.д.). 
 
-Перед началом, пожалуйста ознакомьтесь со списком основных требований:
-# в компьютере должны быть установлены как минимум две сетевые платы (NIC)
-# (необязательно) Wi-Fi-адаптер, поддерживающий master mode (режим точки доступа). Для master mode рекомендуется избегать сетевых плат с функцией bypass (hardware bypass mode), так как для некоторых сетевых адаптеров требуется проприетарный драйвер. Не имея доступа к проприетарному драйверу карта будет оставаться в режиме bypass на постоянной основе и не будет использоваться.
-# будут нужны настройки для соединения с интернетом (такие вещи как IP/DNS/шлюз/имя пользователя/пароль).
-# нужно будет немного свободного времени, и любовь к Gentoo для того, чтобы прочитать эту статью и успешно настроить многофункциональный домашний маршрутизатор.
+Перед началом, ознакомьтесь со списком основных требований:
 
 # A computer that has at least 2 Network Interface Cards (NICs) installed.
 # The configuration settings for an Internet connection (may include things like IP/DNS/Gateway/username/password).
 # (Optionally) a Wi-Fi card that supports master mode. Master mode is recommended to avoid NICs with a bypass feature since some NICs require proprietary drivers. Without access to the proprietary driver the card will remain in bypass mode permanently and will not be usable.
 # A bit of spare time and Gentoo loving in order to successfully follow this guide and implement a well functioning home router.
 
-В руководстве используются следующие оговорки: 
+The conventions used in this guide include: 
 
-* eth0 - сетевая плата, подключенная к локальной сети (LAN) или сетевой мост, состоящий из нескольких сетевых карт
-* eth1 - сетевая плата, подключенная к глобальной сети (WAN)
-* LAN использует частную сеть вида 192.168.0.xxx
-* маршрутизатор жестко привязан к IP-адресу 192.168.0.1
-* маршрутизатор работает на ядре Linux 2.4 или 2.6; другие версии ядра не поддерживаются в этом руководстве&#41;.
+* eth0 - NIC connected to the Local Area Network (LAN) or network bridge consisting of multiple NICs
+* eth1 - NIC connected to the Wide Area Network (WAN)
+* LAN utilizes the private 192.168.0.xxx network
+* Router is hardcoded to the standard 192.168.0.1 IP address
 
 {{Important|Из соображений безопасности настоятельно рекомендуется остановить все ненужные сервисы на маршрутизаторе, пока межсетевой экран не запущен. Для отображения текущих запущенных сервисов, просто выполните {{c|rc-status}}.}}
 
@@ -35,7 +30,7 @@
 
 Ядру необходимы драйверы для обеих сетевых плат, установленных в компьютере. Возможно, сетевые платы уже настроены — чтобы проверить это, используйте {{c|ifconfig}}. Вывод может немного отличаться примера ниже, ничего страшного. Самое главное, присутствует ли интерфейс в списке. 
 
-{{RootCmd|ifconfig -a|output=<pre>
+{{RootCmd|ifconfig -a|output=
 eth0      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B8
           BROADCAST MULTICAST  MTU:1500  Metric:1
           RX packets:0 errors:0 dropped:0 overruns:0 frame:0
@@ -51,7 +46,6 @@ eth1      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B9
           collisions:0 txqueuelen:1000
           RX bytes:0 (0.0 b)  TX bytes:0 (0.0 b)
           Interrupt:10 Base address:0x9400
-</pre>
 }}
 
 Если видна только одна (или ни одной) из двух карт, то попробуйте запустить {{c|lspci {{!}} grep Ethernet}}.
@@ -61,16 +55,21 @@ eth1      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B9
 
 Далее, необходима поддержка iptables и NAT (а также, по желанию, шейпинга (packet shaping)). Нижеследующий список разделён на всегда необходимое (*), нужное только для ADSL через PPPoE (a), предлагаемое для всех (x), и только для shaping'a (s). Не имеет значения, встраивается ли функцию в ядро, или компилируется как модуль, когда нужна какая-либо функция, нужные модули загружаются автоматически. Более подробную информацию о загрузке модулей можно найти в статье [[Kernel_Modules|Kernel Modules Guide]].
 
-{{KernelBox|title=Сетевые опции|<pre>
-Networking options  --->
-   [*] TCP/IP networking
-      [*] IP: advanced router
-   [*] Network packet filtering (replaces ipchains)
-</pre>}}
+{{KernelBox|title=Enabling the necessary networking options|1=
+-*- Networking support  --->
+   Networking options  --->
+      [*] TCP/IP networking
+         [*] IP: advanced router
+      [*] Network packet filtering framework (Netfilter)  --->
+         [*]   Advanced netfilter configuration
+            IPv6: Netfilter Configuration  ---> 
+               <*> IPv6 connection tracking support
+               <*> IP6 tables support (required for filtering)
+}}
 
 Для работы DHCP необходимо включить следующее, если используется ядро 2.4.x :
 
-{{KernelBox|title=Сетевые опции|<pre>
+{{KernelBox|title=Network Options|1=
    [*] Socket Filtering
   
    IP: Netfilter Configuration  --->
@@ -102,9 +101,9 @@ Networking options  --->
       [a] PPP Deflate compression
       [a] PPP BSD-Compress compression
       [a] PPP over Ethernet
-</pre>}}
+}}
 
-{{Note|Кое-что может немного отличаться в настройке ядра 2.4.x от 2.6.x, однако не сложно выяснить в чем различие. Даже среди ядер версии 2.6 параметры имеют склонность менять местонахождение. Удачи!}}
+{{Note|Some things may be slightly different in the menuconfig interface on newer kernels, however things should not be too difficult to figure out. Good luck!}}
 
 == Поближе к WAN (он же Интернет) ==
 
@@ -130,9 +129,11 @@ username_ppp0="<username>"
 password_ppp0="<user_password>"
 }}
 
-{{RootCmd|ln -s net.lo /etc/init.d/net.ppp0
+{{RootCmd
+|ln -s net.lo /etc/init.d/net.ppp0
 |rc-update add net.ppp0 default
-|/etc/init.d/net.ppp0 start}}
+|service net.ppp0 start
+}}
 
 {{Warning|Когда активируется интерфейс DSL, он создаст "ppp0" запись в выводе команды {{c|ifconfig}}. Несмотря на то, что сетевая карта называется eth1, IP-адрес на самом деле привязан к ppp0. Начиная с этого момента заменяйте <code>eth1</code> на <code>ppp0</code>.}}
 
@@ -165,9 +166,11 @@ nameserver 123.123.123.123
 
 Как для динамического, так и для статического варианта:
 
-{{RootCmd|ln -s net.lo /etc/init.d/net.eth1
+{{RootCmd
+|ln -s net.lo /etc/init.d/net.eth1
 |rc-update add net.eth1 default
-|/etc/init.d/net.eth1 start}}
+|service net.eth1 start
+}}
 
 После изменений выше система должна быть готова к продолжению. 
 
@@ -183,8 +186,10 @@ nameserver 123.123.123.123
 config_eth0="192.168.0.1/24 brd 192.168.0.255"
 }}
 
-{{RootCmd|rc-update add net.eth0 default
-|/etc/init.d/net.eth0 start}}
+{{RootCmd
+|rc-update add net.eth0 default
+|service net.eth0 start
+}}
 
 == Сервисы LAN (мы же хорошие ребята) ==
 
@@ -203,8 +208,10 @@ dhcp-range=eth0,192.168.0.100,192.168.0.250,72h
 interface=eth0
 }}
 
-{{RootCmd|rc-update add dnsmasq default
-|/etc/init.d/dnsmasq start}}
+{{RootCmd
+|rc-update add dnsmasq default
+|service dnsmasq start
+}}
 
 Настроить интерфейс очень важна. Использование параметров по умолчанию в dnsmasq откроет маршрутизатор для DNS amplification атак, которые могут привести к тому что провайдер пришлет вам страшное электронное письмо. Убедитесь, что маршрутизатор не подвержен DNS amplification атакам с помощью [http://openresolver.com].
 
@@ -273,8 +280,10 @@ interface=eth0
 
 Скажите iptabes демону сохранит настройки, а затем добавьте iptables на уровень запуска default:
 
-{{RootCmd|/etc/init.d/iptables save
-|rc-update add iptables default}}
+{{RootCmd
+|/etc/init.d/iptables save
+|rc-update add iptables default
+}}
 
 {{FileBox|filename=/etc/sysctl.conf|lang=ini|1=
 net.ipv4.ip_forward = 1
@@ -365,7 +374,7 @@ Internet Relay Chat использует ident довольно часто. Те
 
 {{RootCmd
 |rc-update add midentd default
-|/etc/init.d/midentd start
+|service midentd start
 }}
 
 Есть несколько других серверов ident в дереве Portage. Другими жизнеспособными вариантами являются {{Package|net-misc/oidentd}} и {{Package|net-misc/fakeidentd}}.
@@ -385,8 +394,10 @@ restrict 192.168.0.0 mask 255.255.255.0 notrust nomodify notrap
 
 Это позволит использовать NTP-сервер лишь тем NTP-клиентам, IP-адрес которых находится в пределах 192.168.0.xxx.
 
-{{RootCmd|rc-update add ntpd default
-|/etc/init.d/ntpd start}}
+{{RootCmd
+|rc-update add ntpd default
+|service ntpd start
+}}
 
 {{Note|Убедиться, что разрешили входящие и исходящие соединения для порта NTP (123/udp) когда настраивали сервер. Для NTP-клиента нужно разрешить только исходящие соединения для порта 123 (UDP).}}
 
@@ -394,8 +405,10 @@ restrict 192.168.0.0 mask 255.255.255.0 notrust nomodify notrap
 
 В файле {{Path|/etc/conf.d/ntp-client}} измените значение переменной <code>NTPCLIENT_OPTS</code> с <code>pool.ntp.org</code> на <code>192.168.0.1</code>.
 
-{{RootCmd|rc-update add ntp-client default
-|/etc/init.d/ntp-client start}}
+{{RootCmd
+|rc-update add ntp-client default
+|service ntp-client start
+}}
 
 === Rsync сервер ===
 
@@ -405,7 +418,7 @@ restrict 192.168.0.0 mask 255.255.255.0 notrust nomodify notrap
 
 Так как для каждой машины Gentoo требуется rsync, нет необходимости устанавливать его. Измените значения по умолчанию в конфигурационном файле {{Path|/etc/rsyncd.conf}}, раскоментируйте раздел <code>[gentoo-portage]</code>, и убедитесь что добавлена опция <code>address</code>. Все остальные значения по умолчанию должны быть уже установлены правильно.
 
-{{FileBox|filename=/etc/rsyncd.conf|1=
+{{FileBox|filename=/etc/rsyncd.conf|lang=ini|1=
 pid file = /var/run/rsyncd.pid
 use chroot = yes
 read only = yes
@@ -419,12 +432,14 @@ address = 192.168.0.1
 
 Затем сервис должен быть запущен (также добавьте на уровень запуска default). 
 
-{{RootCmd|/etc/init.d/rsyncd start
-|rc-update add rsyncd default}}
+{{RootCmd
+|service rsyncd start
+|rc-update add rsyncd default
+}}
 
 Осталось только сказать клиентам чтобы они синхронизировались с маршрутизатором. Отредактируйте конфигурационный файл {{Path|/etc/portage/repos.conf/gentoo.conf}}. Если этот файл не существует, то создайте каталог в {{Path|/etc/portage}} с названием {{Path|repos.conf}} и скопируйте файл {{Path|/usr/share/portage/config/repos.conf}} в этот каталог. Затем настройте этот файл соответствующим образом - не забудьте, <code>sync-uri</code> должен совпадать с адресом сервера (домашнего маршрутизатора).
 
-{{FileBox|filename=/etc/portage/repos.conf/gentoo.conf|title=Настройка клиента на новый сервер rsync|lang=bash|1=
+{{FileBox|filename=/etc/portage/repos.conf/gentoo.conf|title=Setup client to new rsync server|lang=ini|1=
 [DEFAULT]
 main-repo = gentoo
  
@@ -458,7 +473,8 @@ auto-sync = yes
 
 {{RootCmd|make
 |rc-update add svscan default
-|/etc/init.d/svscan start}}
+|service svscan start
+}}
 
 Когда будете настраивать e-mail на компьютерах в сети, укажите, что сервер SMTP - это 192.168.0.1. Посетите [http://netqmail.org/ домашнюю страницу netqmail] для дополнительной документации об использовании netqmail.
 
@@ -486,8 +502,10 @@ subnet 192.168.0.0 netmask 255.255.255.0 {
 
 В {{Path|/etc/conf.d/dhcpd}} установите значение <code>IFACE</code> равным "eth0".
 
-{{RootCmd|rc-update add dhcpd default
-|/etc/init.d/dhcpd start}}
+{{RootCmd
+|rc-update add dhcpd default
+|service dhcpd start
+}}
 
 Это минимальная настройка, необходимая для замены функциональности DHCP, ранее предоставляемой dnsmasq. Функции DHCP в dnsmasq должны быть отключены? Если еще нет, то закоментируйте настройку <code>dhcp-range</code> в {{Path|/etc/dnsmasq.conf}} и перезапустите сервис.
 
@@ -507,22 +525,22 @@ subnet 192.168.0.0 netmask 255.255.255.0 {
 
 Когда возникают проблемы в работе сети, то попробуйте следующие утилиты (все они могут быть найдены в Portage категории net-analyzer): 
 
-{| class="wikitable" style="text-align: left;" 
+{| class="table table-striped table-condensed" style="text-align: left;" 
 |- 
-! Утилита
-! Описание
+! Utility
+! Description
 |- 
 | {{Package|net-analyzer/wireshark}}
-| графическая утилита для просмотра всех исходных данных сети в соответствии с фильтрами
+| GUI tool to view all raw network data according to filters
 |- 
 | {{Package|net-analyzer/tcpdump}}
-| консольный инструмент для дампа всех исходных данных сети в соответствии с фильтрами
+| Console tool to dump all raw network data according to filters
 |- 
 | {{Package|net-analyzer/iptraf-ng}}
-| утилита на основе ncurses для мониторинга IP LAN
+| ncurses based IP LAN monitor
 |- 
 | {{Package|net-analyzer/ettercap}}
-| утилита на основе ncurses для мониторинга/контроля сети
+| ncurses based network monitor/control
 |-
 |}
 
@@ -530,7 +548,7 @@ subnet 192.168.0.0 netmask 255.255.255.0 {
 
 При первом запуске сценарий init.d для dhcp может завершиться с ошибкой, не предоставив никакой полезной информации. 
 
-{{RootCmd|/etc/init.d/dhcp start|output=<pre>
+{{RootCmd|service dhcp start|output=<pre>
  * Setting ownership on dhcp.leases ...          [ ok ]
  * Starting dhcpd ...                            [ !! ]
 </pre>
