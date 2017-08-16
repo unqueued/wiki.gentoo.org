@@ -2,20 +2,6 @@
 
 Эта статья содержит информацию, призванную помочь пользователям в устранении неполадок, которые могут возникнуть при работе с KDE.
 
-== Запуск программ с графическим интерфейсом с привилегиями пользователя root, находясь в системе в качестве другого пользователя ==
-
-{{Warning|В целом, запуск программ с графическим интерфейсом с привилегиями пользователя root — ''плохая'' идея. Используйте {{c|kdesu}} только тогда, когда это абсолютно необходимо!}}
-
-В KDE, как и в других средах рабочего стола, существует специальная команда для запуска программ с графическим интерфейсом с привилегиями пользователя root. В KDE это команда {{c|kdesu}}. Ее можно использовать следующим образом:
-
-{{Cmd|kdesu <программа>}}
-
-Не забудьте заменить <code><программу></code> именем программы. Должно появиться всплывающее окно с текстовым полем для ввода пароля пользователя root. Введите пароль и — ура!
-
-== Как избавиться от всплывающего окна KResource Migration Tool ==
-
-Некоторые пользователи сообщают о появлении всплывающего окна KResource Migration Tool при каждом входе в систему. Эта проблема пока не имеет адекватного решения, однако существует способ ее обойти: {{Bug|353200}}.
-
 == Пересборка базы данных приложений ==
 
 Если какое-либо приложение или целый список приложений отсутствует в KMenu, скорее всего, нужно пересобрать базу данных приложений KDE. Это также является возможным решением прочих проблем с KMenu, например, проблемы отсутствующих значков.
@@ -33,77 +19,69 @@
 
 Если это не решит проблему, откройте конфигурацию akonadi и измените MySQL config по умолчанию. Если значок в области уведомлений отсутствует, запустите akonaditray, выберите "Akonadi Server Configuration", включите "Use internal MySQL server" и нажмите на кнопку test. Для того, чтобы использовать MySQL server вместо встроенного исполняемого файла, MySQL должен быть запущен.
 
-== KDM не запускается ==
+== Unable to mount devices using KDE Plasma Device Notifier ==
 
-Проверьте права доступа в каталоге {{Path|/usr/share/config}}. Если они установлены в ''700'', измените их на ''755''. Прочитайте предыдущий раздел. 
+If the error message "''You are not authorized to mount this device.''" is being displayed when trying to mount devices by clicking on them in the KDE Plasma Device Notifier (USB-stick-like icon in the system tray), add the following file to the configuration:
 
-Если это не решает проблему, возможно, KDM не запускается с сообщением вроде:
-
-{{CodeBox|title=Сообщение ошибки KDM в /var/log/messages|1=
-gentoo kdm[2116]: X server startup timeout, terminating
+{{FileBox|filename=/etc/polkit-1/rules.d/10-udisks.rules|lang=c|1=
+polkit.addRule(function(action, subject) {
+	if (action.id.indexOf("org.freedesktop.udisks2.filesystem-mount") == 0 && subject.isInGroup("plugdev")) {
+		return polkit.Result.YES;
+	}
+});
 }}
 
-Если проблема в этом, раскомментируйте строку <var>ServerTimeout</var> в {{Path|kdmrc}}, которую можно найти следующим образом:
+This will allow all users who are members of the {{c|plugdev}} group to mount devices using the Device Notifier. 
 
-{{RootCmd|grep kdmrc /var/db/pkg/kde-base/kdm-4.3.1/CONTENTS {{!}} cut -f2 -d " "}}
+Use the following command to add users to this group:
 
-Увеличьте время ожидания - 60 должно быть достаточно.
+{{RootCmd|gpasswd -a <var>&lt;username&gt;</var> plugdev}}
 
-Также убедитесь, что следующие сервисы запущены:
+{{Note|A reboot may be required for the changes to take effect.}}
 
-{{RootCmd
-|/etc/init.d/dbus status
-|/etc/init.d/consolekit status
+== Black screen after login ==
+
+Make sure {{Path|~/.bash_profile}} does not have any interactive components like [[keychain]]. Check {{Path|~/.xsession-errors}} for the prompt for input.
+
+== Screen Tearing/Flicker when using Radeon graphics drivers ==
+
+If there is severe flickering or "tearing" when using Radeon based graphics cards, it may be necessary to change the Compositor sync settings to something other than the default "Automatic":
+
+{{CodeBox|title=Modifying Compositor sync settings|1=
+System Settings --> Display Monitor --> Compositor --> VSync
 }}
 
-Если они не запущены, запустите их, заменив ''status'' на ''start'', и добавьте их к уровню запуска default при помощи команды {{c|rc-update}}:
+== Delayed response of KMenu, krunner etc. ==
 
+Remove <code>gles2</code> USE flag and rebuild affected packages, most importantly the (installed) packages from the <code>dev-qt</code> category, as well as {{Package|kde-frameworks/plasma}} and {{Package|kde-plasma/kwin}}.
+
+== Missing shutdown/reboot/suspend/hibernate buttons (with consolekit) ==
+
+Make sure that {{package|kde-plasma/powerdevil}} and {{package|sys-power/upower}} are installed. Also check that the user is in the {{c|users}} group.
+
+If {{package|x11-misc/sddm}} is used, run the following command and make sure it matches the output including <code>nox11</code>:
+
+{{Cmd
+|grep pam_ck_connector /etc/pam.d/system-login|output=<pre>
+session         optional        pam_ck_connector.so nox11
+</pre>}}
+
+Another option is to create the following [[polkit]] rule for suspend (as per [https://bugs.kde.org/show_bug.cgi?id=344456#c38 this comment from the KDE bugzilla]):
+
+{{FileBox|filename=/etc/polkit-1/rules.d/10-suspend.rules|lang=javascript|1=
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.upower.suspend") {
+        return polkit.Result.YES;
+    }
+});
+}}
+
+Also ensure dbus is added to the default runlevel so that it is started before logging in with sddm:
 {{RootCmd
 |rc-update add dbus default
-|rc-update add consolekit default
 }}
 
-Наконец, KDM может не запускаться из-за ошибок в файле [[xorg.conf]]. Проверьте содержимое файлов журналов {{Path|/var/log/Xorg.0.log}} {{Path|/var/log/kdm.log}} и исправьте {{Path|xorg.conf}}. Дополнительную помощь можно получить от команды Gentoo KDE на канале IRC {{IRC|gentoo-kde}} на Freenode.
-
-== Апплет аккумулятора или уведомления solid не показывают надлежащую информацию ==
-
-Убедитесь в том, что D-Bus и ConsoleKit запущены, так что апплет аккумулятора и другие уведомления solid могут показывать нужную информацию:
-
-{{RootCmd
-|/etc/init.d/dbus status
-|/etc/init.d/consolekit status
-}}
-
-Если они не запущены, запустите их, заменив ''status'' на ''start'', и добавьте их к уровню запуска default при помощи команды {{c|rc-update}}:
-
-{{RootCmd
-|rc-update add dbus default
-|rc-update add consolekit default
-}}
-
-== Двойной переход в спящий режим или отказ системы после перехода в спящий режим ==
-
-KDE 4.6 самостоятельно управляет событиями «sleep button», и система корректно переходит в спящий режим. Выключите другие программы, которые могут управлять этими событиями (например, {{c|acpid}}), так как это может привести к двойному переходу в спящий режим и/или к нестабильной работе системы.
-
-Смотрите также {{Bug|363363}}.
-
-== Выключение, перезагрузка, выход из системы не работает ==
-
-Существует какое-то странное взаимодействие между звуковой системой и механизмом выхода из системы. Откройте настройки системы и выключите звук «Завершения сеанса». После этого выход из системы должен работать.
-
-Смотрите также {{Bug|326393}}.
-
-== Обои рабочего стола перекрывают все окна ==
-
-В редких случаях, после работы с несколькими экранами, настройки рабочего стола не приводятся в порядок. Это приводит к тому, что фон рабочего стола перекрывает все окна. Более подробную информацию, а также примеры решения этой проблемы можно найти в {{Bug|260360|site=kde}}.
-
-Смотрите также {{Bug|365623}}.
-
-== Не удается войти в систему, система зависает на экране заставки ==
-
-После экспериментов с нестабильными приложениями GNOME может возникнуть несовместимость, приводящая к неудачному входу в систему KDE, если установлен {{Package|net-libs/glib-networking}}. Чтобы устранить проблему, удалите этот пакет.
-
-Смотрите также {{Bug|365637}}.
+If all else fails, try {{package|x11-misc/lightdm}} instead.
 
 == Смотрите также ==
 
