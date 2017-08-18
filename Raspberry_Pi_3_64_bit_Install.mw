@@ -402,7 +402,66 @@ Notice the two bcm2710-rpi-3-b.dtb device tree binaries and the kernel8.img.
  4.10.0-rc6-v8+
 Shows that the kernel modules were installed to the correct location.
 
-== Fetching and Installing Firmware ==
+== Raspberry Pi 3 Peripherals ==
+
+Now that we have the base operating system in, we will need to do some file configuration by hand to get the peripherals working. 
+
+=== Serial Port Configuration ===
+
+The Gentoo stage 3 comes with the default Gentoo serial port configuration. In order to make things easier when working with the device tree overlays for the Bluetooth module as well as any applications which were written in a Raspbian environment that uses the serial0 and serial1 aliases, we'll need to first create a Udev rule to mimick this behavior.
+
+Open up /etc/inittab -
+
+{{RootCmd| nano -w /etc/inittab}}
+
+Find this line and comment it out by appending a # at the beginning of the line -
+
+{{FileBox|/etc/inittab|f0:12345:respawn:/sbin/agetty 9600 ttyAMA0 vt100}}
+
+Save and exit the file. This prevents Gentoo from assigning the serial console to ttyAMA0 on /root mount, which will conflict with Bluetooth operation if left uncommented.
+
+Next, create the empty file 99-com.rules in /etc/udev/rules.d -
+
+{{RootCmd| nano -w /etc/udev/rules.d/99-com.rules}}
+
+Copy and paste this into the empty file, then save and exit the file -
+
+{{FileBox|/etc/udev/rules.d/99-com.rules|
+SUBSYSTEM=="input", GROUP="input", MODE="0660"
+SUBSYSTEM=="i2c-dev", GROUP="i2c", MODE="0660"
+SUBSYSTEM=="spidev", GROUP="spi", MODE="0660"
+SUBSYSTEM=="bcm2835-gpiomem", GROUP="gpio", MODE="0660"
+
+SUBSYSTEM=="gpio*", PROGRAM="/bin/sh -c '\
+        chown -R root:gpio /sys/class/gpio && chmod -R 770 /sys/class/gpio;\
+        chown -R root:gpio /sys/devices/virtual/gpio && chmod -R 770 /sys/devices/virtual/gpio;\
+        chown -R root:gpio /sys$devpath && chmod -R 770 /sys$devpath\
+'"
+
+KERNEL=="ttyAMA[01]", GROUP="dialout", PROGRAM="/bin/sh -c '\
+        ALIASES=/proc/device-tree/aliases; \
+        if cmp -s $ALIASES/uart0 $ALIASES/serial0; then \
+                echo 0;\
+        elif cmp -s $ALIASES/uart0 $ALIASES/serial1; then \
+                echo 1; \
+        else \
+                exit 1; \
+        fi\
+'", SYMLINK+="serial%c"
+
+KERNEL=="ttyS0", GROUP="dialout", PROGRAM="/bin/sh -c '\
+        ALIASES=/proc/device-tree/aliases; \
+        if cmp -s $ALIASES/uart1 $ALIASES/serial0; then \
+                echo 0; \
+        elif cmp -s $ALIASES/uart1 $ALIASES/serial1; then \
+                echo 1; \
+        else \
+                exit 1; \
+        fi \
+'", SYMLINK+="serial%c"}}
+
+This will assign ttyS0 and ttyAMA0 to the dialout group just as they are in Raspbian Jessie. It will also provide the serial0 and serial1 aliases, which eases the task of switching the serial ports around between the Bluetooth and GPIO14:15.
+ 
 === Install WiFi Firmware ===
 
 The on board wifi needs firmware.
