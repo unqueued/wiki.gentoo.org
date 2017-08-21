@@ -1,48 +1,1439 @@
 {{InfoBox stack
-|{{InfoBox homepage|http://www.skarnet.org/software/s6/|header=true}}
+|{{InfoBox homepage|https://www.skarnet.org/software/s6/|header=true}}
+|{{InfoBox gitweb|raw=yes|text=Cgit source code browser|https://git.skarnet.org/cgi-bin/cgit.cgi/s6}}
+|{{InfoBox github|text=GitHub mirror|skarnet/s6}}
 |{{InfoBox wikipedia|S6_(software)}}
 |{{InfoBox package|sys-apps/s6}}
 }}
 
-[[S6]] is [[Article description::a supervision suite similar to [[runit]], [[daemontools]], and [[daemontools-encore]].]] S6 also carries similarities to [[Runit]] on its design which can be used to bypass SysVinit [[Comparison of init systems|init]] and [[OpenRC]] altogether. However, the command line utilities are named after daemontools with ''s6-'' prefix. Moreover, S6 comes with a [[shell]] like interpreted language&mdash;execline&mdash; to facilitate init/PID 1 migration, that is, stage 1&mdash;system ''initialization''&mdash; and stage 3&mdash;system ''halt''. (Init) Stage 1 should exec into stage 2&mdash;system ''normal'' functioning state&mdash; to give ''s6-svscan'' (process supervisor utility) the wheel of the system.
+s6 is [[Article description::a package that provides a [[daemontools|daemontools-inspired]] process supervision suite, a notification framework, a UNIX domain super-server, and tools for file descriptor holding and suidless privilege gain]]. It can be used as an init system component, and also as a helper for supervising OpenRC services. A high level overview of s6 is available [https://www.skarnet.org/software/s6/overview.html here]. The package's documentation is provided in HTML format, and can be read on a text user interface using for example [https://packages.gentoo.org/packages/www-client/links www-client/links].
 
 == Installation ==
 
-{{emerge|sys-apps/s6}}
+=== USE flags ===
+
+{{USEflag|package=sys-apps/s6}}
+
+=== Emerge ===
+
+{{Emerge|sys-apps/s6}}
+
+{{Important|The above command will install s6 version 2.1.3.0 for systems on the stable branch, which doesn't support up-to-date service readiness notification tools, and can't be used in conjuntion with [[s6-rc]]. Users who want a more recent version will need to add [https://packages.gentoo.org/packages/dev-libs/skalibs dev-libs/skalibs], [https://packages.gentoo.org/packages/dev-lang/execline dev-lang/execline] and sys-apps/s6 to {{Path|/etc/portage/package.accept_keywords}} (if using Portage). While it is generally not advised to mix packages of stable and testing branches, the skarnet.org software stack only depends on the libc, so in this case it should be safe.}}
 
 == Configuration ==
 
-The difficult task of writing an ''init'' replacement implementation fitted for a particular OS may be alleviated using ''execline'' interpreter to manage piping  ''black'' magic when Init-Stage-1 has to manage a ''full'' system initialization.
-However, using the power and flexibility of OpenRC wouldn't certainly hurt... but this is only a ''slight'' warning for a complete migration from SysVinit+OpenRC, or any other [[init system]] for that matter, though.
+=== Environment variables ===
 
-=== Supervision ===
+* <var>UID</var> - The process' user ID set by {{C|s6-applyuidgid}} when invoked with the <code>-U</code> option.
+* <var>GID</var> - The process' group ID set by {{C|s6-applyuidgid}} when invoked with the <code>-U</code> option.
+* <var>GIDLIST</var> - The process' supplementary group list set by {{C|s6-applyuidgid}} when invoked with the <code>-U</code> option. Must be a comma-separated list of numeric group IDs, without spaces.
+* <var>PROTO</var> - Set by {{C|s6-ipcclient}} and {{C|s6-ipcserverd}} to the value 'IPC', as per the IPC UCSPI specification, and used by {{C|s6-ipcserver-access}} and {{C|s6-connlimit}} to construct the names of other environment variables.
+* <var>IPCLOCALPATH</var> - Set by {{C|s6-ipcclient}} to the pathname associated with the local UNIX domain socket it is using for the connection, as per the IPC UCSPI specification. Also set by {{C|s6-ipcserver-access}} (if the value of <var>PROTO</var> is 'IPC') to the pathname associated with the local UNIX domain socket (the one its standard input and output read from and write to, respectively), as reported by the POSIX <code>getsockname()</code> call.
+* <var>IPCREMOTEPATH</var> - Set by {{C|s6-ipcserverd}} to the pathname associated with the remote UNIX domain socket (on Gentoo, as contained in the <code>sun_path</code> field of the <code>struct sockaddr_un</code> object filled by the Linux <code>accept4()</code> call), if any, as per the IPC UCSPI specification. Be aware that it may contain arbitrary characters.
+* <var>IPCREMOTEEUID</var> - Set by {{C|s6-ipcserverd}} to the effective user ID of the client, as per the IPC UCSPI specification, unless credentials lookups have been disabled. Read by {{C|s6-ipcserver-access}} (if the value of <var>PROTO</var> is 'IPC') to decide whether to allow or refuse access to the server.
+* <var>IPCREMOTEEGID</var> - Set by {{C|s6-ipcserverd}} to the effective group ID of the client, as per the IPC UCSPI specification, unless credentials lookups have been disabled. Read by {{C|s6-ipcserver-access}} (if the value of <var>PROTO</var> is 'IPC') to decide whether to allow or refuse access to the server.
+* <var>IPCCONNNUM</var> - Set by {{C|s6-ipcserverd}} to the number of connections originating from the same user (i.e. same user ID), and read by {{C|s6-connlimit}} (if the value of <var>PROTO</var> is 'IPC') to decide if the maximum number of connections originating from the same user will exceeded the maximum allowed.
+* <var>IPCCONNMAX</var> - Maximum number of connections originating from the same client allowed by {{C|s6-connlimit}} (if the value of <var>PROTO</var> is 'IPC').
+* <var>S6_FD#</var> - Number of file descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}.
+* <var>S6_FD_0</var>, <var>S6_FD_1</var>, ... - File descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}.
+* <var>S6_FDID_0</var>, <var>S6_FDID_1</var>, ... - Identifiers of the file descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}.
+* <var>S6_FDLIMIT_0</var>, <var>S6_FDLIMIT_1</var>, ... - Expiration dates, or remaining time until expiration, of the file descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}, as a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format].
 
-See [[Runit]] article for more information because every step described in that article apply here, minor an init (PID 1) replacement.
+=== Files ===
 
-PID 1 is left as an implementation choice (to distribution and/or Operating System), that is, no ''init'' is offered&mdash;writing one is necessary! Of course, using the power and flexibility of [[OpenRC]] is an option... See [[Runit]] article.
+* {{Path|/run/openrc/s6-scan}} - {{C|s6-svscan}}'s scan directory when using OpenRC's [[#s6integration|s6 integration feature]].
+* {{Path|/var/svc.d}} - Service directory repository searched by OpenRC when using the s6 integration feature.
 
-=== PID 1 &mdash; init replacement ===
+=== Service ===
 
-==== Init stage 1 &mdash; System initialization ====
+==== OpenRC ====
 
-See [[Runit#Init Stage 1]] for more info.
+See [[#openrclaunch|here]].
 
-==== Init stage 2 &mdash; System normal functional state ====
+== Usage ==
 
-See [[Runit#Init Stage 2]] for more info.
+=== Process supervision ===
 
-==== Init stage 3 &mdash; System halt and shutdown ====
+For more in-depth information about the process supervision aspects of s6, see [[daemontools-encore#Usage|daemontools-encore]]. A summary follows.
 
-See [[Runit#Init Stage 3]] for more info.
+{| style="border:solid medium"
+! style="border:solid thin;text-align:center" | s6 program !! style="border-bottom:solid thin" | daemontools program with similar functionality
+|-
+| <code>s6-log</code> || style="border-left:solid thin" | <code>multilog</code>
+|-
+| <code>s6-setsid</code> || style="border-left:solid thin" | <code>pgrphack</code>
+|}
 
-[[S6]]'s Stage 3 is quite different from [[Runit]]'s stage 3. Special care should be taken here!
-The stage 3 is divided into ''.s6-svscan/crash'' and and ''.s6-svscan/finish'' scripts&mdash;the first for ''s6-svscan'' crash and the latter for extra steps that should dealt when terminating ''s6-svscan (system ''halt'' included if used as PID 1.)
-And ''.s6-svscan'' should be present in ''/service/'' directory or... the directory would be created without any safety net (crash/finish cases.)
 
-== Socket activation ==
+Other s6 programs that have a functionality similar to a daemontools program have the daemontools name prefixed with '''s6-'''.
 
-s6 provides a set of UNIX networking utilities ''s6-networking'' (package) for ''fd-holding''&mdash;now marketed as ''Socket Activation''&mdash;which can be paired with [[S6]] supervision suite, if need be, to get super-server&mdash;like [[Inetd]]&mdash; capabilities.
-See External Resources for more info.
+The program implementing the supervisor features in s6 is {{C|s6-supervise}}, and just like daemontools' {{C|supervise}}, it takes the (absolute or relative to the working directory) pathname of a ''service directory'' (or ''servicedir'') as an argument. An s6 service directory must contain at least an executable file named {{Path|run}}, and can contain an optional, regular file named {{Path|down}}, and an optional subdirectory or symbolic link to directory named {{Path|log}}, all of which work like their daemontools counterparts. Like [[runit#Usage|runit]] service directories, it can also contain an optional, executable file named {{Path|finish}}, that can be used to perfom cleanup actions each time the supervised process stops, possibly depending on its exit status information. {{C|s6-supervise}} calls {{Path|finish}} with two arguments: the first one is the supervised process' exit code, or '''256''' if it was killed by a signal, and the second one is the signal number if the supervised process was killed by a signal, or an undefined number otherwise. Unlike runit's {{C|runsv}}, {{C|s6-supervise}} sends {{Path|finish}} a <code>SIGKILL</code> signal if it runs for too long. If using s6 version 2.2.0.0 or later, there can be an optional, regular file in the service directory, named {{Path|timeout-finish}}, and containing an unsigned integer value specifying how much time (in milliseconds) {{Path|finish}} is allowed to run until being killed. If that file is absent, a default value of 5 seconds is used. Like daemontools-encore, {{C|s6-supervise}} makes its child process the leader of a new session using the POSIX <code>setsid()</code> call, unless the servicedir contains a regular file named {{Path|nosetsid}} (daemontools-encore's is named {{Path|no-setsid}}, though). In that case, the child process will run in {{C|s6-supervise}}'s session instead. {{C|s6-supervise}} waits for a minimum of 1 second between two {{Path|run}} spawns, so that it does not loop too quickly if the supervised process exits immediately. If {{C|s6-supervise}} receives a <code>SIGTERM</code> signal, it behaves as if an <kbd>s6-svc -dx</kbd> command naming the corresponding service directory had been used (see later), and if it receives a <code>SIGHUP</code> signal, it behaves as if an <kbd>s6-svc -x</kbd> command naming the corresponding service directory had been used.
+
+Just like daemontools' {{C|supervise}}, {{C|s6-supervise}} keeps control files in a subdirectory of the servicedir, named {{Path|supervise}}, and if it finds a symbolic link to directory with that name, {{C|s6-supervise}} will follow it and use the linked-to directory for its control files. Unlike other process supervision suites, {{C|s6-supervise}} also uses a subdirectory in the servicedir, named {{Path|event}}, for notifications about the supervised process' state changes (see [[#s6notification|the notification framework]]). The {{Path|event}} is a FIFO directory, and if doesn't exist, {{C|s6-supervise}} will create it as a fifodir restricted to members of its effective group. If {{Path|event}} exists {{C|s6-supervise}} will use it as-is, and if {{Path|event}} is a symbolic link to directory, {{C|s6-supervise}} will follow it. Complete information about the service directory structure is available [https://www.skarnet.org/software/s6/servicedir.html here], and for further information about {{C|s6-supervise}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+The author of s6 is also the author of [https://packages.gentoo.org/packages/dev-lang/execline the execline package], that implements the ''execline language'', a scripting language built around [[daemontools-encore#changingstate|chain loading]]<ref>[https://www.skarnet.org/software/execline/grammar.html The execline language design and grammar]. Retrieved on July 8th, 2017.</ref>. Execline aims to help producing lightweight and efficient scripts, among other things, by reducing the time involved in spawning and initializing a big command interpreter (like e.g. the {{C|sh}} program for shell scripts), and by simplifying parsing and doing it only once, when the script is read by the interpreter<ref>Laurent Bercot, [https://www.skarnet.org/software/execline/dieshdiedie.html Why not just use {{C|/bin/sh}}?]. Retrieved on July 8th, 2017.</ref>. The s6 package depends on execline because some of its programs call execline programs or use the execline library, '''libexecline'''. However, it is not required that {{Path|run}} or {{Path|finish}} files in service directories be execline scripts. Just like with daemontools, any file format that the kernel knows how to execute is acceptable, and, in particular, they can be shell scripts if so desired.
+
+The {{C|s6-svscan}} program allows supervising a set of processes running in parallel using a ''scan directory'' (or ''scandir''), just like daemontools' {{C|svscan}}, so it will be the supervision tree's root. {{C|s6-svscan}} from package version 2.3.0.0 or later does not perform periodic scans by default, like other process supervision suites do, unless it it passed a <code>-t</code> option with a scan period (as an unsigned integer value in milliseconds). Earlier versions had a default scan period of 5 seconds (equivalent to a <code>-t 5000</code> argument) for compatibiliy with daemontools, that could be turned off with a <code>-t 0</code> argument. {{C|s6-svscan}} can be forced to perform a scan by sending it a <code>SIGALRM</code> signal, or by using {{C|s6-svscanctl}} (see later). When {{C|s6-svscan}} performs a scan, it checks the scan directory and launches an {{C|s6-supervise}} child process for each new servicedir it finds, or old servicedir for which it finds its {{C|s6-supervise}} process has exited. All services with a corresponding servicedir are considered ''active''. {{C|s6-supervise}} children for which {{C|s6-svscan}} finds that their corresponding servicedir is no longer present are not stopped, but their service is considered ''inactive''.
+
+{{C|s6-svscan}} keeps control files in a subdirectory of the scandir, named {{Path|.s6-svscan}}. If this subdirectory or any of its files doesn't exist when {{C|s6-svscan}} is invoked, they will be created. {{C|s6-svscan}} can be controlled by sending it signals, or by using the {{C|s6-svscanctl}} program. {{C|s6-svscanctl}} communicates with {{C|s6-svscan}} using a FIFO in the {{Path|.s6-svscan}} subdirectory, and accepts a scan directory pathname, and options that specify what to do. Some of {{C|s6-svscanctl}}'s options are:
+
+* <kbd>s6-svscanctl -a</kbd> (''alarm''): make {{C|s6-svscan}} perform a scan. Equivalent to sending {{C|s6-svscan}} a <code>SIGALRM</code> signal.
+* <kbd>s6-svscanctl -n</kbd> (''nuke''): make {{C|s6-svscan}} stop {{C|s6-supervise}} child processes corresponding to inactive services, by sending each of them a <code>SIGTERM</code> signal, or a <code>SIGHUP</code> signal if they are running on the {{Path|log}} subdirectory of a service directory.
+* <kbd>s6-svscanctl -N</kbd> (''really nuke''): make {{C|s6-svscan}} stop {{C|s6-supervise}} child processes corresponding to inactive services, by sending each of them a <code>SIGTERM</code> signal, even if they are running on the {{Path|log}} subdirectory of a service directory.
+* <kbd>s6-svscanctl -t</kbd> (''terminate''): make {{C|s6-svscan}} stop all {{C|s6-supervise}} child processes by sending each of them a <code>SIGTERM</code> signal, or a <code>SIGHUP</code> signal if they are running on the {{Path|log}} subdirectory of a service directory, and then make {{C|s6-svscan}} [[#s6svscanfinish|start its finish procedure]]. Equivalent to sending {{C|s6-svscan}} a <code>SIGTERM</code> signal, unless [[#s6signaldivert|signal diversion]] is turned on.
+* <kbd> s6-svscanctl -q</kbd> (''quit''): make {{C|s6-svscan}} stop all {{C|s6-supervise}} child processes by sending each of them a <code>SIGTERM</code> signal, even if they are running on the {{Path|log}} subdirectory of a service directory, and then make {{C|s6-svscan}} start its finish procedure. Equivalent to sending {{C|s6-svscan}} a <code>SIGQUIT</code> signal, unless signal diversion is turned on.
+* <kbd>s6-svscanctl -h</kbd> (''hangup''): make {{C|s6-svscan}} stop all {{C|s6-supervise}} child processes by sending each of them a <code>SIGHUP</code> signal, and then make {{C|s6-svscan}} start its finish procedure. Equivalent to sending {{C|s6-svscan}} a <code>SIGHUP</code> signal, unless signal diversion is turned on.
+* <kbd>s6-svscanctl -b</kbd> (''abort''): make {{C|s6-svscan}} start its finish procedure without stopping its {{C|s6-supervise}} child processes. Equivalent to sending {{C|s6-svscan}} a <code>SIGABRT</code> signal.
+
+Other {{C|s6-svscanctl}} options are used by {{C|s6-svscan}}'s finish procedure. For further information about {{C|s6-svscan}}, and the full description of {{C|s6-svscanctl}}'s functionality, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+{{C|s6-log}} is the logger program provided by the s6 package. Just like daemontools' {{C|multilog}} program, it treats its arguments as a ''logging script'', composed by a sequence of ''directives'' that specify what to do with text lines read from its standard input. Directives starting with '''.''' or '''/''' (daemontools-style automatically rotated ''logging directories'' or ''logdirs'') behave like their daemontools' {{C|multilog}} counterparts, and so do directives starting with '''s''', '''n''', '''!''', '''t''', '''+''' and '''-''', except that patterns in '''+''' and '''-''' directives are POSIX extended regular expressions (like those of the <kbd>grep -E</kbd> command), and the processor specified in an '''!arguments''' directive is invoked as <kbd>execlineb -Pc arguments</kbd>, so that ''arguments'' can use execline syntax. A '''T''' directive prepends each logged line with a [https://en.wikipedia.org/wiki/ISO_8601 ISO 8601 timestamp] for combined date and time representing local time according to the system's timezone, with a space (not a 'T') between the date and the time and two spaces after the time. For {{C|s6-log}}, '''t''' and '''T''' directives can appear in any place of the logging script; directives appearing before them apply to read lines without the timestamp, and directives appearing after them apply to lines with the prepended timesptamp. {{C|s6-log}} can be forced to perform a rotation on a logdir by sending it a <code>SIGALRM</code> signal. For the full description of {{C|s6-log}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+s6 also provides chain loading programs that can be used to modify a supervised process' execution state. {{C|s6-envdir}}, {{C|s6-envuidgid}}, {{C|s6-setlock}}, {{C|s6-setuidgid}}, {{C|s6-softlimit}} and {{C|s6-setsid}} are similar to daemontools' {{C|envdir}}, {{C|envuidgid}}, {{C|setlock}}, {{C|setuidgid}}, {{C|softlimit}} and {{C|pgrphack}}, respectively. {{C|s6-envuidgid}} also sets environment variable <var>GIDLIST</var> to the supplementary group list (as a comma separated list of group IDs) of its effective user, obtained using the POSIX <code>getgrent()</code> call. {{C|s6-setuidgid}} can also accept an argument of the form ''uid:gid'' with a numeric user and group ID as an alternative to an account database username. {{C|s6-setlock}} can also take a shared lock on a file (calling Linux <code>flock()</code> with a <code>LOCK_SH</code> operation on Gentoo) instead of an exclusive lock by invoking it with an <code>-r</code> option, and can take a timed lock (using a helper program, {{C|s6lockd-helper}}) by invoking it with a <code>-t</code> option followed by a time value in milliseconds specifying the timeout. {{C|s6-setsid}} can also make the process the leader of a new (background) process group without creating a new session (using POSIX <code>setpgid()</code>) by invoking it with a <code>-b</code> option, and can make the process the leader of a new process group in the same session and then attach the session's controlling terminal to the process group to make it the foreground group (using POSIX <code>tcsetpgrp()</code>) by invoking it with an <code>-f</code> or <code>-g</code> option. In the latter case, the process will ignore the resulting <code>SIGTTOU</code> signal, so that it doesn't get stopped. There is also a generalized version of {{C|s6-setuidgid}}, named {{C|s6-applyuidgid}}: <kbd>s6-applyuidgid -u uid</kbd> sets the effective user ID of the process to ''uid'', <kbd>s6-applyuidgid -g gid</kbd> sets the effective group ID of the process to ''gid'', <kbd>s6-applyuidgid -G gidlist</kbd> sets the supplementary group list of the process to ''gidlist'' (using Linux <code>setgroups()</code> on Gentoo), which must be a comma-separated list of numeric group IDs, without spaces, and <kbd>s6-applyuidgid -U</kbd> sets the effective user ID, group ID and supplementary group list of the process to the values of environment variables <var>UID</var>, <var>GID</var> and <var>GIDLIST</var>, respectively. For the full description of all these programs' functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+{{C|s6-svc}} is s6's program for controlling supervised processes, and {{C|s6-svstat}}, the program for querying status information about them. {{C|s6-svc}} accepts a service directory pathname and options that specify what to do; unlike daemontools' {{C|svc}}, any pathname after the first one will be ignored. <kbd>s6-svc -u</kbd>, <kbd>s6-svc -d</kbd>, <kbd>s6-svc -o</kbd> and <kbd>s6-svc -x</kbd> commands behave like daemontools' <kbd>svc -u</kbd>, <kbd>svc -d</kbd>, <kbd>svc -o</kbd> and <kbd>svc -dx</kbd> commands, respectively. <kbd>s6-svc -o</kbd> is actually defined as the equivalent of <kbd>s6-svc -uO</kbd>, and <kbd>s6-svc -O</kbd> (capital 'o') behaves like daemontools' <kbd>svc -o</kbd>, except that if the supervised process is not running, it won't be started. Other {{C|s6-svc}} options allow reliably sending signals to a supervised process, and interacting with {{C|s6-supervise}}'s [[#s6notification|notification features]]. In particular, <kbd>s6-svc -a</kbd> can be used to send a <code>SIGALRM</code> signal to a supervised {{C|s6-log}} process to force it to perform a rotation. If using s6 version 2.5.0.0 or later, and if a service directory contains a {{Path|finish}} file that exits with an exit code of '''125''' (indicating permanent failure), the supervised process won't be started, as if an <kbd>s6-svc -O</kbd> command naming the corresponding service directory had been used while the process was running. If using s6 version 2.5.1.0 or later, there can be an optional, regular file in a service directory, named {{Path|timeout-kill}}, and containing a time value in milliseconds (as an unsigned integer); if the value is nonzero, an <kbd>s6-svc -d</kbd> command naming the corresponding service directory is used, and the supervised process is still running after the specified time has elapsed from the moment it was sent the <code>SIGTERM</code> signal followed by the <code>SIGCONT</code> signal, then {{C|s6-supervise}} sends it a <code>SIGKILL</code> signal to finally kill it.
+
+{{C|s6-svstat}} accepts a service directory pathname and options; unlike daemontools' {{C|svstat}}, any pathname after the first one will be ignored. Without options, or with only the <code>-n</code> option, {{C|s6-svstat}} prints a human-readable summary of all the available information on the service. In this case, it displays whether the supervised process is running ('run') or not ('down'), whether it is transitioning to the desired state or already there ('want up' or 'want down'), how long it has been in the current state, and whether its current up or down status matches the presence or absence of a {{Path|down}} file in the servicedir ('normally up' or 'normally down'). It also shows if the supervised process is paused (because of a <code>SIGSTOP</code> signal). If the process is up, {{C|s6-svstat}} prints its process ID (PID), and, if it suports [[#s6readiness|readiness notification]], whether {{C|s6-supervise}} has been already notified ('ready') or not, and how much time has passed since the notification has been received. If the process is down, {{C|s6-svstat}} prints its exit status (signal name, or signal number if the <code>-n</code> option was given, if the supervised process was killed by a signal, or exit code otherwise), whether [[#s6notification|the really down event]] has happened or not, and how much time has passed since the event has happened. When {{C|s6-svstat}} is invoked with options other than <code>-n</code>, it outputs programmatically parsable information instead, as a series of space-separated values, one value per requested field.
+
+For the full description of {{C|s6-svc}}'s and {{C|s6-svstat}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory. s6 also provides an {{C|s6-svok}} program similar to daemontools' {{C|svok}}, that checks whether a {{C|s6-supervise}} process is currently running on a service directory specified as an argument. Its exit status is '''0''' if there is one, and '''1''' if there isn't.
+
+Example s6 scan directory with {{Path|down}}, {{Path|finish}}, and {{Path|timeout-kill}} files, as well as a symbolic link to a {{Path|supervise}} directory elsewhere, and execline scripts:
+{{Cmd|ls -l *|
+output=<pre>test-service1:
+total 8
+-rwxr-xr-x 1 user user 32 Jul 16 12:00 run
+lrwxrwxrwx 1 user user 24 Jul 16 12:00 supervise -> ../../external-supervise
+
+test-service2:
+total 20
+-rw-r--r-- 1 user user  0 Jul 16 12:00 down
+-rwxr-xr-x 1 user user 99 Jul 16 12:00 finish
+-rwxr-xr-x 1 user user 76 Jul 16 12:00 run
+-rw-r--r-- 1 user user  6 Jul 16 12:00 timeout-finish
+
+test-service3:
+total 20
+-rw-r--r-- 1 user user  0 Jul 16 12:00 down
+-rwxr-xr-x 1 user user 75 Jul 16 12:00 finish
+-rwxr-xr-x 1 user user 43 Jul 16 12:00 run
+-rw-r--r-- 1 user user  6 Jul 16 12:00 timeout-kill</pre>}}
+
+{{FileBox|filename=test-service1/run|
+1=#!/bin/execlineb -P
+test-daemon}}
+
+{{FileBox|filename=test-service2/run|
+1=#!/bin/execlineb -P
+foreground { echo Starting test-service2/run }
+sleep 10}}
+
+{{FileBox|filename=test-service2/finish|
+1#!/bin/execlineb -S0
+foreground { echo Executing test-service2/finish with arguments $@ }
+sleep 10}}
+
+{{FileBox|filename=test-service2/timeout-finish|1=20000}}
+
+{{FileBox|filename=test-service3/run|
+1=#!/bin/execlineb -P
+test-daemon-ignoreterm}}
+
+{{FileBox|filename=test-service3/finish|
+1=#!/bin/execlineb -S0
+echo Executing test-service3/finish with arguments $@}}
+
+{{FileBox|filename=test-service3/timeout-kill|1=10000}}
+
+It is assumed {{C|test-daemon-ignoreterm}} is a program that ignores the <code>SIGTERM</code> signal. Since the {{Path|test-service2/finish}} script runs for more than 5 seconds, the {{Path|timeout-finish}} file specifying a 20 seconds timeout will prevent it from being killed by {{C|s6-supervise}} before it completes its execution.
+
+Resulting supervision tree when {{C|s6-svscan}} is run on this scandir as a background process in an interactive shell, assuming it is a subdirectory named {{Path|scan}} in the working directory (i.e. launched with <kbd>s6-svscan scan &</kbd>): 
+{{Cmd|ps xf -o pid,ppid,pgrp,euser,args|
+output=<pre> PID  PPID  PGRP EUSER    COMMAND
+...
+1833  1820  1833 user     -bash
+2201  1833  2201 user      \_ s6-svscan scan
+2202  2201  2201 user          \_ s6-supervise test-service3
+2203  2201  2201 user          \_ s6-supervise test-service1
+2205  2203  2205 user          |   \_ test-daemon
+2204  2201  2201 user          \_ s6-supervise test-service2
+...</pre>}}
+
+{{Important|Since processes in a supervision tree are created using the POSIX <code>fork()</code> call, all of them will inherit {{C|s6-svscan}}'s enviroment, which, in the context of this example, is the user's login shell environment. If {{C|s6-svscan}} is launched in some other way (see later), the environment will likely be completely different. This must be taken into account when trying to debug a supervision tree with an interactive shell.}}
+
+{{Path|supervise}} subdirectory contents:
+{{Cmd|ls -l */supervise|
+output=<pre>lrwxrwxrwx 1 user user 24 Jul 16 12:00 test-service1/supervise -> ../../external-supervise
+
+test-service2/supervise:
+total 4
+prw------- 1 user user  0 Jul 16 12:10 control
+-rw-r--r-- 1 user user  0 Jul 16 12:10 lock
+-rw-r--r-- 1 user user 35 Jul 16 12:10 status
+
+test-service3/supervise:
+total 4
+prw------- 1 user user  0 Jul 16 12:10 control
+-rw-r--r-- 1 user user  0 Jul 16 12:10 lock
+-rw-r--r-- 1 user user 35 Jul 16 12:10 status</pre>}}
+
+{{Cmd|ls -l ../external-supervise|
+output=<pre>total 4
+prw------- 1 user user  0 Jul 16 12:10 control
+-rw-r--r-- 1 user user  0 Jul 16 12:10 lock
+-rw-r--r-- 1 user user 35 Jul 16 12:10 status</pre>}}
+
+Messages sent by {{Path|test-service2/run}} to {{C|s6-svscan}}'s standard output when manually started:
+{{Cmd|s6-svc -u test-service2|
+output=<pre>Starting test-service2/run
+Executing test-service2/finish with arguments 0 0
+Starting test-service2/run
+Executing test-service2/finish with arguments 0 0
+Starting test-service2/run
+...</pre>}}
+
+{{Cmd|for i in *; do printf "$i: %s\n" "$(s6-svstat $i)"; done|
+output=<pre>test-service1: up (pid 2205) 126 seconds
+test-service2: up (pid 2237) 5 seconds, normally down
+test-service3: down (exitcode 0) 126 seconds, ready 126 seconds</pre>}}
+
+After enough seconds have elapsed:
+{{Cmd|for i in *; do printf "$i: %s\n" "$(s6-svstat $i)"; done|
+output=<pre>test-service1: up (pid 2205) 137 seconds
+test-service2: down (exitcode 0) 6 seconds, want up
+test-service3: down (exitcode 0) 137 seconds, ready 137 seconds</pre>}}
+
+The output of {{C|s6-svstat}} and {{Path|test-service2/finish}} shows that {{Path|test-service2/run}} exits each time with an exit code of 0. Reliably sending a <code>SIGSTOP</code> signal, and later a <code>SIGTERM</code> signal, to {{Path|test-service2/run}}:
+{{Cmd|s6-svc -p test-service2|s6-svc -t test-service2|s6-svstat test-service2|
+output=<pre>up (pid 2312) 18 seconds, normally down, paused</pre>}}
+
+The output of {{C|s6-svstat}} shows that {{Path|test-service2/run}} is stopped indeed ("paused"), so <code>SIGTERM</code> doesn't have any efect yet. To resume the process a <code>SIGCONT</code> signal is needed:
+{{Cmd|s6-svc -c test-service2|
+output=<pre>Executing test-service2/finish with arguments 256 15
+Starting test-service2/run
+Executing test-service2/finish with arguments 0 0
+Starting test-service2/run
+...</pre>}}
+
+The output of {{Path|test-service2/finish}} shows that after resuming execution, {{Path|test-service2/run}} was killed by the <code>SIGTERM</code> signal that was awaiting delivery (signal 15), and since the process is supervised, {{C|s6-supervise}} restarts {{Path|test-service2/run}} after {{Path|test-service2/finish}} exits.
+
+Messages sent by {{Path|test-service2/run}} to {{C|s6-svscan}}'s standard output when manually stopped:
+{{Cmd|s6-svc -d test-service2|
+output=<pre>Executing test-service2/finish with arguments 256 15</pre>}}
+
+As shown by {{Path|test-service2/finish}}, {{C|s6-supervise}} stopped {{Path|test-service2/run}} by killing it with a <code>SIGTERM</code> signal (signal 15).
+
+Manually starting {{C|test-daemon-ignoreterm}}:
+{{Cmd|s6-svc -u test-service3|s6-svstat test-service3|
+output=<pre>up (pid 2390) 16 seconds, normally down</pre>}}
+
+The resulting supervision tree:
+{{Cmd|ps xf -o pid,ppid,pgrp,euser,args|
+output=<pre> PID  PPID  PGRP EUSER    COMMAND
+...
+1833  1820  1833 user     -bash
+2201  1833  2201 user      \_ s6-svscan scan
+2202  2201  2201 user          \_ s6-supervise test-service3
+2390  2202  2390 user          |   \_ test-daemon-ignoreterm
+2203  2201  2201 user          \_ s6-supervise test-service1
+2205  2203  2205 user          |   \_ test-daemon
+2204  2201  2201 user          \_ s6-supervise test-service2
+...</pre>}}
+
+Manually stopping {{C|test-daemon-ignoreterm}}:
+{{Cmd|s6-svc -d test-service3|for i in *; do printf "$i: %s\n" "$(s6-svstat $i)"; done|
+output=<pre>test-service1: up (pid 2205) 382 seconds
+test-service2: down (signal SIGTERM) 69 seconds, ready 59 seconds
+test-service3: up (pid 2390) 40 seconds, normally down, want down
+Executing test-service3/finish with arguments 256 9</pre>}}
+
+The output of {{C|s6-svstat}} confirms that {{Path|test-service2/run}} was killed by a <code>SIGTERM</code> signal, and shows that {{C|test-daemon-ignoreterm}} could not be stopped ("up" but also "want down") because it ignores <code>SIGTERM</code>. The service directory contains a {{Path|timeout-kill}} file, so after waiting the specified 10 seconds, {{C|s6-supervise}} killed {{C|test-daemon-ignoreterm}} with a <code>SIGKILL</code> signal (signal 9), as shown by the message {{Path|test-service3/finish}} sent to {{C|s6-svscan}}'s standard output.
+
+{{Cmd|s6-svstat test-service3|
+output=<pre>down (signal SIGKILL) 14 seconds, ready 14 seconds</pre>}}
+
+The output of {{C|s6-svstat}} confirms that {{C|test-daemon-ignoreterm}} was killed by a <code>SIGKILL</code> signal.
+{{anchor|s6svscanfinish}}
+==== {{C|s6-svscan}}'s finish procedure ====
+
+When {{C|s6-svscan}} is asked to exit using {{C|s6-svscanctl}}, it tries to execute a file named {{Path|finish}}, expected to be in the {{Path|.s6-svscan}} control subdirectory of the scan directory. The program does this using the POSIX <code>execve()</code> call, so no new process will be created, and {{Path|.s6-svscan/finish}} will have the same process ID as {{C|s6-svscan}}.
+
+{{Path|.s6-svscan/finish}} is invoked with a single argument that depends on how {{C|s6-svscanctl}} is invoked:
+
+* If {{C|s6-svscanctl}} is invoked with the <code>-s</code> option, {{Path|.s6-svscan/finish}} will be invoked with a '''halt''' argument.
+* If {{C|s6-svscanctl}} is invoked with the <code>-p</code> option, {{Path|.s6-svscan/finish}} will be invoked with a '''poweroff''' argument.
+* If {{C|s6-svscanctl}} is invoked with the <code>-r</code> option, {{Path|.s6-svscan/finish}} will be invoked with a '''reboot''' argument.
+
+This behaviour supports [[#s6process1|running {{C|s6-svscan}} as process 1]]. Just as {{Path|run}} or {{Path|finish}} files in a service directory, {{Path|.s6-svscan/finish}} can have any file format that the kernel knows how to execute, but is usually an execline script. If {{C|s6-svscan}} is not running as process 1, the argument supplied to {{Path|.s6-svscan/finish}} is usually meaningless and can be ignored. The file can be used just for cleanup in that case, and if no special cleanup is needed, it can be this minimal do-nothing execline script:
+
+{{FileBox|filename=.s6-svscan/finish|title=Minimal execline {{Path|finish}} script|
+1=#!/bin/execlineb -P
+exit}}
+
+If no <code>-s</code>, <code>-p</code> or <code>-r</code> option is passed to {{C|s6-svscanctl}}, or if {{C|s6-svscan}} receives a <code>SIGABRT</code>, or if {{C|s6-svscan}} receives a <code>SIGTERM</code>, <code>SIGTHUP</code> or <code>SIGQUIT</code> signal and [[#s6signaldivert|signal diversion]] is turned off, {{Path|.s6-svscan/finish}} will be invoked with a 'reboot' argument.
+
+If {{C|s6-svscan}} encounters a error situation it cannot handle, or if it is asked to exit and there is no {{Path|.s6-svscan/finish}} file, it will try to execute a file named {{Path|crash}}, also expected to be in the {{Path|.s6-svscan}} control subdirectory. This is also done using <code>execve()</code>, so no new process will be created, and {{Path|.s6-svscan/crash}} will have the same process ID as {{C|s6-svscan}}. If there is no {{Path|.s6-svscan/crash}} file, {{C|s6-svscan}} will give up and exit with an exit code of '''111'''.
+
+{{C|s6-svscanctl}} can also be invoked in this abbreviated forms:
+
+* <kbd>s6-svscanctl -0</kbd> (''halt'') is equivalent to <kbd>s6-svscanctl -st</kbd>.
+* <kbd>s6-svscanctl -6</kbd> (''reboot'') is equivalent to <kbd>s6-svscanctl -rt</kbd>.
+* <kbd>s6-svscanctl -7</kbd> (''poweroff'') is equivalent to <kbd>s6-svscanctl -pt</kbd>.
+* <kbd>s6-svscanctl -8</kbd> (''other'') is equivalent to <kbd>s6-svscanctl -0</kbd>, but {{Path|.s6-svscan/finish}} will be invoked with an 'other' argument instead of a 'halt' argument.
+* <kbd>s6-svscanctl -i</kbd> (''interrupt'') is equivalent to <kbd>s6-svscanctl -6</kbd>, and equivalent to sending {{C|s6-svscan}} a <code>SIGINT</code> signal, unless signal diversion is turned on.
+
+Contents of the {{Path|.s6-svscan}} subdirectory with example {{Path|finish}} and {{Path|crash}} files, once {{C|s6-svscan}} is running:
+{{Cmd|ls -l .s6-svscan|
+output=<pre>total 8
+prw------- 1 user user  0 Jul 19 12:00 control
+-rwxr-xr-x 1 user user 53 Jul 19 12:00 crash
+-rwxr-xr-x 1 user user 72 Jul 19 12:00 finish
+-rw-r--r-- 1 user user  0 Jul 19 12:00 lock</pre>}}
+
+{{FileBox|filename=.s6-svscan/finish|
+1=#!/bin/execlineb -S0
+echo Executing .s6-svscan/finish with arguments $@}}
+
+{{FileBox|filename=.s6-svscan/crash|
+1=#!/bin/execlineb -S0
+echo Executing .s6-svscan/crash}}
+
+Messages sent by {{Path|.s6-svscan/finish}} to {{C|s6-svscan}}'s standard output as a result of different {{C|s6-svscanctl}} invocations:
+{{Cmd|s6-svscanctl -t .|
+output=<pre>Executing .s6-svscan/finish with arguments reboot</pre>}}
+
+{{Cmd|s6-svscanctl -st .|
+output=<pre>Executing .s6-svscan/finish with arguments halt</pre>}}
+
+{{Cmd|s6-svscanctl -7 .|
+output=<pre>Executing .s6-svscan/finish with arguments poweroff</pre>}}
+
+{{Cmd|s6-svscanctl -8 .|
+output=<pre>Executing .s6-svscan/finish with arguments other</pre>}}
+
+Messages printed by {{C|s6-svscan}} on its standard error, and sent by {{Path|.s6-svscan/crash}} to {{C|s6-svscan}}'s standard output, as a result of invoking {{C|s6-svscanctl}} after deleting {{Path|.s6-svscan/finish}}:
+{{Cmd|rm .s6-svscan/finish|s6-svscanctl -t .|
+output=<pre>s6-svscan: warning: unable to exec finish script .s6-svscan/finish: No such file or directory
+s6-svscan: warning: executing into .s6-svscan/crash
+Executing .s6-svscan/crash</pre>}}
+{{anchor|s6signaldivert}}
+==== {{C|s6-svscan}}'s signal diversion feature ====
+
+When {{C|s6-svscan}} is invoked with an <code>-S</code> option, or with neither an <code>-s</code> nor an <code>-S</code> option, and it receives a <code>SIGINT</code>, <code>SIGHUP</code>, <code>SIGTERM</code> or <code>SIGQUIT</code> signal, it behaves as if {{C|s6-svscanctl}} had been invoked with its scan directory pathname and an option that depends on the signal.
+
+When {{C|s6-svscan}} is invoked with an <code>-s</code> option, ''signal diversion'' is turned on: if it receives any of the aforementioned signals, a <code>SIGUSR1</code> signal, or a <code>SIGUSR2</code> signal, {{C|s6-svscan}} tries to execute a file with the same name as the received signal, expected to be in the {{Path|.s6-svscan}} control subdirectory of the scan directory (e.g. {{Path|.s6-svscan/SIGTERM}}, {{Path|.s6-svscan/SIGHUP}}, etc.). These files will be called ''diverted signal handlers'', and are executed as a child process of {{C|s6-svscan}}. Just as {{Path|run}} or {{Path|finish}} files in a service directory, they can have any file format that the kernel knows how to execute, but are usually execline scripts. If the diverted signal handler corresponding to a received signal does not exist, the signal will have no effect. When signal diversion is turned on, {{C|s6-svscan}} can still be controlled using {{C|s6-svscanctl}}.
+
+The best known use of this feature is to support the [[s6-rc]] service manager as an init system component when {{C|s6-svscan}} is running as process 1; see [[s6 and s6-rc-based init system]].
+
+Example {{Path|.s6-svscan}} subdirectory with diverted signal handlers for <code>SIGHUP</code>, <code>SIGTERM</code> and <code>SIGUSR1</code>:
+{{Cmd|ls -l .s6-svscan|
+output=<pre>total 16
+-rwxr-xr-x 1 user user 53 Jul 19 12:00 crash
+-rwxr-xr-x 1 user user 72 Jul 19 12:00 finish
+-rwxr-xr-x 1 user user 51 Jul 19 12:00 SIGHUP
+-rwxr-xr-x 1 user user 52 Jul 19 12:00 SIGTERM
+-rwxr-xr-x 1 user user 52 Jul 19 12:00 SIGUSR1</pre>}}
+
+{{FileBox|filename=.s6-svscan/SIGHUP|
+1=#!/bin/execlineb -P
+echo s6-svscan received SIGHUP}}
+
+{{FileBox|filename=.s6-svscan/SIGTERM|
+1=#!/bin/execlineb -P
+echo s6-svscan received SIGTERM}}
+
+{{FileBox|filename=.s6-svscan/SIGUSR1|
+1=#!/bin/execlineb -P
+echo s6-svscan received SIGUSR1}}
+
+Output of {{C|ps}} showing {{C|s6-svscan}}'s process ID and arguments:
+{{Cmd|ps -o pid,args|
+output=<pre> PID COMMAND
+...
+2047 s6-svscan -s
+...</pre>}}
+
+Messages printed to {{C|s6-svscan}}'s standard output as a result of sending signals with the {{C|kill}} utility:
+{{Cmd|kill 2047|
+output=<pre>s6-svscan received SIGTERM</pre>}}
+
+{{Cmd|kill -HUP 2047|
+output=<pre>s6-svscan received SIGHUP</pre>}}
+
+{{Cmd|kill -USR1 2047|
+output=<pre>s6-svscan received SIGUSR1</pre>}}
+
+=== Starting the supervision tree ===
+{{anchor|openrclaunch}}
+==== From OpenRC ====
+
+As of version 0.16, [[OpenRC]] provides a service script that can launch {{C|s6-svscan}}, also named {{Path|s6-svscan}}. On Gentoo, the scan directory will be {{Path|/run/openrc/s6-scan}}. This script exists to support the [[#s6integration|OpenRC-s6 integration]] feature, but can be used to just launch an s6 supervision tree when the machine boots by adding it to an OpenRC runlevel:
+{{RootCmd|rc-update add s6-svscan default}}
+
+Or it can also be started manually:
+{{RootCmd|rc-service s6-svscan start}}
+
+{{Note|The service script launches {{C|s6-svscan}} using OpenRC's {{C|start-stop-daemon}} program, so it will run unsupervised, and have its standard input, output and error redirected to {{Path|/dev/null}}.}}
+
+Because {{Path|/run}} is a tmpfs, and therefore volatile, servicedir symlinks must be created in the scan directory each time the machine boots, before {{C|s6-svscan}} starts. The [https://www.freedesktop.org/software/systemd/man/tmpfiles.d.html tmpfiles.d] interface, which is supported by OpenRC using [https://packages.gentoo.org/packages/sys-apps/opentmpfiles package opentmpfiles], can be used for this:
+{{FileBox|filename=/etc/tmpfiles.d/s6-svscan.conf|1=#Type Path Mode UID GID Age Argument
+d /run/openrc/s6-scan
+L /run/openrc/s6-scan/service1 - - - - /path/to/servicedir1
+L /run/openrc/s6-scan/service2 - - - - /path/to/servicedir2
+L /run/openrc/s6-scan/service3 - - - - /path/to/servicedir3}}
+
+As an alternative, OpenRC's {{Path|local}} service could be used to start the supervision tree when entering OpenRC's 'default' runlevel, by placing '.start' and '.stop' files in {{Path|/etc/local.d}} (please read {{Path|/etc/local.d/README}} for more details) that perform actions similar to those of the {{Path|s6-svscan}} service script:
+{{FileBox|filename=/etc/local.d/s6-svscan.start|
+1=#!/bin/execlineb -P
+# Remember to add --user if you don't want to run as root
+start-stop-daemon --start --background --make-pidfile
+   --pidfile /run/s6-svscan.pid
+   --exec /bin/s6-svscan -- -S /path/to/scandir}}
+
+{{FileBox|filename=/etc/local.d/s6-svscan.stop|
+1=#!/bin/execlineb -P
+start-stop-daemon --stop --retry 5 --pidfile /run/s6-svscan.pid}}
+
+The <code>-S</code> option will explicitly disable signal diversion so that the <code>SIGTERM</code> signal that {{C|start-stop-daemon}} sends to {{C|s6-svscan}} will make it act as if an <kbd>s6-svscanctl -rt</kbd> command had been used.
+
+And as another alternative, OpenRC's {{C|local}} service could be used to start the supervision tree when entering OpenRC's 'default' runlevel, with {{Path|/service}} as the scan directory, using a '.start' file that calls the {{C|s6-svscanboot}} script provided as an example (see [[#sysvinitlaunch|starting the supervision tree from sysvinit]]), instead of {{C|s6-svscan}} directly. This allows setting up a logger program to log messages sent by supervision tree processes to {{C|s6-svscan}}'s standard output and error, provided a service directory for the logger exists in {{Path|/service}}:
+{{FileBox|filename=/etc/local.d/s6-svscan.start|
+1=#!/bin/execlineb -P
+# Remember to add --user if you don't want to run as root
+# Remember to symlink /command to /bin
+start-stop-daemon --start --background --make-pidfile
+   --pidfile /run/s6-svscan.pid
+   --exec /bin/s6-svscanboot}}
+
+{{FileBox|filename=/etc/local.d/s6-svscan.stop|
+1=#!/bin/execlineb -P
+start-stop-daemon --stop --retry 5 --pidfile /run/s6-svscan.pid}}
+{{anchor|sysvinitlaunch}}
+==== From sysvinit ====
+
+The s6 package provides a script called {{C|s6-svscanboot}}, that can be launched and supervised by [https://packages.gentoo.org/packages/sys-apps/sysvinit sysvinit] by adding a 'respawn' line for it in {{Path|/etc/inittab}}<ref>[https://www.skarnet.org/software/s6/s6-svscan-not-1.html How to run s6-svscan under another init process]. Retrieved on July 16th, 2017.</ref>. It is an execline script that launches an {{C|s6-svscan}} process, with its standard output and error redirected to {{Path|/service/s6-svscan-log/fifo}}. This allows setting up a FIFO and a logger program to log messages sent by supervision tree processes to {{C|s6-svscan}}'s standard output and error, with the the same technique used by [[s6 and s6-rc based init system]]s. {{C|s6-svscan}}'s standard input will be redirected to {{Path|/dev/null}}. The enviroment will be emptied and then set according to the contents of environment directory {{Path|/service/.s6-svscan/env}}, if it exists, with an {{C|s6-envdir}} invocation. The scan directory will be {{Path|/service}}.
+
+{{C|s6-svscanboot}} is provided as an example; it is the {{Path|examples/s6-svscanboot}} file in the package's {{Path|/usr/share/doc}} subdirectory. Users that want this setup will need to copy (and possibly uncompress) the script to {{Path|/bin}}, manually edit {{Path|/etc/inittab}}, and then call {{C|telinit}}:
+{{FileBox|filename=/etc/inittab|1=SV:12345:respawn:/bin/s6-svscanboot}}
+
+{{RootCmd|telinit q}}
+
+{{Warning|The {{C|s6-svscanboot}} provided by s6 version 2.6.0.0 and earlier doesn't handle environment directory {{Path|/service/.s6-svscan/env}} correctly. A working script exists in the package's [https://git.skarnet.org/cgi-bin/cgit.cgi/s6/plain/examples/s6-svscanboot current Git HEAD], and should be used instead.}}
+
+This will make sysvinit launch and supervise {{C|s6-svscan}} when entering runlevels 1 to 5. Because s6 and execline programs used in the script and invoked using absolute pathnames are asumed to be in directory {{Path|/command}}, a symlink to the correct path for Gentoo must be created: 
+{{RootCmd|ln -s bin /command}}
+
+An s6 service directory for the {{C|s6-svscan}} logger can be created with the {{C|s6-linux-init-maker}} program from package [https://packages.gentoo.org/packages/sys-apps/s6-linux-init s6-linux-init]:
+{{RootCmd|s6-envuidgid user s6-linux-init-maker -l /service -U temp|cp -a temp/run-image/{service/s6-svscan-log,uncaught-logs} /service}}
+
+The logger will be an {{C|s6-log}} process that logs to directory {{Path|/service/uncaught-logs}}, prepending messages with a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format]. Username ''user'' should be replaced by a valid account's username, to allow {{C|s6-log}} to run as an unprivileged process, and {{Path|temp}} will be a temporary directory created by {{C|s6-linux-init-maker}} on the working directory, that can be removed once the necessary subdirectories are copied to {{Path|/service}}.
+{{anchor|loggingchain}}
+=== The logging chain ===
+
+A supervision tree where all leaf processes have a logger can be arranged into what the software package's author calls ''the logging chain''<ref>Laurent Bercot, [https://www.skarnet.org/software/s6/s6-log.html#loggingchain the logging chain], Retrieved on May 1st, 2017.</ref>, which he considers to be technically superior to the traditional syslog-based centralized approach<ref>Laurent Bercot, [https://www.skarnet.org/software/s6/s6-log.html#diesyslogdiedie on the syslog design], Retrieved on May 1st, 2017.</ref>.
+
+Since processes in a supervision tree are created using the POSIX <code>fork()</code> call, each of them will inherit {{C|s6-svscan}}'s standard input, output and error. A logging chain arrangement is as follows:
+
+* Leaf processes should normally have a logger, so their standard output and error connect to their logger's standard input. Therefore, all their messages are collected and stored in dedicated, per-service logs by their logger. Some programs might need to be invoked with special options to make them send messages to their standard error, and redirection of standard error to standard output (i.e. '''2>&1''' in a shell script or '''fdmove -c 2 1''' in an execline script) must be performed in the servicedir's {{Path|run}} file.
+* Leaf processes with a controlling terminal are an exception: their standard input, output and error connect to the terminal.
+* {{C|s6-supervise}}, the loggers, and leaf processes that exceptionally don't have logger for some reason, inherit their standard input, output and error from {{C|s6-svscan}}, so their messages are sent wherever the ones from {{C|s6-svscan}} are.
+* Leaf processes that still unavoidably report their messages using <code>syslog()</code> have them collected and logged by a (possibly supervised) syslog server.
+
+[[s6 and s6-rc based init system]]s are arranged in such a way that {{C|s6-svscan}}'s messages are collected by a ''catch-all logger'', and that logger's standard error is redirected to {{Path|/dev/console}}.
+{{anchor|s6notification}}
+=== The notification framework ===
+
+''Notification'' is a mechanism by which a process can become instantly aware that a certain event has happened, as opposed to the process actively and periodically checking whether it happened (which is called ''polling'')<ref>[https://www.skarnet.org/software/s6/ftrig.html#notification Notification vs. polling]. Retrieved on July 28th, 2017.</ref>. The s6 package provides a general notification framework that doesn't rely on a long-lived process (e.g. a bus daemon), so that it can be integrated with its supervision suite. The notification framework is based instead on ''FIFO directories''.
+
+==== FIFO directories and related tools ====
+
+A FIFO directory (or ''fifodir'') is a directory in the filesystem asociated with a ''notifier'', a process in charge of notifying other processes about some set of events. As the name implies, the directory contains FIFOs, each of them associated with a ''listener'', a process that wants to be notified about one or more events. A listener creates a FIFO in the fifodir and opens it for reading, this is called ''subscribing'' to the fifodir. When a certain event happens, the notifier writes to each FIFO in the fifodir. Written data is conventionally a single character encoding the identity of the event. Listeners wait for notifications using some blocking I/O call on the FIFO; unblocking and successfully reading data from it is their notification. A listener that no longer wants to receive notifications removes its FIFO from the fifodir, this is called ''unsubscribing''.
+
+FIFOs and FIFO directories need a special ownership and permission setup to work. The owner of a fifodir must be the notifier's effective user. A ''publically accesible fifodir'' can be subscribed to by any user, and its permissions must be '''1733''' (i.e. the fifodir shows up as 'drwx-wx-wt' in the output of <kbd>ls -l</kbd>). A ''restricted fifodir'' can be subscribed to only by members of the fifodir's group, and its permissions must be '''3730''' (i.e. the fifodir shows up as 'drwx-ws--T' in the output of <kbd>ls -l</kbd>). The owner of a FIFO in the fifodir must be the corresponding listener's effective user, and its permissions must be '''0622''' (i.e. the FIFO shows up as 'prw--w--w-' in the output of <kbd>ls -l</kbd>). Complete information about the FIFO directory internals is available [https://www.skarnet.org/software/s6/fifodir.html here].
+
+s6 provides an {{C|s6-mkfifodir}} program that creates a FIFO directory with correct ownership and permissions. It accepts the pathname of the fifodir. A restricted fifodir is created by specifying the <code>-g</code> option followed by a numeric group ID, which {{C|s6-mkfifodir}}'s effective user must be a member of. {{C|s6-mkfifodir}} without a <code>-g</code> option creates a publically accesible fifodir. A fifodir can be removed with an <kbd>rm -r</kbd> command. There is also a {{C|s6-cleanfifodir}} program that accepts the pathname of a fifodir and removes all FIFOs in it that don't have an active listener. Its effective user must be a member of the fifodir's group. In the normal case FIFOs are removed when the corresponding listener unsubscribes, so {{C|s6-cleanfifodir}} is a cleanup tool for cases when this fails (e.g. the listener was killed by a signal). For further information about {{C|s6-mkfifodir}} and {{C|s6-cleanfifodir}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+The {{C|s6-ftrig-notify}} program allows notifying all subscribers of a fifodir, so it can be used to create a notifier program. It accepts the pathname of a fifodir and a ''message'' that is written as-is to all FIFOs in the fifodir. Each character in the message is assumed to encode an event, and the character sequence should reflect the events sequence. The {{C|s6-ftrig-wait}} program allows subscription to a fifodir and waiting for a notification, so it can be used to create a listener program. It accepts the pathname of a fifodir and a POSIX extended regular expression (like those of the <kbd>grep -E</kbd> command), creates a FIFO in the fifodir with correct ownership and permissions, and waits until it reads a sequence of characters that match the regular expression. Then it unsubcribes from the fifodir by removing the FIFO, prints the last character read from it to its standard output, and exits. For further information about {{C|s6-ftrig-notify}} and {{C|s6-ftrig-wait}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Because performing an action that might trigger an event recognized by a notifier, and subscribing to its fifodir to be notified of the event is susceptible to races that might lead to missing the notification, s6 provides two additional programs, {{C|s6-ftrig-listen}} and {{C|s6-ftrig-listen1}}. {{C|s6-ftrig-listen}} is a program that accepts options, a set of fifodir pathname and extended regular expression pairs, a program name and its arguments. It subscribes to each specified fifodir, runs the program as a child process with the supplied arguments, and waits for notifications. It makes sure that the program is executed ''after'' there are listeners reading from their FIFOs.
+
+{{C|s6-ftrig-listen}} expects its arguments to be in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], so the forward compatible way to use it is in an execline script or <kbd>execlineb -c</kbd> command: the invocation can be written using a the syntax <kbd>s6-ftrig-listen { f1 re1 f2 re2 ... } prog args</kbd>, where ''f1'', ''f2'', ... are the fifodir pathnames, ''re1'', ''re2'', ... are the regular expressions corresponding to ''f1'', ''f2'', ..., respectively, ''prog'' is the program name and ''args'', the program's arguments. If {{C|s6-ftrig-listen}} is invoked with an <code>-o</code> option (''or''), it will unsubscribe from all fifodirs and exit when it reads a matching sequence of characters from ''any'' of the created FIFOs. If {{C|s6-ftrig-listen}} is invoked without an <code>-o</code> option, or with an explicit <code>-a</code> option (''and''), it will wait until it reads a matching sequence from ''every'' FIFO. The {{C|s6-ftrig-listen1}} program is a single fifodir and regular expression version of {{C|s6-ftrig-listen}} that doesn't need {{C|execlineb}}-encoded arguments, and that prints the last character read from the created FIFO to its standard output. For further information about {{C|s6-ftrig-listen}} and {{C|s6-ftrig-listen1}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+A timeout can be set for {{C|s6-ftrig-wait}}, {{C|s6-ftrig-listen}} and {{C|s6-ftrig-listen1}} by specifying a <code>-t</code> option followed by a time value in milliseconds. The programs exit with an error status it they haven't been notified about the desired events after the specified time.
+
+The fifodir and notification management code are implemented in the s6 package's library, '''libs6''', and an internal helper program, {{C|s6-ftrigrd}}. The library exposes a public C language API than can be used by programs; for details about the API for notifiers see [https://www.skarnet.org/software/s6/libs6/ftrigw.html here], and for details about the API for listeners see [https://www.skarnet.org/software/s6/libs6/ftrigr.html here]. {{C|s6-ftrigrd}} is launched by the library code.
+
+Creating a publically accesible fifodir named {{Path|fifodir1}} and a fifodir restricted to members of group ''user'' (assumed to have group ID 1000) named {{Path|fifodir2}}:
+{{Cmd|s6-mkfifodir fifodir1|s6-mkfifodir -g 1000 fifodir2|ls -ld fifodir*|
+output=<pre>drwx-wx-wt 2 user user 4096 Aug  2 12:00 fifodir1
+drwx-ws--T 2 user user 4096 Aug  2 12:00 fifodir2</pre>}}
+
+{{Warning|s6 versions 2.6.0.0 and earlier contain a bug in libs6 that affects GNU libc-based operating systems, including Gentoo for most profiles, and manifests as {{C|s6-mkfifodir}} failing to create a publically accesible fifodir in the absence of the <code>-g</code> option. The fix is [https://git.skarnet.org/cgi-bin/cgit.cgi/s6/diff/?id{{=}}ebb6b00bf66828c5a2587dd2cd44f8810e01e00b here], and the examples shown use a patched libs6.}}
+
+Creating listeners that subscribe to {{Path|fifodir1}} and wait for event sequences 'message1' and 'message2', respectively, as background processes:
+{{Cmd|s6-ftrig-wait fifodir1 message1 &|s6-ftrig-wait -t 20000 fifodir1 message2 &|ls -l fifodir1|
+output=<pre>total 0
+prw--w--w- 1 user user 0 Aug  2 21:44 ftrig1:@40000000598272220ea9fa39:-KnFNSkhmW1pQPY0
+prw--w--w- 1 user user 0 Aug  2 21:46 ftrig1:@400000005982728b3a8d09c2:_UjWhNPn3Z0Q_VFQ</pre>}}
+
+This shows that a FIFO has been created in the fifodir for each {{C|s6-ftrig-wait}} process, with names starting with 'ftrig1:'.
+{{Cmd|ps f -o pid,ppid,args|
+output=<pre> PID  PPID COMMAND
+...
+2026  2023 \_ bash
+2043  2026     \_ s6-ftrig-wait fifodir1 message1
+2044  2043     |   \_ s6-ftrigrd
+2051  2026     \_ s6-ftrig-wait -t 20000 fifodir1 message2
+2052  2051         \_ s6-ftrigrd
+...
+s6-ftrig-wait: fatal: unable to match regexp on message2: Connection timed out</pre>}}
+
+The output of {{C|ps}} shows that each {{C|s6-ftrig-wait}} process has spawned a child {{C|s6-ftrigrd}} helper, and because the one waiting for event sequence 'message2' has a timeout of 20 seconds ("-t 20000"), after that time has elapsed whithout getting the expected notifications it unsubscribes, and exits with an error status that is printed on the shell's terminal ("Connection timed out").
+{{Cmd|ls -l fifodir1|
+output=<pre>total 0
+prw--w--w- 1 user user 0 Aug  2 21:44 ftrig1:@40000000598272220ea9fa39:-KnFNSkhmW1pQPY0</pre>}}
+
+This shows that the {{C|s6-ftrig-wait}} process without a timeout is still running, and its FIFO is still there. Notifying all {{Path|fifodir1}} listeners about event sequence 'message1':
+{{Cmd|s6-ftrig-notify fifodir1 message1|output=<pre>1</pre>}}
+
+The '1' printed on the shell's terminal after the {{C|s6-ftrig-notify}} invocation is the last event the {{C|s6-ftrig-wait}} process was notified about (i.e. the last character in string 'message1'), which then exits because the notifications have matched its regular expression.
+{{Cmd|ls -l fifodir1|output=<pre>total 0</pre>}}
+
+This shows that since all listeners have unsubscribed, the fifodir is empty.
+{{FileBox|filename=test-script|title=Example execline script for testing {{C|s6-ftrig-listen}}|
+1=#!/bin/execlineb -P
+foreground {
+   s6-ftrig-listen -o { fifodir1 message fifodir2 message }
+   foreground { ls -l fifodir1 fifodir2 }
+   foreground { ps f -o pid,ppid,args }
+   s6-ftrig-notify fifodir1 message
+}
+echo s6-ftrig-listen exited}}
+
+Executing the example script:
+{{Cmd|./test-script|
+output=<pre>fifodir1:
+total 0
+prw--w--w- 1 user user 0 Aug  2 22:28 ftrig1:@4000000059827c60124f916d:51Xhg7STswW-yFst
+
+fifodir2:
+total 0
+prw--w--w- 1 user user 0 Aug  2 22:28 ftrig1:@4000000059827c601250c752:oXikN3Vko3JipuvU
+ PID  PPID COMMAND
+...
+2176  2026 \_ foreground  s6-ftrig-listen ...
+2177  2176     \_ s6-ftrig-listen -o  fifodir1 ...
+2178  2177         \_ s6-ftrigrd
+2179  2177         \_ foreground  ps ...
+2181  2179             \_ ps f -o pid,ppid,args
+...
+s6-ftrig-listen exited</pre>}}
+
+The output of {{C|ls}} shows that two listeners were created, one subscribed to {{Path|fifodir1}} and the other to {{Path|fifodir2}}, and the output of {{C|ps}} shows that both are implemented by a single {{C|s6-ftrigrd}} process that is a child of {{C|s6-ftrig-listen}}. It also shows that {{C|s6-ftrig-listen}} has another child process, executing (at that time) the execline {{C|foreground}} program, which in turn has spawned the {{C|ps}} process. After that, {{C|foreground}} replaces itself with {{C|s6-ftrig-notify}}, which notifies all {{Path|fifodir1}} listeners about event sequence 'message'. Because {{C|s6-ftrig-listen}} was invoked with an <code>-o</code> option, and the {{Path|fifodir1}} listener got notifications that match its regular expression, {{C|s6-ftrig-listen}} exits at that point ("s6-ftrig-listen exited").
+{{Cmd|ls fifodir*|
+output=<pre>
+fifodir1:
+total 0
+
+fifodir2:
+total 0</pre>}}
+
+This shows that the listener subscribed to {{Path|fifodir2}} has unsubscribed and exited, even if it didn't get the expected notifications.
+
+Modifying the test script to invoke {{C|s6-ftrig-listen}} with the <code>-a</code> option instead (i.e. as <kbd>s6-ftrig-listen -a { fifodir1 message fifodir2 message }</kbd>) and reexecuting it in the background:
+{{Cmd|./test-script &|
+output=<pre>fifodir1:
+total 0
+prw--w--w- 1 user user 0 Aug  2 22:56 ftrig1:@40000000598282e4210384d5:wikPBCD-Aw5Erijp
+
+fifodir2:
+total 0
+prw--w--w- 1 user user 0 Aug  2 22:56 ftrig1:@40000000598282e42104bc57:Yop6JbMNBJo1r-uI
+ PID  PPID COMMAND
+...</pre>}}
+
+The output of the script does not have a "s6-ftrig-listen exited" message, so it is still running:
+{{Cmd|ls -l fifodir*|
+output=<pre>fifodir1:
+total 0
+
+fifodir2:
+total 0
+prw--w--w- 1 user user 0 Aug  2 22:56 ftrig1:@40000000598282e42104bc57:Yop6JbMNBJo1r-uI</pre>}}
+
+This confirms that the listener subscribed to {{Path|fifodir2}} is still running, waiting for events. Notifying all {{Path|fifodir2}} listeners about event sequence 'message':
+{{Cmd|s6-ftrig-notify fifodir2 message|output=<pre>s6-ftrig-listen exited</pre>}}
+
+This shows that once the remaining listener has gotten notifications that match its regular expression, {{C|s6-ftrig-listen}} exits.
+
+==== The process supervision suite's use of notification ====
+
+The {{Path|event}} subdirectory of an s6 service directory is a fifodir used by {{C|s6-supervise}} to notify interested listeners about its supervised process' state changes. That is, {{C|s6-supervise}} acts as the notifier associated with the {{Path|event}} fifodir, and writes a single character to each FIFO in it when there is a state change:
+
+* At program startup, after creating {{Path|event}} if it doesn't exist, {{C|s6-supervise}} writes an '''s''' character (''start event'').
+* Each time {{C|s6-supervise}} spawns a child process executing the {{Path|run}} file, it writes a '''u''' character (''up event'').
+* If the supervised process supports [[#s6readiness|readiness notification]], {{C|s6-supervise}} writes a '''U''' character (''up and ready event'') when the child process notifies its readiness.
+* If the service directory contains a {{Path|finish}} file, and, when executed, exits with exit code 125 (permanent failure), {{C|s6-supervise}} writes an '''O''' character (''once event'', the character is a capital 'o').
+* Each time the supervised process stops running, {{C|s6-supervise}} writes a '''d''' character (''down event'').
+* If the service directory contains a {{Path|finish}} file, {{C|s6-supervise}} writes a '''D''' character (''really down'') each time {{Path|finish}} exits or is killed. Otherwise, {{C|s6-supervise}} writes the character right after the down event notification.
+* When {{C|s6-supervise}} is about to exit normally, it writes an '''x''' character (''exit event'') after the supervised process stops and it has notified listeners about the really down event.
+
+s6 provides an {{C|s6-svwait}} program, that is a process supervision-specific notification tool. It accepts service directory pathnames and options that specify an event to wait for. At program startup, for each specified servicedir it checks the {{Path|status}} file in its {{Path|supervise}} control subdirectory to see if the corresponding supervised process is already in the state implied by the specified event, and if not, it subscribes to the {{Path|event}} fifodir and waits for notifications from the corresponding {{C|s6-supervise}} process. A <code>-u</code> option specifies an up event, a <code>-U</code> option, an up and ready event, a <code>-d</code> option, a down event, and a <code>-D</code> option, a really down event. Options <code>-a</code> and <code>-o</code> work as for {{C|s6-ftrig-listen}}.
+
+There is also an {{C|s6-svlisten}} program, that is a process supervision-specific version of {{C|s6-ftrig-listen}}. It accepts servicedir pathnames in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], a program name and its arguments, and options that specify an event to wait for. Therefore, the forward compatible way to use it is in an execline script or <kbd>execlineb -c</kbd> command: the invocation can be written using the syntax <kbd>s6-svlisten { s1 s2 ... } prog args</kbd>, where ''s1'', ''s2'', ... are the servicedir pathnames, ''prog'' is the program name and ''args'' are the program's arguments. Options <code>-u</code>, <code>-U</code>, <code>-d</code> and <code>-D</code> work as for {{C|s6-svwait}}. Options <code>-a</code> and <code>-o</code> work as for {{C|s6-ftrig-listen}}. {{C|s6-svlisten}} also accepts an <code>-r</code> option (''restart event'') that makes it wait for a down event followed by an up event, and a <code>-R</code> option (''restart and ready event'') that makes it wait for a down event followed by an up and ready event. The {{C|s6-svlisten1}} program is a single servicedir version of {{C|s6-svlisten}} that doesn't need {{C|execlineb}}-encoded arguments.
+
+{{C|s6-svwait}}, {{C|s6-svlisten}} and {{C|s6-svlisten1}} accept a <code>-t</code> option to specify a timeout in the same way as {{C|s6-ftrig-wait}}. For further information about these programs please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Finally, the {{C|s6-svc}} program accepts a <code>-w</code> option that makes it wait for notifications from the {{C|s6-supervise}} process corresponding to the service directory specified as argument, after asking it to perform an action on its child process. An <kbd>s6-svc -wu</kbd>, <kbd>s6-svc -wU</kbd>, <kbd>s6-svc -wd</kbd>, <kbd>s6-svc -wD</kbd>, <kbd>s6-svc -wr</kbd> or <kbd>s6-svc -wR</kbd> command is equivalent to an <kbd>s6-svlisten1 -u</kbd>, <kbd>s6-svlisten1 -U</kbd>, <kbd>s6-svlisten1 -d</kbd>, <kbd>s6-svlisten1 -D</kbd>, <kbd>s6-svlisten1 -r</kbd> or <kbd>s6-svlisten1 -R</kbd> command, respectively, specifying the same servicedir, and {{C|s6-svc}} with the same arguments except the <code>-w</code> option as the spawned program. {{C|s6-svc}} also accepts a timeout specified with a <code>-T</code> option, that is translated to the {{C|s6-svlisten1}} <code>-t</code> option.
+
+See the [[#s6readiness|service readiness notification]] section for usage examples.
+{{anchor|s6readiness}}
+==== Service readiness notification ====
+
+When a process is supervised, it transitions to the 'up' state when its supervisor has successfully spawned a child process executing the {{Path|run}} file. {{C|s6-supervise}} considers this an up event, and notifies all listeners subscribed to the corresponding {{Path|event}} fifodir about it. But when the supervised process is executing a server program for example, it might not be ''ready'' to provide its service immediately after startup. Programs might do initialization work that could take some noticeable time before they are actually ready to serve, but it is impossible for the supervisor to know exactly how much. Because of this, and because the kind of initialization to do is program-specific, some sort of collaboration from the supervised process is needed to help the supervisor know when it is ready<ref>[https://www.skarnet.org/software/s6/notifywhenup.html Service startup notifications]. Retrieved on July 29th, 2017.</ref>. This is called ''readiness notification''.
+
+[[systemd]] has the concept of readiness notification, called ''start-up completion notification'' in its documentation. To support readiness notification under systemd, a program implements the $NOTIFY_SOCKET protocol, based on message passing over a datagram mode UNIX domain socket, bound to a pathname specified as the value of the <var>NOTIFY_SOCKET</var> environment variable. The protocol is implemented by libsystemd's [https://www.freedesktop.org/software/systemd/man/sd_notify.html sd_..._notify...() family of functions], although it is covered by [https://www.freedesktop.org/wiki/Software/systemd/InterfaceStabilityPromise systemd's interface stability promise], so it is possible to have alternative implementations of it. The program can perform start-up completion notification by linking to libsystemd and calling one of those functions. systemd uses start-up completion notification when a service unit file contains [https://www.freedesktop.org/software/systemd/man/systemd.service.html#Type a 'Type=notify' directive].
+
+To support readiness notification under s6, a program implements the s6 readiness notification protocol, which works like this:
+
+# At program startup, the program expects to have a file descriptor open for writing, associated with a ''notification channel''. The program chooses the file descriptor. For example, it can be specified as a program argument, or be a fixed, program-specific well-know number specified in the program's documentation.
+# When all initialization work necessary to reach the program's definition of 'service ready state' has been completed, it writes a newline character to the notification channel.
+# The program closes the notification channel after writing to it.
+
+Therefore, a typical code snippet in the C language that implements the last two steps would be as follows:
+
+{{CodeBox|lang=c|
+1=/* notification_fd is an int object storing the notification channel's file descriptor */
+write(notification_fd, "\n", 1);
+close(notification_fd);}}
+
+The code only relies on POSIX calls, so the program doesn't need to link to any specific library other than the libc to implement the readiness protocol. s6 uses readiness notification when a regular file named {{Path|notification-fd}} is present in a service directory, containing an integer that specifies the program's chosen notification channel file descriptor. {{C|s6-supervise}} implements the notification channel as a pipe between the supervised process and itself; when it receives a newline character signalling the service's readiness, it considers that an ''up and ready'' event and notifies all listeners subscribed to the {{Path|event}} fifodir about it. After that, {{C|s6-supervise}} no longer reads from the notification pipe, so it can be safely closed by the child process.
+
+Example s6 scan directory containing services that support readiness notification:
+{{Cmd|s6-mkfifodir test-service1/event|ls -l *|
+output=<pre>test-service1:
+total 12
+-rw-r--r-- 1 user user    0 Jul 30 12:00 down
+drwx-wx-wt 2 user user 4096 Jul 30 12:00 event
+-rwxr-xr-x 1 user user   29 Jul 30 12:00 finish
+-rwxr-xr-x 1 user user   32 Jul 30 12:00 run
+
+test-service2:
+total 8
+-rw-r--r-- 1 user user  0 Jul 30 12:00 down
+-rw-r--r-- 1 user user  2 Jul 30 12:00 notification-fd
+-rwxr-xr-x 1 user user 39 Jul 30 12:00 run
+
+test-service3:
+total 16
+-rw-r--r-- 1 user user  0 Jul 30 12:00 down
+-rwxr-xr-x 1 user user 29 Jul 30 12:00 finish
+-rw-r--r-- 1 user user  2 Jul 30 12:00 notification-fd
+-rwxr-xr-x 1 user user 39 Jul 30 12:00 run
+-rw-r--r-- 1 user user  6 Jul 30 12:00 timeout-finish</pre>}}
+
+{{FileBox|filename=test-service1/run|1=#!/bin/execlineb -P
+test-daemon}}
+
+{{FileBox|filename=test-service1/finish|1=#!/bin/execlineb -P
+exit 125}}
+
+{{FileBox|filename=test-service2/run|1=#!/bin/execlineb -P
+test-daemon --s6=5}}
+
+{{FileBox|filename=test-service2/notification-fd|1=5}}
+
+{{FileBox|filename=test-service3/run|1=#!/bin/execlineb -P
+test-daemon --s6=5}}
+
+{{FileBox|filename=test-service3/notification-fd|1=5}}
+
+{{FileBox|filename=test-service3/finish|1=#!/bin/execlineb -P
+sleep 10}}
+
+{{FileBox|filename=test-service3/timeout-finish|1=20000}}
+
+It is assumed that {{C|test-daemon}} is a program that supports an <code>--s6</code> option to turn readiness notification on, specifying the notification channel's file descriptor (5), which is also stored in a {{Path|notification-fd}} file. {{Path|test-service1/finish}} exits with an exit code of 125, so that if the corresponding {{C|test-daemon}} process stops, it won't be restarted. The {{C|s6-mkfifodir}} invocation creates {{Path|test-service1/event}} as a publically accesible fifodir. Using {{C|s6-ftrig-listen1}} on it to start the supervision tree and verify that {{C|s6-supervise}} notifies listeners about the start event:
+{{Cmd|s6-ftrig-listen1 test-service1/event s s6-svscan|output=<pre>s</pre>}}
+
+{{Cmd|ls -ld */event|
+output=<pre>drwx-wx-wt 2 user user 4096 Jul 30 12:22 test-service1/event
+drwx-ws--T 2 user user 4096 Jul 30 12:22 test-service2/event
+drwx-ws--T 2 user user 4096 Jul 30 12:22 test-service3/event</pre>}}
+
+This shows that {{C|s6-supervise}} has created all missing {{Path|event}} directories as restricted fifodirs, but uses the publicly accessible one created by {{C|s6-mkfifodir}}.
+{{FileBox|filename=test-script|title=Example execline script for testing {{C|s6-svwait}}|
+1=#!/bin/execlineb -P
+foreground { s6-svwait -u test-service1 }
+echo s6-svwait exited}}
+
+Executing the example script:
+{{Cmd|../test-script &|ps xf -o pid,ppid,args|
+output=<pre> PID  PPID COMMAND
+...
+2166  2039 \_bash
+2387  2166    \_ foreground  s6-svwait ...
+2388  2387        \_ s6-svwait -u test-service1
+2389  2388            \_ s6-ftrigrd
+...</pre>}}
+
+{{Cmd|ls -l test-service1/event|
+output=<pre>total 0
+prw--w--w- 1 user user 0 Jul 30 12:22 ftrig1:@40000000597df9d12c8328da:v84Zc_E_LyaqxlDh</pre>}}
+
+This shows that the {{C|s6-svwait}} process has spawned a child {{C|s6-ftrigrd}} helper, and created a FIFO in {{Path|test-service1/event}} so that it can be notified about the up event. Manually starting {{Path|test-service1/run}}:
+{{Cmd|s6-svc -u test-service1|output=<pre>s6-svwait exited</pre>}}
+
+The message printed by the test script to its standard output shows that the {{C|s6-svwait}} process got the expected notification, so it exited.
+{{FileBox|filename=test-script|title=Example execline script for testing up and ready event notifications|
+#!/bin/execlineb -P
+define -s services "test-service2 test-service3"
+foreground {
+   s6-svlisten -U { $services }
+   foreground {
+      forx svc { $services }
+         importas svc svc
+         foreground { s6-svc -wu -u $svc }
+         pipeline { echo s6-svc -wu -u $svc exited } s6-tai64n
+   }
+   ps xf -o pid,ppid,args
+}
+pipeline { echo s6-svlisten -U exited } s6-tai64n}}
+
+The script calls {{C|s6-svlisten}} to subscribe to fifodirs {{Path|test-service2/event}} and {{Path|test-service3/event}} and wait for up and ready events. Then it uses a <kbd>s6-svc -wu -u</kbd> command to manually start {{Path|test-service2/run}} and {{Path|test-service3/run}}, and wait for up events. Both {{Path|run}} scripts invoke {{C|test-daemon}} with readiness notification on. A message timestamped using {{C|s6-tai64n}} is printed to the standard output when the listeners get their expected notifications. Executing the example script:
+{{Cmd|../test-script {{!}} s6-tai64nlocal|
+output=<pre>2017-07-30 19:45:38.458536857 s6-svc -wu -u test-service2 exited
+2017-07-30 19:45:38.467353962 s6-svc -wu -u test-service3 exited
+ PID  PPID COMMAND
+2379  2378 \_ foreground  s6-svlisten  -U ...
+2381  2379     \_ s6-svlisten -U ...
+2382  2381         \_ s6-ftrigrd
+2383  2381         \_ ps xf -o pid,ppid,args
+2017-07-30 19:45:48.472237201 s6-svlisten -U exited</pre>}}
+
+This shows that the {{C|s6-svc}} processes waiting for up events are notified first, so they exit, and that the {{C|s6-svlisten}} process waiting for up and ready events is notified 10 seconds later. The output of {{C|ps}} shows that when the {{C|s6-svc}} processes exited, the {{C|s6-svlisten}} process and its {{C|s6-ftrigrd}} child were still running.
+{{Cmd|for i in *; do printf "$i: %sn" "$(s6-svstat $i)"; done|
+output=<pre>test-service1: up (pid 2124) 42 seconds, normally down
+test-service2: up (pid 2332) 29 seconds, normally down, ready 19 seconds
+test-service3: up (pid 2338) 29 seconds, normally down, ready 19 seconds</pre>}}
+
+This confirms that both {{C|test-daemon}} processes have notified readiness to their {{C|s6-supervise}} parent ("ready 19 seconds") 10 seconds after being started. Using {{C|s6-ftrig-listen1}} on fifodir {{Path|test-service1/event}} to verify that {{C|s6-supervise}} notifies listeners about a once event when {{C|test-daemon}} is killed with a <code>SIGTERM</code>, because of {{Path|test-service1/finish}}'s exit code:
+{{Cmd|s6-ftrig-listen1 test-service1/event O s6-svc -t test-service1|output=<pre>O</pre>}}
+
+{{FileBox|filename=test-script|title=Example execline script for testing really down event notifications|
+#!/bin/execlineb -P
+define -s services "test-service2 test-service3"
+foreground {
+   s6-svlisten -d { $services }
+   forx svc { $services }
+      importas svc svc
+      foreground { s6-svc -wD -d $svc }
+      pipeline { echo s6-svc -wD -d $svc exited } s6-tai64n
+}
+foreground {
+   pipeline { echo s6-listen -d exited } s6-tai64n
+}
+ps xf -o pid,ppid,args}}
+
+The script calls {{C|s6-svlisten}} to subscribe to fifodirs {{Path|test-service2/event}} and {{Path|test-service3/event}} and wait for down events. Then it uses a <kbd>s6-svc -wD -d</kbd> command to manually stop the {{C|test-daemon}} processes corresponding to {{Path|test-service2}} and {{Path|test-service3}}, and wait for really down events. {{Path|test-service3}} has a {{Path|finish}} script that sleeps for 10 seconds, so {{Path|test-service2/event}} listeners should be notified earlier than {{Path|test-service3/event}} listeners. A message timestamped using {{C|s6-tai64n}} is printed to the standard output when the listeners get their expected notifications. Executing the example script:
+{{Cmd|../test-script {{!}} s6-tai64nlocal|
+output=<pre>2017-07-30 22:23:17.063815232 s6-svc -wD -d test-service2 exited
+2017-07-30 22:23:17.071855769 s6-listen -d exited
+ PID  PPID COMMAND
+2326     1 forx svc  test-service2  test-service3 ...
+2333  2326  \_ foreground  s6-svc  -wD  ...
+2334  2333      \_ s6-svlisten1 -D -- test-service3 s6-svc -d -- test-service3
+2335  2334          \_ s6-ftrigrd
+2017-07-30 22:23:27.078874158 s6-svc -wD -d test-service3 exited</pre>}}
+
+This shows that the {{C|s6-svlisten}} process waiting for down events and the {{C|s6-svc}} process subscribed to {{Path|test-service2/event}} and waiting for a really down event are notified first with almost no delay between them, so they exit, and that the {{C|s6-svc}} process subscribed to {{Path|test-service3/event}} and waiting for a really down event is notified 10 seconds later. The output of {{C|ps}} shows that when the {{C|s6-svlisten}} process exited, an {{C|s6-svc}} process that had replaced itself with {{C|s6-svlisten1}} (because of the <code>-w</code> option) and its {{C|s6-ftrigrd}} child were still running.
+{{Cmd|for i in *; do printf "$i: %sn" "$(s6-svstat $i)"; done|
+output=<pre>test-service1: down (signal SIGTERM) 83 seconds, ready 83 seconds
+test-service2: down (exitcode 0) 31 seconds, ready 31 seconds
+test-service3: down (exitcode 0) 31 seconds, ready 21 seconds</pre>}}
+
+This confirms that the {{C|test-daemon}} process corresponding to {{Path|test-service1}} hasn't been restarted after {{Path|test-service1/finish}} exited (83 seconds in down state and no 'wanted up'), and that the down and ready events for the {{C|test-daemon}} processes corresponding to {{Path|test-service2}} and {{Path|test-service3}} have a 10 seconds delay between them ("ready 21 seconds" compared to "ready 31 seconds"). Using {{C|s6-ftrig-listen1}} on fifodir {{Path|test-service2/event}} to stop the supervision tree and verify that {{C|s6-supervise}} notifies listeners about the exit event:
+{{Cmd|s6-ftrig-listen1 test-service2/event x s6-svscanctl -t .|output=<pre>x</pre>}}
+{{anchor|superserver}}
+=== The UNIX domain super-server and related tools ===
+
+s6 provides two programs, {{C|s6-ipcserver-socketbinder}} and {{C|s6-ipcserverd}}, that together implement a UNIX domain super-server. A ''UNIX domain super-server'' creates a listening sream mode UNIX domain socket (i.e. a <code>SOCK_STREAM</code> socket for address family <code>AF_UNIX</code>) and spawns a ''server program'' to handle each incoming connection after accepting it, so that from there on, the client communicates over the connection with the spawned server. This a UNIX domain equivalent of a TCP/IP super-server, such as [https://packages.gentoo.org/packages/sys-apps/xinetd xinetd] or [https://packages.gentoo.org/packages/net-misc/ipsvd ipsvd].
+
+More specifically, what {{C|s6-ipcserver-socketbinder}} and {{C|s6-ipcserverd}} implement together is an ''IPC UCSPI super-server'', i.e. a super-server that adheres to the server side of Daniel J. Bernstein's ''UNIX Client-Server Program Interface'' (UCSPI) and supports the IPC UCSPI protocol<ref>Jonathan de Boyne Pollard, [https://jdebp.eu/FGA/UCSPI.html The gen on the UNIX Client-Server Program Interface]. Retrieved on July 22th, 2017.</ref>. The UCSPI defines an interface for client-server communications tools; ''UCSPI tools'' are executable programs that accept options, a protocol-specific ''address'', an ''application'' name and its arguments. Tools can be either clients or servers, clients communicate with servers using a ''connection''. If the UCSPI tool is a server, the application is invoked with the supplied arguments each time there is an incoming connection to the specified address, with file descriptor 0 opened for reading from the connection, file descriptor 1 opened for writing to the connection, and environment variables set to defined values. If the UCSPI tool is a client, a connection is made to the specified address and, if successful, the application is invoked with the supplied arguments, with file descriptor 6 opened for reading from the connection, file descriptor 7 opened for writing to the connection, and environment variables set to defined values. One of the application environment variables set by both UCSPI clients and servers is <var>PROTO</var>, with the name of the supported protocol as its value. The protocol implemented by the s6 programs is the ''IPC UCSPI protocol'', for which the ''address'' specified to UCSPI tools is defined to be a UNIX domain socket pathname, and the value of <var>PROTO</var> is defined to be 'IPC'.
+
+{{C|s6-ipcserver-socketbinder}} is [[daemontools-encore#changingstate|a chain loading program]] that accepts options and a pathname. It creates a UNIX domain socket, binds it to the specified pathname and prepares it to accept connections with the POSIX <code>listen()</code> call. The next program in the chain will have its standard input connected to the listening socket, which will be '''non-blocking'''(<code>O_NONBLOCK</code>). The number of ''backlog connections'', i.e. the number of outstanding connections in the socket's listen queue, can be set with the <code>-b</code> option; additional connection attempts will be rejected by the kernel. If {{C|s6-ipcserver-socketbinder}} is invoked with a <code>-b 0</code> argument, the socket will be created but won't be listening, i.e. <code>listen()</code> won't be called. If it is invoked with the <code>-m</code> option, the created socket will be a datagram mode socket (<code>SOCK_DGRAM</code>), which also requires specifying a <code>-b 0</code> argument. If it is invoked without the <code>-m</code> option, or with the <code>-M</code> option, the created socket will be a stream mode socket (<code>SOCK_STREAM</code>).
+
+{{C|s6-ipcserverd}} is a program that must have its standard input redirected to a bound and listening stream mode UNIX domain socket, and accepts a program name and its arguments. For each connection made to the socket, {{C|s6-ipcserverd}} executes the program with the supplied arguments as a child process, that has its file descriptors 0 and 1 redirected, on Gentoo, to the socket returned by a Linux <code>accept4()</code> with the listening socket's file descriptor as an argument, and the following environment variables set to the appropriate values (see [[#Environment_variables|environment variables]]): <var>PROTO</var>, <var>IPCREMOTEPATH</var>, <var>IPCREMOTEEUID</var>, <var>IPCREMOTEEGID</var> and <var>IPCCONNNUM</var>. On Gentoo, the variables <var>IPCREMOTEEUID</var>, <var>IPCREMOTEEGID</var> are set with information obtained from a POSIX <code>getsockopt()</code> call with the Linux <code>SO_PEERCRED</code> option; this is called ''credentials lookup''. If {{C|s6-ipcserverd}} is invoked with a <code>-P</code> option, credentials lookup will be disabled, and <var>IPCREMOTEEUID</var> and <var>IPCREMOTEEGID</var> will be unset. If it is invoked without a <code>-P</code> option, or with a <code>-p</code> option, credentials lookup will be enabled. {{C|s6-ipcserverd}} supports the [[#s6readiness|s6 readiness protocol]], and if it is invoked with a <code>-1</code> option, it will turn readiness notification on, with file descriptor 1 (i.e. its standard output) as the notification channel's file descriptor. If it receives a <code>SIGTERM</code> signal it will exit, but its children will continue running. If it receives a <code>SIGQUIT</code> signal, it will send its children a <code>SIGTERM</code> signal followed by a <code>SIGCONT</code> signal and then exit, and if it receives a <code>SIGABRT</code> signal, it will send its children a <code>SIGKILL</code> signal and then exit. It is possible to make {{C|s6-ipcserverd}} kill its children without exiting (with a <code>SIGTERM</code> signal followed by a <code>SIGCONT</code> signal), by sending it a <code>SIGHUP</code> signal.
+
+{{C|s6-ipcserver}} is a helper program that accepts options, a UNIX domain socket pathname, a program name and its arguments, and invokes {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-ipcserverd}}, or {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-applyuidgid}}, chained to {{C|s6-ipcserverd}}, depending on the options. The socket pathname is passed to {{C|s6-ipcserver-socketbinder}}, and the program name and its arguments, to {{C|s6-ipcserverd}}. {{C|s6-ipcserver}} options specify corresponding {{C|s6-ipcserver-socketbinder}}, {{C|s6-applyuidgid}} and {{C|s6-ipcserverd}} options. The created socket is a stream mode socket. For further information about {{C|s6-ipcserver}}, {{C|s6-ipcserver-socketbinder}} or {{C|s6-ipcserverd}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+s6 also provides an IPC UCSPI client, {{C|s6-ipcclient}}, and an access control tool for UNIX domain sockets, {{C|s6-ipcserver-access}}. {{C|s6-ipcclient}} is a chain loading program that accepts options and a UNIX domain socket pathname. It creates a stream mode socket, makes a connection to the socket specified by the supplied pathname, and executes the next program in the chain with file descriptors 6 and 7 redirected to the local connected socket, and the environment variables <var>PROTO</var> and <var>IPCLOCALPATH</var> set to the appropriate values (see [[#Environment_variables|environment variables]]). If {{C|s6-ipcclient}} is invoked with a <code>-p pathname</code> argument, it will bind the created socket to ''pathname'' (using the POSIX <code>bind()</code> call) before initiating the connection to the remote socket. If it is invoked with a <code>-l value</code> argument, it will set <var>IPCLOCALPATH</var> to ''value'' instead of setting it with information obtained from a POSIX <code>getsockname()</code> call. {{C|s6-ipcserver-access}} is a chain loading program that must be spawned by a UCSPI server (like {{C|s6-ipcserverd}}) that appropriately sets the <var>PROTO</var>, <var>${PROTO}REMOTEEUID</var> and <var>${PROTO}REMOTEEGID</var> environment variables, where ''${PROTO}'' is the value of the <var>PROTO</var> variable. It decides whether or not to execute the next program in the chain, or to execute a completely different program instead, based on either a ''rules directory'' or a ''rules file''. The <code>-i</code> option specifies the pathname of a rules directory and the <code>-x</code> option specifies the pathname of a rules file. A rules file is a [https://cr.yp.to/cdb/cdb.txt constant database (CDB) file] created from a rules directory using the {{C|s6-accessrules-cdb-from-fs}} program.
+
+When a rules directory '''R''' is specified to {{C|s6-ipcserver-access}}:
+
+* On program invocation, {{C|s6-ipcserver-access}} searches the {{Path|R/uid}} directory for a subdirectory with a name that matches the value of the <var>${PROTO}REMOTEEUID</var> variable, which must be a numeric user ID. If it finds a matching subdirectory, and it contains a file named {{Path|allow}}, {{C|s6-ipcserver-access}} executes the next program in the chain. If the subdirectory does not contain a file named {{Path|allow}}, but contains a file named {{Path|deny}}, or does not contain any of those files, it exits with exit code 1, and the next program in the chain is not executed.
+* If {{Path|R/uid}} does not contain a subdirectory with a matching name, {{C|s6-ipcserver-access}} will then search the {{Path|R/gid}} directory for a subdirectory with a name that matches the value of the <var>${PROTO}REMOTEEGID</var> variable, which must be a numeric group ID. If it finds finds a matching subdirectory, it follows the procedure described for the {{Path|R/uid}} directory.
+* If {{Path|R/gid}} does not contain a subdirectory with a matching name, {{C|s6-ipcserver-access}} will finally search for an {{Path|R/default}} directory. If the directory exists, it follows the procedure described for the {{Path|R/uid}} directory. If it doesn't, it exits with exit code 1, and the next program in the chain is not executed.
+* If the next program in the chain is executed, and if the matching directory '''M''' contains a subdirectory named {{Path|env}}, {{C|s6-ipcserver-access}} will modify its environment as if an <kbd>s6-envdir M/env</kbd> command had been used.
+* If the next program in the chain is executed, {{C|s6-ipcserver-access}} will also set the <var>IPCLOCALPATH</var> environment variable (see [[#Environment_variables|environment variables]]), unless it was invoked with an <code>-E</code> option. If {{C|s6-ipcserver-access}} is invoked without a <code>-E</code> option, or with a <code>-e</code> option, <var>IPCLOCALPATH</var> will be set.
+* If the next program in the chain is executed, and {{C|s6-ipcserver-access}} was invoked with an <code>-E</code> option, it will also unset environment variables <var>PROTO</var>, <var>${PROTO}REMOTEPATH</var>, <var>${PROTO}REMOTEEUID</var>, <var>${PROTO}REMOTEEGID</var> and <var>${PROTO}CONNNUM</var>.
+* If the next program in the chain would otherwise be executed, but the matching directory '''M''' contains a regular file named {{Path|exec}}, {{C|s6-ipcserver-access}} will execute a different program instead, as if an <kbd>execlineb -c contents</kbd> command had been used, where ''contents'' is the contents of the {{Path|M/exec}} file (e.g. the name of a program that can be found via <var>PATH</var> search plus its arguments).
+
+If {{C|s6-ipcserver-access}} is invoked with neither the <code>-i</code> option nor the <code>-x</code> option, it will execute the next program in the chain, i.e. it will unconditionally grant access.
+
+A rules directory can be re-created from a rules CDB file using the {{C|s6-accessrules-fs-from-cdb}} program. For the full description of {{C|s6-ipcclient}}'s, {{C|s6-accessrules-cdb-from-fs}}'s, {{C|s6-accessrules-fs-from-cdb}}'s and {{C|s6-ipcserver-access}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Finally, s6 also provides the {{C|s6-connlimit}} program, a chain loading program that limits connections from the same client to an UCSPI server based on the <var>PROTO</var>, <var>${PROTO}CONNNUM</var>, <var>${PROTO}CONNMAX</var> environment variables (see [[#Environment_variables|environment variables]]), where ''${PROTO}'' is the value of the <var>PROTO</var> variable, and {{C|s6-ioconnect}}, a program that performs data transmission from file descriptor 0 to file descriptor 7, and from file descriptor 6 to file descriptor 1, all of them assumed to be open at program startup. That is, {{C|s6-ioconnect}} performs full-duplex data transmission. For the full description of {{C|s6-connlimit}}'s and {{C|s6-ioconnect}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+{{FileBox|lang=cpp|filename=test-server.cxx|title=Example C++ aplication to be executed by a IPC UCSPI server|
+1=<nowiki>#include &lt;cerrno&gt;
+#include &lt;cinttypes&gt;
+#include &lt;cstring&gt;
+#include &lt;iostream&gt;
+#include &lt;pwd.h&gt;
+#include &lt;sstream&gt;
+#include &lt;string&gt;
+#include &lt;unistd.h&gt;
+
+const int ucspi_server_read = 0;
+const int ucspi_server_write = 1;
+
+extern "C" void ignore_sigpipe();
+
+void read_from_socket(char *buffer, const size_t buffer_size) {
+   size_t n = 0;
+   while (ssize_t r = read(ucspi_server_read, buffer + n, buffer_size - n)) {
+      if (r < 0) throw errno;
+      n += r;
+      if (n == buffer_size) break;
+   }
+   buffer[n] = 0;
+}
+
+void write_to_socket() {
+   std::ostringstream out;
+   const char *env_uid = getenv("IPCREMOTEEUID");
+   const passwd *acct = env_uid? getpwuid(static_cast<uid_t>(std::strtoimax(env_uid, 0, 10))): nullptr;
+   out << "Server process created with PID " << getpid() <<
+      ", client is \"" << (acct? acct->pw_name: "&lt;unavailable&gt;") << "\"\n";
+   if (write(ucspi_server_write, out.str().data(), out.str().length()) < 0) throw errno;
+}
+
+int main(){
+try {
+   ignore_sigpipe();
+   char buffer[] = "Hello!";
+   const std::string greeting(buffer);
+   read_from_socket(buffer, greeting.length());
+   if (greeting == buffer) write_to_socket();
+   sleep(10);
+   return 0;
+}
+catch (int err) {
+   std::cerr << "test-server: fatal: " << std::strerror(err) << '\n';
+   return 1;
+}
+catch (...) {
+   return 1;
+}}</nowiki>}}
+
+The application reads from the open file descriptor supplied by the UCSPI server, expecting to receive a 'Hello!' message from the client, and if it does, it sends a response that contains the application's process ID and the account database username corresponding to the client's user ID, supplied by the UCSPI server via the <var>IPCREMOTEEGID</var> environment variable. The application then waits for 10 seconds, and finally exits. Because a <code>write()</code> call on a socket file descriptor can fail with a 'broken pipe' error (<code>errno == EPIPE</code>), and because the kernel will send a <code>SIGPIPE</code> signal to the process if it does, an external <code>ignore_sigpipe()</code> function assumed to be available to the program is called, that makes the process ignore the signal using the POSIX <code>sigaction()</code> call.
+
+{{FileBox|lang=cpp|filename=test-client.cxx|title=Example C++ aplication to be executed by a IPC UCSPI client|
+1=<nowiki>#include &lt;cerrno&gt;
+#include &lt;cstring&gt;
+#include &lt;iostream&gt;
+#include &lt;string&gt;
+#include &lt;unistd.h&gt;
+
+const int ucspi_client_read = 6;
+const int ucspi_client_write = 7;
+
+extern "C" void ignore_sigpipe();
+
+void read_from_socket(std::string &in) {
+   const int buffer_size(100);
+   char buffer[buffer_size];
+   while (ssize_t r = read(ucspi_client_read, buffer, buffer_size)) {
+      if (r < 0) throw errno;
+      char *p = static_cast<char *>(std::memchr(buffer, '\n', buffer_size));
+      in.append(buffer, p? p + 1: buffer + r);
+      if (p) break;
+   }
+}
+
+inline void write_to_socket(const char *greeting) {
+   if (write(ucspi_client_write, greeting, std::strlen(greeting)) < 0) throw errno;
+}
+
+int main() {
+try {
+   ignore_sigpipe();
+   std::cout << "Connecting to server...\n";
+   std::cout.flush();
+   const char greeting[] = "Hello!";
+   write_to_socket(greeting);
+   std::string in;
+   read_from_socket(in);
+   if (!in.empty()) std::cout << in;
+   return 0;
+}
+catch (int err) {
+   std::cerr << "test-client: fatal: " << std::strerror(err) << '\n';
+   return 1;
+}
+catch (...) {
+   return 1;
+}}</nowiki>}}
+
+The application prints 'Connecting to server...' to its standard output, sends a 'Hello!' message to the server using the open file descriptor supplied by the UCSPI client, and waits for a reply, which is printed to its standard output. The application then exits.
+
+Starting the UCSPI super-server:
+{{Cmd|prompt=user1$ |s6-ipcserver test-socket ./test-server &|ls -l test-socket|
+output=<pre>srwxrwxrwx 1 user1 user1 0 Aug  4 12:00 test-socket</pre>}}
+
+This shows that a socket named {{Path|test-socket}} has been created in the current working directory. Starting a UCSPI client to connect to the socket three times:
+{{Cmd|prompt=user1$ |s6-ipcclient test-socket ./test-client|
+output=<pre>Connecting to server...
+Server process created with PID 1992, client is "user1"</pre>}}
+
+{{Cmd|prompt=user1$ |s6-ipcclient test-socket ./test-client|
+output=<pre>Connecting to server...
+Server process created with PID 1994, client is "user1"</pre>}}
+
+{{Cmd|prompt=user1$ |s6-ipcclient test-socket ./test-client|
+output=<pre>Connecting to server...
+Server process created with PID 1996, client is "user1"</pre>}}
+
+{{Cmd|prompt=user1$ |ps f -o pid,ppid,args|
+output=<pre> PID  PPID COMMAND
+...
+1977  1974 \_ bash
+1985  1977     \_ s6-ipcserverd -- ./test-server
+1992  1985         \_ ./test-server
+1994  1985         \_ ./test-server
+1996  1985         \_ ./test-server
+...</pre>}}
+
+This shows that the super-server spawned three {{C|test-server}} processes to handle each connection, and set the <var>IPCREMOTEEUID</var> environment variable to user1's user ID. <kbd>s6-ipcserver test-socket ./test-server</kbd> is equivalent to <kbd>s6-ipcserver-socketbinder test-socket s6-ipcserverd ./test-server</kbd>, but shorter. Starting a UCSPI client with effective user ''user2'':
+{{Cmd|prompt=user2$ |s6-ipcclient test-socket ./test-client|
+output=<pre>Connecting to server...
+Server process created with PID 2009, client is "user2"</pre>}}
+
+This shows that the super-server set the <var>IPCREMOTEEUID</var> environment variable to user2's user ID. Starting the super-server with the <code>-P</code> option, and a client to connect to {{Path|test-socket}}:
+{{Cmd|prompt=user1$ |s6-ipcserver -P test-socket ./test-server|s6-ipcclient test-socket ./test-client|
+output=<pre>Connecting to server...
+Server process created with PID 2021, client is "<unavailable>"</pre>}}
+
+<kbd>s6-ipcserver -P test-socket ./test-server</kbd> is equivalent to <kbd>s6-ipcserver-socketbinder test-socket s6-ipcserverd -P ./test-server</kbd>, but shorter. This shows that since credentials lookup was disabled, environment variable <var>IPCREMOTEEGID</var> is unset, and {{C|test-server}} displays '&lt;unavailable&gt;' in place of a username.
+
+See the [[#s6sudo|suidless privilege gain]] section for {{C|s6-ipcserver-access}} usage examples.
+{{anchor|s6sudo}}
+=== Suidless privilege gain tools ===
+
+s6 provides two programs, {{C|s6-sudoc}} and {{C|s6-sudod}}, that can be used to implement controlled privilege gains without setuid programs. This is achieved by having {{C|s6-sudod}} run as a long-lived process with an effective user that has the required privileges, and bound to a stream mode UNIX domain socket, and having {{C|s6-sudod}}, which can run with an unprivileged effective user, ask the {{C|s6-sudod}} process over a connection to its socket to perform an action on its behalf.
+
+{{C|s6-sudod}} is a program that must be spawned by a UCSPI server (like {{C|s6-ipcserverd}}) and accepts options and an argument sequence ''s1'', ''s2'', ... that can be empty. {{C|s6-sudoc}} is a program that must be spawned by a UCSPI client and accepts options and an argument sequence ''c1'', ''c2'', ... that can also be empty. {{C|s6-sudoc}} transmits the argument sequence over the connection to the server, that must be an {{C|s6-sudod}} process, and its environment variables, unless it is invoked with an <code>-e</code> option. {{C|s6-sudod}} concatenates its argument sequence with the one received from the client, and passes it to a POSIX <code>execve()</code> call, which results in a program invocation. {{C|s6-sudoc}} also transmits its standard input, output and error file descriptors to {{C|s6-sudod}} using <code>SCM_RIGHTS</code> control messages (i.e. ''fd-passing'', see [[#fdholder|the file descriptor holder and related tools]]), so that the invoked program will run as a child process of {{C|s6-sudod}}, with {{C|s6-sudod}}'s effective user, but its standard input, output and error descriptors will be a copy of {{C|s6-sudoc}}'s. The program's environment will be {{C|s6-sudod}}'s environment, except that every variable that is defined but has an empty value will set to the value it has in {{C|s6-sudoc}} 's enviroment, if it is also set. {{C|s6-sudoc}} waits until {{C|s6-sudod}}'s child process exits. If it is invoked with a <code>-T</code> option followed by a time value in milliseconds, it will close the conection and exit after the specified time has passed if {{C|s6-sudod}}'s child is still running.
+
+{{C|s6-sudo}} is a helper program that accepts options, a UNIX domain socket pathname and an {{C|s6-sudoc}} argument sequence, and invokes {{C|s6-ipcclient}} chained to {{C|s6-sudoc}}. The socket pathname is passed to {{C|s6-ipcclient}}, and the argument sequence, to {{C|s6-sudoc}}. {{C|s6-sudo}} options specify corresponding {{C|s6-ipcserver-socketbinder}} and {{C|s6-sudoc}} options. For the full description of {{C|s6-sudo}}'s, {{C|s6-sudoc}}'s and {{C|s6-sudod}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Standard permissions settings on {{C|s6-sudo}}'s listening socket can be used to implement some access control, and credentials passing over a UNIX domain socket also allows finer-grained control. [[#superserver|The {{C|s6-ipcserver-access}} program]] can be used to take advantage of credentials passing.
+
+{{Important|If {{C|s6-sudoc}} is killed, or exits while {{C|s6-sudod}}'s child process is still running, {{C|s6-sudod}} will send a <code>SIGTERM</code> followed by a <code>SIGCONT</code> signal to its child, and then exit 1. However, sending a <code>SIGTERM</code> to the child does not guarantee that it will die, and if it keeps running, it might still read from the file descriptor that was {{C|s6-sudoc}}'s standard input, or write to the file descriptors that were {{C|s6-sudoc}}'s standard output or error. '''This is a potential security risk.''' Administrators should audit their server programs to make sure this does not happen.
+
+More generally, anything using signals or terminals will not be handled transparently by the {{C|s6-sudoc}} + {{C|s6-sudod}} mechanism. The mechanism was designed to allow programs to gain privileges in specific situations: short-lived, simple, noninteractive processes. It was not designed to emulate the full suid functionality and will not go out of its way to do so. Also, {{C|s6-sudoc}}'s argument sequence may be empty. In that case, the client is in complete control of the program executed as {{C|s6-sudod}}'s child. This setup is permitted but very dangerous, and extreme attention should be paid to access control.}}
+
+{{FileBox|filename=test-script|title=Example execline script to be executed by {{C|s6-sudod}}|
+1=#!/bin/execlineb -S0
+pipeline { id -u } withstdinas -n localuser
+importas localuser localuser
+importas -D unavailable IPCREMOTEEUID IPCREMOTEEUID
+importas -D unset VAR1 VAR1
+importas -D unset VAR2 VAR2
+importas -D unset VAR3 VAR3
+foreground { echo Script run with effective user ID $localuser and arguments $@ }
+echo IPCREMOTEEUID=$IPCREMOTEEUID VAR1=$VAR1 VAR2=$VAR2 VAR3=$VAR3}}
+
+Testing the script by executing it directly:
+{{Cmd|prompt=user1$ |VAR1{{=}}"s6-sudoc value" VAR2{{=}}"ignored variable" ./test-script arg1 arg2|
+output=<pre>Script run with effective user ID 1000 and arguments arg1 arg2
+IPCREMOTEEUID=unavailable VAR1=s6-sudoc value VAR2=ignored variable VAR3=unset</pre>}}
+
+The script is executed with effective user ''user1'' (UID 1000), <var>IPCREMOTEEUID</var> and <var>VAR3</var> are unset, and <var>VAR1</var> and <var>VAR2</var> are set to the specified values.
+{{FileBox|filename=s6-sudod-wrapper|title=Example execline script to launch an {{C|s6-sudod}} process with access control|
+1=s6-ipcserver run-test-script
+s6-ipcserver-access -v 2 -i rules
+s6-sudod ./test-script arg1 arg2}}
+
+{{C|s6-ipcserver-access}}'s <code>-v 2</code> argument increments its verbosity level. Contents of rules directory {{Path|rules}}:
+{{Cmd|prompt=user1$ |ls -l rules/*/*|
+output=<pre>rules/uid/1002:
+total 4
+-rw-r--r-- 1 user1 user1    0 Aug  4 12:00 allow
+drwxr-xr-x 2 user1 user1 4096 Aug  4 12:00 env
+
+rules/uid/default:
+total 0
+-rw-r--r-- 1 user1 user1 0 Aug  4 12:00 deny</pre>}}
+
+{{Cmd|prompt=user1$ |ls -1 rules/uid/1002/env|
+output=<pre>VAR1
+VAR3</pre>}}
+
+{{FileBox|filename=rules/uid/1002/env/VAR3|1=s6-sudod value}}
+
+File {{Path|rules/uid/1002/env/VAR1}} contains an empty line, so the corresponding environment variable will be set, but empty. Launching the {{C|s6-sudod}} process:
+{{Cmd|prompt=user1$ |execlineb -P s6-sudod-wrapper &|ls -l run-test-script|
+output=<pre>srwxrwxrwx 1 user1 user1 0 Aug  4 12:10 run-test-script</pre>}}
+
+This shows that a UNIX domain socket named {{Path|run-test-script}} was created in the working directory. Running {{C|s6-sudo}} with effective user ''user2'' (UID 1001):
+{{Cmd|prompt=user2$ |VAR1{{=}}"s6-sudoc value" VAR2{{=}}"ignored variable" s6-sudo run-test-script arg3 arg4|
+output=<pre>s6-ipcserver-access: info: deny pid 2125 uid 1001 gid 1001: Permission denied
+s6-sudoc: fatal: connect to the s6-sudod server - check that you have appropriate permissions</pre>}}
+
+<kbd>s6-sudo run-test-script arg3 arg4</kbd> is equivalent to <kbd>s6-ipcclient run-test-script s6-sudoc arg3 arg4</kbd>, but shorter. This shows that the rules directory setup denied execution of {{C|test-script}} to user2 (UID 1001); it only allows it to the user with UID 1002. Modifying {{Path|rules}}:
+{{Cmd|prompt=user1$ |mv rules/uid/100{2,1}|ls -1 rules/*/*|
+output=<pre>rules/uid/1001:
+allow
+env
+
+rules/uid/default:
+deny</pre>}}
+
+Retrying {{C|s6-sudo}}:
+{{Cmd|prompt=user2$ |VAR1{{=}}"s6-sudoc value" VAR2{{=}}"ignored variable" s6-sudo run-test-script arg3 arg4|
+output=<pre>s6-ipcserver-access: info: allow pid 2148 uid 1001 gid 1001
+Script run with effective user ID 1000 and arguments arg1 arg2 arg3 arg4
+IPCREMOTEEUID=1001 VAR1=s6-sudoc value VAR2=unset VAR3=s6-sudod value</pre>}}
+
+Comparing to the output of the script when run directly by user1, this shows that {{C|test-script}}'s arguments are the concatenation of the ones supplied to {{C|s6-sudod}} in script {{C|s6-sudod-wrapper}}, ''arg1'' and ''arg2'', and the ones specified in the {{C|s6-sudo}} invocation, ''arg3'' and ''arg4''. Also, {{C|test-script}}'s environment has {{C|s6-sudod}}'s variables: <var>IPCREMOTEEUID</var>, inherited from {{C|s6-ipcserverd}}, and <var>VAR3</var>, inherited from {{C|s6-ipcserver-access}}, which in turn sets it based on environment directory {{Path|rules/uid/1002/env}}. Because variable <var>VAR1</var> is set by {{C|s6-ipcserver-access}} but empty, {{C|s6-sudod}} sets it to the value it has in {{C|s6-sudoc}}'s environment. And because variable <var>VAR2</var> is set in {{C|s6-sudoc}}'s environment but not in {{C|s6-sudod}}'s, it is also unset in {{C|test-script}}'s environment.
+{{anchor|fdholder}}
+=== The file descriptor holder and related tools ===
+
+The Linux kernel allows one process to send a copy if its open file descriptors to a different process. This is done by transmitting <code>SCM_RIGHTS</code> control messages with an array of file descriptors from one process to the other over a UNIX domain socket as ancillary data (i.e. over a socket for address family <code>AF_UNIX</code> as the object pointed to by the <code>msg_control</code> field of a <code>struct msghdr</code> object) using the POSIX <code>sendmsg()</code> and <code>recvmsg()</code> calls. This works like POSIX <code>dup2()</code> does for a single process, and in s6's documentation, this is called ''fd-passing''. A ''file descriptor holder'' (of ''fd-holder'') is a process that receives file descriptors from others via fd-passing and ''holds'' them, for later retrieval either from the same process or from a different one. The fd-holder doesn't do anything with the file descriptors, it only keeps them open. For some possible uses of this feature, see later.
+
+s6 provides a program implementing fd-holder functionality, named {{C|s6-fdholderd}}. It must have its standard input redirected to a bound and listening stream mode UNIX domain socket (i.e. a <code>SOCK_STREAM</code> socket), and accepts a set of options that control its behaviour. It has builtin access control features, and all operations requested to it must be explicitly granted to the requesting client. For this purpose, it accepts either an <code>-i</code> option specifying the pathname of a rules directory, or an <code>-x</code> option specifying the pathname of a rules file, [[#superserver|just like {{C|s6-ipcserver-access}}]]. {{C|s6-fdholderd}} will exit with an error status if neither of these options is supplied. The environment specified via appropriate {{Path|env}} subdirectories in a rules directory controls which operations supported by {{C|s6-fdholderd}} are allowed to which clients. {{C|s6-fdholderd}} ignores {{Path|exec}} files in a rules directory.
+
+{{C|s6-fdholderd}} runs until told to exit with a <code>SIGTERM</code> signal; after that it can keep running for limited time to allow connected clients to finish their ongoing operations. This is called the ''lame duck timeout'', which can be specified with a <code>-T</code> option followed by a time value in milliseconds. If {{C|s6-fdholderd}} is invoked with a <code>-T 0</code> argument or no <code>-T</code> option, the lame duck timeout is infinite: after receiving the signal, it will wait until all clients disconnect before exiting. {{C|s6-fdholderd}} supports the [[#s6readiness|s6 readiness protocol]], and if it is invoked with a <code>-1</code> option, it will turn readiness notification on, with file descriptor 1 (i.e. its standard output) as the notification channel's file descriptor. If {{C|s6-fdholderd}} was invoked with a rules file (<code>-x</code>) and receives a <code>SIGHUP</code> signal, it will re-read it. If {{C|s6-fdholderd}} was invoked with a rules directory (<code>-i</code>), changes are picked up automatically so <code>SIGHUP</code> isn't needed.
+
+{{C|s6-fdholder-daemon}} is a helper program that accepts options and a UNIX domain socket pathname, and invokes {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-fdholderd}}, or {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-applyuidgid}}, chained to {{C|s6-fdholderd}}, depending on the options. The socket pathname is passed to {{C|s6-ipcserver-socketbinder}}. {{C|s6-fdholder-daemon}} options specify corresponding {{C|s6-ipcserver-socketbinder}}, {{C|s6-applyuidgid}} and {{C|s6-fdholderd}} options. For further information about {{C|s6-fdholder-daemon}} or {{C|s6-fdholderd}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Operations supported by {{C|s6-fdholderd}} are ''store'', ''retrieve'', ''list'', ''delete'', ''get dump'' and ''set dump''. s6 provides a client program for each fd-holder operation, that invokes, using a POSIX <code>execve()</code> call, {{C|s6-ipcclient}} chained to an operation-specific program that handles communications with {{C|s6-fdholderd}}, using the connection set up by {{C|s6-ipcclient}}. To store, retrieve or delete a file descriptor, {{C|s6-fdholderd}} uses ''identifiers'' to refer to them. An identifier is a character string containing 1 to 255 characters; any non-null character can be used in an identifier, however it is recommended to only use reasonable characters. For file descriptor identifiers associated with UNIX domain sockets, it is conventional to adhere to the 'unix:$path' format, where ''$path'' is the socket's absoulte pathname, and for file descriptor identifiers associated with TCP or UDP sockets, it is conventional to adhere to the '$protocol:$address:$port' or '$protocol:$host:$port' format, where ''$protocol'' is 'tcp' or 'udp', ''$address'' is an IPv4 or IPv6 address, ''$host'' is a domain name, and ''$port'' is the TCP or UDP port number. If an identifier is currently in use by {{C|s6-fdholderd}}, it cannot be reused to store a new file descriptor until the one currently using the identifier is deleted or has expired.
+
+* A store operation transfers a file descriptor from a client to the fd-holder, specifying an identifier for it, and optionally an expiration time. When a file descriptor has been held for a period of time equal to the expiration time, the fd-holder closes it and frees its identifier. To allow store operations, a file named {{Path|S6_FDHOLDER_STORE_REGEX}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory, containing a POSIX extended regular expression (like those of the <kbd>grep -E</kbd> command). A store operation must specify an identifier that matches the regular expression.
+** The client program that performs store operations is {{C|s6-fdholder-store}}. It accepts options, a UNIX domain socket pathname and a file descriptor identifier, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-storec}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the identifier, to {{C|s6-fdholder-storec}}. {{C|s6-fdholder-store}} accepts a <code>-d</code> option followed by an unsigned integer value, that specifies the file descriptor to store. If it is invoked without a <code>-d</code> option, it will store its standard input (file descriptor 0). All other supplied options are passed to {{C|s6-fdholder-storec}}. {{C|s6-fdholder-storec}} makes the store request, transferring the specified identifier to the server over the connection, and file descriptor 0 via fd-passing. If it is invoked with a <code>-T</code> option followed by a time value in milliseconds, the file descriptor's expiration time is set to that value in the fd-holder. If it is invoked with a <code>-T 0</code> argument or no <code>-T</code> option, the held file descriptor does not expire. {{C|s6-fdholder-store}} copies the file descriptor specified by the <code>-d</code> option to its standard input before replacing itself with {{C|s6-ipcclient}}.
+* A retrieve operation transfers a file descriptor from the fd-holder to a client, specifying its corresponding identifier. To allow retrieve operations, a file named {{Path|S6_FDHOLDER_RETRIEVE_REGEX}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory, containing a POSIX extended regular expression. A retrieve operation must specify an identifier that matches the regular expression.
+** The client program that performs retrieve operations is {{C|s6-fdholder-retrieve}}. It is [[daemontools-encore#changingstate|a chain loading program]] that accepts options, a UNIX domain socket pathname and a file descriptor identifier, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-retrievec}} program, chained to execline's {{C|fdclose}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the options and identifier, to {{C|s6-fdholder-retrievec}}. {{C|s6-fdholder-retrievec}} makes the retrieve request, transferring the specified identifier over the connection to the server, and receiving the corresponding file descriptor via fd-passing. {{C|fdclose}} closes UCSPI socket file descriptors 6 and 7 inherited from {{C|s6-ipcclient}}; its standard input will be a copy of the descriptor received from {{C|s6-fdholderd}}, which will be passed to the next program in the chain. If {{C|s6-fdholder-retrievec}} is invoked with a <code>-D</code> option, it will also request a delete operation for the file descriptor after retrieving it.
+* A delete operation requests the fd-holder to close a currently held file descriptor, specifying its corresponding identifier, which is then freed. A delete operation is allowed if a store operation specifying the same identifier would be allowed.
+** The s6 client that performs delete operations is {{C|s6-fdholder-delete}}. It accepts options, a UNIX domain socket pathname and a file descriptor identifier, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-deletec}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the options and identifier, to  {{C|s6-fdholder-deletec}}. {{C|s6-fdholder-deletec}} makes the delete request, transferring the specified identifier over the connection to the server.
+* A list operation requests the fd-holder a list of the identifiers of all currently held file descriptors. To allow list operations, a nonempty file named {{Path|S6_FDHOLDER_LIST}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory.
+** The client program that performs list operations is {{C|s6-fdholder-list}}. It accepts options and a UNIX domain socket pathname, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-listc}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the options, to {{C|s6-fdholder-listc}}. {{C|s6-fdholder-listc}} makes the list request over the connection to the server, and prints the identifier list received from {{C|s6-fdholderd}} to its standard output.
+* A get dump operation requests the fd-holder to transfer to a client all currently held file descriptors. The file descriptors are not deleted. To allow get dump operations, a nonempty file named {{Path|S6_FDHOLDER_GETDUMP}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory.
+** The client program that performs get dump operations is {{C|s6-fdholder-getdump}}. It is a chain loading program that accepts options and a UNIX domain socket pathname, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-getdumpc}} program, chained to execline's {{C|fdclose}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the options, to {{C|s6-fdholder-getdumpc}}. {{C|s6-fdholder-getdumpc}} makes the get dump request over the connection to the server, receiving all file descriptors held by {{C|s6-fdholderd}} via fd-passing, and sets environment variables. {{C|fdclose}} closes UCSPI socket file descriptors 6 and 7 inherited from {{C|s6-ipcclient}}, and passes the received file descriptors and environment variables set by {{C|s6-fdholder-getdumpc}} to the next program in the chain.
+* A set dump operation transfers a subset of a client's file descriptors to the fd-holder, under the control of environment variables. To allow set dump operations, a nonempty file named {{Path|S6_FDHOLDER_SETDUMP}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory.
+** The client program that performs get dump operations is {{C|s6-fdholder-setdump}}. It accepts options and a UNIX domain socket pathname, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-setdumpc}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the options, to {{C|s6-fdholder-setdumpc}}. {{C|s6-fdholder-setdumpc}} makes the set dump request over the connection to the server, transferring a subset of its file descriptors via fd-passing under the control of environment variables.
+
+The value of the <var>S6_FD#</var> environment variable is set by {{C|s6-fdholder-getdumpc}} to the number of file descriptors received via fd-passing, and used by {{C|s6-fdholder-setdumpc}} to construct the names of other environment variables. The values of environment variables <var>S6_FD_0</var>, <var>S6_FD_1</var>, ..., <var>S6_FD_${N}</var>, where ''${N}'' is the value of <var>S6_FD#</var>, are set by {{C|s6-fdholder-getdumpc}} to the file descriptors received via fd-passing, and used by {{C|s6-fdholder-setdumpc}} to select the file descriptors that will be transferred via fd-passing. The values of environment variables <var>S6_FDID_0</var>, <var>S6_FDID_1</var>, ..., <var>S6_FDID_${N}</var> are set by {{C|s6-fdholder-setdumpc}} to the corresponding file descriptor identifiers, and used by {{C|s6-fdholder-setdumpc}} to specify to the fd-holder the corresponding file descriptor identifiers. The values of environment variables <var>S6_FDLIMIT_0</var>, <var>S6_FDLIMIT_1</var>, ..., <var>S6_FDLIMIT_${N}</var> are set by {{C|s6-fdholder-setdumpc}} to the time remaining for each file descriptor before expiration, for those that have an expiration time set. The values of environment variables <var>S6_FDLIMIT_0</var>, <var>S6_FDLIMIT_1</var>, ..., <var>S6_FDLIMIT_${N}</var>, if set, are used by {{C|s6-fdholder-setdumpc}} to specify to the fd-holder an expiration time for the corresponding file descriptors. For the full description of all s6 fd-holder client programs' functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Finally, s6 provides an {{C|s6-fdholder-transferdumpc}} program, and a helper program, {{C|s6-fdholder-transferdump}}, that allow transferring all currently held file descriptors in one fd-holder process to a another one. The transferred set of file descriptors are added in the destination process to the currently held ones. This is implemented by performing a get dump operation on the source process and a set dump operation on the destination process, so they must be allowed by each {{C|s6-fdholderd}}'s access control policies. {{C|s6-fdholder-transferdumpc}} handles communications with the fd-holders to make the get dump and set dump requests; its standard input must be redirected to the source {{C|s6-fdholderd}} process' socket, and its standard output, to the destination {{C|s6-fdholderd}} process' socket. {{C|s6-fdholder-transferdump}} accepts options and the socket pathnames of the source and destinations fd-holders, and invokes, using a POSIX <code>execve()</code> call, {{C|s6-ipcclient}} chained to execline's {{C|fdmove}} and {{C|fdclose}} programs, chained to {{C|s6-fdholder-transferdumpc}}. The socket pathnames are passed to {{C|s6-ipcclient}}, and the options are used to construct {{C|s6-fdholder-transferdumpc}} options. {{C|fdmove}} and {{C|fdclose}} perform all file descriptor manipulations neccesary to move UCSPI socket file descriptors inherited from {{C|s6-ipcclient}} to {{C|s6-fdholder-transferdumpc}}'s standard input and output. For the full description of {{C|s6-fdholder-transferdump}}'s and {{C|s6-fdholder-transferdumpc}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Example [[s6-rc]] service definitions in {{C|s6-rc-compile}} source format for holding the reading end of a FIFO:
+{{Cmd|ls -l *|
+output=<pre>fifo-reader:
+total 8
+-rwxr-xr-x 1 user user 117 Aug  1 12:00 run
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+
+fifo-reader-heldfd:
+total 12
+-rw-r--r-- 1 user user  18 Aug  1 12:00 dependencies
+-rwxr-xr-x 1 user user 157 Aug  1 12:00 run
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+
+fifo-reader-setup:
+total 16
+-rw-r--r-- 1 user user  14 Aug  1 12:00 dependencies
+-rw-r--r-- 1 user user  90 Aug  1 12:00 down
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+-rw-r--r-- 1 user user 143 Aug  1 12:00 up
+
+fifo-writer:
+total 8
+-rwxr-xr-x 1 user user 84 Aug  1 12:00 run
+-rw-r--r-- 1 user user  8 Aug  1 12:00 type
+
+test-fdholder:
+total 16
+drwxr-xr-x 2 user user 4096 Aug  1 12:00 data
+-rw-r--r-- 1 user user    2 Aug  1 12:00 notification-fd
+-rwxr-xr-x 1 user user  101 Aug  1 12:00 run
+-rw-r--r-- 1 user user    8 Aug  1 12:00 type</pre>}}
+
+{{FileBox|filename=fifo-writer/type|1=longrun}}
+
+{{FileBox|filename=fifo-writer/run|
+1=#!/bin/execlineb -P
+redirfd -w 1 /home/user/test-fifo
+test-daemon}}
+
+{{C|test-daemon}} is assumed to be a program that prints to its standard output a message of the form 'Message #n', with an incrementing number '''n''' between 0 and 9, each time it receives a <code>SIGHUP</code> signal. Service {{Path|fifo-writer}}, a longrun, is a {{C|test-daemon}} process with its standard output redirected to the {{Path|/home/user/test-fifo}} FIFO.
+{{FileBox|filename=fifo-reader/type|1=longrun}}
+
+{{FileBox|filename=fifo-reader/run|
+1=#!/bin/execlineb -P
+redirfd -r 0 /home/user/test-fifo
+s6-log t /home/user/logdir}}
+
+Service {{Path|fifo-reader}}, a longrun, is an {{C|s6-log}} process that reads from the {{Path|/home/user/test-fifo}} FIFO and logs to the {{Path|/home/user/logdir}} logging directory. Creating the FIFO:
+{{Cmd|mkfifo -m ug{{=}}rw,o{{=}} test-fifo|ls -l test-fifo|
+output=<pre>prw-rw---- 1 user user 0 Aug  5 22:00 test-fifo</pre>}}
+
+Starting both services, assuming that {{C|s6-rc-compile}} has been called on the service definitions set to create a compiled services database, that {{C|s6-rc-init}} has been called after {{C|s6-svscan}}, and that the s6 scan directory and the s6-rc live state directory (named {{Path|live}}) are both in the same directory:
+{{Cmd|s6-rc -l ../live -v 2 -u change fifo-writer fifo-reader|
+output=<pre>s6-rc: info: processing service fifo-writer: starting
+s6-rc: info: processing service fifo-reader: starting
+s6-rc: info: service fifo-writer started successfully
+s6-rc: info: service fifo-reader started successfully</pre>}}
+
+{{C|s6-rc}}'s <code>-v 2</code> argument increments its verbosity level. Sending three <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 1 2 3; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:06:37.556779100 Message #1
+2017-08-05 22:06:37.557858265 Message #2
+2017-08-05 22:06:37.558856806 Message #3</pre>}}
+
+This shows that {{C|test-daemon}}'s messages were sent over the FIFO to {{C|s6-log}} and logged. Stopping momentarily the {{Path|fifo-reader}} service:
+{{Cmd|s6-rc -l ../live -v 2 -d change fifo-reader|
+output=<pre>s6-rc: info: processing service fifo-reader: stopping
+s6-rc: info: service fifo-reader stopped successfully</pre>}}
+
+Sending three more <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 4 5 6; do s6-svc -h fifo-writer; done|
+output=<pre>test-daemon: warning: Got SIGPIPE
+test-daemon: warning: Got SIGPIPE
+test-daemon: warning: Got SIGPIPE</pre>}}
+
+Since the FIFO no longer has any reader, writing to it makes the kernel send a <code>SIGPIPE</code> signal to the {{C|test-daemon}} process. Restarting the {{Path|fifo-reader}} service and sending three final <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|s6-rc -l ../live -u change fifo-reader|for i in 7 8 9; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:06:37.556779100 Message #1
+2017-08-05 22:06:37.557858265 Message #2
+2017-08-05 22:06:37.558856806 Message #3
+2017-08-05 22:10:58.036594559 Message #7
+2017-08-05 22:10:58.037747723 Message #8
+2017-08-05 22:10:58.038749083 Message #9</pre>}}
+
+This shows that the messages sent by {{C|test-daemon}} when {{C|s6-log}} was not running are effectively lost. This can be avoided by modifying the services so that the reading end of the FIFO is held by an fd-holder process.
+{{FileBox|filename=test-fdholder/type|1=longrun}}
+
+{{FileBox|filename=test-fdholder/run|
+1=#!/bin/execlineb -P
+s6-fdholder-daemon -1 -x data/rules /home/user/fdholder-socket}}
+
+{{FileBox|filename=test-fdholder/notification-fd|1=1}}
+
+Service {{Path|test-fdholder}}, a longrun, is an {{C|s6-fdholderd}} process bound to socket {{Path|/home/user/fdholder-socket}}, with readiness notification enabled (<code>-1</code>), and using rules file {{Path|rules}} in the {{Path|data}} subdirectory of its compiled s6 service directory. <kbd>s6-fdholder-daemon -1 -x data/rules /home/user/fdholder-socket</kbd> is equivalent to <kbd>s6-ipcserver-socketbinder /home/user/fdholder-socket s6-fdholderd -1 -x data/rules</kbd>, but shorter. The rules file is created from the following rules directory using <kbd>s6-accessrules-cdb-from-fs test-fdholder/data/rules ../rules.d</kbd>:
+{{Cmd|ls -l ../rules.d/*/*|
+output=<pre>../rules.d/uid/1000:
+total 4
+-rw-r--r-- 1 user user    0 Aug  1 12:00 allow
+drwxr-xr-x 2 user user 4096 Aug  1 12:00 env
+
+../rules.d/uid/default:
+total 0
+-rw-r--r-- 1 user user 0 Aug  1 12:00 deny</pre>}}
+
+{{Cmd|ls -l ../rules.d/uid/1000/env|
+output=<pre>total 8
+-rw-r--r-- 1 user user  1 Aug  1 12:00 S6_FDHOLDER_LIST
+lrwxrwxrwx 1 user user 23 Aug  1 12:00 S6_FDHOLDER_RETRIEVE_REGEX -> S6_FDHOLDER_STORE_REGEX
+-rw-r--r-- 1 user user 32 Aug  1 12:00 S6_FDHOLDER_STORE_REGEX</pre>}}
+
+{{FileBox|filename=S6_FDHOLDER_STORE_REGEX|1=^(unix{{!}}fifo):/home/user/test-}}
+
+This rules directory allows ''user'' (assumed to have user ID 1000) to perform store (and therefore delete), retrieve and list operations. The {{Path|S6_FDHOLDER_LIST}} file contains a single empty line.
+{{FileBox|filename=fifo-reader-setup/type|1=oneshot}}
+
+{{FileBox|filename=fifo-reader-setup/dependencies|1=test-fdholder}}
+
+{{FileBox|filename=fifo-reader-setup/up|
+1=redirfd -rnb 0 /home/user/test-fifo
+s6-fdholder-store /home/user/fdholder-socket fifo:/home/user/test-fifo}}
+
+{{FileBox|filename=fifo-reader-setup/down|
+1=s6-fdholder-delete /home/user/fdholder-socket fifo:/home/user/test-fifo}}
+
+Service {{Path|fifo-reader-setup}}, a oneshot, opens FIFO {{Path|/home/user/test-fifo}} for reading (in non-blocking mode that is changed to blocking afterwards, using execline's {{C|redirfd}} program with options <code>-n</code> and <code>-b</code>) and stores the corresponding file descriptor in the fd-holder using identifier ''fifo:/home/user/test-fifo''. <kbd>s6-fdholder-store /home/user/fdholder-socket fifo:/home/user/test-fifo</kbd> and <kbd>s6-fdholder-delete /home/user/fdholder-socket fifo:/home/user/test-fifo</kbd> are equivalent to <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-storec fifo:/home/user/test-fifo</kbd> and <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-deletec fifo:/home/user/test-fifo</kbd>, respectively, but shorter. The dependency on service {{Path|test-fdholder}} ensures that <kbd>s6-rc -u change</kbd> will start {{C|s6-fdholderd}} before trying to store to it. When {{Path|fifo-reader-setup}} transitions to the down state, it will delete the held file descriptor.
+{{FileBox|filename=fifo-reader-heldfd/type|1=longrun}}
+
+{{FileBox|filename=fifo-reader-heldfd/dependencies|1=fifo-reader-setup}}
+
+{{FileBox|filename=fifo-reader-heldfd/run|
+1=#!/bin/execlineb -P
+s6-fdholder-retrieve /home/user/fdholder-socket fifo:/home/user/test-fifo
+s6-log t /home/user/logdir}}
+
+Service {{Path|fifo-reader-heldfd}}, a longrun, is a modified version of {{Path|fifo-reader}} that retrieves the FIFO's reading end from the fd-holder. <kbd>s6-fdholder-retrieve /home/user/fdholder-socket fifo:/home/user/test-fifo</kbd> is equivalent to <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-retrievec fifo:/home/user/test-fifo fdclose 6 fdclose 7</kbd>, but shorter. The dependency on service {{Path|fifo-reader-setup}} ensures that <kbd>s6-rc -u change</kbd> will have stored the FIFO's reading end first in the fd-holder with the appropriate identifier. Starting the {{Path|fifo-writer}} and {{Path|fifo-reader-heldfd}} services:
+{{Cmd|s6-rc -l ../live -v 2 -u change fifo-writer fifo-reader-heldfd|
+output=<pre>s6-rc -l ../live -v 2 -u change fifo-writer fifo-reader-heldfd
+s6-rc: info: processing service fifo-writer: starting
+s6-rc: info: processing service test-fdholder: starting
+s6-rc: info: processing service s6rc-oneshot-runner: starting
+s6-rc: info: service fifo-writer started successfully
+s6-rc: info: service test-fdholder started successfully
+s6-rc: info: service s6rc-oneshot-runner started successfully
+s6-rc: info: processing service fifo-reader-setup: starting
+s6-rc: info: service fifo-reader-setup started successfully
+s6-rc: info: processing service fifo-reader-heldfd: starting
+s6-rc: info: service fifo-reader-heldfd started successfully</pre>}}
+
+Sending three <code>SIGHUP</code> signals to {{C|test-daemon}}, stopping momentarily the {{Path|fifo-reader-heldfd}} service, sending three more <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 1 2 3; do s6-svc -h fifo-writer; done|s6-rc -l ../live -v 2 -d change fifo-reader-heldfd|
+output=<pre>s6-rc: info: processing service fifo-reader-heldfd: stopping
+s6-rc: info: service fifo-reader-heldfd stopped successfully</pre>}}
+
+{{Cmd|for i in 4 5 6; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:29:45.042414497 Message #1
+2017-08-05 22:29:45.043441185 Message #2
+2017-08-05 22:29:45.044699928 Message #3</pre>}}
+
+{{Cmd|s6-fdholder-list ../fdholder-socket|output=<pre>fifo:/home/user/test-fifo</pre>}}
+
+This shows that no more messages are being logged as a consequence, but because there is still an open file descriptor held by {{C|s6-fdholderd}}), there is no <code>SIGPIPE</code> signal this time. <kbd>s6-fdholder-list /home/user/fdholder-socket</kbd> is equivalent to <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-listc</kbd>, but shorter. Restarting the {{Path|fifo-reader-heldfd}} service:
+{{Cmd|s6-rc -l ../live -u change fifo-reader-heldfd|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:29:45.042414497 Message #1
+2017-08-05 22:29:45.043441185 Message #2
+2017-08-05 22:29:45.044699928 Message #3
+2017-08-05 22:33:07.907057008 Message #4
+2017-08-05 22:33:07.907113023 Message #5
+2017-08-05 22:33:07.907114734 Message #6</pre>}}
+
+This shows that once the file descriptor is retrieved for {{C|s6-log}}, all pending messages are delivered and logged. Sending three final <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 7 8 9; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:29:45.042414497 Message #1
+2017-08-05 22:29:45.043441185 Message #2
+2017-08-05 22:29:45.044699928 Message #3
+2017-08-05 22:33:07.907057008 Message #4
+2017-08-05 22:33:07.907113023 Message #5
+2017-08-05 22:33:07.907114734 Message #6
+2017-08-05 22:33:43.821315726 Message #7
+2017-08-05 22:33:43.822098686 Message #8
+2017-08-05 22:33:43.823644164 Message #9</pre>}}
+
+This shows that no messages are lost even if the FIFO reader momentarily stops.
+
+==== Pre-opening sockets before their servers are running ====
+
+[[systemd]] supports a mechanism it calls ''socket activation'', that makes a {{C|systemd}} process pre-open UNIX domain, TCP/IP or Netlink sockets, FIFOs and other special files, and pass them to a child process when a connection is made, a writer opens the FIFO, new data is available for reading, etc. Socket activation is performed when [https://www.freedesktop.org/software/systemd/man/systemd.socket.html a socket unit file] is provided with an accompanying service unit file. This mechanism combines superserver, fd-passing and fd-holding funcionality implemented in process 1, with programs written to communicate using pre-opened file descriptors. Similar behaviour can be achieved, for services that want it, by a combination of individual s6 programs like {{C|s6-ipcserver-socketbinder}}, {{C|s6-ipcserverd}}, {{C|s6-fdholderd}} and the fd-holder client programs, without involving process 1. The software package's author notes however that since read operations, and write operations when buffers are full, on a file descriptor held by an fd-holder will block, speed gains might no be that significant, and that, dependending on the scenario (e.g. logging infrastructure), communicating with a service assuming it is ready when it actually isn't might hurt reliability<ref>[http://www.skarnet.org/software/s6/socket-activation.html How do I perform socket activation with s6?]. Retrieved on August 12th, 2017.</ref>.
+
+Example [[s6-rc]] service definitions in {{C|s6-rc-compile}} source format for pre-opening a UNIX domain socket and pass it to a program written to be executed by a IPC UCSPI server:
+{{Cmd|ls -l *|
+output=<pre>test-fdholder:
+total 16
+drwxr-xr-x 2 user user 4096 Aug  1 12:00 data
+-rw-r--r-- 1 user user    2 Aug  1 12:00 notification-fd
+-rwxr-xr-x 1 user user  101 Aug  1 12:00 run
+-rw-r--r-- 1 user user    8 Aug  1 12:00 type
+
+test-server-heldfd:
+total 12
+-rw-r--r-- 1 user user  18 Aug  1 12:00 dependencies
+-rwxr-xr-x 1 user user 140 Aug  1 12:00 run
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+
+test-server-setup:
+total 16
+-rw-r--r-- 1 user user  14 Aug  1 12:00 dependencies
+-rw-r--r-- 1 user user  92 Aug  1 12:00 down
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+-rw-r--r-- 1 user user 158 Aug  1 12:00 up</pre>}}
+
+Service {{Path|test-fdholder}} is the same as in the previous FIFO example.
+{{FileBox|filename=test-server-setup/type|1=oneshot}}
+
+{{FileBox|filename=test-server-setup/dependencies|1=test-fdholder}}
+
+{{FileBox|filename=test-server-setup/up|
+1=s6-ipcserver-socketbinder /home/user/test-socket
+s6-fdholder-store /home/user/fdholder-socket unix:/home/user/test-socket}}
+
+{{FileBox|filename=test-server-setup/down|
+1=s6-fdholder-delete /home/user/fdholder-socket unix:/home/user/test-socket}}
+
+Service {{Path|test-server-setup}}, a oneshot, pre-opens a listening UNIX domain socket bound to {{Path|/home/user/test-socket}} [[#superserver|using {{C|s6-ipcserver-socketbinder}}]], and stores the corresponding file descriptor in the fd-holder using identifier ''unix:/home/user/test-socket''. The dependency on service {{Path|test-fdholder}} ensures that <kbd>s6-rc -u change</kbd> will start {{C|s6-fdholderd}} before trying to store to it. When {{Path|test-server-setup}} transitions to the down state, it will delete the held file descriptor.
+{{FileBox|filename=test-server-heldfd/type|1=longrun}}
+
+{{FileBox|filename=test-server-heldfd/dependencies|1=test-server-setup}}
+
+{{FileBox|filename=test-server-heldfd/run|
+1=#!/bin/execlineb -P
+s6-fdholder-retrieve /home/user/fdholder-socket unix:/home/user/test-socket
+s6-ipcserverd test-server}}
+
+Service {{Path|test-server-heldfd}}, a longrun, retrieves the listening socket's file descriptor from the fd-holder, and invokes super-server {{C|s6-ipcserverd}} to handle incoming connections, spawning a {{C|test-server}} process for each one. {{C|test-server}} is the same program used in the example contained in section [[#superserver|"The UNIX domain super-server and related tools"]]. The dependency on service {{Path|test-server-setup}} ensures that <kbd>s6-rc -u change</kbd> will have stored the listening socket's file descriptor first in the fd-holder with the appropriate identifier. Starting the {{Path|test-server-setup}} service:
+{{Cmd|s6-rc -l ../live -v 2 -u change test-server-setup|
+output=<pre>s6-rc: info: processing service test-fdholder: starting
+s6-rc: info: processing service s6rc-oneshot-runner: starting
+s6-rc: info: service s6rc-oneshot-runner started successfully
+s6-rc: info: service test-fdholder started successfully
+s6-rc: info: processing service test-server-setup: starting
+s6-rc: info: service test-server-setup started successfully</pre>}}
+
+{{C|s6-rc}}'s <code>-v 2</code> argument increments its verbosity level. Starting a UCSPI client in the background to connect to the server:
+{{Cmd|s6-ipcclient ../test-socket test-client &|
+output=<pre>Connecting to server...</pre>}}
+
+{{C|test-client}} is the same program used in the example contained in section [[#superserver|"The UNIX domain super-server and related tools"]]. This shows that {{C|test-client}} has been launched with a connection to the server's listening socket, but because its file descriptor is held by {{C|s6-fdholderd}} and no server program is currently running, it blocks on an I/O operation.
+{{Cmd|s6-fdholder-list ../fdholder-socket|output=<pre>unix:/home/user/test-socket</pre>}}
+
+This shows that {{C|s6-fdholderd}} is holding the listening socket's file descriptor.
+Starting the {{Path|test-server-heldfd}} service:
+{{Cmd|s6-rc -l ../live -v 2 -u change test-server-heldfd|
+output=<pre>s6-rc: info: processing service test-fdholder: already up
+s6-rc: info: processing service s6rc-oneshot-runner: already up
+s6-rc: info: processing service test-server-setup: already up
+s6-rc: info: processing service test-server-heldfd: starting
+s6-rc: info: service test-server-heldfd started successfully
+Server process created with PID 2377, client is "user"</pre>}}
+
+This shows that once {{C|s6-ipcserverd}} has started and retrieved the listening socket's file descriptor from {{C|s6-fdholderd}}, it accepts the connection and spawns {{C|test-server}} to handle it.
+
+{{anchor|s6process1}}
+=== {{C|s6-svscan}} as process 1 ===
+
+The {{C|s6-svscan}} program was also written to be robust enough and go out of its way to stay alive, even in dire situations, so that it is suitable for running as process 1 during most of a machine's uptime. However, the duties of process 1 vary widely during the machine's boot sequence, its normal, stable 'up and running' state, and its shutdown sequence, and in the first and third cases, they are heavily system-dependent, so it is not possible to use a program designed to be as portable as possible<ref>[https://www.skarnet.org/software/s6/s6-svscan-1.html How to run s6-svscan as process 1]. Retrieved on August 20th, 2017.</ref>. Because of that, auxiliary and system-dependent programs, named ''the stage1 init'' and ''the stage3 init'', are used during the boot sequence and the shutdown sequence, respectively, to run as process 1, and {{C|s6-svscan}} is used the rest of the time. For details, see [[s6 and s6-rc-based init system]].
+
+To support its role as process 1, {{C|s6-svscan}} performs a ''reaper routine'' each time it receives a <code>SIGCHLD</code> signal, i.e. it uses a POSIX <code>waitpid()</code> call for each child process that becomes a zombie, both the ones it has spawned itself, and the ones that were reparented to process 1 by the kernel because its parent process died. An <kbd>s6-svscanctl -z</kbd> command naming its scan directory can be used to force {{C|s6-svscan}} to perform its reaper routine.
+
+{{anchor|s6integration}}
+=== OpenRC's s6 integration feature ===
+
+Starting with version 0.16, OpenRC can launch supervised long-lived processes using the s6 package as a helper <ref>[https://github.com/OpenRC/openrc/blob/master/s6-guide.md Using s6 with OpenRC]. Retrieved on June 24th, 2017.</ref>. This is an alternative to 'classic' unsupervised long-lived processes launched using the {{C|start-stop-daemon}} program. It should be noted that service scripts that don't contain <code>start()</code> and <code>stop()</code> functions implicitly use {{C|start-stop-daemon}}.
+
+OpenRC services that want to use s6 supervision need both a service script in {{Path|/etc/init.d}} and an s6 service directory. The service script must contain a <code>supervisor=s6</code> variable assignment to turn the feature on, and must have a 'need' dependency [[#openrclaunch|on the {{Path|s6-svscan}} service]] in its <code>depend()</code> function, to make sure the {{C|s6-svscan}} program is launched. It can contain neither a <code>start()</code> function, nor a <code>stop()</code> function (but their <code>_pre()</code> and <code>_post()</code> variants are OK), nor a <code>status()</code> function:
+
+* OpenRC internally invokes {{C|s6-svc}} with a <code>-u</code> option when the service script is called with a 'start' argument, and can also call {{C|s6-svwait}} after {{C|s6-svc}} [[#s6notification|to wait for an event]], by assigning {{C|s6-svwait}} options to the <var>s6_svwait_options_start</var> variable (e.g. in the service script or the service-specific configuration file in {{Path|/etc/conf.d}}). For example, if the service supports [[#s6readiness|readiness notification]], <code>s6_svwait_options_start="-U -t 5000"</code> could be used to make OpenRC wait for the up and ready event with a 5 seconds timeout.
+* OpenRC internally invokes {{C|s6-svc}} with <code>-d</code>, <code>-wD</code> and <code>-T</code> options when the service script is called with a 'stop' argument, so it will wait for a really down event with a default timeout of 10 seconds. The timeout can be changed by assigning a time value in milliseconds to <var>s6_service_timeout_stop</var> variable (e.g. in the service script or the service-specific configuration file in {{Path|/etc/conf.d}}).
+* OpenRC internally invokes {{C|s6-svstat}} when the service script is called with a 'status' argument.
+
+The s6 service directory can be placed anywhere in the filesystem, and have any name, as long as the service script (or the service-specific configuration file in {{Path|/etc/conf.d}}) assigns the servicedir's absolute path to the <var>s6_service_path</var> variable. If <var>s6_service_path</var> is not assigned to, the s6 servicedir must have the same name as the OpenRC service script, and will be searched in {{Path|/var/svc.d}}. The scan directory when using this feature is {{Path|/run/openrc/s6-scan}}, and OpenRC will create a symlink to the service directory when the service is started.
+
+{{Warning|OpenRC does not integrate as expected when {{C|s6-svscan}} [[#s6process1|is running as process 1]], since OpenRC will launch another {{C|s6-svscan}} process with {{Path|/run/openrc/s6-scan}} as its scan directory. So the result will be two independent supervision trees.}}
+
+Example setup for a hypothetical supervised ''test-daemon'' process with a dedicated logger:
+{{FileBox|lang=bash|filename=/etc/init.d/test-service|title=OpenRC service script|
+1=#!/sbin/openrc-run
+<nowiki>
+description="A supervised test service with a logger"
+supervisor=s6
+s6_service_path=/home/user/test/svc-repo/test-service
+
+depend() {
+   need s6-svscan
+}</nowiki>}}
+
+{{FileBox|lang=bash|filename=/etc/conf.d/test-service|title=OpenRC service-specific configuration file|
+1=s6_svwait_options_start{{=}}-U}}
+
+{{Cmd|/sbin/rc-service test-service describe|
+output=<pre>* A supervised test service with a logger
+* cgroup_cleanup: Kill all processes in the cgroup</pre>}}
+
+The service directory:
+{{Cmd|ls -l /home/user/test/svc-repo/test-service /home/user/test/svc-repo/test-service/log|
+output=<pre>/home/user/test/svc-repo/test-service:
+total 12
+drwxr-xr-x 2 user user 4096 Aug  8 12:00 log
+-rw-r--r-- 1 user user    2 Aug  8 12:00 notification-fd
+-rwxr-xr-x 1 user user   86 Aug  8 12:00 run
+
+/home/user/test/svc-repo/test-service/log:
+total 4
+-rwxr-xr-x 1 user user 65 Aug  8 12:00 run</pre>}}
+
+{{FileBox|filename=/home/user/test/svc-repo/test-service/run|
+1=#!/bin/execlineb -P
+s6-softlimit -o 5
+s6-setuidgid daemon
+fdmove -c 2 1
+/home/user/test/test-daemon --s6=5}}
+
+{{FileBox|filename=/home/user/test/svc-repo/test-service/notification-fd|1=5}}
+
+This launches {{C|test-daemon}} with effective user ''daemon'' and the maximum number of open file descriptors set to 5. This is the same as if {{C|test-daemon}} performed a <code>setrlimit(RLIMIT_NOFILE, &rl)</code> call itself with <code>rl.rlim_cur</code> set to 5, provided that value does not exceed the corresponding hard limit. The program supports an <code>--s6</code> option to [[#s6readiness|turn readiness notification on]], specifying the notification file descriptor (5), and also periodically prints to its standard error a message of the form 'Logged message #n', with an incrementing number '''n''' between 0 and 9. The redirection of {{C|test-daemon}}'s standard error to standard output, using execline's {{C|fdmove}} program with the <code>-c</code> (copy) option, allows logging its messages using {{C|s6-log}}:
+{{FileBox|filename=/home/user/test/svc-repo/test-service/log/run|
+1=#!/bin/execlineb -P
+s6-setuidgid user
+s6-log t /home/user/test/logdir}}
+
+An automatically rotated logging directory named ''logdir'' will be used, and messages will have a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format] prepended to them. 
+
+Manually starting {{Path|test-service}}:
+{{RootCmd|time rc-service test-service start|
+output=<pre>
+* Creating s6 scan directory
+* /run/openrc/s6-scan: creating directory
+* Starting s6-svscan ...                    [ ok ]
+* Starting test-service ...                 [ ok ]
+
+real	0m11.681s
+user	0m0.039s
+sys	0m0.034s</pre>}}
+
+{{RootCmd|rc-service test-service status|
+output=<pre>up (pid 2279) 33 seconds, ready 23 seconds</pre>}}
+
+This shows that {{C|test-daemon}} took about 10 seconds to notify readiness to {{C|s6-supervise}}, and that the <kbd>rc-service start</kbd> command waited until the up and ready event, because of the {{C|s6-svwait}} <code>-U</code> option passed via <var>s6_svwait_options_start</var> in {{Path|/etc/conf.d/test-service}}.
+{{Cmd|rc-status|
+output=<pre>Runlevel: default
+...
+Dynamic Runlevel: needed/wanted
+...
+s6-svscan                                   [  started  ]
+...
+Dynamic Runlevel: manual
+test-service                                [  started  ]</pre>}}
+
+The scan directory:
+{{Cmd|ls -la /run/openrc/s6-scan|
+output=<pre>total 0
+drwxr-xr-x  3 root root  80 Aug  8 22:38 .
+drwxrwxr-x 15 root root 360 Aug  8 22:38 ..
+drwx------  2 root root  80 Aug  8 22:38 .s6-svscan
+lrwxrwxrwx  1 root root  46 Aug  8 22:38 test-service -> /home/user/test/svc-repo/test-service</pre>}}
+
+The supervision tree:
+{{Cmd|ps axf -o pid,ppid,pgrp,euser,args|
+output=<pre> PID  PPID  PGRP EUSER    COMMAND
+...
+2517     1  2517 root     /bin/s6-svscan /run/openrc/s6-scan
+2519  2517  2517 root      \_ s6-supervise test-service/log
+2523  2519  2523 user      |   \_ s6-log t /home/user/test/logdir
+2520  2517  2517 root      \_ s6-supervise test-service
+2522  2520  2522 daemon        \_ /home/user/test/test-daemon --s6=5
+...</pre>}}
+
+Messages from the {{C|test-daemon}} process go to the logging directory:
+{{Cmd|ls -l /home/user/test/logdir|
+output=<pre>total 12
+-rwxr--r-- 1 user user 352 Aug  8 22:39 @40000000598a67ec2d5d7180.s
+-rwxr--r-- 1 user user 397 Aug  8 22:40 @40000000598a681919d6e581.s
+-rwxr--r-- 1 user user 397 Aug  8 22:40 current
+-rw-r--r-- 1 user user   0 Aug  8 22:38 lock
+-rw-r--r-- 1 user user   0 Aug  8 22:38 state</pre>}}
+
+{{Cmd|cat /home/user/test/logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-08 22:40:20.562745759 Logged message #1
+2017-08-08 22:40:25.565816199 Logged message #2
+2017-08-08 22:40:30.570600144 Logged message #3
+2017-08-08 22:40:35.578765601 Logged message #4
+2017-08-08 22:40:40.585146120 Logged message #5
+2017-08-08 22:40:45.591282433 Logged message #6</pre>}}
+
+== Removal ==
+
+=== Unmerge ===
+
+{{Unmerge|sys-apps/s6}}
+
+All scan directories, service directories, the {{C|/command}} symlink, etc. must be manually deleted if no longer wanted after removing the package. Also, all modifications to sysvinit's {{Path|/etc/inittab}} must be manually reverted: lines for {{C|s6-svscanboot}} must be deleted, and a <kbd>telinit q</kbd> command must be used afterwards. And obviously, if {{C|s6-svscan}} is running as process 1, an alternative init system must be installed in parallel, and the machine rebooted to use it (possibly by reconfiguring the bootloader), before the package is removed, or otherwise the machine will become unbootable.
 
 == See also ==
 
@@ -53,13 +1444,13 @@ See External Resources for more info.
 
 == External resources ==
 
-* [http://www.skarnet.org/software/s6/socket-activation.html Socket Activation Requirement?]
-* [http://www.skarnet.org/software/s6/why.html Why Process Supervision (at all and s6 in particular?)]
-* [https://github.com/tokiclover/supervision-scripts Supervision Scripts Framework with an OpenRC friendly stage 1, 2, and 3 for S6]
-* [https://forums.gentoo.org/viewtopic-t-994548.html Gentoo Forums]
-* [https://bitbucket.org/avery_payne/supervision-scripts/ Avery Payne's Supervision-Scripts Collection]
+* [https://forums.gentoo.org/viewtopic-t-994548.html A thread containing posts about s6 on the Gentoo Forums].
+* [https://github.com/tokiclover/supervision Tokiclover's supervision framework (OpenRC friendly)]
+* [https://bitbucket.org/avery_payne/supervision-scripts Avery Payne's supervision-scripts project], compatible with s6.
 
-[[Category:Init_systems]]
-[[Category:Process_Supervision]]
-[[Category:Daemons]]
+== References ==
+
+{{reflist}}
+
+[[Category:Process Supervision]]
 [[Category:Daemons]]
