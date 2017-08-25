@@ -17,6 +17,10 @@ Prior to kernel 3.15, each zram device contains it's own compression buffer, mem
 
 Another caveat for systems with limited memory, non swap use can reduce the amount of available memory to run applications.
 
+When using this with a really fast SSD (e.g. Samsung 840 Pro), avoid setting <code>rc_parallel=YES</code> in {{Path|/etc/rc.conf}}.
+Depending on the size of the zram partitions and the speed of your RAM, some swap partitions and filesystems might not be ready when the {{c|swap}} and {{c|localmount}} services are started.
+In such case, if you absolutely have to use parallel, consider removing these services from runlevel {{c|boot}} and adding them to {{c|default}} instead.
+
 == Enabling zram support in kernel ==
 
 Enable the following options in your kernel config:
@@ -40,16 +44,16 @@ Cryptographic API --->
     <*> LZ4 compression algorithm
 }}
 
-== Gentoo/OpenRC init script ==
+== Initialization ==
 
-=== Installation ===
+=== Using zram-init service ===
 
 By far the easiest method of utilizing zram disk(s) is by using Martin Väth's zram-init script.
 Note, that version 2.7 is fully compatible with kernels < 3.15.  If version >= 3.0 is used, the maxs (maximum concurrent streams) and algo (compression algorithm selection) is only functional for kernels >= 3.15.
 Currently, both versions available in the main tree:
 {{Emerge|zram-init}}
 
-=== Configuration ===
+==== OpenRC ====
 
 Edit the {{Path|/etc/conf.d/zram-init}} file and create/configure your desired zram devices.  There is lots of comments/instructions in the file.  So, proceed with editing, save it when your done.
  
@@ -80,9 +84,7 @@ flag1="ext4"
 size1="512"
 }}
 
-=== Start ===
-
-Add the init script to the desired runlevel, usually {{c|boot}}:
+Then, add the init script to the desired runlevel, usually {{c|boot}}, and start the service:
 
 {{RootCmd
 |rc-config add zram-init boot
@@ -91,15 +93,15 @@ Add the init script to the desired runlevel, usually {{c|boot}}:
 
 In this case, boot is preferable to default because if your zram is providing a filesystem such as {{Path|/tmp}} or {{Path|/var/tmp}}, it would need to be mounted prior to any access to it during the default runtime.
 
-=== Systemd support ===
+==== systemd ====
 
-{{Package|sys-block/zram-init}} also provides systemd units with self explaining names:
+{{Package|sys-block/zram-init}} provides systemd units with self explaining names:
 
 * {{Path|zram_swap.service}}
 * {{Path|zram_tmp.service}}
 * {{Path|zram_var_tmp.service}}
 
-== Manual method ==
+=== Using OpenRC ===
 
 For manual creation, you can use {{Path|/etc/local.d}} and supply it with 2 files. A {{Path|zram.start}} and a {{Path|zram.stop}}. OpenRC will run these as appropriate as part of it's normal operation.
 
@@ -148,7 +150,7 @@ modprobe -r zram
 
 {{Note|Disksize may also be specified using mem suffixes (K, M, G): {{c|echo 1536M > /sys/block/zram0/disksize}} }}
 
-== Using existing tools ==
+=== Using udev ===
 
 Other possibility is to use existing configuration files - this option works on vanilla Gentoo without need to install additional software, also useful if you are using systemd instead of OpenRC. The first example can be implemented using:
 
@@ -172,10 +174,19 @@ options zram num_devices=3
 
 Additionally, the {{c|zramctl}} utility is part of {{Package|sys-apps/util-linux}} and can be used to configure <tt>zram</tt> devices. See {{c|man zramctl}} for examples of usage.
 
-== Usage with an SSD ==
+== Checking that zram is used ==
 
-When using this with a really fast SSD (e.g. Samsung 840 Pro), avoid setting <code>rc_parallel=YES</code> in {{Path|/etc/rc.conf}}.
-Depending on the size of the zram partitions and the speed of your RAM, some swap partitions and filesystems might not be ready when the {{c|swap}} and {{c|localmount}} services are started.
-In such case, if you absolutely have to use parallel, consider removing these services from runlevel {{c|boot}} and adding them to {{c|default}} instead.
+Check if zram is mounted as swap:
+{{Cmd|grep zram /proc/swaps|output=<pre>
+/dev/zram0                              partition       2097148 2816    16383
+</pre>}}
 
+Check if zram is mounted as directories:
+{{Cmd|grep zram /proc/mounts|output=<pre>
+/dev/zram1 /var/tmp/portage ext4 rw,nosuid,nodev,noexec,block_validity,discard,delalloc,barrier,user_xattr,acl 0 0
+</pre>}}
+
+== External resources ==
+
+* [https://www.kernel.org/doc/Documentation/blockdev/zram.txt zram] in kernel documentation
 [[Category:Core system]]
