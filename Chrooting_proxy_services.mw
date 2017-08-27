@@ -666,14 +666,14 @@ exit 0
 ===Chrooted Tor===
 
 {{FileBox|filename=/etc/init.d/tor|title=chrooted tor|<pre>
-#!/sbin/runscript
-# Copyright 1999-2015 Gentoo Foundation
+#!/sbin/openrc-run
+# Copyright 1999-2017 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# $Id$
 
-CHROOT=/usr/chroot/${SVCNAME}
-PIDFILE=/var/run/${SVCNAME}/${SVCNAME}.pid
-CONFFILE=/etc/${SVCNAME}/torrc
+CHROOT=/opt/torchroot
+PIDFILE=/var/run/tor/tor.pid
+CONFFILE=/etc/tor/torrc-hardened
+SVCNAME=tor
 GRACEFUL_TIMEOUT=${GRACEFUL_TIMEOUT:-60}
 
 # See bug #523552, and https://trac.torproject.org/projects/tor/ticket/5525
@@ -705,7 +705,7 @@ checkconfig() {
                 mount -ro remount ${CHROOT}/dev
         fi
 
-        checkpath --quiet --mode 755 --owner "${SVCNAME}":"${SVCNAME}" --directory `dirname ${CHROOT}${PIDFILE}`
+        #checkpath --quiet --mode 755 --owner "${SVCNAME}":"${SVCNAME}" --directory `dirname ${CHROOT}${PIDFILE}`
 
         # now verify whether the configuration is valid
         /usr/bin/${SVCNAME} --verify-config -f ${CHROOT}${CONFFILE} > /dev/null 2>&1
@@ -723,7 +723,7 @@ start() {
         checkconfig || return 1
         ebegin "Starting chrooted Tor"
         HOME=/var/lib/${SVCNAME}
-        start-stop-daemon --start --pidfile "${CHROOT}${PIDFILE}" --quiet --exec chroot ${CHROOT} /usr/bin/${SVCNAME} -- -f "${CONFFILE}" --runasdaemon 1 --PidFile "${PIDFILE}" > /dev/null 2>&1
+        start-stop-daemon --start --pidfile "${CHROOT}${PIDFILE}" --quiet --exec chroot ${CHROOT} /usr/bin/${SVCNAME} -- -f "${CONFFILE}" --runasdaemon 1 --PidFile "${PIDFILE}" #> /dev/null 2>&1
         eend $?
 }
 
@@ -763,69 +763,42 @@ reload() {
 
 {{FileBox|filename=tor-chroot.sh|title=Build chrooted tor|<pre>
 #!/bin/bash
-# 20150922
-# GPL-3
+# 20170826
+# CC0
+# torchroot generation script
+export TORCHROOT=/opt/torchroot
 
-PKGDIR="/usr/portage/packages"
-CATEGORY="net-misc"
-PN="tor"
-CHROOT="/usr/chroot/${PN}"
-WORKD=`pwd`
+mkdir -p $TORCHROOT
+mkdir -p $TORCHROOT/etc/tor
+mkdir -p $TORCHROOT/dev
+mkdir -p $TORCHROOT/usr/bin
+mkdir -p $TORCHROOT/usr/lib
+mkdir -p $TORCHROOT/usr/share/tor
+mkdir -p $TORCHROOT/var/lib
 
-# Cleaning chroot directory.
-umount "${CHROOT}"/var/lib/${PN} "${CHROOT}"/var/log/${PN} "${CHROOT}"/var/run "${CHROOT}"/dev 1>/dev/null 2>&1
-rm -rf "${CHROOT}"
+ln -s /usr/lib  $TORCHROOT/lib
+# Replace this line if you want to copy your own torrc instead of the one provided by hardened script.
+cp /opt/tor-hardened-scripts/torrc-hardened       $TORCHROOT/etc/tor/
 
-# Make comon directory and symlinks.
-mkdir -p "${CHROOT}"/{dev,etc}
-if [ -d /lib64 ]
-    then
-        mkdir -p "${CHROOT}"/{lib64,usr/lib64}
-        cd "${CHROOT}" && ln -s lib64 lib
-        cd "${CHROOT}/usr" && ln -s lib64 lib
-    else
-        mkdir -p "${CHROOT}"/{lib,usr/lib}
+cp /usr/bin/tor         $TORCHROOT/usr/bin/
+cp /usr/share/tor/geoip* $TORCHROOT/usr/share/tor/
+cp /lib/ld-linux-*.so* $TORCHROOT/usr/lib/
+cp /lib/libnss* /lib/libnsl* /lib/libresolv* $TORCHROOT/usr/lib/
+cp $(ldd /usr/bin/tor | awk '{print $3}'|grep --color=never "^/") $TORCHROOT/usr/lib/
+cp -r /var/lib/tor      $TORCHROOT/var/lib/
+chown -R tor:tor $TORCHROOT/var/lib/tor
+
+sh -c "grep --color=never ^tor /etc/passwd > $TORCHROOT/etc/passwd"
+sh -c "grep --color=never ^tor /etc/group > $TORCHROOT/etc/group"
+
+mknod -m 644 $TORCHROOT/dev/random c 1 8
+mknod -m 644 $TORCHROOT/dev/urandom c 1 9
+mknod -m 666 $TORCHROOT/dev/null c 1 3
+
+if [[ "$(uname -m)" == "x86_64" ]]; then
+  cp /lib64/ld-linux-*.so* $TORCHROOT/usr/lib/
+  ln -s /usr/lib ${TORCHROOT}/lib64
 fi
-mkdir -p /var/log/${PN} "${CHROOT}"/var/log/${PN} "${CHROOT}"/var/run
-chown -R ${PN}:${PN} /var/log/${PN} "${CHROOT}"/var/log/${PN}
-chmod -R o-rwx /var/log/${PN} "${CHROOT}"/var/log/${PN}
-
-# Extract package.
-tar -xjphf `ls ${PKGDIR}/${CATEGORY}/${PN}* |tail -n 1` -C "${CHROOT}"
-
-# Copy nessesury libriary.
-cp -pRPd /lib/ld-* "${CHROOT}/lib"
-cp `ldd "${CHROOT}/usr/bin/${PN}" |awk '{print $3}'|grep "^/lib"` "${CHROOT}/lib"
-cp `ldd "${CHROOT}/usr/bin/${PN}" |awk '{print $3}'|grep "^/usr/lib"` "${CHROOT}/usr/lib"
-
-# Copy user information and nessesury libriary for it.
-cp -pRPd /lib/libnss* /lib/libnsl* /lib/libresolv* "${CHROOT}/lib"
-cp /usr/lib/libnss3.so "${CHROOT}/usr/lib"
-grep "^${PN}" "/etc/passwd" > "${CHROOT}/etc/passwd"
-grep "^${PN}" "/etc/group" > "${CHROOT}/etc/group"
-
-# fstab stuff.
-if [[ `grep "Tor chroot stuff." /etc/fstab` == '' ]]
-    then
-        cat >> /etc/fstab << EOF
-
-# Tor chroot stuff.
-/var/lib/${PN}                  ${CHROOT}/var/lib/${PN}                 none    bind,nodev,noexec,nosuid,rw                                     0 0
-/var/log/${PN}                  ${CHROOT}/var/log/${PN}                 none    bind,nodev,noexec,nosuid,rw                                     0 0
-none                            ${CHROOT}/var/run                               tmpfs   rw,nodev,noexec,nosuid,relatime,size=1024k,mode=755             0 0
-none                            ${CHROOT}/dev                           tmpfs   rw,noexec,nosuid,relatime,size=1024k,nr_inodes=384443,mode=755          0 0
-EOF
-fi
-mount -a
-
-# Configuration.
-cp -fp /etc/${PN}/* ${CHROOT}/etc/${PN}/
-cp -fp /etc/conf.d/${PN} ${CHROOT}/etc/conf.d/
-cd ${WORKD}
-cp -f ${PN} /etc/init.d/
-cp -f ${PN} ${CHROOT}/etc/init.d/
-
-exit 0
 </pre>}}
 
 ==Reminder==
