@@ -14,25 +14,26 @@ The steps we'll be undertaking are as follows (see [[#secure_boot_intro|below]] 
 ## our platform key (this will ultimately be stored in the {{c|PK}} signature database);
 ## our key exchange key (this will ultimately be appended to the {{c|KEK}} signature database); and
 ## our kernel-signing key (this will ultimately be appended to the {{c|db}} signature database).
-# We'll create a ''signed signature list'' for our new {{c|PK}} (more on what this means later). 
+# We'll then transform these keys into various formats for subsequent upload. 
 # We will then reboot the machine, and en route use the BIOS GUI to clear the secure variables, thereby entering setup mode.
-# Then we will re-install our saved values of {{c|KEK}}, {{c|db}} and {{c|dbx}}.
-# Next, we'll append our own public keys to {{c|KEK}} and {{c|db}}.
-# Then, we'll set our own key in {{c|PK}}, thereby re-entering user mode. We'll use the signed signature list for this.
-# We will then run {{c|buildkernel}}, to rebuild our EFI-stub kernel, this time appropriately signed with our new kernel-signing (private) key.
+# Then, we'll re-install our saved values of {{c|KEK}}, {{c|db}} and {{c|dbx}} together with our new public keys, using one of the following three '''keystore update methods''' (because of variations in BIOS function, you'll need to see which works on your machine):
+## The default approach will be to use the {{c|efi-updatevar}} utility to install compound (old+new) signature lists from the command line. A fallback approach, where the original keys are first re-uploaded, and then the new keys appended, is also described. In both cases, the process is completed by setting our own key in {{c|PK}}, thereby re-entering user mode. We'll use the signed signature list for this.
+## An second, alternative approach is to use your UEFI BIOS GUI to insert the new keys (if it supports this operation, as some do). This approach is briefly described (with example screenshots from a Dell Inspiron 5567 15 laptop's BIOS).
+## A third, alternative approach is to use the {{c|KeyTool}} EFI utility to insert the keys. Again, this approach will be briefly described, with screenshots.
+# With our keys inserted into the machine's keystore, we will then run {{c|buildkernel}}, to rebuild our EFI-stub kernel, this time appropriately signed with our new kernel-signing (private) key.
 # Then we will restart the machine, enable secure boot, and check that our signed kernel is permitted to start up by the BIOS (it should be).
 # We'll then reboot into Windows, and check that it is also still permitted to start (again, it should be). When in Windows, we'll take the chance to set the clock format to UTC.
 # Finally, we'll reboot back into our signed kernel, (optionally setting a BIOS password en route) and proceed with the tutorial.
 
-{{Note|If you are building your target 'PC' as a VirtualBox guest, please be advised that, although VirtualBox ''does'' support EFI booting (through the "Enable EFI (special OSes only)" switch on the System/Motherboard configuration tab), it does not currently support emulation of secure boot. If building on VirtualBox rather than a 'real' PC therefore, you can safely skip the setup of this feature.}}
+{{Note|If you are building your target 'PC' as a VirtualBox guest, please be advised that, although VirtualBox ''does'' support EFI booting (through the "Enable EFI (special OSes only)" switch on the System/Motherboard configuration tab), it does not currently support emulation of secure boot. If building on VirtualBox rather than a 'real' PC therefore, you can (and should) safely [[#verify_win8_secure_boot{{!}}skip]] the setup of the secure boot feature.}}
 
-{{Note|Users who do ''not'' wish to set up secure boot should click [[#verify_win8_secure_boot{{!}}here]] to skip directly to the next relevant section instead ("Verifying Secure Boot with Windows (and Fixing RTC)").}}
+{{Note|Users who do ''not'' wish to set up secure boot should click [[#verify_win8_secure_boot{{!}}here]] to skip directly to the next relevant section instead ("Verifying Secure Boot with Windows (and Fixing RTC)"). In such a case, ensure secure boot is turned off when using Gentoo.}}
 
 Let's get started!
 
 == <span id="secure_boot_intro">Introduction</span> ==
 
-We'll begin with a (very brief) primer on secure boot. (For a more in-depth review, please refer to James Bottomley's article "The Meaning of all the UEFI Keys"<ref name="uefi_key_meanings">Bottomley, J. [http://blog.hansenpartnership.com/the-meaning-of-all-the-uefi-keys/ "The Meaning of all the UEFI Keys"]</ref>, Greg Kroah-Hartman's article "Booting a Self-signed Linux Kernel"<ref name="boot_self_signed">Kroah-Hartman, G. [http://www.kroah.com/log/blog/2013/09/02/booting-a-self-signed-linux-kernel/ "Booting a Self-signed Linux Kernel"]</ref>, and of course the UEFI specification itself<ref name="uefi_spec">''Unified Extensible Firmware Specification'', Version 2.4, April 2014. Download available after registration from [http://www.uefi.org/specifications UEFI]</ref>.)
+We'll begin with a (very brief) primer on secure boot. (For a more in-depth review, please refer to James Bottomley's article "The Meaning of all the UEFI Keys"<ref name="uefi_key_meanings">Bottomley, J. [http://blog.hansenpartnership.com/the-meaning-of-all-the-uefi-keys/ "The Meaning of all the UEFI Keys"]</ref>, Greg Kroah-Hartman's article "Booting a Self-signed Linux Kernel"<ref name="boot_self_signed">Kroah-Hartman, G. [http://www.kroah.com/log/blog/2013/09/02/booting-a-self-signed-linux-kernel/ "Booting a Self-signed Linux Kernel"]</ref>, Rod Smith's article "Managing EFI Boot Loaders for Linux: Dealing with Secure Boot" ''ff.''<ref>Smith, Rod. [http://www.rodsbooks.com/efi-bootloaders/secureboot.html "Managing EFI Boot Loaders for Linux: Dealing with Secure Boot"]</ref> and of course the UEFI specification itself<ref name="uefi_spec">''Unified Extensible Firmware Specification'', Version 2.4, April 2014. Download available after registration from [http://www.uefi.org/specifications UEFI]</ref>.)
 
 {{Note|If you're already familiar with secure boot, simply [[#save_keystore_create_new_keys{{!}}click here]] to skip directly to the next section.}}
 
@@ -67,7 +68,7 @@ When you buy a new Windows (10 or 8) machine, it will usually be set up as follo
 * The PK variable will be loaded with a public key issued by the hardware vendor (for example, Panasonic).
 * The KEK variable will be loaded with a public key issued by Microsoft.
 * The db variable will be loaded with a set of public keys issued by various vendors authorized by Microsoft).
-* The dbx variable will generally contain some revoked signatures (although it may also be empty, it depends on the revision of Windows on your machine).
+* The dbx variable will generally contain some revoked signatures or hashes (although it may also be empty, it depends on the revision of Windows on your machine).
 
 == <span id="save_keystore_create_new_keys">Saving Current Keystore Values, and Creating New Keys</span> ==
 
@@ -133,7 +134,11 @@ This will have created three X.509 public-key certificate files ({{c|PK.crt}}, {
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
 }}
 
-The {{c|efi-updatevar}} tool (also from the {{Package|app-crypt/efitools}}), which we'll use shortly, can use raw X.509 certificates and keys to update the {{c|KEK}}, {{c|db}} and {{c|dbx}} secure variables. However, it is more picky (as of the time of writing) about the {{c|PK}} variable, and will only accept this in the 'signed signature list' ('{{c|.auth}}') format. We can create this in a <span id="create_PK_auth">two step process</span> (using two command line tools from {{Package|app-crypt/efitools}}). First, we make a signature list (which requires a unique ID, the value of which is essentially unimportant), and then we use our own (private) platform key to sign it. Let's do both now - issue:
+== <span id="prepare_keystore_update_files">Preparing Keystore Update Files from Keys</span> ==
+
+Now we have the old keys archived, and our new keys produced, we will create a variety of files that may be used to update the keystore. There is a degree of redundancy in what follows, but creating the variants does not take long, and will provide you with maximum flexibility in the next step (different BIOSes have different requirements for keystore update files, so it is impossible to be prescriptive).
+
+<span id="create_auth">We'll begin</span> by creating a 'signed signature list' (aka '{{c|.auth}}') format version of the {{c|PK}} variable, as {{c|efi-updatevar}} (and even many BIOS GUIs that afford the option) will only accept it in this format. We can create this in a <span id="create_PK_auth">two step process</span> (using two command line tools from {{Package|app-crypt/efitools}}). First, we make a signature list (which requires a unique ID, the value of which is essentially unimportant), and then we use our own (private) platform key to sign it. Let's do both now - issue:
 {{RootCmd
 |cert-to-efi-sig-list -g "$(uuidgen)" PK.crt PK.esl
 |sign-efi-sig-list -k PK.key -c PK.crt PK PK.esl PK.auth
@@ -141,16 +146,70 @@ The {{c|efi-updatevar}} tool (also from the {{Package|app-crypt/efitools}}), whi
 }}
 
 The file we need out of this is {{c|PK.auth}}.
-{{Note|With some machine BIOSes it can be useful to generate a {{c|.auth}} file for your custom {{c|db}} as well. To do this, issue:{{RootCmd
+
+<span id="create_auth_kek">Next,</span> since with some machine BIOSes it can be useful to generate a {{c|.auth}} file for your custom {{c|KEK}} as well, issue:
+{{RootCmd
+|cert-to-efi-sig-list -g "$(uuidgen)" KEK.crt KEK.esl
+|sign-efi-sig-list -a -k PK.key -c PK.crt KEK KEK.esl KEK.auth
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+(Notice that the {{c|PK}} private key was used to sign, in this case, and that we used the {{c|-a}} option, to indicate that this is to be used to append data, rather than replace it.) The file we need out of this is {{c|KEK.auth}}. 
+
+<span id="create_auth_db">We'll</span> do the same for your custom {{c|db}} as well, issue:
+{{RootCmd
 |cert-to-efi-sig-list -g "$(uuidgen)" db.crt db.esl
 |sign-efi-sig-list -a -k KEK.key -c KEK.crt db db.esl db.auth
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
 }}
-Most users will ''not'' need this {{c|db.auth}} file to successfully setup secure boot, but it is not harmful to generate it. It may come in useful if you plan to use (or are forced to resort to using) {{c|KeyTool}} to install your own keys (as opposed to the default protocol laid out in the main body of the text below). On some BIOSes, {{c|KeyTool}} will only allow the {{c|db}} variable to be set via an ''append'' operation (hence the {{c|-a}} option to {{c|sign-efi-sig-list}}) using a {{c|db.auth}} file such as this, even when in setup mode.}}
 
-== <span id="install_new_keys">Entering Setup Mode, and Installing New Keys</span> ==
+(Notice that the {{c|KEK}} private key was used to sign, in this case, and again, {{c|-a}} was specified.) The file we need out of this is {{c|db.auth}}.
 
-With the preparations completed, we're ready to enter [[:Wikipedia:Unified_Extensible_Firmware_Interface#Secure_boot|setup mode]]. Reboot the machine:
+{{Note|When using the {{c|KeyTool}} EFI utility (keystore update method 3), some BIOSes will only allow you to append to the {{c|db}} and {{c|KEK}} variable in this format.}}
+
+<span id="create_auth_dbx">Lastly,</span> we'll do the same for the saved {{c|dbx}}:
+{{RootCmd
+|sign-efi-sig-list -k KEK.key -c KEK.crt dbx old_dbx.esl old_dbx.auth
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+(Notice that the {{c|KEK}} private key was again used to sign, but that {{c|-a}} was ''not'' specified.) The file we need out of this is {{c|old_dbx.auth}}.
+
+<span id="create_ders">Next,</span> we'll create [[:Wikipedia:X.690#DER_encoding|DER]] versions of each of our three new public keys, as follows:
+{{RootCmd
+|openssl x509 -outform DER -in PK.crt -out PK.cer
+|openssl x509 -outform DER -in KEK.crt -out KEK.cer
+|openssl x509 -outform DER -in db.crt -out db.cer
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+{{Note|When updating your keystore using the BIOS GUI (keystore update method 2), some BIOSes will only allow you to append keys in {{c|DER}} format, as just created.}}
+
+<span id="create_compound_esls">Finally,</span> we'll create ''compound'' (i.e., old+new) esl files for the {{c|KEK}} and {{c|db}} (esl files can simply be concatenated<ref>Developers Club: [http://developers-club.com/posts/273497/ "We subdue UEFI SecureBoot"]; see section "We convert public keys into the ESL format"</ref>), and also create {{c|.auth}} counterparts for these. Issue:
+{{RootCmd
+|cat old_KEK.esl KEK.esl > compound_KEK.esl
+|cat old_db.esl db.esl > compound_db.esl
+|sign-efi-sig-list -k PK.key -c PK.crt KEK compound_KEK.esl compound_KEK.auth
+|sign-efi-sig-list -k KEK.key -c KEK.crt db compound_db.esl compound_db.auth
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+{{Note|<span id{{=}}"efi_updatevar_problems">On some machines</span> (with certain AMT, and some other, BIOSes) {{c|efi-updatevar}} 'append' commands may fail, with an error of "{{c|Cannot write to ..., wrong filesystem permissions}}", even though an initial 'insert' command ''is'' allowed. This appears to be a known issue,<ref>James Bottomley's random Pages: [http://blog.hansenpartnership.com/uefi-secure-boot/#comment-73940 "UEFI Secure Boot: Comment 73940"]</ref> but there is no fix in {{c|efi-updatevar}} as yet. As such, in our [[#install_new_keys_1{{!}}keystore update method 1]], we'll by default use these compound esl files to finesse the problem (as with them, only one 'insert' per variable will be required).}}
+
+{{Note|This tutorial is primarily aimed at those users wishing to dual-boot, who will, therefore, wish to retain the Microsoft keys (without which, Windows will not secure boot). However, if you do '''not''' wish to retain the Microsoft keys, (other than their {{c|dbx}}, which is safe), then you should perform the following four commands, making your 'compound' {{c|KEK}} and {{c|db}} esl files identical to your new version, omitting the Microsoft components, and (re-)creating {{c|.auth}} counterparts for them:
+{{RootCmd
+|cp -v KEK.esl compound_KEK.esl
+|cp -v db.esl compound_db.esl
+|sign-efi-sig-list -k PK.key -c PK.crt KEK compound_KEK.esl compound_KEK.auth
+|sign-efi-sig-list -k KEK.key -c KEK.crt db compound_db.esl compound_db.auth
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}For avoidance of doubt, please note that this advice will '''not''' apply to most readers of this tutorial (who may safely ignore it, and who should '''not''' issue the four commands in this note)!}}
+
+That's it, we now have our keystore update files prepared. Next, we'll enter [[:Wikipedia:Unified_Extensible_Firmware_Interface#Secure_boot|setup mode]], after which we'll update the keystore, using one of three possible keystore update methods.
+
+== <span id="enter_setup_mode">Entering Setup Mode (Clearing Keystore)</span> ==
+
+To enter [[:Wikipedia:Unified_Extensible_Firmware_Interface#Secure_boot|setup mode]] (wherein your target PC's keystore is emptied, allowing unsigned updates to be made to it), first reboot the machine (leave the boot USB key inserted):
 {{RootCmd
 |systemctl reboot
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
@@ -175,7 +234,13 @@ Next, ensure that your boot USB key is still inserted, then press {{Key|F10}} to
 
 The machine should restart, and, just as [[../Configuring_systemd_and_Installing_Necessary_Tools#entering_plymouth_LUKS_password|before]], you will see the {{c|plymouth}} passphrase screen. Enter your LUKS keyfile {{c|gpg}} passphrase (the one you created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]), directly at the target machine keyboard, and wait for the text console login to appear.
 
-Then, re-connect to the machine via {{c|ssh}}. From the helper PC, issue:
+== <span id="install_new_keys">Installing New Keys into the Keystore</span> ==
+
+As mentioned briefly in the introduction, having cleared your PC's keystore, there are three main methods that may be used to update it with our new keys (in addition to the Microsoft keys, which, by default, we are retaining). You will need to experiment to see which of these methods works for you. Unfortunately, it is impossible to be prescriptive, as UEFI BIOSes vary greatly in what they will accept. For most systems, method 1 ([[#install_new_keys_1|immediately below]]) is the most likely to work (and it is certainly the most straightforward), so, we shall try that first, only falling back to methods 2 or 3 if necessary. Let's go!
+
+=== <span id="install_new_keys_1">Method 1: Inserting Keys using {{c|efi-updatevar}}</span> ===
+
+Begin by re-connecting to the machine via {{c|ssh}}. From the helper PC, issue:
 {{Cmd
 |ssh root@192.168.1.106
 |prompt=user@pc2 $
@@ -201,56 +266,54 @@ You can verify that the secure variables have been cleared. To do so, enter:
 {{RootCmd
 |efi-readvar
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+|output=<pre>
+Variable PK has no entries
+Variable KEK has no entries
+Variable db has no entries
+Variable dbx has no entries
+</pre>
 }}
-and review the output.
+and check that the output is as shown above.
 {{Note|You may see a fifth variable, {{c|MokList}}, displayed when you do this. This is an EFI "Boot Services Only Variable" which some Linux distributions use to allow their bootloader shims to work under secure boot.<ref>SUSE Conversations: [https://www.suse.com/communities/conversations/uefi-secure-boot-details/ "SUSE and Secure Boot: The Details"]</ref> We won't need to worry about it.}}
 
-<span id="set_new_values">Next, we'll reload</span> the old contents of {{c|KEK}}, {{c|db}} and {{c|dbx}}, which we saved off [[#save_old_secure_vars|above]], thereby ensuing that Windows will still be permitted to load under secure boot (if we don't do this, it will be blocked). Issue:
+<span id="set_new_values">Next, we'll reload</span> the 'compound' (old+new) contents of the {{c|dbx}}, {{c|db}} and {{c|KEK}}, using the 'compound' signature list files we created [[#create_compound_esls|earlier]] (although the {{c|dbx}} will just use the old file, as we have nothing to add to it). Issue:
 {{RootCmd
-|efi-updatevar -e -f old_KEK.esl KEK
-|efi-updatevar -e -f old_db.esl db
 |efi-updatevar -e -f old_dbx.esl dbx
+|efi-updatevar -e -f compound_db.esl db
+|efi-updatevar -e -f compound_KEK.esl KEK
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
 }}
 The {{c|-e}} option specifies that an EFI signature list file is to be loaded (and the {{c|-f}} option precedes the filename itself). Because we are in setup mode, no private key is required for these operations (which it would be, if we were in user mode).
 
-Assuming that completed successfully, we can now ''append'' our own key-exchange and kernel-signing public keys, which we created and stored into {{c|KEK.crt}} and {{c|db.crt}} (respectively) [[#create_secure_boot_keys|earlier]]. Issue:
+{{Note|We have nothing to add to the Microsoft exclusion list ({{c|dbx}}), so we just use their original esl in the above. This is safe, even if you are purging Windows from your machine, as it only limits known-bad software from running.}}
+
+If you experience errors when running the preceding commands (the most likely being a message of "{{c|Cannot write to ..., wrong filesystem permissions}}" when running {{c|efi-updatevar}}, then method 1 is not usable on your BIOS, and you should [[#install_new_keys_2|jump now to method 2]] and try that, instead.
+
+{{Note|Fallback approach: for some BIOSes, even when the 'compound esl' approach does ''not'' work, it may still be possible to update from the command line using {{c|efi-updatevar}}, by adopting a slightly different strategy, viz.: starting with an empty keystore, first write ''only'' the ''old'' values back to {{c|KEK}}, {{c|db}} and {{c|dbx}}, and then ''append'' the new public keys as a second step.
+
+To do this, first ensure you have a clean keystore, repeating the instructions given [[#enter_setup_mode|above]], if necessary. Then (working in the {{Path|/etc/efikeys}} directory as root), issue:
 {{RootCmd
-|efi-updatevar -a -c KEK.crt KEK
+|efi-updatevar -e -f old_dbx.esl dbx
+|efi-updatevar -e -f old_db.esl db
+|efi-updatevar -e -f old_KEK.esl KEK
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+To insert (only) the old values of {{c|dbx}}, {{c|db}} and {{c|KEK}}. The machine is still in user mode after this, as {{c|PK}} has not yet been written. Then, issue:
+{{RootCmd
 |efi-updatevar -a -c db.crt db
+|efi-updatevar -a -c KEK.crt KEK
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
 }}
+To append the new keys.
+
 Note that here, we are using the {{c|-a}} option to append (rather than replace), and a slightly different format for the input file (since it is a X.509 certificate, rather than a signature list, we drop the {{c|-e}}, and use {{c|-c}} rather than {{c|-f}} to introduce the pathname). More details can be found in the {{c|efi-updatevar}} manpage.
-{{Note|<span id{{=}}"efi_updatevar_problems">On some machines</span> (with certain AMT, and some other, BIOSes) the above {{c|efi-updatevar}} commands may fail, with an error of "{{c|Cannot write to ..., wrong filesystem permissions}}". This appears to be a known issue,<ref>James Bottomley's random Pages: [http://blog.hansenpartnership.com/uefi-secure-boot/#comment-73940 "UEFI Secure Boot: Comment 73940"]</ref> but there is no fix in {{c|efi-updatevar}} as yet. I encountered this problem myself recently, when installing a Librem 13 laptop, and performed the following to work around it.<br><br>First, I created [[:Wikipedia:X.690#DER_encoding|DER]] versions of each of the three certificates, as follows:{{RootCmd
-|openssl x509 -outform DER -in PK.crt -out PK.cer
-|openssl x509 -outform DER -in KEK.crt -out KEK.cer
-|openssl x509 -outform DER -in db.crt -out db.cer
-|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
-}}I then copied these three {{c|DER}} certificates to the boot USB key, restarted the machine, entered the BIOS and used the available BIOS GUI commands to clear the keystore (as {{c|efi-updatevar}} appeared to have corrupted it). Then, again via the BIOS GUI, I inserted the new {{c|.cer}} certificates directly from the boot USB key, taking care to insert {{c|PK.cer}} last. After this, I enabled secure boot, and all was well (also, {{c|efi-updatevar}} displayed the new variables correctly). The AMT BIOS on the Librem 13 provides options to install new keys and also to append to an existing keystore; however, your BIOS may not offer the same range of options.<br><br>
-Another alternative, if you are experiencing the "{{c|wrong filesystem permissions}}" issue, is to use {{c|KeyTool}}. For more details, please see [[../Configuring_Secure_Boot/Using KeyTool{{!}}this short addendum]].
-<br>For avoidance of doubt, most users will '''not''' have to undertake the steps outlined in this note, but should just follow along with the instructions given in the main text.}}
 
-{{Note|Additionally, on some BIOSes which exhibit the "you can only set new values, but not append to them" bug, the problem may be worked around by creating ''compendium'' (new + old) esl files for the KEK and db (esl files can simply be concatenated<ref>Developers Club: [http://developers-club.com/posts/273497/ "We subdue UEFI SecureBoot"]; see section "We convert public keys into the ESL format"</ref>), and then (after entering setup mode and clearing the keys) setting these compendium files (in lieu of the "set old, then append new" procedure described in the main body of the text [[#set_new_values|above]]). To do this, enter setup mode and then proceed as follows:{{RootCmd
-|cert-to-efi-sig-list -g "$(uuidgen)" KEK.crt KEK.esl
-|cert-to-efi-sig-list -g "$(uuidgen)" db.crt db.esl
-|cat old_KEK.esl KEK.esl > new_KEK.esl
-|cat old_db.esl db.esl > new_db.esl
-|efi-updatevar -e -f new_KEK.esl KEK
-|efi-updatevar -e -f new_db.esl db
-|efi-updatevar -e -f old_dbx.esl dbx
-|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
-}}Then proceed to write the platform key to enter user mode, as described in the main text, [[#set_PK|below]].
+If that works, continue reading [[#set_PK|immediately below]]; otherwise, the {{c|efi-updatevar}} (aka method 1) approach will not work on your machine, and you should [[#install_new_keys_2{{!}}jump now to method 2]] and try that, instead.
+
+For avoidance of doubt, if the original 'compound esl' approach ([[#set_new_values|above]]) ''did'' work for you, you should '''not''' carry out the instructions detailed in this note - instead, simply continue reading [[#set_PK|immediately below]].
 }}
 
-{{Note|This tutorial is primarily aimed at those users wishing to dual-boot, who will, therefore, wish to retain the Microsoft keys (without which, Windows will not secure boot). However, if you do '''not''' wish to retain the Microsoft keys, (other than their {{c|dbx}}, which is safe), then you should perform the following three commands, in place of the five just listed in the main body of the text (note that the {{c|-a}} flag is omitted for the {{c|KEK}} and {{c|db}} updates):
-{{RootCmd
-|efi-updatevar -e -f old_dbx.esl dbx
-|efi-updatevar -c KEK.crt KEK
-|efi-updatevar -c db.crt db
-|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
-}}For avoidance of doubt, please note that this advice will '''not''' apply to most readers of this tutorial (who may safely ignore it, and who should '''not''' issue the three commands in this note)!}}
-
-<span id="set_PK">Having made our changes,</span> we can now write our own platform key into PK, using the signed signature list we created [[#create_PK_auth|earlier]]. Issue:
+<span id="set_PK">Having</span> made our changes, we can now write our own platform key into PK, using the signed signature list we created [[#create_PK_auth|earlier]]. Issue:
 {{RootCmd
 |efi-updatevar -f PK.auth PK
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
@@ -264,7 +327,7 @@ Display the contents of all the secure variables now. Issue:
 }}
 and verify that both your new keys, and Microsoft's original set, are present.
 
-Now, let's make a backup (in machine readable signature list format) of the current state of the variables. Issue:
+Now, let's make a backup (in machine readable signature list format) of the current (i.e., new) state of the variables. Issue:
 {{RootCmd
 |efi-readvar -v PK -o new_PK.esl
 |efi-readvar -v KEK -o new_KEK.esl
@@ -272,6 +335,307 @@ Now, let's make a backup (in machine readable signature list format) of the curr
 |efi-readvar -v dbx -o new_dbx.esl
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
 }}
+
+If all of the above went through without error, congratulations, your augmented keystore has now been set up, so continue reading at [[#test_secure_boot|Testing Secure Boot with a Signed Kernel]], below. Do '''not''' carry out the commands in method 2 or method 3; your setup is already complete.
+
+However, if you ''did'' experience errors when running the preceding commands (the most likely being a message of "{{c|Cannot write to ..., wrong filesystem permissions}}" when running {{c|efi-updatevar}} [[#set_new_values|above]]), you should continue reading and try method 2, [[#install_new_keys_2|immediately below]].
+
+=== <span id="install_new_keys_2">Method 2: Inserting Keys via PC's BIOS GUI</span> ===
+
+{{Note|You need only try the approach outlined here if [[#install_new_keys_1{{!}}method 1]] did not work on your machine; if method 1 ''did'' work, continue reading from [[#test_secure_boot|here]] instead.}}
+
+Some higher-end or developer-oriented PCs will allow direct manipulation of the keystore variables through the UEFI BIOS GUI. If yours does, you will very likely be able to load your key-material setup files (stored temporarily on the USB boot key, so that the EFI BIOS can read them) in this way instead.
+
+Assuming you are currently logged in to your target PC as {{c|root}} and are working the {{Path|/etc/efikeys}} directory, proceed as follows. First, ensure the boot USB key is still inserted into the target PC. Then, temporarily mount it; issue:
+{{RootCmd
+|lsblk
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+to locate the drive, and then issue
+{{RootCmd
+|mount -v -t vfat /dev/sdM1 /boot/efi
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+to mount it.
+{{Note|Replace {{Path|/dev/sdM1}} in the above command with that of your boot USB key's first partition, as determined via {{c|lsblk}}; this will be something like {{Path|/dev/sdb1}}, {{Path|/dev/sdc1}} etc., but the actual path will be system-dependent.}}
+
+<span id="copy_keys_to_boot_usb">Then, copy</span> all the (non-private) key material onto this key (none of these files is very large). Issue:
+{{RootCmd
+|cp -v *.{auth,cer,crt,esl} /boot/efi/
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+{{Important|Don't copy any of the {{c|*.key}} files onto the USB drive! These are the private keys, and should not be publicly shared.}}
+
+Now {{c|sync}}, and unmount the boot USB key again:
+{{RootCmd
+|sync
+|umount -v /boot/efi
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+then, leaving the boot USB key inserted, reboot the machine:
+{{RootCmd
+|systemctl reboot
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+''Immediately'' your target PC starts to come back up again, enter the BIOS setup screen. As mentioned before, the exact method of entering the BIOS varies greatly from machine to machine (as does the BIOS user interface itself). On the Panasonic CF-AX3, you press {{Key|F2}} during startup (you may need to press it repeatedly, and you do this directly on the target machine's keyboard; as it happens the same BIOS entry method works for the Dell Inspiron 5567 15 laptop, which was used for the screenshots below).
+
+Once the BIOS setup screen comes up, using the same navigation techniques as [[../Creating_and_Booting_the_Minimal-Install_Image_on_USB#bios_navigation|before]], perform the following steps:
+# clear the UEFI secure boot variables (again), thereby entering setup mode;
+# use the BIOS GUI to load {{Path|old_dbx.auth}}, {{Path|compound_db.auth}} and {{Path|compound_KEK.auth}}, in that order;
+# use the BIOS GUI to load {{Path|PK.auth}}, thereby setting the machine back into user mode; then
+# restart your machine (saving changes).
+
+It's impossible to be precise about the GUI actions required to achieve the above, as they will vary from BIOS to BIOS. However, to give you some idea, here's how you go about it on a Dell Inspiron 5567 15 laptop, which has a custom Dell BIOS.
+
+To achieve step 1, use the mouse or touchpad to expand the 'Secure Boot' treeview item in the left panel, and click on the 'Expert Key Management' sub-item. In the right pane, make sure the 'Enable Custom Mode' checkbox is ticked, then click the 'Delete All Keys' button (and click 'Yes' when prompted to confirm), to clear the keystore:
+{|style="background:transparent; color:black" 
+|[[File:Dell_bios_clear_boot_keys.jpg|thumb|none|400px|Clearing Boot Keys (Entering Setup Mode) on a Dell Inspiron 5567 15 Laptop's BIOS]]
+|}
+
+Then, to achieve step 2, first click on the 'dbx' radio button (in the 'Custom Mode Key Management' group), then click 'Replace from File'. A dialog box will open, allowing you to select which (EFI) filesystem you wish to read from. Select the line in the 'File System List' that contains 'USB' (it should be chosen by default; the other is the Windows EFI partition on your hard drive), and then click the button marked '...' to bring up a file chooser. Then, select the {{Path|old_dbx.auth}} file (that we [[#create_auth_dbx|prepared]] and [[#copy_keys_to_boot_usb|copied to the boot USB key]] earlier) from this list, and click 'OK' to select it, then 'OK' again to load it:
+{|style="background:transparent; color:black" 
+|[[File:Dell_bios_replace_dbx.jpg|thumb|none|400px|Replacing dbx Secure Boot Variable...]]
+|[[File:Dell_bios_select_dbx_auth_file.jpg|thumb|none|400px|...With our {{Path|old_dbx.auth}} file from the Boot USB Key]]
+|}
+
+{{Note|You may be wondering why we select the {{c|.auth}} rather than the {{c|.esl}} file here, since the machine has a clear keystore, and so has no {{c|KEK}} to check the signature on {{Path|old_dbx.auth}} against. The reason is simply that the {{c|.auth}} file format seems to be accepted on more machines' BIOSes than {{c|.esl}}, although (for all but the final {{c|PK}} value), the {{c|.esl}} files ''should'' be just as useful.}}
+
+Next, do the same thing with the {{c|db}} variable, only this time, choose the {{Path|compound_db.auth}} file (that we [[#create_compound_esls|prepared]] and [[#copy_keys_to_boot_usb|copied to the boot USB key]] earlier) in the file selection dialog:
+{|style="background:transparent; color:black" 
+|[[File:Dell_bios_replace_db.jpg|thumb|none|400px|Replacing db Secure Boot Variable...]]
+|[[File:Dell_bios_select_db_auth_file.jpg|thumb|none|400px|...With our {{Path|compound_db.auth}} file from the Boot USB Key]]
+|}
+
+With the {{c|dbx}} and {{c|db}} loaded, next do the same for the {{c|KEK}} secure boot variable. Here, choose the {{Path|compound_KEK.auth}} file (that we [[#create_compound_esls|prepared]] and [[#copy_keys_to_boot_usb|copied to the boot USB key]] earlier) in the file selection dialog:
+{|style="background:transparent; color:black" 
+|[[File:Dell_bios_replace_KEK.jpg|thumb|none|400px|Replacing KEK Secure Boot Variable...]]
+|[[File:Dell_bios_select_KEK_auth_file.jpg|thumb|none|400px|...With our {{Path|compound_KEK.auth}} file from the Boot USB Key]]
+|}
+
+Lastly, we do the same thing for the {{c|PK}} secure boot variable, thereby tipping the system back into user mode (but with our platform key installed). Here, choose the {{Path|PK.auth}} file (that we [[#create_auth|prepared]] and [[#copy_keys_to_boot_usb|copied to the boot USB key]] earlier) in the file selection dialog:
+{|style="background:transparent; color:black" 
+|[[File:Dell_bios_replace_PK.jpg|thumb|none|400px|Replacing PK Secure Boot Variable (Entering User Mode)...]]
+|[[File:Dell_bios_select_PK_auth_file.jpg|thumb|none|400px|...With our {{Path|PK.auth}} file from the Boot USB Key]]
+|}
+
+With all four secure boot variables set up, simply click on the 'Exit' button to restart (thereby achieving step 4).
+
+The machine should restart, and, just as [[../Configuring_systemd_and_Installing_Necessary_Tools#entering_plymouth_LUKS_password|before]], you will see the {{c|plymouth}} passphrase screen. Enter your LUKS keyfile {{c|gpg}} passphrase (the one you created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]), directly at the target machine keyboard, and wait for the text console login to appear.
+
+Then, re-connect to the machine via {{c|ssh}}. From the helper PC, issue:
+{{Cmd
+|ssh root@192.168.1.106
+|prompt=user@pc2 $
+|output=<pre>
+Password: <enter root password>
+... additional output suppressed ...
+</pre>}}
+{{Note|Substitute whatever IP address you got back from {{c|ifconfig}} [[../Configuring_systemd_and_Installing_Necessary_Tools#post_reboot_ip{{!}}earlier]] for 192.168.1.106 in the above command. It is possible (although unlikely, with modern DHCP) that the target's IP address will have changed during the reboot. If so, log in directly at the target machine's keyboard, use {{c|ifconfig}} to find out the new address, then issue the above {{c|ssh}} command citing that address. As before, in such a case you may need to clean out any previous record of {{c|ssh}} connections to (other machines at) that new address (since the fingerprints will not match), using:
+{{Cmd
+|sed -i '/^[^[:digit:]]*192.168.1.106[^[:digit:]]/d' ~/.ssh/known_hosts
+|prompt=user@pc2 $}}
+obviously substituting the new address for {{c|192.168.1.106}} in the above. Then, be sure to check the fingerprint when prompted (by the subsequent {{c|ssh}} command), against those you noted down [[../Configuring_systemd_and_Installing_Necessary_Tools#note_new_fingerprints{{!}}earlier]].
+}}
+{{Note|If installing over WiFi, and you had to manually restart {{c|wpa_supplicant}} in the [[../Configuring_systemd_and_Installing_Necessary_Tools#manually_start_wpa_supplicant_systemd{{!}}previous chapter]], then you'll need to do so again here (directly at the target machine's keyboard) before you'll be able to {{c|ssh}} in.}}
+
+Now proceed as below, using the {{c|ssh}} connection to enter all commands unless otherwise specified (again, we will not need {{c|screen}}). Issue:
+{{RootCmd
+|cd /etc/efikeys
+|prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}
+
+Display the contents of all the secure variables now. Issue:
+{{RootCmd
+|efi-readvar
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+and verify that both your new keys, and Microsoft's original set, are present.
+
+Now, let's make a backup (in machine readable signature list format) of the current (i.e., new) state of the variables. Issue:
+{{RootCmd
+|efi-readvar -v PK -o new_PK.esl
+|efi-readvar -v KEK -o new_KEK.esl
+|efi-readvar -v db -o new_db.esl
+|efi-readvar -v dbx -o new_dbx.esl
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+Obviously, in the preceding, the actual BIOS GUI operations ''you'' will need to perform will most likely be somewhat different (depending on the make and version of your UEFI BIOS), but, if you were able to insert the four {{c|.auth}} files without error (and the above {{c|efi-readvar}} shows the values correctly initialized), then congratulations, your augmented keystore has now been set up, so continue reading at [[#test_secure_boot|Testing Secure Boot with a Signed Kernel]], below. Do '''not''' carry out the commands in method 3; your setup is already complete.
+
+However, if you ''did'' experience errors when running the preceding commands (for example, your PC's BIOS claims your {{c|.auth}} files have an unrecognised format), you should continue reading and try method 3, [[#install_new_keys_3|immediately below]].
+
+{{Tip|If your target PC's UEFI BIOS GUI ''appears'' to afford you the option of loading the secure-boot variables from file, but the above {{c|.auth}}-based flow did not work for you, it is worth experimenting with some of the other keystore setup file types (for example, vanilla {{c|.esl}} rather than {{c|.auth}}), or a different load order (for example, {{c|KEK}}&rarr;{{c|db}}&rarr;{{c|dbx}}&rarr;{{c|PK}}, rather than {{c|dbx}}&rarr;{{c|db}}&rarr;{{c|KEK}}&rarr;{{c|PK}}), or appending (rather than overwriting) the variable contents, before giving up and trying method 3. Unfortunately, as BIOSes vary greatly and are almost all closed-source, it is impossible to be any more definitive.}}
+
+=== <span id="install_new_keys_3">Method 3: Inserting Keys via Keytool</span> ===
+
+{{Note|You need only try the approach outlined here if ''neither'' [[#install_new_keys_1{{!}}method 1]] nor [[#install_new_keys_2{{!}}method 2]] worked on your machine; if either method 1 or method 2 ''did'' work, continue reading from [[#test_secure_boot|here]] instead.}}
+
+Even if your UEFI BIOS does not provide the ability to update the secure boot variables from file (or, if it appears to do so, but would not work for you when following method 2, [[#install_new_keys_2|above]]), you can still use the {{c|KeyTool}} binary (which is bundled with {{Package|app-crypt/efitools}}) for this purpose. It is an EFI executable program.
+
+To use it, we'll copy the executable onto the boot USB key, and install a one-time EFI boot entry for it. Then, we'll clear the secure-boot state using the BIOS GUI, allow the BIOS to restart into {{c|KeyTool}}, and then use this program to set our desired {{c|dbx}}, {{c|db}}, {{c|KEK}} and {{c|PK}}. Then, we'll reboot back into Gentoo again.
+
+To do so, assuming you are currently logged in to your target PC as {{c|root}} and are working the {{Path|/etc/efikeys}} directory, proceed as follows. First, ensure the boot USB key is still inserted into the target PC. Then, temporarily mount it; issue:
+{{RootCmd
+|lsblk
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+to locate the drive, and then issue
+{{RootCmd
+|mount -v -t vfat /dev/sdM1 /boot/efi
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+to mount it.
+{{Note|Replace {{Path|/dev/sdM1}} in the above command with that of your boot USB key's first partition, as determined via {{c|lsblk}}; this will be something like {{Path|/dev/sdb1}}, {{Path|/dev/sdc1}} etc., but the actual path will be system-dependent.}}
+
+<span id="copy_keys_to_boot_usb2">Next, if you have not already done so as part of method 2, [[#copy_keys_to_boot_usb|above]], copy</span> all the (non-private) key material onto this key (none of these files is very large). Issue:
+{{RootCmd
+|cp -v *.{auth,cer,crt,esl} /boot/efi/
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+{{Important|Don't copy any of the {{c|*.key}} files onto the USB drive! These are the private keys, and should not be publicly shared.}}
+
+Next, copy the {{c|KeyTool}} executable to the boot USB key:
+{{RootCmd
+|cp -v /usr/share/efitools/efi/KeyTool.efi /boot/efi/EFI/Boot/
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+{{Note|At your option, you can instead ''sign'' the {{c|EfiTool}} executable with your {{c|db}} key, and use that version. (This is ''not'' required at the moment, since secure boot is off, but doing so will allow you to use the tool again in the future, even once secure boot ''has'' been enabled). To use a signed {{c|KeyTool}}, instead of the above command, issue:
+{{RootCmd
+|sbsign --key db.key --cert db.crt --output /boot/efi/EFI/Boot/KeyTool.efi /usr/share/efitools/efi/KeyTool.efi
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}}}
+
+<span id="onetime_keytool">Now,</span> we need to tell the UEFI BIOS to boot {{c|KeyTool}} on the next restart, but after that to revert to the normal boot order (so our Gentoo system will boot again). To do so, we'll archive the current boot order into a temporary shell variable {{c|OLD_BOOTORDER}}, create a new boot entry for {{c|KeyTool}} (at EFI boot slot 99, which should be unused; this entry will automatically go to the top of the boot list), reset the boot list to the value of {{c|OLD_BOOTORDER}} (thereby ''dropping'' bootslot 99 from the permanent boot order), then set the ''one-time'' {{c|BootNext}} entry to point to {{c|KeyTool}}'s entry (slot 99). Issue:
+{{RootCmd
+|OLD_BOOTORDER{{=}}"$(efibootmgr {{!}} grep "^BootOrder: " {{!}} cut -d' ' -f2)"
+|efibootmgr --create --disk /dev/sdM --part 1 --loader /EFI/Boot/KeyTool.efi --label KeyTool --bootnum 99
+|efibootmgr --bootorder "${OLD_BOOTORDER}"
+|efibootmgr --bootnext 99
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+{{Note|Replace {{Path|/dev/sdM}} in the above command with that of your boot USB key's device path, as determined via {{c|lsblk}}; this will be something like {{Path|/dev/sdb}}, {{Path|/dev/sdc}} etc., but the actual path will be system-dependent. Note that here, you specify the drive itself, so e.g., {{Path|/dev/sdb}} and ''not'' {{Path|/dev/sdb1}}, {{Path|/dev/sdc}} and ''not'' {{Path|/dev/sdc1}} etc. }}
+
+Now {{c|sync}}, and unmount the boot USB key again:
+{{RootCmd
+|sync
+|umount -v /boot/efi
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+then, leaving the boot USB key inserted, reboot the machine:
+{{RootCmd
+|systemctl reboot
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+''Immediately'' your target PC starts to come back up again, enter the BIOS setup screen. As mentioned before, the exact method of entering the BIOS varies greatly from machine to machine (as does the BIOS user interface itself). On the Panasonic CF-AX3, you press {{Key|F2}} during startup (you may need to press it repeatedly, and you do this directly on the target machine's keyboard; the same BIOS entry method works for the Dell Inspiron 5567 15 laptop, which we will continue with in the following example).
+
+Once the BIOS setup screen comes up, using the same navigation techniques as [[../Creating_and_Booting_the_Minimal-Install_Image_on_USB#bios_navigation|before]], perform the following steps:
+# clear the UEFI secure boot variables (again), thereby entering setup mode; and
+# restart your machine (saving changes).
+
+It's impossible to be precise about the GUI actions required to achieve the above, as they will vary from BIOS to BIOS. However, to give you some idea, here's how you go about it on a Dell Inspiron 5567 15 laptop, which has a custom Dell BIOS.
+
+To achieve step 1, use the mouse or touchpad to expand the 'Secure Boot' treeview item in the left panel, and click on the 'Expert Key Management' sub-item. In the right pane, then make sure the 'Enable Custom Mode' checkbox is ticked, then click the 'Delete All Keys' button (and click 'Yes' when prompted to confirm), to clear the keystore:
+{|style="background:transparent; color:black" 
+|[[File:Dell_bios_clear_boot_keys.jpg|thumb|none|400px|Clearing Boot Keys (Entering Setup Mode) on a Dell Inspiron 5567 15 Laptop's BIOS]]
+|}
+
+{{Note|If your BIOS does ''not'' offer you the ability to at least clear the EFI secure boot variables (and thereby enter setup mode), you will not be able to use secure boot for Linux your machine, and you should [[#verify_win8_secure_boot{{!}}skip]] to the next section now. In such a case, turn off secure boot when using Gentoo.}}
+
+To restart, simply click on the 'Exit' button to restart (thereby achieving step 2).
+
+Because of our [[#onetime_keytool|earlier]] change to the {{c|BootNext}} value, the machine should then restart directly into {{c|KeyTool}}. This will display its main menu screen, with an indication that the PC is in setup mode, and that secure boot is off. Working directly at the target machine's keyboard, use the arrow keys to highlight the 'Edit Keys' menu entry:
+
+{|style="background:transparent; color:black" 
+|[[File:KeyTool_edit_keys.png|thumb|none|400px|Electing to Edit the Keystore, in KeyTool Main Menu]]
+|}
+
+and press {{Key|Enter}} to select it.
+
+You will then be presented with a list of the secure boot keys that {{c|KeyTool}} can manipulate. Using the cursor keys, navigate down to 'The Forbidden Signatures Database (dbx)', and press {{Key|Enter}} to select it. In the next menu screen (using the same navigation techniques; you can use the {{Key|Esc}} key to back out a level if you make a mistake) choose the 'Replace Key(s)' entry and press {{Key|Enter}}. You will then be prompted to select a filesystem; choose the one shown that contains 'Usb' (the other is your Windows EFI partition on the machine's hard drive, probably labelled 'ESP') and press {{Key|Enter}}. In the subsequent file chooser list, select {{Path|old_dbx.auth}} (that we [[#create_auth_dbx|prepared]] and [[#copy_keys_to_boot_usb2|copied to the boot USB key]] earlier) and press {{Key|Enter}} to load it:
+
+{|style="background:transparent; color:black" 
+|[[File:KeyTool_manipulate_dbx.png|thumb|none|350px|Selecting dbx Secure Boot Variable...]]
+|[[File:KeyTool_replace_dbx.png|thumb|none|350px|...And Overwriting It, With...]]
+|[[File:KeyTool_select_dbx_auth_file.png|thumb|none|350px|...{{Path|old_dbx.auth}} from the Boot USB Key]]
+|}
+The order that files are displayed in the chooser may differ on your system.
+{{Note|You may be wondering why we select the {{c|.auth}} rather than the {{c|.esl}} file here, since the machine has a clear keystore, and so has no {{c|KEK}} to check the signature on {{Path|old_dbx.auth}} against. The reason is simply that the {{c|.auth}} file format seems to be accepted on more machines' BIOSes than {{c|.esl}}, although (for all but the final {{c|PK}} value), the {{c|.esl}} files ''should'' be just as useful.}}
+
+With the {{c|dbx}} variable loaded, you will be returned to the 'Select Key to Manipulate' screen again. Go through the same process for the {{c|db}} variable, only this time, choose the {{Path|compound_db.auth}} file (that we [[#create_compound_esls|prepared]] and [[#copy_keys_to_boot_usb2|copied to the boot USB key]] earlier) in the file selection dialog:
+
+{|style="background:transparent; color:black" 
+|[[File:KeyTool_manipulate_db.png|thumb|none|350px|Selecting db Secure Boot Variable...]]
+|[[File:KeyTool_replace_db.png|thumb|none|350px|...And Overwriting It, With...]]
+|[[File:KeyTool_select_db_auth_file.png|thumb|none|350px|...{{Path|compound_db.auth}} from the Boot USB Key]]
+|}
+
+With the {{c|dbx}} and {{c|db}} loaded, next do the same for the {{c|KEK}} secure boot variable. Here, choose the {{Path|compound_KEK.auth}} file (that we [[#create_compound_esls|prepared]] and [[#copy_keys_to_boot_usb2|copied to the boot USB key]] earlier) in the file selection dialog:
+
+{|style="background:transparent; color:black" 
+|[[File:KeyTool_manipulate_KEK.png|thumb|none|350px|Selecting KEK Secure Boot Variable...]]
+|[[File:KeyTool_replace_KEK.png|thumb|none|350px|...And Overwriting It, With...]]
+|[[File:KeyTool_select_KEK_auth_file.png|thumb|none|350px|...{{Path|compound_KEK.auth}} from the Boot USB Key]]
+|}
+
+Lastly, we do the same thing for the {{c|PK}} secure boot variable, thereby tipping the system back into user mode (but with our platform key installed). Here, choose the {{Path|PK.auth}} file (that we [[#create_auth|prepared]] and [[#copy_keys_to_boot_usb|copied to the boot USB key2]] earlier) in the file selection dialog:
+
+{|style="background:transparent; color:black" 
+|[[File:KeyTool_manipulate_PK.png|thumb|none|350px|Selecting PK Secure Boot Variable...]]
+|[[File:KeyTool_replace_PK.png|thumb|none|350px|...And Overwriting It (Entering User Mode), With...]]
+|[[File:KeyTool_select_PK_auth_file.png|thumb|none|350px|...{{Path|PK.auth}} from the Boot USB Key]]
+|}
+
+With all four secure boot variables set up, press {{Key|Esc}} to return from the 'Select Key to Manipulate' screen to {{c|KeyTool}}'s main menu. It should show you that the 'Platform is in User Mode', if the previous steps were successful. Navigate to the the 'Exit' menu option, ensure the boot USB key is still inserted, and press {{Key|Enter}} to quit {{c|KeyTool}}, thereby automatically triggering a reboot.
+
+Now, as we only added a ''one-time'' ('BootNext') entry for the {{Path|/EFI/Boot/KeyTool.efi}} executable, your target PC should restart back into Gentoo. Just as [[../Configuring_systemd_and_Installing_Necessary_Tools#entering_plymouth_LUKS_password|before]], you will see the {{c|plymouth}} passphrase screen. Enter your LUKS keyfile {{c|gpg}} passphrase (the one you created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]), directly at the target machine keyboard, and wait for the text console login to appear.
+
+Then, re-connect to the machine via {{c|ssh}}. From the helper PC, issue:
+{{Cmd
+|ssh root@192.168.1.106
+|prompt=user@pc2 $
+|output=<pre>
+Password: <enter root password>
+... additional output suppressed ...
+</pre>}}
+{{Note|Substitute whatever IP address you got back from {{c|ifconfig}} [[../Configuring_systemd_and_Installing_Necessary_Tools#post_reboot_ip{{!}}earlier]] for 192.168.1.106 in the above command. It is possible (although unlikely, with modern DHCP) that the target's IP address will have changed during the reboot. If so, log in directly at the target machine's keyboard, use {{c|ifconfig}} to find out the new address, then issue the above {{c|ssh}} command citing that address. As before, in such a case you may need to clean out any previous record of {{c|ssh}} connections to (other machines at) that new address (since the fingerprints will not match), using:
+{{Cmd
+|sed -i '/^[^[:digit:]]*192.168.1.106[^[:digit:]]/d' ~/.ssh/known_hosts
+|prompt=user@pc2 $}}
+obviously substituting the new address for {{c|192.168.1.106}} in the above. Then, be sure to check the fingerprint when prompted (by the subsequent {{c|ssh}} command), against those you noted down [[../Configuring_systemd_and_Installing_Necessary_Tools#note_new_fingerprints{{!}}earlier]].
+}}
+{{Note|If installing over WiFi, and you had to manually restart {{c|wpa_supplicant}} in the [[../Configuring_systemd_and_Installing_Necessary_Tools#manually_start_wpa_supplicant_systemd{{!}}previous chapter]], then you'll need to do so again here (directly at the target machine's keyboard) before you'll be able to {{c|ssh}} in.}}
+
+Now proceed as below, using the {{c|ssh}} connection to enter all commands unless otherwise specified (again, we will not need {{c|screen}}). Issue:
+{{RootCmd
+|cd /etc/efikeys
+|prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}
+
+Display the contents of all the secure variables now. Issue:
+{{RootCmd
+|efi-readvar
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+and verify that both your new keys, and Microsoft's original set, are present.
+
+Now, let's make a backup (in machine readable signature list format) of the current (i.e., new) state of the variables. Issue:
+{{RootCmd
+|efi-readvar -v PK -o new_PK.esl
+|efi-readvar -v KEK -o new_KEK.esl
+|efi-readvar -v db -o new_db.esl
+|efi-readvar -v dbx -o new_dbx.esl
+|prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
+}}
+
+Obviously, in the preceding, the actual BIOS GUI operations ''you'' will need to perform will most likely be somewhat different (depending on the make and version of your UEFI BIOS), but, if you were able to insert the four {{c|.auth}} files without error using {{c|KeyTool}} (and the above {{c|efi-readvar}} shows the values correctly initialized), then congratulations, your augmented keystore has now been set up, so continue reading at [[#test_secure_boot|Testing Secure Boot with a Signed Kernel]], immediately below.
+
+However, if you ''did'' experience errors when running the preceding commands (and have already tried methods [[#install_new_keys_1|1]] and [[#install_new_keys_2|2]] also, without success) then unfortunately secure boot will not be usable (for non-Windows use) on your particular target PC. You'll need to ensure it is turned off when booting Gentoo.
 
 == <span id="test_secure_boot">Testing Secure Boot with a Signed Kernel</span> ==
 
@@ -293,7 +657,7 @@ This should not take long to complete (as by default it does not {{c|make clean}
 These warnings may safely be ignored.
 }}
 
-Assuming the kernel build completed successfully, we can now restart, turn on secure boot, and try it out! Issue:
+Assuming the kernel build completed successfully, we can now restart, turn on secure boot, and try it out! Ensure the boot USB key is still inserted, then issue:
 {{RootCmd
 |systemctl reboot
 |prompt=koneko <span style{{=}}"color:royalblue;">/etc/efikeys #</span>
@@ -314,15 +678,13 @@ To achieve step 1 on the CF-AX3, use the arrow keys to select the 'Security' tab
 
 Next, ensure that your USB boot key is still inserted, then press {{Key|F10}} to restart (step 2), and confirm if prompted.
 
-The machine should restart, and, if all goes well, you should shortly be prompted with the {{c|plymouth}} passphrase screen. If so, then congratulations, you are running a self-signed kernel under secure boot! Enter your LUKS keyfile {{c|gpg}} passphrase (the one you created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]), directly at the target machine keyboard, and wait for the text console login to appear, as previously.
+The machine should restart, and, if all goes well (and your kernel is reasonably modern) you should see the console message {{c|"EFI stub: UEFI Secure Boot is enabled."}} displayed briefly, followed shortly by the by now familiar {{c|plymouth}} passphrase screen. If so, then congratulations, you are running a self-signed kernel under secure boot! Enter your LUKS keyfile {{c|gpg}} passphrase (the one you created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]), directly at the target machine keyboard, and wait for the text console login to appear.
 
 {{Note|If you <span id{{=}}secure_boot_problems>have problems</span> (for example, the target PC refuses to boot your signed kernel), then simply restart, turn off secure boot again via the BIOS (as described [[../Final_Preparations_and_Reboot_into_EFI#turn_off_secure_boot|earlier]]), and then try working through the steps in this section again. 
 
-If that ''still'' doesn't work, or if you experience difficulties using the {{c|efi-readvar}} or {{c|efi-updatevar}} commands, then you may have more luck by either:
-* using the standalone {{c|keytool.efi}} utility; this is an EFI executable, available as a bootable USB image, which you can use to manipulate the secure variables;<ref name="boot_self_signed"/> or
-* using a [[:Wikipedia:UEFI_shell#The_UEFI_shell|UEFI shell]] to invoke special-purpose binaries from the {{c|efitools}} package.<ref>Smith, Rod. [http://www.rodsbooks.com/efi-bootloaders/controlling-sb.html "Managing EFI Boot Loaders for Linux: Controlling Secure Boot"]</ref>
+If that ''still'' doesn't work, then you may have more luck by using a [[:Wikipedia:UEFI_shell#The_UEFI_shell|UEFI shell]] to invoke special-purpose binaries from the {{c|efitools}} package.<ref>Smith, Rod. [http://www.rodsbooks.com/efi-bootloaders/controlling-sb.html "Managing EFI Boot Loaders for Linux: Controlling Secure Boot"]</ref>
 
-A short addendum covering the former is available [[../Configuring Secure Boot/Using KeyTool{{!}}here]]; the latter approach is currently beyond the scope of this tutorial.
+However, this is currently beyond the scope of this tutorial. If you cannot rectify the situation, you'll have to turn off secure boot when using Gentoo.
 }}
 
 == <span id="verify_win8_secure_boot">Verifying Secure Boot with Windows (and Fixing RTC)</span> ==
@@ -339,10 +701,10 @@ Now, while Windows is running, let's take the chance to switch its clock to UTC,
 
 To achieve this, login to your Windows account (which must have administrator rights - the first user created on a new Windows install has these by default), as usual. Next, perform the following steps (I have noted where things differ between Windows 10, 8.1 and 8):<ref>SuperUser Forum: [http://superuser.com/questions/494432/force-windows-8-to-use-utc-when-dealing-with-bios-clock#552275 "Force Windows 8 to use UTC when dealing with BIOS clock"]</ref>
 
-# First we'll {{Highlight|check the Windows time, date and timezone is correct}}. Hit the {{Key|Windows Key}}, which will bring up the start menu in Windows 10 (or the "start screen" in Windows 8.1 and 8), and type <code>date and time</code>. Then click on the 'Date and Time' item which appears (in Windows 10 and 8.1; Windows 8 users will need to click the 'Settings' icon to see this result; note also that in Windows 8.1 and 8, the item you need to click is entitled 'Date and time settings'). A 'Date and time' dialog appears. Set appropriate values for your locale.
+# First we'll {{Highlight|check the Windows time, date and timezone is correct}}. Hit the {{Key|Windows Key}}, which will bring up the start menu in Windows 10 (or the "start screen" in Windows 8.1 and 8), and type <code>date and time</code>. Then click on the 'Date and Time' item which appears (in Windows 10 and 8.1; Windows 8 users will need to click the 'Settings' icon to see this result; note also that in Windows 8.1 and 8, as well as in more modern versions of Windows 10, the item you need to click is entitled 'Date and time settings'). A 'Date and time' dialog appears. Set appropriate values for your locale, and close the dialog when done.
 # Next, we'll {{Highlight|instruct Windows to use UTC}} (this will require a registry edit). Hit the {{Key|Windows Key}}, which will bring up the start menu in Windows 10 (or the "start screen" in Windows 8.1 and 8), and type <code>regedit</code>. Then click on the 'regedit' item that appears. If prompted (via a dialog) whether to allow it to make changes to your computer, click 'Yes'. The {{c|regedit}} program now opens; using the navigation tree-view on the left, select {{c|HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\TimeZoneInformation}} (you need to click on the little arrows to see the lower levels of the tree). Once this item has been selected, various time-zone related information will display on the right-hand pane. Right-click in the white area at the bottom of this pane, and choose {{c|New->DWORD (32-bit Value)}} from the context menu that appears. A fresh DWORD entry is added to the end of the list with its name selected - overtype this with <code>RealTimeIsUniversal</code> then press {{Key|Enter}}. Now double-click on the name, and a dialog will appear, in which you can edit the key's value. Type in <code>1</code> (the number one) for the value, as shown below:[[File:Win8Regedit.png|thumb|none|400px|Setting UTC Under Windows]] Close the dialog by clicking on 'OK'. Then exit the {{c|regedit}} application (using the menu item {{c|File->Exit}}).
 # Now we'll {{Highlight|disable the Windows Time Service}}. This is most easily done from the Windows command line. Hit the {{Key|Windows Key}} , which will bring up the start menu in Windows 10 (or the "start screen" in Windows 8.1 and 8), and type <code>command</code>. Now ''right-click'' on the 'Command Prompt' icon that appears, then click on 'Run as administrator' item in the context menu (in Windows 10 and 8.1; it appears at the bottom of the screen in Windows 8). If asked whether you wish to proceed, click 'Yes'. You will be presented with an open command window. Now enter <code>sc config w32time start= disabled</code>. Hopefully, this should report {{c|SUCCESS}}. Close out the command window (by clicking on the 'x' in its title bar).
-# Next, we'll force Windows to {{Highlight|update the time}}. Hit the {{Key|Windows Key}}, which will bring up the start menu in Windows 10 (or the "start screen" in Windows 8.1 and 8), and type <code>date and time</code>. Then click on the 'Date and Time' item which appears (in Windows 10 and 8.1; Windows 8 users will need to click the 'Settings' icon to see this result; note also that in Windows 8.1 and 8, the item you need to click is entitled 'Date and time settings'). A 'Date and time' dialog (which we used above) appears again. Now, on Windows 10, select the 'Internet Time' tab, click on 'Change settings...' and click 'Update now', then press 'OK'. On Windows 8.1 and 8, instead move the 'Set time automatically' slider to 'Off', and then back to 'On' again. In either case, assuming you have a network connection, the time should immediately update when you do this (and, assuming your locale is set correctly, it should be accurate). Close out the dialog once complete.
+# Next, we'll force Windows to {{Highlight|update the time}}. Hit the {{Key|Windows Key}}, which will bring up the start menu in Windows 10 (or the "start screen" in Windows 8.1 and 8), and type <code>date and time</code>. Then click on the 'Date and Time' item which appears (in Windows 10 and 8.1; Windows 8 users will need to click the 'Settings' icon to see this result; note also that in Windows 8.1 and 8, as well as in more modern versions of Windows 10, the item you need to click is entitled 'Date and time settings'). A 'Date and time' dialog (which we used above) appears again. Now, on older versions of Windows 10, select the 'Internet Time' tab, click on 'Change settings...' and click 'Update now', then press 'OK'. On Windows 8.1 and 8, as well as on more modern versions of Windows 10, instead move the 'Set time automatically' slider to 'Off', and then back to 'On' again. In either case, assuming you have a network connection, the time should immediately update when you do this (and, assuming your locale is set correctly, it should be accurate). Close out the dialog once complete.
 
 == <span id="set_bios_password">Setting BIOS Password (Optional), and Restarting Gentoo Linux</span> ==
 
@@ -372,8 +734,9 @@ Press {{Key|Enter}} to set this as the top boot option. Finally, press {{Key|Esc
 * come back immediately into the BIOS (via {{Key|F2}} on the CF-AX3).
 You'll need to experiment to find what works on your particular machine.}}
 {{Note|Each time you use Windows, you'll need to go through this BIOS process prior to using your USB key to boot into Linux again, because Windows will generally place itself at the top of the list when it runs.<ref>Watson, J. ZDNet: [http://www.zdnet.com/uefi-and-windows-8-update-on-windowslinux-dual-boot-systems-7000028217/ "UEFI and Windows 8 Update on Windows/Linux dual-boot systems"]</ref> It's a little annoying, but we ''have'' avoided the need for a shim bootloader! (Furthermore, you only have to go through this process when switching from Windows to Linux, and ''not'' when power cycling Linux, or switching from Linux to Windows (since you simply restart without the USB boot key inserted to do that).)}}
+{{Note|There is some evidence that more modern versions of Windows 10 do ''not'' auto-rewrite the EFI boot list. If this is true on your target PC, then the dual-boot process is greatly simplified - just start up your machine with the boot USB key inserted, to run Gentoo, or with it absent, to run Windows.}}
 {{Note|<span id{{=}}"win_restart_use_a_device">There ''is'' an alternative procedure</span>, but it comes with some complications. When you are running Windows (and want to restart into Linux),  hit {{Key|Ctrl}}{{Key|Alt}}{{Key|Delete}}, then click on the power icon at the bottom right of the screen, and then ''while holding down'' {{Key|Shift}}, click 'Restart' from the pop-up menu. This will pass you into the Windows boot options menu. Once this comes up (and asks you to 'Choose an option'), click on the 'Use a device' tile. This will show another page, on which you will see a tile entitled 'Gentoo Linux (USB Key)' (and possibly some others). Insert the boot USB key, click the tile, and you should find that the system restarts and that Linux is loaded (and you get the usual {{c|plymouth}} passphrase screen, etc.).
-So far, so good, since this way of working avoids going through the BIOS. However, when you do this, Windows has only really set the (one-time) 'boot next' value in EFI, which means that once you restart ''again'' from Gentoo (even with the boot USB key still inserted), Windows will start up.
+So far, so good, since this way of working avoids going through the BIOS. However, when you do this, Windows has only really set the (one-time) 'BootNext' value in EFI, which means that once you restart ''again'' from Gentoo (even with the boot USB key still inserted), Windows will start up.
 To get around this, <span id{{=}}"use_efibootmgr">once you</span> have booted into Gentoo and logged in as root, you need to use the {{c|efibootmgr}} tool (which you already have installed on your system at this point, as it is a dependency of {{c|buildkernel}}), to show (and then re-order) the boot list. As root, issue:
 {{RootCmd
 |efibootmgr
@@ -421,7 +784,7 @@ It is then sensible (on the CF-AX3, at any rate) to disable the BIOS's ''boot'' 
 
 That's it! Now ensure that the boot USB key is still inserted, then press {{Key|F10}} to restart (step 3), and confirm if prompted.
 
-The machine should restart, and, if all goes well, you should shortly be prompted with the (by now familiar) {{c|plymouth}} passphrase screen. Enter your LUKS keyfile {{c|gpg}} passphrase (the one you created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]), directly at the target machine keyboard, and wait for the text console login to appear, just as before.
+The machine should restart, and, if all goes well, you should shortly be prompted with the familiar {{c|plymouth}} passphrase screen. Enter your LUKS keyfile {{c|gpg}} passphrase (the one you created [[../Preparing_the_LUKS-LVM_Filesystem_and_Boot_USB_Key#create_gpg_luks_keyfile|earlier]]), directly at the target machine keyboard, and wait for the text console login to appear, just as before.
 
 Then, re-connect to the machine via {{c|ssh}}. From the helper PC, issue:
 {{Cmd
@@ -447,6 +810,18 @@ The final thing thing we must do here is to check that our system time details h
 |prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
 }}
 and make sure the time and date are still correct, and in particular that the "{{c|RTC in local TZ}}" field reports as {{c|no}}.
+
+If the local time is ''not'' correct, issue:
+{{RootCmd
+|timedatectl set-time "YYYY-MM-DD hh:mm:ss"
+|prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}
+to set it.
+{{Note|Obviously, substitute for {{c|YYYY-MM-DD hh:mm:ss}} with the actual, numerical date and time. For example, to set the date/time to 5:20pm on August 29th 2017 (''local time''), you would issue:
+{{RootCmd
+|timedatectl set-time "2017-08-29 17:20:00"
+|prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}}}
 
 == <span id="next_steps">Next Steps</span> ==
 
