@@ -119,19 +119,11 @@ Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 
 == Installation ==
 
-(Write the necessary steps to get Gentoo onto this system. Try to document any special step that each user will need to reproduce on their system. Includes getting special drivers or firmware from a manufacturer website, etc.)
-
 === Firmware ===
 All of the required firmware, including the wifi driver should be available in the {{Package|sys-kernel/linux-firmware}} package.
 
 === Kernel ===
-The following kernel options are configured for use by the nvidia binary driver, and PRIME support. It also uses systemd as the init process, so some settings may be reconfigured if you want to use either the open source nouveau driver, or Open RC.
-
-More info found on:
-* https://wiki.gentoo.org/wiki/Systemd
-* https://wiki.gentoo.org/wiki/OpenRC
-* https://wiki.gentoo.org/wiki/NVidia/nvidia-drivers
-* https://wiki.gentoo.org/wiki/Nouveau
+This does not include specific settings to, for example, the init system that you are using, or the graphics drivers.
 
 Note at the time this article was written, the kernel version used was 4.12.5
 {{KernelBox|title=Enable support for these hardware drivers|1=
@@ -212,26 +204,78 @@ Note: Bluetooth was not tested on the system. The kernel parameters enabled for 
 
 == Video Card Setup with Nvidia Binary Drivers ==
 
+The laptop has a dual GPU setup operating on Nvidia Optimus. The integrated intel card is what is attached to the laptop screen, and the discrete Quadro card is what interfaces with the outside HDMI and DisplayPort. It is possible to run the laptop without the discrete graphics card for better power usage, however doing so will sacrifice the ability to output to HDMI or Display Port. To do so, simply compile only for the intel driver, and X-server should pick everything up by default without any extra configuration.
 
-(Explain any additional configuration or special customization for this hardware platform. Could be anything from BIOS settings to assigning proper media key functionality.)
+The better option is to use the discrete card. Note that it's recommended to use the binary nvidia driver in place of the open source nouveau driver, as the binary driver offers the best performance, and features Prime Synchronization, which eliminates screen tearing (a prominent problem on the laptop as it uses hybrid graphics). The caveat is that the discrete card has no ability to turn off on the binary driver, thus offering worse battery performance compared to the nouveau driver.
 
-=== Example 1 ===
+To configure your system to use the binary driver, add to your VIDEO_CARDS field in make.conf:
+{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
+VIDEO_CARDS="nvidia intel i965"
+}}
 
-(Example: Do this in order to get these keys working.)
+Update the system, which should automatically install the nvidia driver package.
+{{RootCmd|emerge --ask --changed-use --deep @world}}
 
-== Troubleshooting ==
+Your X.org server configuration should look like this. This will enable PRIME on the device, allowing the machine to use both its discrete card for rendering, and intel card for displaying to laptop screen.
 
-(Optional section.)
+{{FileBox|filename=/etc/X11/xorg.conf|lang=xorg_conf|1=
+Section "ServerLayout"
+    Identifier "layout"
+    Screen 0 "nvidia"
+    Inactive "intel"
+EndSection
 
-(Troubleshoot issues in this section. Separate issues by best describing the error with a new section name. Remove this section and subsections if no issues are known.)
+Section "Device"
+    Identifier "nvidia"
+    Driver "nvidia"
+    BusID "PCI:1:0:0"
+EndSection
 
-=== Issue 1 ===
+Section "Screen"
+    Identifier "nvidia"
+    Device "nvidia"
+    Option "AllowEmptyInitialConfiguration"
+    #Option "UseDisplayDevice" "none"
+EndSection
 
-When X happens, Y is how you fix it.
+Section "Device"
+    Identifier "intel"
+    Driver "modesetting"
+    BusID "PCI:0:2:0"
+    #Option "AccelMethod"  "sna"
+    #Option "TearFree" "True"
+    #Option "Tiling" "True"
+    #Option "SwapbuffersWait" "True"
+EndSection
 
-== See also ==
+Section "Screen"
+    Identifier "intel"
+    Device "intel"
+EndSection
+}}
 
-(Optional section.)
+=== Prime Synchronization ===
+To eliminate any screen tearing, PRIME Synchronization will need to be enabled. To do this, some nvidia kernel modules have to be loaded in at startup. Add the following entries to the nvidia.conf file in the modprobe.d folder:
+
+{{FileBox|filename=/etc/modprobe.d/nvidia.conf|lang=modprobed_conf|1=
+nvidia
+nvidia_modeset
+nvidia_uvm
+nvidia_drm
+
+options nvidia_drm modeset=1
+}}
+
+You will also have to add the following lines to your {{Path|~/.xinitrc}} or display manager start script:
+
+{{FileBox|filename=~/.xinitrc|1=
+xrandr --setprovideroutputsource modesetting NVIDIA-0
+xrandr --auto
+}}
+
+You can verify that prime is working and functioning by running xrandr, which should produce the following outputː
+
+More information
 
 * [[Article_name]] - (Link to related Gentoo Wiki articles using bullet points for each link in this section; each link should be local to the Wiki. Use a dash to separate the link from a reason why the link was decided upon.)
 
