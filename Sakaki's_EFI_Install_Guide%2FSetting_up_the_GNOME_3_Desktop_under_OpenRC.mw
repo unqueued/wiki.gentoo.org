@@ -210,6 +210,8 @@ The above shell script simply instructs X to:
 
 <span id="first_try_startx">Now we are ready to try it out!</span>
 
+{{Note|'''The next command may very well fail''', if the necessary graphics kernel drivers for your particular target PC haven't yet been built. This is in fact ''quite likely'' (given the small footprint of the minimal install image kernel, on which our current kernel has been based), but don't worry; full instructions to fix the issue (should it arise) are [[#if_x11_fails{{!}}also provided]].}}
+
 Still on the {{c|ssh}}/{{c|screen}} console, issue:
 
 {{Cmd
@@ -254,6 +256,16 @@ modprobe: FATAL: Module i915 not found.
 }}
 then you know that you have a driver problem. In this case, it is complaining about the {{c|i915}} driver module (dynamic library).
 
+{{Note|If you see more cryptic output, such as:
+{{GenericCmd|<pre>
+... additional output suppressed ...
+Fatal server error:
+(EE) no screens found(EE) 
+... additional output suppressed ...
+</pre>
+}} then it is ''still'' probably a driver problem at this stage; look in the log file {{Path|/var/log/Xorg.0.log}} for more detailed output.
+}}
+
 To rectify this, we need to <span id="make_menuconfig_intro">turn on the appropriate drivers</span> and rebuild our kernel. Ensure that the USB boot key is inserted into the target machine, and issue (from the {{c|ssh}}/{{c|screen}} virtual terminal):
 {{Cmd
 |exit
@@ -272,7 +284,7 @@ and
 }}
 can provide more information about your graphics card. Unfortunately, as of the time of writing, there is no reliable program which will query your hardware and generate an appropriate kernel configuration automatically.}}
 
-Then:
+Ensure that the boot USB key is still inserted, and then issue:
 {{RootCmd
 |buildkernel --menuconfig
 |prompt=<span style{{=}}"color:gray;">(1)</span> koneko <span style{{=}}"color:royalblue;">~ #</span>
@@ -325,7 +337,7 @@ OK, so let's work through the {{c|DRM_I915}} case as a concrete example. From th
 [[File:Menuconfig_40a.png|thumb|none|400px|Search Results for DRM (Dependency)]]
 
 Now we know there are no further unsatisfied dependencies for {{c|DRM_I915}}, we can activate {{c|DRM}}, and then {{c|DRM_I915}} itself.
-{{Note|There's a handy shortcut you can often use when searching in {{c|menuconfig}}: if the result you are interested in has a bracketed number shown by it near the left margin, such as (1), (2) etc., then you can simply press the corresponding number key ({{Key|1}}, {{Key|2}}, etc.) to jump *directly* to the item in question. Then, once you're done editing it, pressing {{Key|Esc}} then {{Key|Esc}} will bring you back to the search results again. In the below text, we're going to do things the longhand way, for clarity, but using the number-key shortcuts is usually a better way to go, once you are familiar with the {{c|make menuconfig}} flow.}}
+{{Note|There's a handy shortcut you can often use when searching in {{c|menuconfig}}: if the result you are interested in has a parenthesised number shown by it near the left margin, such as (1), (2) etc., then you can simply press the corresponding number key ({{Key|1}}, {{Key|2}}, etc.) to jump ''directly'' to the item in question. Then, once you're done editing it, pressing {{Key|Esc}} then {{Key|Esc}} will bring you back to the search results again. In the below text, we're going to do things the longhand way, for clarity, but using the number-key shortcuts is usually a better way to go, once you are familiar with the {{c|make menuconfig}} flow.}}
 Begin by pressing {{Key|Enter}} to exit the current search, then use the arrow keys to navigate to the "{{c|Device Drivers}}" item (if not visible to begin with, the top pane will scroll as you arrow down), then press {{Key|Enter}} to enter the submenu. Next, repeat the process to select the "{{c|Graphics support}}" item, and press {{Key|Enter}}:
 
 {|style="background:transparent; color:black" 
@@ -600,6 +612,15 @@ Would you like to merge these packages? [Yes/No] <press y, then press Enter>
 </pre>
 }}
 
+{{Tip|If, when attempting the {{c|emerge}}, you are prompted with a series of missing package-specific keywords, USE flags, licences, or masks, followed by the question:
+{{GenericCmd|
+<pre>
+... additional output suppressed ...
+Would you like to add these changes to your config files? [Yes/No]
+</pre>
+}} you can answer {{Key|y}} and {{Key|Enter}}; this will place append the proposed changes into the files {{Path|/etc/portage/package.accept_keywords/zzz_via_autounmask}}, {{Path|/etc/portage/package.license/zzz_via_autounmask}}, {{Path|/etc/portage/package.unmask/zzz_via_autounmask}} and {{Path|/etc/portage/package.use/zzz_via_autounmask}} (as appropriate). You can then run {{c|dispatch-conf}} to review the changes. Press {{Key|u}} ("use new") to accept the changes for each modified file, if happy. Then try the {{c|emerge}} again.
+}}
+
 {{Note|
 As [[../Building_the_Gentoo_Base_System_Minus_Kernel#use_showem{{!}}before]], you can switch to the second {{c|screen}} console we prepared [[#another_second_console{{!}}earlier]], to watch the progress (as the files download, build etc.). Hit {{Key|Ctrl}}{{Key|a}} then {{Key|n}} to switch to the second console (you can do this while the {{c|emerge}} is running), and issue:
 {{RootCmd
@@ -629,6 +650,9 @@ Would you like to merge these packages? [Yes/No] <press y, then press Enter>
 </pre>
 }}
 (Of course, if the original {{c|emerge}} completed successfully, there is no need to issue the above, but, as {{Package|gnome-base/gnome}} is a meta-package, it is still safe to do so, and ''won't'' cause all the dependencies to be rebuilt.) You may need to repeat this step multiple times to get GNOME emerged successfully (I have found three or four iterations may be necessary). As long as the 'packages to be installed' count keeps falling, keep trying ^-^
+
+{{Tip|With such a large {{c|emerge}} as this, it is &mdash; in case of a build failure &mdash; often actually worth trying the original command ''verbatim'' (i.e., ''without'' the {{c|MAKEOPTS{{=}}"-j1" EMERGE_DEFAULT_OPTS{{=}}"--jobs{{=}}1"}}) first, since, if this clears the problem, the rest of the build will then proceed much faster. When you get more experienced with Gentoo, you'll be able to determine which types of build error are likely indications of an ephemeral parallelism problem, and which are just plain bugs (unlikely for packages on the 'stable' branch, but always possible).}}
+
 {{Note|If, after all this, you ''still'' experience build errors emerging {{Package|gnome-base/gnome}}, you find it useful to refer to [[../Building_the_Gentoo_Base_System_Minus_Kernel#troubleshooting_failed_build{{!}}these earlier notes]]. It is also possible to {{c|emerge}} the smaller package {{Package|gnome-base/gnome-light}} (instead of {{Package|gnome-base/gnome}}), and then add applications later.
 }}
 
