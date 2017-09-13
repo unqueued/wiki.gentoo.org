@@ -134,27 +134,100 @@ Issue:
 
 == <span id="update_portage_tree">Installing an Up-to-Date Portage Tree</span> ==
 
-The next step is to install a Portage (repository tree) ''snapshot'', a set of files that tells Portage what software is available to install, what profiles are available, and so on. These updates are produced on a daily basis. Issue:
+The next step is to install a Portage (repository tree) ''snapshot'', a set of files (updated on a daily basis) informing Portage what software is available to install, what profiles are available, and so on.
+
+For security, Portage snapshots are digitally signed by Gentoo Release Engineering. However, because (at the time of writing) {{c|gpg}} is ''not'' one of the pre-installed stage 3 binaries, after downloading the latest snapshot, we will have to verify its signature ''outside'' of the chroot (where {{c|gpg}} ''is'' available), and then (once verified) install it (inside the chroot again).
+
+{{Warning|The default Handbook flow suggests (and, to be fair, earlier versions of this guide also suggested) that you [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Base#Installing_an_ebuild_repository_snapshot_from_the_web first] perform a 'vanilla' (no-signature-verification) {{c|emerge-webrsync}}, [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Base#Optional:_Updating_the_Gentoo_ebuild_repository  followed optionally] by an {{c|emerge --sync}}, to download and install the Portage repository tree at this stage in the installation process.<br>However, doing so will update the repo using ''unauthenticated'' protocols (viz., an unchecked tarball fetched (usually) via [[:Wikipedia:Hypertext_Transfer_Protocol|HTTP]], and [[:Wikipedia:Rsync|rsync]], respectively). Doing so makes it possible for a [[:Wikipedia:Man-in-the-middle_attack|'man-in-the-middle']] attacker to tamper with the repo without your knowing, and to cause arbitrary code to be executed with root privileges on your machine thereby (see e.g. {{Bug|597804}}).<br>As such, in this guide we will stick only to using ''authenticated'' snapshots.<br>If you still wish to use 'vanilla' {{c|emerge-webrsync}} or [[:Wikipedia:Rsync|rsync]], do so at your own risk.}}
+
+Begin by fetching a signed snapshot. To do so, issue:
 {{RootCmd
-|emerge-webrsync
+|PORTAGE_GPG_DIR{{=}}"/tmp"  FEATURES{{=}}"webrsync-gpg" emerge-webrsync --keep
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+|output=<pre>
+... additional output suppressed ...
+Trying to retrieve YYYYMMDD snapshot from <a_local_mirror> ...
+Fetching file portage-YYYYMMDD.tar.xz.md5sum ...
+Fetching file portage-YYYYMMDD.tar.xz.gpgsig ...
+Fetching file portage-YYYYMMDD.tar.xz ...
+Checking digest ...
+Checking signature ...
+emerge-webrsync: error: cannot check signature: gpg binary not found
+</pre>
 }}
 
-{{Note|This command may complain about non-existent directories; however, now that {{Bug|484950}} has been fixed, it will still complete successfully. There is no need to manually create {{Path|/usr/portage}}, {{Path|/usr/portage/profiles}} or set {{Path|/usr/portage/profiles/repo_name}} before running {{c|emerge-webrsync}}.}}
+This command locates and downloads the latest available Portage snapshot, digest and digital signature from one of your local mirrors (which we set up [[#use_mirrorselect|earlier]]). <span id="note_snapshot_date">'''Take a note'''</span> of the ''last'' reported snapshot date in {{c|emerge-webrsync}}'s output (i.e. the one closest to the {{c|Checking digest...}} line), as it will try 'counting back' from the current date, until it finds an available tarball set. This date is shown as 'YYYYMMDD' in the above &mdash; but of course will actually be a real date, such as e.g., '20170911'.
+{{Note|Because we specified the {{c|--keep}} option to {{c|emerge-webrsync}}, the downloaded files will be stored in the {{Path|/usr/portage/distfiles}} directory ''inside'' the chroot, which is {{Path|/mnt/gentoo/usr/portage/distfiles}} ''outside''. If you don't specify this option, the files will be be stored to a temporary directory instead, and deleted as soon as {{c|emerge-webrsync}} exits, making external verification impossible.<br>Of course, once {{c|gpg}} ''is'' installed inside the chroot (which we will do [[#default_authentication|shortly]]), {{c|emerge-webrsync}} will be able to check signatures itself &mdash; provided {{c|webrsync-gpg}} is present in {{c|FEATURES}} &mdash; so it is only necessary to specify {{c|--keep}} at this point in the install; it isn't a general requirement for safe use of the tool.}}
+{{Note|The value of {{c|PORTAGE_GPG_DIR}} is unimportant here (since {{c|gpg}} is currently not installed within the chroot) but we have to specify something, hence the use of {{Path|/tmp}} in the above.}}
 
-The fetching may take some time to complete. Once done, the {{c|emerge-webrsync}} command may recommend some software be updated, and tell you there is news to read: if so, you can safely ignore these for now (we're about to do a ground-up rebuild anyway, and we'll get to the news items shortly).
+Now, hit {{Key|Ctrl}}{{Key|a}} followed by {{Key|c}} to start a new virtual console in {{c|screen}}. This will open ''outside'' the chroot, which is what we want.
 
-Next, we'll bring the Portage tree bang up to date (this may also take a little time to complete):
-
+In the new virtual console, fetch the relevant public keys, as specified on the [[Project:RelEng#Keys|Release Engineering]] page. You need at least the ID of the key described as "Gentoo Portage Snapshot Signing Key (Automated Signing Key)":
 {{RootCmd
-|emerge --sync --quiet
+|gpg --keyserver pool.sks-keyservers.net --recv-key 96D8BF6D
+|prompt=livecd <span style{{=}}"color:royalblue;">~ #</span>
+}}
+{{Note|Although correct at the time of writing, if it has since been updated, you may need to substitute the relevant key ID (taken from the [[Project:RelEng#Keys|Release Engineering]] page) for {{c|96D8BF6D}} in the above. If in doubt, you may safely import ''all'' (unexpired) keys listed on that page.}}
+{{Note|As before, for this to work you must ensure you have enabled outbound access on your firewall (if you have one installed) for port 11371/tcp to allow [[:Wikipedia:Key_server_(cryptographic)|HKP]] communication, along with the usual state-tracking input rule.<br>Alternatively, you can use the following command, to fetch the key over port 80 (which should be open on most firewalls):{{RootCmd	
+|gpg --keyserver hkp://pool.sks-keyservers.net:80 --recv-key 96D8BF6D
+|prompt=livecd <span style{{=}}"color:royalblue;">~ #</span>}}}}
+{{Note|If the above keyserver is unavailable for some reason, you should be able to use any other one, such as {{c|pgp.mit.edu}} for example.}}
+
+You should next verify that the key's ''full'' fingerprint matches that listed on the [[Project:RelEng#Keys|Release Engineering]] page:
+{{RootCmd
+|gpg --fingerprint 96D8BF6D
+|prompt=livecd <span style{{=}}"color:royalblue;">~ #</span>
+|output=<pre>
+pub   rsa4096 2011-11-25 [C] [expires: 2018-07-01]
+      DCD0 5B71 EAB9 4199 527F  44AC DB6B 8C1F 96D8 BF6D
+uid           [ unknown] Gentoo Portage Snapshot Signing Key (Automated Signing Key)
+sub   rsa4096 2011-11-25 [S] [expires: 2018-07-01]
+</pre>
+}}
+{{Note|Although correct at the time of writing, the key ID you need to enter in the above command may differ from {{c|96D8BF6D}}, as may the fingerprint data shown. Always use the [[Project:RelEng#Keys|Release Engineering]] page data as your primary reference.}}
+
+If that looks good, proceed to verify the snapshot. Issue:
+{{RootCmd
+|gpg --verify /mnt/gentoo/usr/portage/distfiles/portage-YYYYMMDD.tar.xz{.gpgsig,}
+|prompt=livecd <span style{{=}}"color:royalblue;">~ #</span>
+}}
+{{Note|Substitute the snapshot date you [[#note_snapshot_date{{!}}just noted]], for YYYYMMDD in the above command.}}
+{{Note|As before, you can ignore {{c|gpg}} output such as:{{GenericCmd|<pre>
+gpg: WARNING: This key is not certified with a trusted signature!
+gpg:          There is no indication that the signature belongs to the owner.
+</pre>}}
+This is normal since you have just imported the public key, and not yet 'trusted' it.<ref>Information Security Stack Exchange: [http://security.stackexchange.com/questions/6841/ways-to-sign-gpg-public-key-so-it-is-trusted "Ways to sign gpg public key so it is trusted?"]</ref>
+}}
+Assuming that worked (the output reports 'Good signature'), close out this second virtual console using {{Key|Ctrl}}{{Key|d}}, thereby returning to your original virtual console (inside the chroot again).
+{{Note|There is no need for a "two-step" verification here: for Portage snapshots, the signature covers the ''actual'' tarball-of-interest itself (rather than covering a manifest file).}}
+
+We can now proceed to install the verified snapshot. Issue:
+{{RootCmd
+|emerge-webrsync --keep --revert{{=}}YYYYMMDD
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+|output=<pre>
+... additional output suppressed ...
+Trying to retrieve YYYYMMDD snapshot from <a_local_mirror> ...
+Checking digest ...
+Getting snapshot timestamp ...
+Syncing local tree ...
+... additional output suppressed ...
+</pre>
+}}
+{{Note|Substitute the same Portage snapshot date you [[#note_snapshot_date{{!}}noted earlier]], for YYYYMMDD in the above command. Also note that we ''don't'' specify {{c|PORTAGE_GPG_DIR}} or {{c|FEATURES}} this time, since we don't want {{c|emerge-webrsync}} attempting to verify the snapshot (using a non-existent {{c|gpg}}) and failing.}}
+{{Note|Although &mdash; as shown in the output above &mdash; this prints a message stating that it is trying to retrieve the specified snapshot from a mirror, because we specified the {{c|--keep}} and {{c|--revert}} options, it will actually check the {{Path|/usr/portage/distfiles}} cache first. The lack of any following '{{c|Fetching file}}' lines indicates that the cached files (for the specified datestamp) are actually the ones being used (which is what we want).}}
+{{Note|{{c|emerge-webrsync}} may complain about non-existent directories or attributes; however, now that {{Bug|484950}} has been fixed, it will still complete successfully. There is no need to manually create {{Path|/usr/portage}}, {{Path|/usr/portage/profiles}} or set {{Path|/usr/portage/profiles/repo_name}} before running {{c|emerge-webrsync}}.}}
+
+The install may take some time to complete. Once done, the {{c|emerge-webrsync}} command may recommend some software be updated, and tell you there is news to read: if so, you can safely ignore these for now (we're about to do a ground-up rebuild anyway, and we'll get to the news items shortly).
+
+You can now remove the cached snapshot files, if you like, to save space (this step is optional). To do so, issue:
+{{RootCmd
+|rm -v -f /usr/portage/distfiles/portage-YYYYMMDD*
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
+{{Note|Substitute the same Portage snapshot date you [[#note_snapshot_date{{!}}noted earlier]], for YYYYMMDD in the above command.}}
 
-{{Note|This command uses {{c|rsync}}, and so requires that your firewall permit TCP outbound on port 873, together with the usual state-tracking inbound rule. Its not a big problem if you can't get access at this stage however, since the snapshot from {{c|emerge-webrsync}} will be reasonably current. Nevertheless, the {{c|rsync}} firewall access should be enabled if Portage is to work properly long-term.}}
-
-Next, make sure that Portage itself is up-to-date:
-
+Now we have a valid Portage ebuild repository, we can use {{c|emerge}} to install (or update, delete etc.) packages. Our first task is to ensure that Portage itself is up-to-date. Issue:
 {{RootCmd
 |emerge --ask --verbose --oneshot portage
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
@@ -169,7 +242,7 @@ The {{c|emerge}} command, without special options, asks Portage to pull down (if
 
 Now, if that {{c|emerge}} worked OK, (you eventually see "Jobs: 1 of 1 complete" in the output after you pressed {{Key|y}} and {{Key|Enter}}), congratulations: your Portage system is functional, and you should be able to proceed.
 
-Finally, <span id="reading_news">if you were prompted about news items</span> being available, please take the time to read them now: these are important, short announcements from developers to users, pushed out via the Portage tree. To view the current news items issue:
+If <span id="reading_news"> you were prompted about news items</span> being available, please take the time to read them now: these are important, short announcements from developers to users, pushed out via the Portage tree. To view the current news items issue:
 {{RootCmd
 |eselect news list
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
@@ -183,13 +256,55 @@ You'll notice the items are numbered. To read a news item N, enter:
 }}
 {{Note|Replace N in the above with the number of the news item you wish to read, such as 1, 2 etc.}}
 
-You can purge all read news items with:
+You can purge (optional) all read news items with:
 {{RootCmd
 |eselect news purge
 |prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
 }}
 
 If you like, you can read more about the Gentoo news system on its manual page (using {{c|man news.eselect}}).
+
+=== <span id="default_authentication">Configuring Default Use of Authenticated Portage Snapshots</span> ===
+
+Next (shadowing [https://wiki.gentoo.org/wiki/Handbook:AMD64/Working/Features#Validated_Gentoo_repository_snapshots these instructions] from the official Handbook), we will set up our system to use {{Highlight|authenticated snapshots by default}}. Now we have a Portage tree, we can install the {{Package|app-crypt/gentoo-keys}} package, which will maintain a {{c|gpg}} keyring of sanctioned Release Engineering keys automatically for us. To install it, together with the {{Package|app-crypt/gnupg}} package (which supplies {{c|gpg}}), issue:
+{{RootCmd
+|emerge --ask --verbose app-crypt/gentoo-keys app-crypt/gnupg
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+|output=<pre>
+... additional output suppressed ...
+Would you like to merge these packages? [Yes/No] <press y, then press Enter>
+... additional output suppressed ...
+</pre>
+}}
+{{Note|This may take some time to complete, as it'll bring in other packages transitively required by {{Package|app-crypt/gnupg}} itself.}}
+
+This will install its keys into the {{Path|/var/lib/gentoo/gkeys/keyrings/gentoo/release}} directory.
+{{Note|''Pace'' the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Working/Features#Validated_Gentoo_repository_snapshots official instructions], it is ''not'' necessary to 'trust' the keys in the {{Path|/var/lib/gentoo/gkeys/keyrings/gentoo/release}} keyring, in order to be able to use them for snapshot verification. As such we will not do so.}}
+
+Next, edit {{Path|/etc/portage/make.conf}}, and enable support for validating the signed Portage tree snapshots. Issue:
+{{RootCmd
+|nano -w /etc/portage/make.conf
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+}}
+
+and ''append'':
+{{FileBox|filename=/etc/portage/make.conf|title=Append lines to use gpg signature checking with webrsync|lang=bash|1=
+FEATURES="${FEATURES} webrsync-gpg"
+PORTAGE_GPG_DIR="/var/lib/gentoo/gkeys/keyrings/gentoo/release"
+}}
+Leave the rest of the file as-is. Save and exit the {{c|nano}} editor.
+
+Next, modify the {{Path|/etc/portage/repos.conf/gentoo.conf}} file that you setup [[#setup_gentoo_dot_conf|earlier]], to ensure that this repo will not get updated by {{c|rsync}} by accident. Issue:
+{{RootCmd
+|nano -w /etc/portage/repos.conf/gentoo.conf
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+}}
+and ''modify'' the {{c|auto-sync}} line, so that it reads:
+{{FileBox|filename=/etc/portage/repos.conf/gentoo.conf|title=Ensure gentoo repo does not rsync automatically|lang=ini|1=
+auto-sync = no
+}}
+Leave the rest of the file as-is. Save and exit the {{c|nano}} editor.
+{{Note|The [https://wiki.gentoo.org/wiki/Handbook:AMD64/Working/Features#Validated_Gentoo_repository_snapshots official instructions] suggest setting {{c|sync-type {{=}} webrsync}} (and a blank {{c|sync-uri}} in {{Path|/etc/portage/repos.conf.gentoo.conf}}) but at the time of writing, this does not yet seem to work fully in all situations. As such, I recommend you leave the {{c|rsync}} option in place, but with default sync turned off. That means you will have to use {{c|emerge-webrsync}} (or {{c|eix-sync -w}}, once {{Package|app-portage/eix}} is installed, later in the tutorial) to synchronize the main {{c|gentoo}} repo.}}
 
 == <span id="check_base_profile">Ensuring that the Base Profile is Set</span> ==
 
