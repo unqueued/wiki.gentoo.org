@@ -7,6 +7,7 @@ The steps we'll be undertaking are:
 # Setting up additional {{c|OpenRC}} configuration options, such as locale;
 # Emerging additional system tools, such a logger, {{c|cron}} daemon etc.;
 # Ensuring the system is fully up-to-date (using {{c|genup}} from {{c|sakaki-tools}});
+# Making sure your system's {{c|efifvarfs}} is writable (no longer the default as of OpenRC 0.28);
 # Performing a precautionary reboot ''without'' the {{c|plymouth}} graphical boot manager;
 # Enabling the graphical boot manager ({{c|plymouth}}), and restarting.
 
@@ -511,6 +512,43 @@ Finally, since this is the first full package update, and it is possible that th
 }}
 (that's a zero).
 {{Tip|You only need to run this command at this point in the tutorial, it is ''not'' a generally required follow-on to {{c|genup}}. However, if you find at any time in the future that {{c|eix}} is giving you strange output to your package queries, or appears to be missing new versions of packages etc., you can simply run {{c|eix-sync -0}} to bring its index up-to-date (NB the repositories on your machine are ''not'' affected by running eix-sync with the {{c|-0}} option, it does not hit the network).}}
+
+== <span id="efivarfs_rw">Ensuring {{c|efivarfs}} is Writable</span> ==
+
+When {{c|buildkernel}} runs on a system booted under EFI, it needs to be able to modify the {{c|efivarfs}} (mounted at {{Path|/sys/firmware/efi/efivars}}), in order to be able to change the boot order etc.
+
+Unfortunately, as of {{c|sys-apps/openrc-0.28}} this special filesystem (which [https://www.kernel.org/doc/Documentation/filesystems/efivarfs.txt maintains a mapping] to the EFI variables, held on non-volatile storage on your machine) has changed<ref>Gentoo Archives: gentoo-dev: [https://archives.gentoo.org/gentoo-dev/message/35304b0db4de9e06fea322275379fa81 "newsitem: openrc-0.28 mounts efivars read only"]</ref> to being mounted read-only by default (at odds with {{c|systemd}}, incidentally, which still mounts it read-write).
+
+To work around this issue (and revert to read-write mounting), issue:
+
+{{RootCmd
+|nano -w /etc/fstab
+|prompt=<span style{{=}}"color:gray;">(1)</span> koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}
+
+and ''append'' the following line to that file:
+{{FileBox|filename=/etc/fstab|title=Append line to ensure efivarfs still writable under OpenRC >{{=}} 0.28|1=
+efivarfs /sys/firmware/efi/efivars efivarfs rw,nosuid,nodev,noexec,relatime 0 0
+}}
+
+Leave the rest of the file as-is. Save, and exit {{c|nano}}.
+{{Note|With this entry in your {{Path|/etc/fstab}}, OpenRC will mount {{c|efivarfs}} read-write ''automatically'' on subsequent boots. Note that the efivarfs filesystem is ''only'' available when booted under UEFI.}}
+
+Next, ensure that the {{c|efivarfs}} filesystem is writeable in the ''current'' session:
+{{RootCmd
+|umount -v efivarfs && mount -v efivarfs
+|prompt=<span style{{=}}"color:gray;">(1)</span> koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}
+
+Verify that it has remounted correctly:
+{{RootCmd
+|mount {{!}} grep efivarfs
+|prompt=<span style{{=}}"color:gray;">(1)</span> koneko <span style{{=}}"color:royalblue;">~ #</span>
+|output=<pre>
+efivarfs on /sys/firmware/efi/efivars type efivarfs (rw,nosuid,nodev,noexec,relatime)
+</pre>
+}}
+Check particularly that "{{c|rw}}" is present in the output property list, as above.
 
 == <span id="reboot_sans_plymouth">Performing a Precautionary Reboot without {{c|plymouth}}</span> ==
 
