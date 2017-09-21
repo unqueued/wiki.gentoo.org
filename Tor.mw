@@ -18,7 +18,8 @@ Install {{Package|net-vpn/tor}}:
 
 {{emerge|net-vpn/tor}}
 
-{{Note|If you only need to browse the Web via Tor, an easy alternative is to use the official portable [https://www.torproject.org/projects/torbrowser.html Tor Browser].}}
+{{Note|If you only need to browse the Web via Tor, an easy alternative is to use the official portable [https://www.torproject.org/projects/torbrowser.html Tor Browser]. Even if you want to use Tor for
+other purposes, when you want to browse the web over Tor, you should always use Tor Browser.}}
 
 == Configuration ==
 
@@ -69,6 +70,8 @@ To start the tor service on system boot:
 === Browsers ===
 
 ==== Firefox ====
+
+{{Warning|You should be using Tor Browser from https://torproject.org instead.}}
 
 Edit > Preferences
 
@@ -195,11 +198,8 @@ To enable the built-in DNS resolver, add the following lines to the ''/etc/tor/t
 {{FileBox|filename=/etc/tor/torrc|title=Tor DNS Resolver|<pre>
 ...
 ## Torified DNS
-DNSPort 127.0.0.1:9053 IsolateClientAddr IsolateSOCKSAuth IsolateClientProtocol IsolateDestPort IsolateDestAddr
+DNSPort 127.0.0.1:9053
 AutomapHostsOnResolve 1
-AutomapHostsSuffixes .exit, .onion
-#ClientDNSRejectInternalAddresses 1
-ClientRejectInternalAddresses 1
 </pre>}}
 
 Then to prevent leak DNS requests make Tor the '''ONLY''' default DNS resolver of you system in ''/etc/resolv.conf'':
@@ -256,7 +256,9 @@ And to flush these and any other existing rules:
 
 === Firewall ===
 
-If you want allow Tor use only spacial addresses you can specify it. For example our firewall allow outgoing connection only through ''https (443)'' port, so add to ''/etc/tor/torrc'':
+{{Warning|Only do this if you need to do so}}
+
+If you want allow Tor use only special addresses you can specify it. For example our firewall allow outgoing connection only through ''https (443)'' port, so add to ''/etc/tor/torrc'':
 {{FileBox|filename=/etc/tor/torrc|title=torrc configuration|1=
 # If 1, Tor will only create outgoing connections to ORs running on ports that your firewall allows
 FascistFirewall 1
@@ -265,23 +267,21 @@ ReachableAddresses accept *:443, reject *:*
 ReachableORAddresses *:443
 }}
 
-=== Torify ===
-
-{{Warning|torify will fail if torsocks has not been installed!}}
+=== torsocks ===
 
 {{Emerge|net-proxy/torsocks}}
 
-For applications which do not support the use of proxies or Tor, you can use the "torify" command to force their traffic through the Tor network. (e.g. - {{c|torify irssi -c irc.afraidirc.net}} or {{c|torify irssi -c mqctemuqfc3tp5ji.onion}}).
+For applications which do not support the use of proxies or Tor, you can use the "torsocks" command to force their traffic through the Tor network. (e.g. - {{c|torsocks irssi -c irc.afraidirc.net}} or {{c|torify irssi -c mqctemuqfc3tp5ji.onion}}).
 
 ==== Transparent Tor Proxy ====
 
-Tor can work like a transparent proxy. It's best way of using Tor!
+Tor can work like a transparent proxy.
 
 To enable built-in transparent proxy add the following lines to the ''/etc/tor/torrc'' file and restart the daemon: 
 {{FileBox|filename=/etc/tor/torrc|title=Tor Transparent Proxy|<pre>
 ...
 ## Transparent proxy
-TransPort 127.0.0.1:9040 IsolateClientAddr IsolateSOCKSAuth IsolateClientProtocol IsolateDestPort IsolateDestAddr
+TransPort 127.0.0.1:9040
 </pre>}}
 
 Finally, redirect ALL non-tor outgoing trafic to a Tor transparent proxy:
@@ -290,13 +290,15 @@ Finally, redirect ALL non-tor outgoing trafic to a Tor transparent proxy:
 
 === Stream isolation ===
 
-Accessing a site of a small town where you are the only one user of Tor would greatly increase attacker's chances to find you. Other examples include mixing [[GPG]] traffic with the traffic of a web browser or mixing irssi circuits with the circuits of a bitcoin wallet. In all cases an exit node can make correlation between separate activities. So, sometimes it's necessary to have a few different anonymity modes. Stream isolation provides an easy way to separate different Tor circuits and make different applications use isolated streams. 
+You might not want to mix [[GPG]] traffic with the traffic of a web browser or to mix irssi circuits with the circuits of a bitcoin wallet. In all cases an exit node can make correlation between separate activities. Stream isolation provides an easy way to separate different Tor circuits and make different applications use isolated streams. 
 
-In order to use stream isolation, add as many SOCKS ports as necessary in ''torrc''.
+By default, multiple *Port lines (SocksPort, DNSPort, TransPort) will never share circuits. If you want to do stream isolation on a single *Port option, you can add one or more of the following isolation flags to *Port options: IsolateClientAddr, IsolateSOCKSAuth, IsolateClientProtocol, IsolateDestPort, IsolateDestAddr.
+
+Note that some are enabled by default already and that more isolation flags does not necessarily mean more security/anonymity/privacy. To see the most up-to-date list of stream isolation flags, see `man tor`.
+
+So if you want to be sure your GPG client and your instant messenger don't put streams on the same circuit, the easiest thing to do is add the following to your torrc and point them at different SocksPorts.
 
 {{FileBox|filename=/etc/tor/torrc|title=torrc configuration|1=
-# web browser
-SocksPort 127.0.0.1:9050 IsolateClientAddr IsolateSOCKSAuth IsolateClientProtocol IsolateDestPort IsolateDestAddr
 # gpg client
 SocksPort 127.0.0.1:9100
 # instant messenger
@@ -304,10 +306,10 @@ SocksPort 127.0.0.1:9150
 # etc...
 }}
 
-Configure the applications to point to different socks ports. All requests made to different socks ports will then pass through different Tor circuits and get different exit nodes. Sometimes Tor will only use a different entry guard or middle relay, though. This behavior is considered normal.
-
 === Rules for Tor circuits ===
 {{Warning|You may be reducing the total number of relays you can use by a significant amount by using these options. Modifying the parameters set by the Tor developers is not wise; for example, using an exit node in a country with a prominent intelligence agency should pose very little risk - the same risks exist with ''any'' exit node. It is instead sensible to avoid sending passwords over HTTP or other unencrypted protocols.}}
+
+{{Warning|It is likely that you will not actually accomplish what you want when you use these Exclude options. See "DeTor: Provably Avoiding Geographic Regions in Tor" presented at USENIX 2017. Also note that GeoIP isn't necessarily very reliable to begin with.}}
 
 ''man tor'' gives us a good explanation of various useful options. If you want to get away from [https://en.wikipedia.org/wiki/ECHELON ECHELON], you may consider adding the following to ''/etc/tor/torrc'':
 {{FileBox|filename=/etc/tor/torrc|title=torrc configuration|1=
@@ -317,8 +319,6 @@ GeoIPExcludeUnknown 1
 #ExcludeNodes {au}, {ca}, {gb}, {nz}, {us}
 ExcludeExitNodes {au}, {ca}, {gb}, {nz}, {us}
 NodeFamily {au}, {ca}, {gb}, {nz}, {us}
-EnforceDistinctSubnets 1
-UseEntryGuards 1
 #UseEntryGuardsAsDirGuards 1
 #FastFirstHopPK 0
 #AllowSingleHopCircuits 0
@@ -340,24 +340,18 @@ Sandbox 1
 
 === Setting up a hidden service ===
 
-{{Note|Hidden services are not nearly as anonymous as clients. Use it at your own risk.}}
-
 Setting up a tor hidden service is easy.
 
 All you need to do is add 2 lines to the {{Path|/etc/tor/torrc}} configuration file, and make sure your permissions are correct for the data directory.
 
 {{FileBox|filename=/etc/tor/torrc|1=<pre>
-HiddenServiceDir /tor/hiddenservice
+HiddenServiceDir /var/lib/tor/data/hiddenservice
 HiddenServicePort 80 127.0.0.1:80
 </pre>}}
 
 The first line tells Tor to insert the public and private keys into the directory specified.
 
 The next line tells Tor to direct traffic on hidden service port 80 to the IP and port specified.
-
-You will need to make sure that the directory is owned and only readable/writable by tor, for example:
-
-{{RootCmd|chown tor /tor/hiddenservice -R && chmod u+rw,g-rw,o-rw /tor/hiddenservice -R}}
 
 === Simple command-line file downloading ===
 
@@ -399,6 +393,8 @@ Installing or updating is done as usual, e.g.:
 Visit: https://check.torproject.org/
 
 There is a lots of site in Internet for testing your anonymity. One of the best is '''[https://whoer.net/ whoer.net]'''. Another nice one: '''[https://ipleak.net/ ipleak.net]'''. To hide more information, you can try '''disable''': [https://noscript.net/ Javascript], Flash, Java, ActiveX, WebRTC. For hide HTML headers use [https://prism-break.org/en/projects/random-agent-spoofer/ Random Agent Spoofer] and/or net-proxy/privoxy. Some mozila addons also may keep you privacy [https://requestpolicycontinued.github.io/ Request Policy], [https://www.eff.org/privacybadger Privacy Badger] and [https://prism-break.org/en/categories/gnu-linux/#web-browser-addons others...]
+
+For web browsing, you should just get Tor Browser from https://torproject.org. Change the security slider if you want, but you should not start adding "privacy" addons. The more you change in your browser, the more you'll stand out from the crowd.
 
 === Checking for network leaks ===
 
