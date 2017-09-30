@@ -1,34 +1,88 @@
-= Hardware =
+{{InfoBox stack
+|{{InfoBox homepage|http://www.dell.com/support/home/us/en/04/product-support/product/inspiron-15-3537/manuals|header=true}}
+}}
 
-{| class="wikitable"
+== Hardware ==
+
+=== Standard ===
+
+{| class="table table-condensed table-striped" style="width: auto;"
+! scope="col" width="10%" | Device
+! scope="col" width="30%" | Make/model
+! scope="col" width="7%" | Status
+! scope="col" width="10%" | Bus ID
+! scope="col" width="10%" | Kernel driver(s)
+! scope="col" width="5%" | Kernel version
+! scope="col" width="28%" | Notes
 |-
-! Component !! Model !! Driver
+| CPU
+| [https://ark.intel.com/products/75460/Intel-Core-i7-4500U-Processor-4M-Cache-up-to-3_00-GHz Intel i7-4500U]
+| {{Yes|Works}}
+| N/A
+| N/A
+| 4.14
+| [[#Wrong turbo multipliers|Wrong turbo multipliers]]
 |-
-| CPU || Intel i7-4500U || 
+| Video card
+| Intel Integrated HD 4400
+| {{Yes|Works}}
+| 8086:0a16
+| [[Intel|i915]]
+| 4.14
+|
 |-
-| HDD || WDC WD10JPVX-75J || 
+| Video card
+| [https://www.amd.com/en-us/products/graphics/notebook/8700m-8800m AMD Radeon HD 8850M]
+| {{Yes|Works}}
+| 1002:6823
+| [[Radeon|radeon]]/[[Amdgpu|amdgpu]]
+| 4.14
+| 
+|- 
+| Ethernet
+| Realtek RTL8101E/RTL8102E
+| {{Yes|Works}}
+| 10ec:8136
+| r8169
+| 4.14
+|
 |-
-| RAM || HMT451S6AFR8A-PB || 
+| Touchpad
+| Synaptics TM2382-001
+| {{Yes|Works}}
+| N/A
+| [[Synaptics|synaptics]]
+| 4.14
+|
 |-
-| dGPU || AMD Radeon HD 8850M || [[Radeon|radeon]]/[[Amdgpu|amdgpu]]
-|-
-| iGPU || Haswell-ULT Integrated Graphics || [[Intel|i915]]
-|-
-| Touchpad || - || [[Synaptics|Synaptics]]
-|-
-| Ethernet || RTL8101E/RTL8102E || r8169
-|-
-| Wireless || BCM43142 || [https://packages.gentoo.org/packages/net-wireless/broadcom-sta wl]
+| Wireless
+| Broadcom BCM43142
+| {{Partial|Works}}
+| 14e4:4365
+| [https://packages.gentoo.org/packages/net-wireless/broadcom-sta wl]
+| 4.14
+| Needs third party binary driver.
+
 |}
 
-= Drivers =
+== Firmware ==
 
-== Graphics Drivers ==
+Due to errata in the processor, it is advised to install and keep the CPU microcode up-to-date. See [[Intel_microcode|intel microcode]].
 
-The Inspiron 3537 comes with an integrated Intel graphics chip and dedicated AMD Radeon graphics card.
-It is possible to use hybrid switchable graphics with the use of PRIME.
+== Kernel ==
 
-For PRIME to work correctly, it is advised to compile both drivers [[Intel|intel]] and [[Radeon|radeon]] with DRI3 enabled.
+Follow the [[Intel|intel]] and [[Radeon|radeon]] articles to enable the required kernel options.
+
+{{KernelBox|title=Enable ethernet support|<pre>
+Device Drivers --->
+  Network device support --->
+    Ethernet Driver Support --->
+      [*] Realtek Devices
+      [*] Realtek 8169 gigabit ethernet support
+</pre>
+}}
+
+== Configuration ==
 
 === Configuring Xorg ===
 
@@ -50,48 +104,56 @@ To offload applications to the dedicated GPU, add the PRIME prefix before the co
 
 {{Cmd|DRI_PRIME{{=}}1 command_here}}
 
-== Network ==
+=== Configuring the touchpad ===
 
-=== Ethernet ===
-
-To enable Ethernet support make sure you have the following kernel options enabled:
-
-{{KernelBox|title=Enable ethernet support|<pre>
-Device Drivers --->
-  Network device support --->
-    Ethernet Driver Support --->
-      [*] Realtek Devices
-      [*] Realtek 8169 gigabit ethernet support
-</pre>
-}}
-
-=== Wireless ===
-
-Consult the [[wifi#Kernel|Wifi]] wiki page for enabling WiFi support in the kernel.
-
-The Broadcom Wireless cards requires proprietary firmware and drivers which you can get by installing the [https://packages.gentoo.org/packages/net-wireless/broadcom-sta broadcom-sta] package
-
-{{RootCmd|emerge -av broadcom-sta}}
-
-After that you can use a network manager like [[wpa_supplicant|WPA Supplicant]].
-
-== Touchpad ==
-
-First, install the synaptics driver
-{{RootCmd|emerge -av xf86-input-synaptics}}
-
-After that, create a configuration file
+This enables horizontal scrolling. Tapping with two fingers acts as a rightclick, and a tap with three fingers acts as a middleclick.
 
 {{CodeBox|title=/etc/X11/xorg.conf.d/40-synaptics.conf|1=
 Section "InputClass"
 	Identifier "Touchpad Catchall"
 	Driver "synaptics"
-	MatchIsTouchpad "on"
+	MatchIsTouchpad "yes"
 	Option "TapButton1" "1"
+	Option "TapButton2" "3"
+	Option "TapButton3" "2"
+	Option "CornerCoasting" "1"
+	Option "AccelFactor" "0.05"
+	Option "HorizTwoFingerScroll" "1"
+	Option "FingerHigh" "40"
+	Option "CoastingSpeed" "0"
+	Option "CoastingFriction" "0"
+	Option "ClickTime" "15"
 EndSection
 }}
 
-= Common laptop articles =
-* [[Power management]]
+== Troubleshooting ==
+
+=== Wrong turbo multipliers ===
+
+Dell seems to patch the [https://en.wikipedia.org/wiki/Model-specific_register MSR] and downclock the processor.
+The stock Intel configuration is 30/27/27/27, Dell changes this to 27/25/25/25, ie. 2.7GhZ with a single core, and 2.5GhZ with 2+ cores.
+
+This can be reverted back to the default with the use of [https://github.com/01org/msr-tools msr-tools].
+
+{{Warning|The following is for experienced users only. Misuse of these tools can potentially damage/brick your CPU. Proceed only if you know what you are doing.}}
+
+First, we use the <code>rdmsr</code> utility to read the current value of the MSR register:
+{{RootCmd|sudo rdmsr 0x01ad}}
+This should return the value <code>1919191b</code> which corresponds to 27/25/25/25.
+Note that the order is reversed, the highest multiplier (for single core) in this case is last (1b).
+Next, we write the new multiplier configuration:
+{{RootCmd|sudo wrmsr 0x01ad 0x1b1b1b1e}}
+This will set the multipliers to 30/27/27/27.
+
+{{Note|Setting the wrong multiplier will downclock the CPU to its lowest multiplier. The current configuration can be viewed with [https://github.com/DimitryAndric/i7z i7z].}}
+
+== See also ==
+
+* [[Intel]]
+* [[Radeon]]
+
+== References ==
+
+{{reflist}}
 
 [[Category:Laptops]]
