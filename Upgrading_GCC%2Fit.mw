@@ -1,0 +1,123 @@
+<languages />
+
+
+{{Metadata|abstract=This document will guide the user through the process of upgrading GCC.}}
+
+This document will guide the user through the process of upgrading GCC.
+
+== Quickstart ==
+
+=== Introduction ===
+
+This is about ''upgrading'' GCC. Downgrading GCC might have unwanted side effects. Please refer to the troubleshooting section for some commonly reported issues. 
+
+The next section gives a quick primer into GCC upgrades (and how easy they are). If you want to read the lengthy reasoning behind GCC upgrades, please continue with [[#GCC Upgrading Explained|GCC Upgrading Explained]].
+
+=== Short version ===
+
+If you are upgrading GCC then you do not need to do anything except switch compiler version and rebuild libtool: 
+
+{{RootCmd|emerge -u sys-devel/gcc
+|gcc-config -l|output=<pre>
+[1] i686-pc-linux-gnu-4.4.5 *
+[2] i686-pc-linux-gnu-4.5.3
+</pre>}}
+
+{{RootCmd
+|gcc-config 2
+|env-update && source /etc/profile}}
+
+{{Emerge|sys-devel/libtool|params+=--oneshot}}
+
+If you upgrade GCC from a version earlier than 3.4.0 (for the 3.x series) or 4.1, you will need to run {{c|revdep-rebuild}} as well: 
+
+{{RootCmd|revdep-rebuild --library 'libstdc++\.so\.5'}}
+
+Check the current version and uninstall the old version:
+
+{{RootCmd|gcc --version}}
+
+{{Emerge|{{=}}sys-devel/gcc-4.4.5|params+=--depclean}}
+
+There you go. Enjoy the new compiler!
+
+== GCC upgrading explained ==
+
+=== Introduction ===
+
+GCC upgrading has always been mystified, with suggestions ranging from "You do not need to do anything" up to "You will need to rebuild your entire system twice". Most of this fear, uncertainty and doubt comes from the confusion surrounding ABI incompatibility. But first a quick pointer towards {{c|libtool}}.
+
+=== libtool and fix_libtool_files.sh ===
+
+Earlier installments of GCC on Gentoo required you to run a specific command called {{c|fix_libtool_files.sh}}. Some time ago, the execution of this command has been integrated in the package deployments itself (through the toolchain eclass) so there is no need for users to call this themselves anymore. 
+
+The reason we need to rebuild libtool after the upgrade of {{c|gcc}} versions is because of its main purpose: ''libtool'' is a toolset that aggregates platform-specific code in a generic interface, allowing applications to build against shared libraries without needing to deal with the platform specific aspects of shared libraries. To fulfill its function properly, the {{c|libtool}} script uses various library locations that have hard-coded {{c|gcc}} version information in them.
+
+=== ABI changes ===
+
+An ABI, or [https://en.wikipedia.org/wiki/Application_binary_interface ''Application Binary Interface''], is a set of conventions used by all tools that deal with binary representation of programs, including compilers, assemblers, linkers, and language runtime support (source: [https://gcc.gnu.org/onlinedocs/gcc/Compatibility.html GCC Binary Compatibility]). When the ABI used for binary applications and libraries is changed, you will risk getting linker errors or malfunctioning programs unless you rebuild all libraries that use C++ code. 
+
+Yes, C++, since most incompatibilities occur within the C++ ABI. If you are upgrading to GCC 4.1, or GCC 5.1, you would probably encounter ABI issues. This is also why we use the {{c|revdep-rebuild}} command against the {{Path|libstdc++.so.5}} (from GCC 3 to GCC 4.1), or {{Path|libstdc++.so.6}} (from GCC 4 to GCC 5.1).
+
+{{RootCmd|revdep-rebuild --library 'libstdc\+\+.so.6' -- --exclude gcc}}
+
+So why is this only needed up to GCC 3.4.0/4.1/5.1? That's because from that version onward, GCC uses a forward compatible ABI, which removes the need for rebuilding applications and libraries. Of course, guarantees can never be given indefinitely, but when an incompatibility occurs again, we'll definitely document it here. In that case, the version of the {{Path|libstdc++.so}} library will probably be increased.
+
+==== The special case C++11 (and C++14) ====
+
+While GCC (or more specifically, libstdc++) goes to great lengths to guarantee stability of the ABI, this guarantee does not extend to all parts of C++ within libstdc++. Formally, with versions starting from 3.4, GCC/libstdc++ only guarantees C++98/C++03 ABI stability and not more. This is crucial for packages that depend on C++11. GCC only makes C++11 ABI stability guarantees beginning with version 5.1. This means that switching (even minor) versions of gcc (say from 4.7.3 -> 4.7.4) might cause ABI breakage for binaries built from C++11 code.
+
+For more information and some examples, see:
+
+* {{Bug|513386}}
+* https://gcc.gnu.org/bugzilla/show_bug.cgi?id=61758
+* https://blogs.gentoo.org/blueness/2015/03/10/the-c11-abi-incompatibility-problem-in-gentoo/
+* https://stackoverflow.com/questions/16190269/g-always-backward-compatible-with-older-static-libraries/16196475#16196475
+
+=== Rebuilding everything ===
+
+Some people swear that they need to rebuild every single package on their system when a new GCC version is made available. Of course, that doesn't make sense, since there are many applications that are not using GCC for their build and install process anyhow, so they would never be affected by such changes. 
+
+That however doesn't mean they are completely incorrect: newer GCC versions often include better support for the processors' instruction set, which might influence the performance of some applications in a positive way. Although it is expected that this improvement is generally only marginal, in some cases (especially CPU intensive applications) this might yield notable improvements. 
+
+There are also known cases where packages need to be built with the same compiler. Although these packages are usually bumped by package maintainers simultaneously (so that they are always built with the same GCC version) cherry-picking re-installs on these packages might prove to be troublesome. The various {{Path|qt-*}} packages are a nice example on this matter.
+
+== Troubleshooting ==
+
+=== libstdc++.so.6: version `GLIBCXX_3.4.15' not found ===
+
+During updates, you might encounter an error like the following: 
+
+{{CodeBox|title=GLIBCXX_x.y.z not found|1=
+cmake_bootstrap_28021_test: /usr/lib/gcc/i486-pc-linux-gnu/4.1.2/libstdc++.so.6:
+version `GLIBCXX_3.4.11' not found 
+}}
+
+This means that you are trying to build a package with an ''older'' GCC version than with which some depending libraries were built. Remember when we told that the C++ ABI is forward-compatible? That is true, but it ensures only that ''higher'' (or same) GCC versions can be used when building applications and linking libraries (compared to the GCC version used to build those libraries).
+
+To rebuild all the packages depending on libstdc++, see the previous revdep-rebuild section.
+
+=== Which packages are known to need a rebuild? ===
+
+The following table gives the packages that, ''if installed'', need to be rebuilt and why. 
+
+{| class="table" style="text-align: left;" 
+|- 
+! Package
+! Rebuild needed because ...
+|- 
+| {{Package|sys-devel/libtool}}
+| libtool application has hardcoded paths towards GCC internal libraries
+|- 
+| {{Package|sys-devel/llvm}}
+| depends on exact gcc version, may encounter linking errors with other ebuilds making use of LLVM (e.g. {{Package|media-libs/mesa}}) if not rebuilt
+|}
+
+== See also ==
+
+* [[Upgrade GCC up to 4.1]], the previous version of this document
+* [[Upgrading from gcc-4.x to gcc-5.x]]
+* [https://fedoraproject.org/wiki/Changes/GCC6 Fedora's 'Changes/GCC6' Wiki Page]
+
+
+[[Category:Core system]]
