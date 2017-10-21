@@ -1,0 +1,188 @@
+<languages />
+{{InfoBox stack
+|{{InfoBox wikipedia|text=System time|header=true}}
+|{{InfoBox wikipedia|Real-time clock|text=Real-time clock}}
+|{{InfoBox wikipedia|Time zone|text=Time zone}}
+}}
+
+
+The '''system time''' backed by the system clock is used in Unix systems to keep track of time. It can be set by a hardware clock or by an external time server.
+
+== Preface ==
+
+=== Software clock vs Hardware clock ===
+
+The [[#System clock|system clock]], provided by the kernel, is implemented as a simple count of the number of ticks that have transpired since the 1 January 1970 00:00:00 UTC. This is called [[Wikipedia:Unix time|Unix time]].
+
+The [[#Hardware clock|hardware clock]] (also known as real-time clock or RTC) is typically a component on the mainboard. It runs independent of the state of the operating system all the time, also when the computer is shutdown.
+
+=== UTC time vs localtime ===
+
+The time for hardware clock can be modified to represent two standards: localtime or [[Wikipedia:Coordinated Universal Time|UTC time]]. The localtime is the real time of the time zone including [[Wikipedia:Daylight saving time|DST]]. Preferred is UTC time because the system time gets computed by adding the time zone difference and DST. So daylight saving changes get automatically applied and changing the time zone are possible without changing the hardware clock. Exceptions can be made when using a dual-boot system; this is when the other operating system does not support or is not configured for an UTC hardware clock (by default, Windows uses localtime).
+
+== 时区 ==
+
+In order to keep time properly, select the proper time zone so the system knows where it is located.
+
+=== OpenRC ===
+
+Look for the local time zone in {{Path|/usr/share/zoneinfo}}. Please avoid the {{Path|/usr/share/zoneinfo/Etc/GMT*}} time zones as their names do not indicate the expected zones. For instance, {{Path|/usr/share/zoneinfo/Etc/GMT-8}} is in fact GMT+8.  For localtime select the "localtime" time zone.
+
+After zone info has been selected, set the time zone in {{Path|/etc/timezone}}, e.g. for Germany:
+
+{{FileBox|filename=/etc/timezone|1=Europe/Berlin}}
+
+The information in this file is used by {{Package|sys-libs/timezone-data}} on each package update to copy the chosen zoneinfo file to {{Path|/etc/localtime}}. To setup this file out of order, run:
+
+{{Emerge|params=--config|timezone-data}}
+
+=== systemd ===
+
+[[systemd]] comes with the {{c|timedatectl}} to manage the time zone:
+
+To check the current zone:
+
+{{Cmd|timedatectl}}
+
+To list available zones:
+
+{{Cmd|timedatectl list-timezones}}
+
+To change the time zone, e.g. for Germany:
+
+{{RootCmd|timedatectl set-timezone Europe/Berlin}}
+
+== LC_TIME ==
+
+This [[Localization/Guide#Environment_variables_for_locales|environment variable]] defines formatting of dates and times. For more details see [http://www.gnu.org/software/libc/manual/html_node/Locale-Categories.html#index-LC_005fTIME The GNU C Library]
+
+== System clock ==
+
+Typically the system clock time is set up by the hardware clock on boot. Alternatively it is possible to manually set the system clock or use a network time server.
+
+The {{c|date}} command can be used to manage the system clock time:
+
+To check the current software clock time:
+
+{{Cmd|date}}
+
+To set the system clock, e.g. 12:34, May. 6, 2016:
+
+{{RootCmd|date 050612342016}}
+
+=== Time server ===
+
+See the [[Ntp|NTP]] article for information concerning the use of time servers.
+
+=== systemd ===
+
+systemd comes with the {{c|timedatectl}} command to manage the system clock time:
+
+To check the current software clock time:
+
+{{Cmd|timedatectl}}
+
+To set the system clock:
+
+{{RootCmd|timedatectl set-time "2012-12-17 12:30:59"}}
+
+== Hardware clock ==
+
+To have a hardware clock, the following kernel options must be activated:
+
+{{KernelBox|title=Necessary kernel options for a hardware clock|1=
+Device Drivers  --->
+    [*] Real Time Clock  --->
+        [ ]   Set system time from RTC on startup and resume
+        [ ]   Set the RTC time based on NTP synchronization
+        [*]   /sys/class/rtc/rtcN (sysfs)
+        [*]   /proc/driver/rtc (procfs for rtc0)
+        [*]   /dev/rtcN (character devices)
+        <*>   PC-style 'CMOS'
+}}
+
+At runtime, to check the current hardware clock time:
+
+{{RootCmd|hwclock --show}}
+
+To set the hardware clock to the current system clock:
+
+{{RootCmd|hwclock --systohc}}
+
+=== Syncing Hardware clock and System time ===
+
+Typically the hardware clock is used to setup the system clock on boot. This can be done by the kernel itself or by a boot service (init script). Also on shutdown the kernel or a service can write the software clock to the hardware clock. This aids the system in having the correct time on boot.
+
+==== In-kernel method ====
+
+On a sufficiently modern kernel (3.9 or newer), Linux can be configured to handle setting the system time automatically. To do so, also the '''Set system time ...''' and '''Set the RTC time ...''' drivers need to be activated:
+
+{{KernelBox|title=Letting the kernel sync the system clock|1=
+Device Drivers  --->
+    [*] Real Time Clock  --->
+        [*]   Set system time from RTC on startup and resume
+        [*]   Set the RTC time based on NTP synchronization
+        [*]   /sys/class/rtc/rtcN (sysfs)
+        [*]   /proc/driver/rtc (procfs for rtcN)
+        [*]   /dev/rtcN (character devices)
+        <*>   PC-style 'CMOS'
+}}
+
+Please note that '''Set the RTC time based on NTP synchronization''' is not used by some [[Network Time Protocol|NTP implementations]]. Supported NTP implementations include: {{Package|net-misc/chrony}} (more information [http://chrony.tuxfamily.org/comparison.html here]) and {{Package|net-misc/ntp}} (more information in the [[Ntp|NTP article]]). OpenNtpd ({{Package|net-misc/openntpd}}) does '''not''' support setting the hardware time and therefore should be avoided.
+
+To check if the hardware time is updated, run:
+
+{{RootCmd|adjtimex --print {{!}} grep status}}
+
+The 64 bit of the reported number should be unset (0). More information in hwclock man pages (search '11 minute mode').
+
+==== OpenRC ====
+
+When using OpenRC the {{Path|hwclock}} init script can set the system clock on boot and sync system time to the hardware clock on shutdown. The service is enabled by default and should be ''disabled'' in favor of the above mentioned in-kernel method. The {{Path|hwclock}} script should ''not'' be run when using the kernel's real time clock. 
+
+{{RootCmd|rc-update delete hwclock boot}}
+
+If however there is a need for using the OpenRC, set both <code>clock_hctosys</code> and <code>clock_systohc</code> to <code>YES</code> in {{Path|/etc/conf.d/hwclock}}. By default the service is configured for UTC time standard. To change to localtime add <code>clock="local"</code>.
+
+{{FileBox|filename=/etc/conf.d/hwclock|title=Adding hardware clock sync|lang=bash|1=
+clock_hctosys="YES" 
+clock_systohc="YES"
+# clock="local"
+}}
+
+Restart the {{Path|hwclock}} service and have the hardware clock init script run on system boot:
+
+{{RootCmd
+|rc-service hwclock restart
+|rc-update add hwclock boot
+}}
+
+==== Systemd ====
+
+[[systemd]] can be used to set the system clock on boot. Use {{c|timedatectl}} to manage the hardware clock:
+
+To check the current hardware clock time:
+
+{{Cmd|timedatectl {{!}} grep "RTC time"}}
+
+To set the hardware clock to the current system clock (UTC time standard):
+
+{{RootCmd|timedatectl set-local-rtc 0}}
+
+To set the hardware clock to the current system clock (localtime time standard):
+
+{{RootCmd|timedatectl set-local-rtc 1}}
+
+== See also ==
+
+* [[Network Time Protocol]]
+* [[Ntp|NTP]] - An implementation of the network time protocol.
+* [[OpenNTPD|OpenNTPD]] - Lightweight NTP server ported from OpenBSD
+
+== External resources ==
+
+* http://lifehacker.com/5742148/fix-windows-clock-issues-when-dual-booting-with-os-x - Dual booting with MS Windows, set RealTimeIsUniversal. Also tested with [[UEFI_Dual_boot_with_Windows_7/8|Windows 10]].
+* http://tldp.org/HOWTO/Clock-2.html - The Clock Mini-HOWTO.
+
+
+[[Category:Localization]]
