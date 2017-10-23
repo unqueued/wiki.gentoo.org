@@ -60,6 +60,293 @@ After reviewing the USE flags, ask Portage to install the {{Package|sys-fs/lvm2}
 <!--T:14-->
 {{Emerge|sys-fs/lvm2}}
 
+
+=== Handbook ===
+
+The handbook does not contain specific steps for installing Gentoo using LVMs. The following steps compliment the handbook.
+
+
+==== Preparing the disks ====
+
+To stick with the handbook partitioning theme the following scheme will be used:
+
+{| width="100%"
+! align="left"|Partition
+! Filesystem
+! Size
+! Description
+|-
+|/dev/sda1
+|(bootloader)
+|2M
+|BIOS boot partition
+|-
+|/dev/sda2
+|ext2 (or fat32 if UEFI is being used)
+|128M
+|Boot/EFI system partition
+|-
+|/dev/sda3
+|LVM
+|Rest of the disk 
+|LVM Volume Group
+|}
+
+
+The Logical Volume ''vg01'' will then be used for the ''Swap'' and ''Root'' partitions:
+
+{| width="100%"
+! align="left"|Logical Volume Name
+! Filesystem
+! Size
+! Description
+|-
+|swap
+|(swap)
+|512M or higher
+|Swap partition
+|-
+|rootfs
+|ext4
+|Rest of the volume group
+|Root partition
+|}
+
+
+===== Using parted to partition the disk =====
+
+{{RootCmd|parted -a optimal /dev/sda
+GNU Parted 2.3
+Using /dev/sda
+Welcome to GNU Parted! Type 'help' to view a list of commands.}}
+
+
+===== Setting the GPT label =====
+
+{{RootCmd|mklabel gpt}}
+
+
+===== Creating the partitions =====
+
+Now create a 2 MB partition that will be used by the GRUB2 boot loader later.
+
+{{RootCmd|mkpart primary 1 3
+|name 1 grub
+|set 1 bios_grub on}}
+
+Do the same for the boot partition (128 MB).
+
+{{RootCmd|mkpart primary 3 131
+|name 2 boot
+|set 2 boot on}}
+
+Now create the partition 3 with the ''lvm'' flag using the remaining space:
+
+{{RootCmd|mkpart primary 131 -1
+|name 3 lvm01
+|set 3 lvm on}}
+
+The end result looks like so: 
+
+{{RootCmd|print
+Model: VMware Virtual disk (scsi)
+Disk /dev/sda: 17.2GB
+Sector size (logical/physical): 512B/512B
+Partition Table: gpt
+Disk Flags: 
+
+Number  Start   End     Size    File system  Name   Flags
+ 1      1049kB  3146kB  2097kB               grub   bios_grub
+ 2      3146kB  131MB   128MB                boot   boot, esp
+ 3      131MB   17.2GB  17.0GB               lvm01  lvm
+}}
+
+
+===== Creating the physical volume =====
+
+This creates a physical volume that will be used to store the volume group on:
+
+{{RootCmd|pvcreate /dev/sda3
+  Physical volume "/dev/sda3" successfully created.
+}}
+
+
+===== Creating the volume group =====
+
+This creates a volume that will be used to store the logical volumes on:
+
+{{RootCmd|vgcreate vg01 /dev/sda3
+  Volume group "vg01" successfully created
+}}
+
+
+===== Creating the logical volumes =====
+
+This creates the logical volume for the swap of 512M:
+
+{{RootCmd|lvcreate -L 512M -n swap vg01
+  Logical volume "swap" created.
+}}
+
+This creates the logical volume for the root filesystem using the remaining space:
+
+{{RootCmd|lvcreate -l 100%VG -n rootfs vg01
+  Logical volume "swap" created.
+}}
+
+
+===== Creating the filesystems =====
+
+Create the boot partition (/dev/sda2) in ext2:
+
+{{RootCmd|mkfs.ext2 /dev/sda2}}
+
+Create the root partition (/dev/vg01/rootfs) in ext4:
+
+{{RootCmd|mkfs.ext4 /dev/vg01/rootfs}}
+
+
+===== Activating the swap partition =====
+
+Make the swap partition (/dev/vg01/swap):
+
+{{RootCmd|mkswap /dev/vg01/swap}}
+
+Activate the swap partition:
+
+{{RootCmd|swapon /dev/vg01/swap}}
+
+
+===== Mounting the root partition =====
+
+Mount the root partition:
+
+{{RootCmd|mount /dev/vg01/rootfs /mnt/gentoo}}
+
+
+==== Configuring the Linux kernel ====
+
+You will need to build an initramfs so the LVM can be mounted. After installing '''make install''' command execute the following:
+
+{{RootCmd|emerge --ask sys-kernel/genkernel}}
+
+{{RootCmd|genkernel --lvm --install initramfs}}
+
+
+==== Configuring the system ====
+
+Edit the {{Path|/etc/fstab}} file:
+
+{{RootCmd|nano -w /etc/fstab}}
+
+Here is a the {{Path|/etc/fstab}} file contents for this guide:
+
+{{FileBox|filename=/etc/fstab|title=A full /etc/fstab example|lang=bash|1=
+/dev/sda2          /boot        ext2    defaults,noatime     0 2
+/dev/vg01/swap     none         swap    sw                   0 0
+/dev/vg01/rootfs   /            ext4    noatime              0 1
+ 
+/dev/cdrom  /mnt/cdrom   auto    noauto,user          0 0
+}}
+
+
+==== Configuring the bootloader ====
+
+===== Emerge =====
+
+GRUB needs to be compiled with ''device-mapper'', execute the following command first:
+
+{{RootCmd|echo 'sys-boot/grub:2 device-mapper' >> /etc/portage/package.use/package.use}}
+
+
+===== Install =====
+
+Now install GRUB:
+
+{{RootCmd|emerge --ask --verbose sys-boot/grub:2
+Installing for i386-pc platform.
+Installation finished. No error reported.}}
+
+
+===== Configure =====
+
+The <code>dolvm</code> option needs to be enabled for <code>GRUB_CMDLINE_LINUX_DEFAULT</code> in the {{Path|/etc/default/grub}} file, edit it:
+
+{{RootCmd|nano -w /etc/default/grub}}
+
+
+Configure the option:
+
+{{FileBox|filename=/etc/default/grub|title=GRUB_CMDLINE_LINUX_DEFAULT option|lang=bash|1=
+GRUB_CMDLINE_LINUX_DEFAULT="dolvm"}}
+
+
+Now generate the GRUB2 configuration:
+
+{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg
+Generating grub configuration file ...
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+Found linux image: /boot/vmlinuz-4.12.12-gentoo
+Found initrd image: /boot/initramfs-genkernel-x86_64-4.12.12-gentoo
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+  /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+done
+}}
+
+{{Note|You can ignore these WARNINGS:
+<code>/run/lvm/lvmetad.socket: connect failed: No such file or directory
+WARNING: Failed to connect to lvmetad. Falling back to internal scanning.</code>
+}}
+
+
+===== Reboot =====
+
+You can now reboot the system, it should boot up OK.
+
+
+==== Fixing a non-booting system ====
+
+If your system doesn't boot you will need to boot back to the installation medium to resolve the issues. Executing the following commands will allow you to make any changes using the guide:
+
+{{RootCmd|vgchange -ay vg01
+|swapon /dev/vg01/swap
+|mount /dev/vg01/rootfs /mnt/gentoo
+|mount -t proc /proc /mnt/gentoo/proc
+|mount --rbind /sys /mnt/gentoo/sys
+|mount --make-rslave /mnt/gentoo/sys 
+|mount --rbind /dev /mnt/gentoo/dev 
+|mount --make-rslave /mnt/gentoo/dev}}
+{{RootCmd|chroot /mnt/gentoo /bin/bash
+|source /etc/profile
+|export PS1="(chroot) $PS1"
+|mount /dev/sda2 /boot}}
+
+
 == Configuration == <!--T:15-->
 
 <!--T:16-->
