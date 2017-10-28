@@ -9,8 +9,8 @@
 }}
 
 <!--T:2-->
-'''Coreboot''' is a free and opensource firmware which aims to be fast, secure and flexible replacement for [https://en.wikipedia.org/wiki/Unified_Extensible_Firmware_Interface UEFI]. 
-In this guide you will learn how to install coreboot on supported devices, handling of userspace tools and the use of flashrom.
+'''Coreboot''' is a free and opensource firmware which aims to be fast, secure and flexible replacement for [https://en.wikipedia.org/wiki/Unified_Extensible_Firmware_Interface UEFI]. It supports multiple payloads, ranging from a BIOS implementation (SeaBIOS), to a [[GRUB2]] install, to a complete linux kernel.
+In this guide you will learn how to install coreboot with a SeaBIOS payload on supported devices, handling of userspace tools and the use of flashrom.
 
 <!--T:3-->
 == Supported Hardware ==
@@ -137,14 +137,46 @@ There are different types of architectures and supported hardware. If you want t
 |}
 
 == The Basics ==
-In general you begin to find the spi chip on the board of your selected hardware. This is important because of the vendor which locks the spi via soft lockdown. 
+In general you begin to find the flash chip on the board of your selected hardware. This is important because of the vendor which locks the flash chip via soft lockdown. Guides for this will generally be on the coreboot wiki. This guide assumes the device contains an SPI flash chip, which requires a clip to connect up to the flasher.
 
 === Flasher ===
-As flasher you can easily use a Raspberry PI B+ or v2 with a [http://www.mouser.de/ProductDetail/Pomona-Electronics/5250/?qs=q2OAyjihNMzqkARxZuX5AQ%3D%3D pomona SOIC-8 testclip] for 40€. But there also many other [http://flashrom.org/Supported_programmers programmers].
+As a flasher, you can easily use a Raspberry Pi. any model and revision will do, but be warned that the earlier ones do not have enough RAM to compile coreboot by themselves. If using one of these, make sure to copy the dump of the flash chip onto a more powerful computer. If your flash chip is SPI based, make sure to get a [http://www.mouser.de/ProductDetail/Pomona-Electronics/5250/?qs=q2OAyjihNMzqkARxZuX5AQ%3D%3D Pomona SOIC-8 testclip] for £15. But there also many other [http://flashrom.org/Supported_programmers programmers]. Make sure to get some debug wires, too.
 
 === SPI flash ===
 
-There are different types of SPI chips ([http://flashrom.org/Supported_hardware list]). The most common package for these chips is SOIC-8 which can be flashed via testclip. Sometimes you will find chips with a WSON-8 package, then you need to desolder the WSON-8 chip and resolder a new SOIC-8. If you need help with soldering ask [https://wiki.hackerspaces.org/List_of_Hacker_Spaces hackerspaces] near your location. SPI chips are common in sizes from 2MB - 16MB. Often vendors solder two chips to save money. A flash chip contains a flash descriptor that can be seen as a partition table for the SPI flash with some additional properties.
+There are different types of SPI chips ([http://flashrom.org/Supported_hardware list]). The most common package for these chips is SOIC-8 which can be flashed via testclip. Sometimes you will find chips with a WSON-8 package; in which case you need to desolder the WSON-8 chip and resolder a new SOIC-8. If you need help with soldering ask [https://wiki.hackerspaces.org/List_of_Hacker_Spaces hackerspaces] near your location. SPI chips are common in sizes from 2MB - 16MB. Often vendors solder two chips to save money.
+
+=== flashrom ===
+{{USEflag|package=sys-apps/flashrom}}
+
+[https://flashrom.org flashrom] is most commonly used to dump and write to flash chips. This must be installed on the flasher, or on the machine that the flasher is connected to.
+
+It is useful to install flashrom on the system you're flashing to, as once coreboot is flashed initially, it can be reflashed internally, without disassembly or use of a flasher.
+
+{{Emerge|sys-apps/flashrom}}
+
+Now you need to disassemble the machine. Follow the manual, or an online guide until you get to the flash chip, and then attach the clip and wire it to the flasher.
+{{Warning|Make sure you disconnect ALL power sources from the machine, apart from the CMOS battery. It's possible to fry motherboards if you're not careful.}}
+
+Once the flash chip is connected to a flasher, use flashrom to dump the flash chip's contents. 
+{{RootCmd|flashrom -p linux_spi:dev{{=}}/dev/spidev0.0 -r flash.bin|flashrom -p linux_spi:dev{{=}}/dev/spidev0.0 -r flash2.bin|diff flash.bin flash2.bin}}
+It's important to take multiple dumps, in case there is a connection error. Once a proper dump is obtained, it is safe to disconnect the flasher for now if so desired. Remember, if running on a Raspberry Pi v1, it will not have enough RAM to compile, so at this point you should transfer the dump to a different machine. It's possible to use the computer you just dumped the flash of to compile, although this will require reassembly and another disassembly later.
+
+== Dumping and Compiling Tools ==
+
+Now, you need to clone the coreboot git repository, as it contains tools required to carry on. Directories must also be created for your specific manufacturer and model.
+{{Cmd|git clone --recursive https://review.coreboot.org/coreboot.git|cd coreboot|mkdir -p 3rdparty/blobs/mainboard/<manufacturer>/<model>}}
+Replace <manufacturer> and <model> with your manufacturer and model respectively (e.g. lenovo/x220).
+
+The next step is to extract regions of the flash dump. Regions are similar to partitions, and are a flash chip contains a flash descriptor that can be seen as a partition table for the SPI flash with some additional properties. This descriptor is read by a program called ifdtool, which will be used to gain the individual partitions. 
+
+First, ifdtool must be compiled. Its source is contained under coreboot's, so cd into the directory where you cloned coreboot to.
+{{Cmd|cd util/ifdtool|make}}
+It's a good idea to install globally, but not necessary.
+{{RootCmd|make install}}
+Then, cd back to wherever flash.bin is.
+{{Cmd|ifdtool -x flash.bin}}
+This will print a partition table, and extract some blobs. A standard partition table may look like this:
 
 {| class="table table-condensed table-striped"
 ! Region
@@ -179,31 +211,116 @@ There are different types of SPI chips ([http://flashrom.org/Supported_hardware 
 |-
 |}
 
-==== Fash Descriptor Table ====
 
-==== Gigabit Ethernet Configuration Data ====
 
-==== Intel's Management Engine ====
+==== Intel ME and Gigabit Ethernet Configuration Data ====
+Notice how the above table contains ME and GbE. These are binary blobs that initialise parts of the computer (In this case, Intel Management Engine and Gigabit Ethernet). On older devices, these can be safely removed with [https://libreboot.org libreboot], but on Sandy Bridge and newer, they are required for the computer to run properly. Since Intel ME is required on these boards, it must be extracted. However, coreboot can drastically reduce the size of it, removing its network and system resource access. This is recommended, as not only does it improve security, it also leaves more space on the flash chip for other payloads. The Gigabit Ethernet configuration data is specific to each machine, and as such, must also be extracted from the flash chip.
 
-==== Package ====
+At this point, your working directory should contain four new files, which follow the format flashregion_*.bin. These should map to the table that was printed. As previously mentioned, we need the descriptor, Intel ME and the GbE blobs. Rename these to descriptor.bin, me.bin and gbe.bin respectively, and copy them to coreboot/3rdparty/blobs/mainboard/<manufacturer>/<model>/; the directory you created earlier.
 
-==== Finding the flash chip ====
+== Configuring and Compiling Coreboot ==
+Now, coreboot must be configured for your specific machine. It's best to check the coreboot wiki page for your given device, in case there are any certain requirements. As such, this page will attempt to only detail the settings which must be set across the majority of installs. This cannot be guaranteed, and some settings may cause conflicts with your machine.
 
-=== Flashrom ===
+First, you must enter the configuration. This is performed in a similar manner to configuring a kernel.
+{{Cmd|make nconfig}}
+Alternatively, you could use menuconfig, or even edit the config file manually (once it has been generated by nconfig/menuconfig).
 
-{{USEflag|package=sys-apps/flashrom}}
+You should now be presented with a menu.
+==== General Setup ====
+ I recommend enabling the following:
+* Use CMOS for configuration values
+* Compress ramstage with LZMA
+* Include the coreboot .config file into the ROM image
+* Create a table of timestamps collected during boot
+* Build the ramstage to be relocatable in 32-bit address space.
+For a Sandy Bridge or later device:
+* Allow use of binary-only repository
+And if you've previously compiled coreboot, you can reduce further compile times by enabling:
+* Update existing coreboot.rom image
 
-Now you will install flashrom on your system.
+==== Mainboard ====
+Here, you must select your vendor and model. Make sure you get the exact model, if derivatives are available (e.g X220/X220t). You should also select the ROM chip size. This should have been outputted by flashrom, but if not can be determined by checking the filesize of flash.bin. 
 
-{{RootCmd|emerge -av flashrom}}
+==== Chipset ====
+This menu contains chipset specific options, and also the locations for the binary blobs extracted earlier. since this is largely machine specific, there are only certain options that should be enabled across the board. I recommend enabling:
+* Enable VMX for virtualization
+* Set lock bit after configuring VMX
+* Beep on fatal error
+* Flash LEDs on fatal error
+These will allow easier debugging if you have a bad flash. They can be disabled once you are certain that you have a proper configuration.
 
-== Install ==
+Next, paths must be provided under Intel Firmware. Enable these options:
+* Add Intel descriptor.bin file
+* Add Intel ME/TXE firmware
+* Strip down the Intel ME/TXE firmware
+* Add gigabit ethernet firmware
+Options for paths should now appear. They should match to the names used previously, but if not, correct them so that they do.
 
-== Recover a bricked device ==
+==== Devices ====
+This area largely concerns graphics, especially in the context of laptops. Personally, I have Graphics Initialisation set to 'Use native graphics init', and Display/Framebuffer Mode set to 'Linear "high-resolution" framebuffer'. The rest of these options should be set already for your machine. If your specific device requires a VGA BIOS image, follow the coreboot wiki.
+
+==== Generic Drivers ====
+I often enable:
+* PS/2 keyboard init
+If the device has an Intel PCIe WiFi card, enable the option
+* Support Intel PCI-e WiFi adapters
+
+==== Security ====
+I often leave this alone, as it currently only contains Verified Boot options, but if you need support for this, go ahead and enable it.
+
+==== Console ====
+This section contains options about debugging consoles. It may be useful to enable certain options, especially if you are experiencing issues. I have enabled:
+* Squelch AP CPUs from early console.
+* Send console output to a CBMEM buffer
+* Show POST codes on the debug console
+
+==== System Tables ====
+Enable Generate SMBIOS tables, the only option here.
+
+==== Payloads ====
+In this section, you can choose a payload. This page will detail how to set up SeaBIOS, as it has the largest compatibility with operating systems, but it is also possible to use [[GRUB2]] for faster booting, or even place a kernel on the flash chip (if there is enough space).
+
+Select the following for a proper SeaBIOS setup:
+* Add a payload > SeaBIOS
+* SeaBIOS version > master
+* Hardware init during option ROM execution
+* Use LZMA compression for payloads
+You may also wish to enable some secondary payloads. These can be used for debugging, and changing options. I recommend nvramcui, which acts in a similar way to a standard BIOS options menu.
+
+==== Debugging ====
+These options are largely for development. Regular users need not enable anything in this submenu.
+
+=== Compiling ===
+Now that the config is done, coreboot must be compiled. First, the cross-compiler must be built.
+{{Cmd|make crossgcc-i386 CPUS{{=}}${nproc} }}
+This requires dev-lang/gnat-gpl to be installed, otherwise many functions will not work properly. Once this is done, compile IASL.
+{{Cmd|make iasl}}
+And finally, compile coreboot
+{{Cmd|make}}
+
+== Flashing coreboot.rom ==
+This should produce a file in the build/ directory called coreboot.rom. This is the final image which needs to be flashed. Copy this to the flasher, if not already on it, disassemble the target device and attach the flasher to the flash chip.
+
+On the flasher, use flashrom to flash:
+{{RootCmd|flashrom -p linux_spi:dev{{=}}/dev/spidev0.0 -w coreboot.rom|flashrom -p linux_spi:dev{{=}}/dev/spidev0.0 -v coreboot.rom}}
+The second command should return VERIFIED. If so, coreboot has been successfully flashed to the device.
+
+=== Flashing via internal ===
+Once coreboot has been flashed initially, it can later be flashed internally, without need of an external flashing device. To do this, once a new coreboot.rom has been compiled, simply do the following:
+{{RootCmd|flashrom -p internal:laptop{{=}}force_I_want_a_brick -w coreboot.rom}}
+{{Warning|While this has been tested on several laptops, it may not work on yours. Make sure to check if others have had success or failures with the internal flasher for your specific model.}}
+
+== Troubleshooting ==
 
 === Coreboot isn't booting (Broken build) ===
+If coreboot is not booting, then it usually means that it either isn't configured properly, or is missing a payload. Ensure that you selected a proper payload that is compiled correctly, and properly configured itself.
+
+It's also possible that coreboot is working correctly, but the graphical component isn't. This may be caused by using native gfx init. Try dumping a VGA BIOS and using that instead. It could also be the other way around; try switching from a VGA BIOS to native gfx init. As a final resort, try using the Legacy VGA text mode for the framebuffer mode under Devices/Display.
 
 === Nothing is booting anymore (aka SPI chip bricked) ===
+This is usually caused by leaving the machine powered on while dumping or flashing with an external flasher. If the machine does not turn on at all (No lights, fans, or display turn on at boot), this may mean that you have bricked the machine. It may be possible to repair by purchasing a new flash chip (Make sure it's compatible - try to use the same manufacturer and model for best results) and flashing this with either the original BIOS or the coreboot ROM. This often requires very delicate soldering, and is not for the feint of heart. It may mean that you have to purchase a new machine entirely, or at least a new motherboard. 
+
+{{Note|Always be sure to check that you haven't just misconfigured coreboot!}}
 
 == Porting a new board ==
 
