@@ -1,0 +1,593 @@
+{{InfoBox stack
+|{{InfoBox homepage|http://espressobin.net/|header=true}}
+}}
+
+== Overview ==
+
+This documents the basic setup for Marvell Espressobin ARM64 network switch-ish board.  It appears to be the only similar-class Marvell board with open docs (ie, not protected by NDA).  Googling reveals a mix of both proprietary and "open" resources (and github appears to contain a mix of both, so ignore links and other references to "extranet").  There appears to be one main site for the ESPRESSOBin boards, with the corresponding vendor sources mainly on github.
+
+=== History ===
+The Marvell Espressobin was originally a kickstarter board by Globalscale Technologies Inc.  It is a high performance 64 bit dual-core networking computing platform based on the ARMv8 architecture and has low power consumption.  The board is powered by Marvell's Armada 3700 dual-core SoC chipset which runs up to 1.2GHz. 
+
+Pros:
+
+* Solid mainline support
+* Great network/SATA performance
+* Mini PCIe expansion slot
+* 2 GbE LAN ports, 1 GbE WAN port
+* USB 3 host port
+* ATF-based boot protocol
+* 1 GB or 2 GB RAM
+
+Cons:
+
+* no video/audio
+* ATF-based boot protocol
+** complicated u-boot upgrade
+* availability
+
+The Gentoo arm64 offering is still experimental at the time of writing.
+That means that very little is marked stable. Expect to use ACCEPT_KEYWORDS="~arm64"
+and then use package.accept_keywords too.
+
+=== What Works ===
+All the core hardware should be supported in latest mainline kernel (tested on 4.13.12)
+and u-boot 2017-rc4.
+ Network switch
+ USB 2.0/3
+ MMC
+ SATA
+ PCIE
+ UART over micro-USB
+ Hardware Crypto
+
+=== Untested ===
+ GPIO/SPI/I2C
+ PCIe
+ Mainline u-boot
+ Note: u-boot lives in SPI flash
+
+=== What's Required ===
+ Gentoo Install on a PC 
+ microSD card reader for the PC
+ ESPRESSOBin board
+ 12V PSU
+ microSD card > 8G
+ micro USB cable
+ network cable
+
+The contents of the microSD card will be wiped during the install.
+
+== Installation Overview ==
+* Install crossdev on the PC
+* Fetch the mainline kernel (or use the builder script)
+* Partition the microSD card
+* Fetch the Gentoo bits of the install
+* Cross compile and install your kernel
+* Setup networking and root passwd
+* Boot with serial console to test
+ 
+== Install Crossdev on the PC ==
+crossdev is Gentoos' tool for building cross compiler tool chains.  Once it's
+installed, it will br used to build the arm64 kernel on the Gentoo PC.
+{{Emerge|crossdev}}will install the crossdev tool.
+
+=== Using Crossdev to Build A Cross Compiler ===
+{{RootCmd|crossdev -t aarch64-unknown-linux-gnu}}
+
+You may need to disable existing overlays first; at least crossdev-99999999
+gets a little confused by overlays right now, and it does need its output
+overlay to be the primary one.  After disabling your local overlays you should
+run crossdev with PORTDIR_OVERLAY set to where you want the crossdev output
+to go.
+
+There are other parameters you can pass to crossdev too. 
+{{Important|Do not use -S to build a stable toolchain, arm64 moves quickly}}
+
+You can find some crossdev examples in the arm overlay; an example "fancy"
+crossdev command for arm64 might be:
+
+{{RootCmd|PORTDIR_OVERLAY{{=}}"/usr/local/armv8" USE{{=}}"hardened multitarget lzma -multilib -openmp -go -fortran -jit" EXTRA_ECONF{{=}}"--disable-multilib --disable-libsanitizer" crossdev -v -t aarch64-unknown-linux-gnu --ex-gdb}}
+
+{{Important|Crossdev insists that many of the files in /etc/portage/ are directories}}
+Convert files as crossdev asks e.g. 
+ error: please convert /etc/portage/package.env to a directory
+by appending _file to the existing filename
+{{RootCmd|mv /etc/portage/package.env /etc/portage/package.env_file}}
+making the directory
+{{RootCmd|mkdir /etc/portage/package.env}}
+then moving  package.env_file into the directory.
+{{RootCmd|mv /etc/portage/package.env_file /etc/portage/package.env}}
+
+Rinse and repeat until crossdev is happy.
+
+crossdev will take a while. Its building
+ binutils:              binutils-[latest]
+ gcc:                   gcc-[latest]
+ headers:               linux-headers-[latest]
+ libc:                  glibc-[latest]
+
+When crossdev completes you will have a cross toolchain
+
+{{Cmd|$ gcc-config -l
+ [1] aarch64-unknown-linux-gnu-5.4.0 *
+ [2] aarch64-unknown-linux-gnu-5.4.0-vanilla
+}}
+
+It will also create an arm64 target root in '''/usr/aarch64-unknown-linux-gnu/''' This is used by cross emerge. 
+
+Pure cross compiling, other than the kernel, is out of scope of this guide.
+
+== Fetch, Configure and Build the Kernel ==
+There are some prebuilt vendor kernel images for this board, but mainline is preferred.
+U-boot has a rather complicated build and flash process, and the latest vendor branch is not
+buildable anyway.  The version of u-boot in SPI flash on the board I received is
+2015.01-armada-17.02.0-g8128e91 and the default environment is set to boot from mmc.
+
+=== Fetch the Kernel ===
+In this case you have a choice to build "stock" mainline by hand, or use the
+kernel builder with some Armbian patches.  The latter is recommended since it
+also includes a proper defconfig for this machine (you need it to boot from
+sdcard).
+
+So either use the builder scripts (borrowed from RCN repo and updated for
+ESPRESSOBin) or grab the defconfig and do it manually.  If you don't already
+have a linux-stable tree the scripts will clone it for you (see the file
+system.sh.sample and copy it to system.sh, then set your CC prefix).
+
+{{Cmd|git clone https://github.com/sarnold/arm64-multiplatform}}
+{{Cmd|cd arm64-multiplatform}}
+
+Use the default branch v4.13.x, edit system.sh, then run build_kernel.sh and
+wait for your shiny new kernel in the dep[loy/ directory.
+
+At the end of the build, it will output the kernel version string to export
+in your shell for the install commands later.  Something like:
+
+ <nowiki>
+-----------------------------
+Script Complete
+eewiki.net: [user@localhost:~$ export kernel_version=4.13.12-aarch64-r0]
+-----------------------------
+</nowiki>
+
+{{Note|The build_kernel.sh script will start from a fresh clone of the kernel
+source, apply patches, run make menuconfig, etc.  If you want to make
+any changes or fiddle in the kernel tree, rebuild using tools/rebuild.sh
+script instead (the latter will start a build using the existing tree.}}
+
+=== Configure The Kernel ===
+
+Once the scripts have cloned the kernel tree and applied any patches, you will
+see the menuconfig screen.  Note the default config used should have all the
+required hardware support already enabled, but may not have all the network
+tools you want yet (the config is still a WIP).
+
+More confident readers may be tempted to trim things out or add things now.  
+A word of advice - '''don't''', at least, not until the system boots.
+
+=== Cross Compiling The Kernel ===
+
+The scripts will use the toolchain arch set in system.sh but if you want to
+compile it manually the proper command line would be something like:
+
+{{Cmd|make ARCH{{=}}arm64 CROSS_COMPILE{{=}}aarch64-unknown-linux-gnu-}}
+
+== Partition the microSD card ==
+{{Warning|This Step Will Destroy ALL The Data on the Card}}
+
+=== Background ===
+The current vendor u-boot environment is already set to look for a kernel and
+device tree blob in the boot directory of the first partition, as well as use
+the first partition as root.  Therefor you only need to make one partition (or
+at least make sdX1 the rootfs).
+
+{{Warning|Many boards (even in mainline u-boot) do not yet support all ext4
+defaults yet so 64bit metadata and checksums must be disabled}}
+
+=== Partitioning ===
+
+Depending on how the microSD card is connected to you PC, it my be /dev/sdX or /dev/mmcblkY
+{{Warning|Check! Do Get It Right - Don't Ruin your PC Install}}
+In the example below, it's /dev/sdb.  Also, you can use a swapfile instead of a
+separate partition.
+
+==== Clean the card and format with options ====
+
+{{rootCmd|export DISK{{=}}/dev/your_sdcard_device}}
+{{rootCmd|dd if{{=}}/dev/zero of{{=}}${DISK} bs{{=}}1M count{{=}}10}}
+
+Using the partitioning tool of your choice, make one partition on your microSD card.
+ root (/)
+
+Using fdisk, and your microSD card block device, not the example /dev/sdb unless it's correct for your setup
+{{rootCmd|fdisk ${DISK} }}
+
+Use ext4 for root:
+{{rootCmd|mkfs.ext4 -L rootfs -O ^metadata_csum,^64bit -T news ${DISK}1 }}
+
+{{Important| -T news makes more inodes for lots of small files}}
+The i-node count cannot be changed after filesystem creation and can limit the number of files on a files system.
+The Gentoo repository alone needs over 17,000 i-nodes.
+
+== Fetch the Gentoo bits of the install ==
+To make it easy to cross refer to the [[Gentoo_Handbook]]
+{{RootCmd|mkdir /mnt/gentoo}}
+
+Mount the microSD card root filesystem at /mnt/gentoo
+{{RootCmd|mount /dev/sdb1 /mnt/gentoo}}
+
+=== Install the arm64 Stage 3 ===
+Following the [[Gentoo_Handbook]] fetch the [http://distfiles.gentoo.org/experimental/arm64/ arm64 stage3]
+and untar it to /mnt/gentoo in the normal way.
+
+/mnt/gentoo/tmp should be empty. Clear it now.
+{{rootCmd|rm -rf /mnt/gentoo/tmp/*}}
+
+=== Install a Portage Snapshot ===
+''This step is not actually needed to boot but emerge won't work without it''
+
+Following the [[Gentoo_Handbook]] fetch and unpack a
+[http://distfiles.gentoo.org/snapshots/portage-latest.tar.bz2 portage snapshot] in the normal way. 
+
+Careful readers can copy their host /usr/portage as long as ./packages and ./distfiles are omitted.
+
+== Populating /boot ==
+
+All that's needed here is the kernel binary and the proper device tree blob.  Note the
+file names have to match what the vendor u-boot expects, so just copy the files
+as-is and make symlinks to the required names (see below).
+
+=== Install the Kernel to the microSD Card ===
+
+The kernel was built above, now to install it.  
+
+The kernel is in three parts
+ kernel binary
+ device tree blob
+ kernel modules
+
+==== Install The Kernel Binary ====
+As root or via sudo, copy the kernel binary from the build location, either from
+your kernel tree (/path/to/your/tree/linux/arch/arm64/boot/Image) or the deploy
+directory:
+{{Cmd|sudo cp -v ./arm64-multiplatform/deploy/${kernel_version}.Image /mnt/gentoo/boot/}}
+
+==== Install The Device Tree ====
+The device tree binary (.dtb) describes the hardware to the kernel. This avoids having all the existing hardware configurations hard coded into the kernel.
+
+Extract the following .dtb file from ./arm64-multiplatform/deploy/${kernel_version}-aarch64-r0-dtbs.tar.gz
+and copy it to the boot directory:
+{{Cmd|sudo cp -v ./arm64-multiplatform/deploy/armada-3720-espressobin.dtb /mnt/gentoo/boot/}}
+
+==== Create the Symlinks for Vendor U-Boot ====
+
+Change to the mounted boot directory and symlink the files to the expected names:
+
+{{Cmd|cd /mnt/gentoo/boot}}
+{{Cmd|sudo ln -s ${kernel_version}.Image Image}}
+{{Cmd|sudo ln -s armada-3720-espressobin.dtb armada-3720-community.dtb}}
+{{Cmd|cd -}}
+
+
+==== Install The Kernel Modules ====
+If you built your own kernel by hand, you'll want to run the modules_install arg.
+From the top of the kernel tree, install the kernel modules
+{{Cmd|cd /path/to/your/tree/linux}}
+{{Cmd|ARCH{{=}}arm64 CROSS_COMPILE{{=}}aarch64-unknown-linux-gnu- make modules_install INSTALL_MOD_PATH{{=}}/mnt/gentoo}}
+
+Otherwise, unpack the kernel modules tarball from the deploy directory:
+
+{{Cmd|sudo tar xfv ./arm64-multiplatform/deploy/${kernel_version}-modules.tar.gz -C /mnt/gentoo/boot/}}
+
+
+==== Checking The Kernel Install ====
+
+{{Cmd|ls /mnt/gentoo/boot
+ 4.13.12-aarch64-r0.Image   armada-3720-espressobin.dtb  Image
+ armada-3720-community.dtb  config-4.13.12-aarch64-r0
+}}
+
+{{Cmd|ls /mnt/gentoo/lib/modules
+ 4.13.12-aarch64-r0
+}}
+Shows that the kernel and modules were installed to the correct locations.
+
+== Marvell ESPRESSOBin Peripherals ==
+
+Now that the base operating system is in place, you will need to do some file
+configuration by hand to get the peripherals working.
+
+=== Serial Port Configuration ===
+
+The Gentoo Stage3 comes with the default Gentoo serial port configuration, however,
+you need to make sure the default serial ports are commnted out, and set the
+board-specific serial port.
+
+Open up /etc/inittab -
+
+{{RootCmd| nano -w /etc/inittab}}
+
+Make sure the ttyS serial port lines are commented, then find this line at
+the bottom and set the speed and tty port device -
+
+{{FileBox|filename=/etc/inittab|1=T0:12345:respawn:/sbin/agetty 115200 ttyMV0 vt100}}
+
+Save and exit the file. This ensures Gentoo will launch a login getty on the
+correct serial interface.
+
+== Network Setup ==
+
+It seems like all network switch setups are unique, but there is an effort to
+converge using the Distributed Switch Architecture (DSA).  The ESPRESSOBin has
+two LAN ports and one WAN port, which apparently need a virtual "eth0" to be
+configured correctly.  This means eth0 must be "up" (but not configured) before
+the actual network devices are usable.  Unless you make udev naming rules,
+the default interfaces are lan0, lan1, and wan.  Upstream docs name
+the left-most port as "lan1" which is where you want to plug in for local use.
+
+ <nowiki>
+bond0: flags=5122<BROADCAST,MASTER,MULTICAST>  mtu 1500
+        ether a6:e9:9a:6c:17:e1  txqueuelen 1000  (Ethernet)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+dummy0: flags=130<BROADCAST,NOARP>  mtu 1500
+        ether d6:73:f5:c7:65:2c  txqueuelen 1000  (Ethernet)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet6 fe80::f2ad:4eff:fe03:861b  prefixlen 64  scopeid 0x20<link>
+        ether f0:ad:4e:03:86:1b  txqueuelen 532  (Ethernet)
+        RX packets 203950  bytes 145809090 (139.0 MiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 145454  bytes 42938767 (40.9 MiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+        device interrupt 8  
+
+lan0: flags=4098<BROADCAST,MULTICAST>  mtu 1500
+        ether f0:ad:4e:03:86:1b  txqueuelen 1000  (Ethernet)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lan1: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 192.168.10.29  netmask 255.255.255.0  broadcast 192.168.10.255
+        inet6 fe80::f2ad:4eff:fe03:861b  prefixlen 64  scopeid 0x20<link>
+        ether f0:ad:4e:03:86:1b  txqueuelen 1000  (Ethernet)
+        RX packets 203950  bytes 141322190 (134.7 MiB)
+        RX errors 0  dropped 15488  overruns 0  frame 0
+        TX packets 145480  bytes 41953390 (40.0 MiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 41  bytes 2720 (2.6 KiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 41  bytes 2720 (2.6 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+wan: flags=4098<BROADCAST,MULTICAST>  mtu 1500
+        ether f0:ad:4e:03:86:1b  txqueuelen 1000  (Ethernet)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+</nowiki>
+
+The corresponding Gentoo network config needs all of these enabled, however,
+only lan1 is needed for initial setup.  Here is the initial config for one
+network interface:
+
+{{Cmd|cat /etc/conf.d/net}}
+
+ <nowiki>
+# This blank configuration will automatically use DHCP for any net.*
+# scripts in /etc/init.d.  To create a more complete configuration,
+# please review /usr/share/doc/openrc*/net.example* and save your configuration
+# in /etc/conf.d/net (this file :]!).
+
+dns_domain_lo="your.domain"
+
+config_eth0=null
+
+config_lan1="192.168.10.29 netmask 255.255.255.0 brd 192.168.10.255"
+routes_lan1="default via 192.168.10.1"
+
+dns_domain_lan1="your.domain"
+dns_servers_lan1="8.8.8.8"
+
+rc_net_lan1_need="net.eth0"
+
+# The network scripts are now part of net-misc/netifrc
+# In order to avoid sys-apps/openrc-0.12 from removing
+# this file, this comment was
+# added; you can safely remove this comment.  Please see
+# /usr/share/doc/netifrc*/README* for more information.
+</nowiki>
+
+{{Important|Remember to start both eth0 and lan1.}}
+
+=== Root Password ===
+{{Important|You need this to be able to log in at all}}
+
+There are several ways to generate a password hash for /etc/shadow; usually
+it suffices to copy the hash from another system.
+
+All stage3 root filesystems should use an /etc/shadow root entry  
+ root:x::0:99999:7:::
+
+Instead of copying the hash, you can also use openssl to generate a fresh one:
+
+*edit {{Path|/mnt/gentoo/etc/shadow}} so root can login: {{RootCmd|openssl passwd -1}}
+:grab hash output, edit {{Path|/mnt/gentoo/etc/shadow}}, and put here:
+{{FileBox|filename=/mnt/gentoo/etc/shadow|lang=text|1=
+root:<hash_output>:10770:0:::::}}
+
+The password can always be changed once you are logged in.
+
+=== /etc/fstab ===
+On this board, the microSD card will be /dev/mmcblk0 with one partition, /dev/mmcblk0p1
+
+Edit /mnt/gentoo/etc/fstab to match.
+{{RootCmd|nano -w  /mnt/gentoo/etc/fstab}}
+
+ /swapfile               none            swap            sw              0 0
+ /dev/mmcblk0p1          /               ext4            noatime         0 1
+
+
+== Boot the Board to Test ==
+Unmount the microSD card.
+{{RootCmd|umount /mnt/gentoo/}}
+
+When the prompt returns, move the microSD card to the board, plug in micro-usb
+cable and open a console using your favorite tool, then power it on.
+
+Log in at the serial console as root. Nothing was added to any runlevels during
+the install, so networking was not started, nor anything that depends on networking,
+like ntpd and sshd.
+
+Many embedded boards do not have a hardware real time clock. The time will probably be Jan 1, 1970.
+
+== What Next ==
+
+As always with Gentoo, if it booted, that's the hard bit done.
+
+ All The setup steps in the Gentoo Handbook
+ Fix the MAC address or use a static IP
+ Allow root logins via ssh 
+ Add a crond, a logger and other things the handbook does before the reboot. 
+ Add Kernel Sources (or at least the .config)
+
+=== Random Hints ===
+==== WiFi and Bluetooth ====
+
+Options are mainly PCIe or USB, so take your pick and report back.
+
+==== CFLAGS ====
+
+This works quite well, except for the packages where it doesn't work...
+
+ <nowiki>
+LINK_OPTS="-flto=2"
+VEC_OPTS="-ftree-vectorize -ftree-loop-distribution -fvect-cost-model=cheap"
+BASE_TUNE_OPTS="-march=armv8-a -mcpu=cortex-a53+simd"
+TUNE_OPTS="-march=armv8-a+crc+fp+simd -mabi=lp64 -mcpu=cortex-a53+crc+fp+simd"
+
+#CFLAGS="${BASE_TUNE_OPTS} -O2 -pipe"
+CFLAGS="${TUNE_OPTS} -O2 -pipe ${VEC_OPTS} ${LINK_OPTS}"
+CXXFLAGS="${CFLAGS}"
+LDFLAGS="${CFLAGS} -fuse-linker-plugin"
+
+CPU_FLAGS_ARM="edsp neon thumb vfp vfpv3 vfpv4 vfp-d32 aes sha1 sha2 crc32 v4 v5 v6 v7 v8 thumb2"
+</nowiki>
+
+Note gcc-6.x allows the use of -march=native but that will prevent the use of distcc. The above is
+the same as gcc-6.3 would set for -march=native anyway.
+
+==== ACCEPT_KEYWORDS ====
+
+Outside of the @system set, arm64 is either testing or keyword masked. Set 
+ ACCEPT_KEYWORDS="~arm64"
+and expect to use package.accept_keywords too.
+
+{{Warning|The stage 3 tarball has been built with gcc-4.9 was gcc-5.4 is in testing ...}}
+Upgrade gcc then rebuild all of the installed C++ software.  
+{{Important|News item 2015-10-22  GCC 5 Defaults to the New C++11 ABI}}
+
+==== MAKEOPTS ====
+
+With only 1G RAM, and four cores, the conventional
+ MAKEOPTS="-j5"
+is a bit aggressive for building larger things. It will force swapping or even 
+appear to lock up the Pi completely, to the point where it won't even respond to 
+the console.
+
+Use files in '''/etc/portage/env/''' and entries in '''/etc/portage/package.env'''
+to set MAKEOPTS on a per package basis.
+
+==== Networking ====
+
+The basic config given above works fine for "typical" building and testing;
+if you want to make a firewall/gateway/router, that's beyond the scope of
+this HowTo.
+
+==== sshd ====
+The default configuration for sshd will not allow password based root logins.
+ add your ssh public key for root
+ make a normal user in the wheel group
+ edit /etc/ssh/sshd_config to allow password based root logins
+
+{{Important|}}
+=== Updating The Tool Chain ===
+
+Once you boot, you may have the desire to update @world first thing. However, as of the time of this writing, the latest stage3 for arm64 was built in December 2016. A lot of things in the tool chain will be out of date with what is on the current Portage tree. Once you've booted the board and confirmed that you have an internet connection, you'll want to first run emerge --sync to get the absolute latest tree, then run perl-cleaner --all to get all of your Perl packages up to date. 
+
+{{RootCmd| emerge --sync
+| perl-cleaner --all
+| emerge -auDN @world}}
+
+=== Useful Packages ===
+==== Network Time Sync ====
+The Raspberry Pi 3 does not have a hardware real time clock on board. There are vendors online where you can order RTC modules made for the Pi, but if you don't plan to run one, I highly recommend installing a NTP client. 
+
+First, set the initial time using the 'date' command. Date and time will be entered in mmddhhmmyyyy format and the time is in 24-hr format -
+
+{{RootCmd|date mmddhhmmyyyy}}
+
+As an example, if the time is 10:05PM on 7/31/2017 -
+
+{{RootCmd| date 073122052017}}
+
+As with most things Gentoo, the NTP daemon is just an emerge away -
+
+{{RootCmd| emerge --ask net-misc/ntp}}
+
+Remove the hardware clock service hwclock from the boot runlevel and replace it with the software clock service swclock -
+
+{{RootCmd| rc-update del hwclock boot
+| rc-update add swclock boot}}
+
+Make sure you have the correct time zone set to the area which most closely matches your locale in /usr/share/zoneinfo -
+
+{{RootCmd| ls /usr/share/zoneinfo
+| echo "<YOUR_TIME_ZONE>" > /etc/timezone}}
+
+As an example, if you live in California, you would do -
+
+{{RootCmd| echo "America/Los_Angeles" > /etc/timezone}}
+
+Install your timezone libraries -
+
+{{RootCmd| emerge --ask sys-libs/timezone-data}}
+
+Start the NTP client and add it to the default runlevel -
+
+{{RootCmd| rc-service ntp-client start
+| rc-update add ntp-client default}}
+
+== Where to Get Help ==
+On Internet Relay Chat
+ irc.freenode.net#gentoo-arm
+ irc.freenode.net#gentoo-embedded
+
+On the [https://forums.gentoo.org/ Gentoo Forums], start a new topic in the Gentoo on Alternative Architectures forum.
+
+I don't mind a PM on the forums with a link to your post. I don't do one to one help via email or the forums PM system.  
+You will either get no response at all or a request to make a public post.  That way others may learn from your misfortune.
+
+== Acknowledgements ==
+
+Everyone contributing to the arm64 software base.
+
+Especially everyone...
+
+[[Category:Embedded systems]]
