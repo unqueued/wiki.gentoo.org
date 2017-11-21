@@ -33,6 +33,12 @@
 |Works!
 |No remark
 |-
+|[http://support.brother.com/g/b/spec.aspx?c=gb&lang=en&prod=dcp7070dwr_eu DCP-7070DWR]
+|net-print/brother-genml1-bin
+|Works!
+|Works!
+|Printer works through ipp, but not through lpd protocol. Scanner driver: [http://support.brother.com/g/s/id/linux/en/download_scn.html#brscan4 brscan4]
+|-
 |[http://support.brother.com/g/b/spec.aspx?c=eu_ot&lang=en&prod=dcpj100_all DCP-J100]
 |[http://support.brother.com/g/b/downloadlist.aspx?c=eu_ot&lang=en&prod=dcpj100_all&os=127 RPMs from Brother website]
 |Works!
@@ -250,9 +256,9 @@ From the ebuild repository, install the driver as shown here for [https://github
 
 {{Emerge|net-print/brother-genml1-bin}}
 
-[https://github.com/stefan-langenmaier/brother-overlay/tree/master/net-print/brother-genml1-bin net-print/brother-genml1-bin] ebuild에는 다양한 모델을 대상으로 [http://support.brother.com/g/b/downloadlist.aspx?c=us&lang=en&prod=hll2340dw_us_eu_as&os=127 support.brother.com]에서 제공하는 일반 프린터 드라이버가 들어있습니다([http://support.brother.com/g/b/downloadend.aspx?c=us&lang=en&prod=hll2340dw_us_eu_as&os=127&dlid=dlf101124_000&flang=4&type3=10034#pane3 BrGenML1 호환 모델]의 ''Compatible Model'' 링크를 눌러보십시오).
-* 일반 LPR 프린터 드라이버 (rpm 꾸러미)
-* 일반 CUPSwrapper 프린터 드라이버 (rpm 꾸러미)
+[https://github.com/stefan-langenmaier/brother-overlay/tree/master/net-print/brother-genml1-bin brother-genml1-bin] contains the Generic printer drivers as offered on [http://support.brother.com/g/b/downloadlist.aspx?c=us&lang=en&prod=hll2340dw_us_eu_as&os=127 support.brother.com] for a wide range of compatible models (click the ''Compatible Model'' link on [http://support.brother.com/g/b/downloadend.aspx?c=us&lang=en&prod=hll2340dw_us_eu_as&os=127&dlid=dlf101124_000&flang=4&type3=10034#pane3 BrGenML1 Compatible Models]): 
+* Generic LPR printer driver (rpm package) (contains ELF 32-bit LSB executables)
+* Generic CUPSwrapper printer driver (rpm package)
 
 설치한 ppd 파일은 {{Path|brother-BrGenML1-cups-en.ppd}} 이며,  ''make and model'' 항목의 내용은 ''Brother BrGenML1 for CUPS''입니다.
 
@@ -439,6 +445,51 @@ copies=1 device-uri=http://192.168.178.27:631/ipp/port1 finishings=3 job-cancel-
 === amd64의 일반 LPR 프린터 드라이버 ===
 
 [http://support.brother.com/g/b/downloadlist.aspx?c=us&lang=en&prod=hll2340dw_us_eu_as&os=127 프린터 드라이버]는 정적 컴파일한 x86 바이너리를 사용합니다. 이 바이너리를 활용할 수 있으려면, 커널 설정에서 IA32_EMULATION 옵션을 활성화해야합니다.
+
+Further, the binaries from Brother (rawtobr3 and brprintconflsr3) require two 32-bit glibc library files in order to be executed on a 64-bit system.  These can be compiled by the user, or &mdash; even easier &mdash; obtain a pre-compiled version (glibc i686) from [https://www.rpmfind.net/linux/rpm2html/search.php?query=glibc&submit=Search+...&system=&arch=i686 rpmfind.net] or similar site.
+
+To accomplish the latter, first install the rpm utilities: 
+
+{{RootCmd|emerge rpm}}
+
+Next, create a {{Path|/usr/local/lib32}} directory if it doesn't exist:
+
+{{RootCmd|mkdir /usr/local/lib32}}
+
+Move the downloaded rpm file into a temporary directory and convert to a simpler tar file:
+ 
+{{RootCmd|rpm2tar glibc-2.25-12.fc26.i686.rpm}}
+
+Extract the tar file in the temporary directory:
+
+{{RootCmd|tar -xvf glibc-2.25-12.fc26.i686.tar}}
+
+A {{Path|lib/}} subdirectory should be created containing the libraries.  Copy them to the {{Path|/usr/local/lib32}} directory on the system.
+
+{{RootCmd|cp lib/* /usr/local/lib32}}
+
+Under {{Path|/usr/local/lib32}}, only the {{Path|libc.so.6}} file is needed, but since there may be symlinks, it's easier to copy them all.  Run the 'file' command on {{Path|libc.so.6}} to ensure it is an ELF 32-bit format.  If not, install the correct version:
+
+{{RootCmd|file /usr/local/lib32/libc.so.6}}
+
+Finally, copy {{Path|ld-linux.so.2}} into the main {{Path|/usr/local/lib}} directory.
+
+{{RootCmd|cp /usr/local/lib32/ld-linux.so.2 /usr/local/lib}}
+
+Two perl wrapper/filter scripts that are provided with the Brother drivers need to be changed as well to instruct these binaries to load the 32-bit libraries, not the default 64-bit ones.  First, locate and edit the two files (replace YOURPRINTER with the printer name provided during the Brother installation script execution):
+
+{{RootCmd|nano filter_YOURPRINTER|nano brother_lpdwrapper_YOURPRINTER}} 
+
+For instance, for the MFCL2680W printer:
+
+{{RootCmd|nano /opt/brother/Printers/MFCL2680W/lpd/filter_MFCL2680W
+|nano /opt/brother/Printers/MFCL2680W/cupswrapper/brother_lpdwrapper_MFCL2680W}}
+
+At the top of each file, below the comment header, add the following line: 
+
+{{CodeBox|title=Use 32-bit libraries in filter and wrapper scripts|<pre>$ENV{LD_LIBRARY_PATH} = "/usr/local/lib32";</pre>}}
+ 
+This sets the default library path before the scripts execute the binaries. {{c|rawtobr3}} processes the print data and {{c|brprintconflsr3}} processes the page formatting data.  Once all of these instructions have been successfully performed, the printer should work as intended!
 
 === 내용이 위로 올라가서 출력됨 ===
 
