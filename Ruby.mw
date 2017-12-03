@@ -1,10 +1,11 @@
 {{InfoBox stack
 |{{InfoBox homepage|http://www.ruby-lang.org/en/|header=true}}
 |{{InfoBox wikipedia|Ruby (programming language)}}
+|{{InfoBox package|dev-lang/ruby}}
 |{{InfoBox github|ruby/ruby}}
 }}
 
-Ruby is [[Article description::an interpreted programming language.]] It is required for software like [[Rails]], [[Rails#passenger_via_apache|passenger]], and [[GitLab]].
+Ruby is [[Article description::an interpreted programming language.]] An implementation of the Ruby interpreter is required for software like [[Rails]], [[Rails#passenger_via_apache|passenger]], and [[GitLab]].
 
 == Installation ==
 
@@ -14,15 +15,61 @@ Ruby is [[Article description::an interpreted programming language.]] It is requ
 
 === Emerge ===
 
-Install {{Package|dev-lang/ruby}}:
+Emerge the base package:
 
 {{emerge|dev-lang/ruby}}
+
+{{Note|Adding the base package in this way will pull it into the system's [[World set (Portage)|@world set]]. Those who are not developing Ruby packages or have some clear and explicit reason for directly emerging the package should gather additional information before proceeding.}}
+
+=== Adding a new implementation ===
+
+To add a new implementation, first adjust the Ruby target variable in {{Path|/etc/portage/make.conf}}. 
+For example, if upgrading from Ruby 2.2 to Ruby 2.4, add <code>ruby23</code> to the <var>RUBY_TARGETS</var> variable:
+
+{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
+# 2016-12-12 upgrade from ruby22 to ruby24 -Larry
+# RUBY_TARGETS="ruby22"
+RUBY_TARGETS="ruby22 ruby24"
+}}
+
+Next perform an upgrade of the Ruby base package:
+
+{{Emerge|parmas+=--oneshot|dev-lang/ruby}}
+
+List then select the newly installed implementation using eselect:
+
+{{RootCmd|eselect ruby list|output=<pre>
+Available Ruby profiles:
+  [1]   ruby22 *
+  [2]   ruby24 (with Rubygems)
+</pre>}}
+
+{{RootCmd|eselect ruby set ruby24|output=<pre>
+Successfully switched to profile:
+  ruby24
+</pre>}}
+
+Finally, update the rest of the packages on the system. This will avoid certain bugs<ref>https://bugs.gentoo.org/628838</ref> that require the newly emerged Ruby implementation to be selected before upgrading. It will force all packages that depend on the Ruby base package to rebuild by the newly emerge Ruby 2.4 implementation:
+
+{{Emerge|params+=--update --deep --newuse|@world}}
+
+To remove the older but still installed Ruby 2.2 implementation see the [[#Removal|Removal section]] below.
+
+=== Installing a test implementation ===
+
+Starting with Ruby 2.2 the Gentoo Ruby project is using the stable mask mechanism to keep new Ruby implementations marked as testing until they is ready to be unmasked. To use ruby24 on an otherwise stable system, apply the following changes:
+
+{{FileBox|filename=/etc/portage/profile/use.stable.mask|title=Unmasking flags for Ruby 2.4|1=
+-ruby_targets_ruby24
+}}
+
+For further information please see the [[Project:Python/PYTHON_TARGETS#Unmasking_non-stable_implementation_on_a_stable_system| similar instructions for Python]].
 
 == Configuration ==
 
 === make.conf ===
 
-One can activate specific ruby implementations by adding <code>RUBY_TARGETS="$implementation"</code> to {{Path|/etc/portage/make.conf}}. Please note: setting the <var>RUBY_TARGETS</var> variable may overwrite the implementations set by the systems base profile.
+Activate a specific Ruby implementations by adding <code>RUBY_TARGETS="$implementation"</code> to {{Path|/etc/portage/make.conf}}. Please note: setting the <var>RUBY_TARGETS</var> variable may overwrite the implementations set by the systems base profile.
 
 {{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
 RUBY_TARGETS="ruby21 ruby22 ruby23 ruby24"
@@ -40,46 +87,30 @@ To change the selected slot, issue:
 
 {{RootCmd|eselect ruby set ruby23}}
 
-== Upgrades ==
+== Removal ==
 
-=== Adding or removing Ruby implementations ===
+=== Removing an old implementation ===
 
-To add a new Ruby version, or remove an old version, first adjust the Ruby target variable in {{Path|/etc/portage/make.conf}}. 
-For example, if upgrading from Ruby 2.2 to Ruby 2.3, add <code>ruby23</code> to the <var>RUBY_TARGETS</var> variable:
+To remove an old implementation, in this case Ruby 2.2, first be certain Ruby as been updated (see the [[#Adding a new implementation|Adding a new implementation section]]). A newer implementation of Ruby will need to be installed ''before'' an older implementation can be removed. This is to ensure the packages that depend on Ruby will have an interpreter to run them.
 
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-# RUBY_TARGETS="ruby22" # 2016-12-12 upgrade to ruby23, larry
-RUBY_TARGETS="ruby22 ruby23"
-}}
+After the new implementation has been selected, remove the old implementation from the <var>RUBY_TARGETS</var> variable:
 
-Or for example, if removing Ruby 2.2, remove <code>ruby22</code> from the <var>RUBY_TARGETS</var> variable:
-
-{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
-# RUBY_TARGETS="ruby22 ruby23" # 2017-01-01 removed ruby22, larry
+{{FileBox|title=Removing the Ruby 2.2 implementation|filename=/etc/portage/make.conf|lang=bash|1=
+# RUBY_TARGETS="ruby22 ruby23" # 2017-01-01 removed ruby22 -Larry
 RUBY_TARGETS="ruby23"
 }}
 
-It is safe not to add and remove targets in one step.
+It is safe not to add ''and'' remove targets to the <var>RUBY_TARGETS</var> variable in one step.
 
 Next, ask Portage to rebuild the [[World set (Portage)|@world set]] with the new Ruby target list:
 
 {{Emerge|params+=--update --deep --newuse|@world}}
 
-After the emerge completes, update the slot to the newly installed version (2.3 in this case) using {{c|eselect}} as [[#Slots|mentioned above]].
+After the emerge completes, update the slot to the newly installed version (2.3 in this case) using {{c|eselect}} as [[#Select a Ruby slot with eselect|mentioned above]].
 
 Finally, as long as no packages are still using the old version, it should be removable by asking Portage to do a dependency clean:
 
 {{RootCmd|emerge --depclean}}
-
-=== Installing a test implementation on an otherwise stable system ===
-
-Starting with Ruby 2.2 we are now using the stable mask mechanism to keep Ruby 2.2 on testing until it is ready to be unmasked. If you want to use ruby23 on an otherwise stable system, you need to apply the following changes:
-
-{{FileBox|filename=/etc/portage/profile/use.stable.mask|title=Unmasking flags for Ruby 2.3|1=
--ruby_targets_ruby23
-}}
-
-For further information please see the [[Project:Python/PYTHON_TARGETS#Unmasking_non-stable_implementation_on_a_stable_system|instructions for Python]].
 
 == See also ==
 
@@ -90,5 +121,7 @@ For further information please see the [[Project:Python/PYTHON_TARGETS#Unmasking
 
 * [http://www.codecademy.com/tracks/ruby Codecademy's Ruby course]
 * http://iwanttolearnruby.com/
+
+== References ==
 
 [[Category:Programming language]]
