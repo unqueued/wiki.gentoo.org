@@ -1,0 +1,700 @@
+{{InfoBox stack
+|{{InfoBox homepage|https://www3.lenovo.com/au/en/laptops/thinkpad/thinkpad-x/X1-Carbon-3rd-Generation/p/22TP2TXX133|header=true}}
+|{{InfoBox wikipedia|HardwareArticleOnWikipedia}}
+}}
+
+This is a guide to setting up Gentoo on a Lenovo X1 Carbon, Gen 3 with a WQHD touchscreen.  The guide assumes you are starting from scratch and are prepared to erase the entire SSD.  The aim of this installation is to provide you with a desktop environment using stable sources for almost everything (non-stable sources will be used for the Firefox browser).  The desktop will have working WiFi and auto-detect USB drives when they are plugged in.  During the installation, it can be useful to take snapshots of progress in case you change your mind or want to roll back.  This guide recommends the use of "btrfs" for this purpose.
+
+The installation will be described in 2 sections:
+# Self-hosting/booting (roughly 1.5 - 2 hours; 30 mins attended)
+# Setting up the desktop (roughly 4 - 6 hours; 1 hour attended)
+
+It is highly recommended to use a separate computer (aka. "the host PC") with a working desktop so you can SSH into the target X1 Gen3 laptop and cut/paste commands from this wiki page into the target laptop.
+
+== Hardware ==
+
+=== Lenovo X1 Gen3 ===
+
+{| class="table table-condensed table-striped" style="width: auto;"
+! scope="col" width="20%" | Device
+! scope="col" width="20%" | Make/model
+! scope="col" width="10%" | Status
+! scope="col" width="10%" | Vendor ID / Product ID
+! scope="col" width="10%" | Kernel driver(s)
+! scope="col" width="10%" | Kernel version
+! scope="col" width="20%" | Notes
+|-
+| CPU
+| Intel i7-5600 series
+| {{Yes|Works}}
+| N/A
+| N/A
+| 4.12.12
+| None
+|-
+| WQHD Touchscreen
+| 2540x1440
+| {{Yes|Works}}
+| N/A
+| 
+| 4.12.12
+| Does not need the Xorg mutouch driver for the touchscreen to work
+|-
+| WiFi
+| Intel Wireless
+| {{Yes|Works}}
+| N/A
+| iwlwifi
+| 4.12.12
+| None
+|-
+| Synaptics or Elan Touchpad
+| 
+| {{Yes|Works}}
+| N/A
+| 
+| N/A
+| None
+|-
+| Video card
+| Intel 5000-series [Intel 5600]
+| {{Yes|Works}}
+| ?
+| intel i965
+| 4.12.12
+| Note example.
+|}
+
+== Preparation ==
+
+=== Connecting to the Target Laptop ===
+Boot the Live DVD on your target laptop.  Once booted, press {{Key|Ctrl}}+{{Key|Alt}}+{{Key|Fn}}+{{Key|F1}} to get a shell.
+
+Change the root password:
+{{RootCmd|prompt=livecd ~ #|passwd}}
+
+Discover the network address:
+{{RootCmd|prompt=livecd ~ #|ifconfig
+|output=<span>
+ en0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+    inet <span style="color:green;">192.168.1.13</span>  netmask 255.255.255.0  broadcast 192.168.1.255
+    inet6 fe80::d63e:9866:6088:42d7  prefixlen 64  scopeid 0x20<link>
+    ether 54:eb:72:11:12:9a  txqueuelen 1000  (Ethernet)
+    RX packets 889  bytes 91359 (89.2 KiB)
+    RX errors 0  dropped 0  overruns 0  frame 0
+    TX packets 45  bytes 7269 (7.0 KiB)
+    TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+    device interrupt 20  memory 0xe1100000-e1120000
+</span>
+}}
+
+Make a note of the IP address (example highlighted in green).
+
+Start the SSHD daemon:
+{{RootCmd|prompt=livecd ~ #|/etc/init.d sshd start}}
+
+You can get back to the Live DVD GUI if you press {{Key|Ctrl}}+{{Key|Alt}}+{{Key|Fn}}+{{Key|F7}}, but it's not necessary.
+
+Now, close the laptop lid and SSH into the target laptop through your host PC's SSH client.  Use the IP address you found earlier.
+
+Identify your CPU flags
+{{RootCmd|prompt=livecd ~ #|emerge -v app-portage/cpuinfo2cpuflags
+|cpuinfo2cpuflags-x86
+|output=<pre>
+CPU_FLAGS_X86: aes avx avx2 fma3 mmx mmxext popcnt sse sse2 sse3 sse4_1 sse4_2 ssse3
+</pre>}}
+Copy the results of this command into a text editor on your host PC; you'll need them for later.
+
+=== Graphics Capabilities ===
+
+Visit the [[Gentoo Intel|https://wiki.gentoo.org/wiki/Intel]] web page to see what features your CPU supports.
+
+Notes for the X1 Gen3:
+# It has a 5000-series CPU, so it's a Gen 5 (Nehalem).
+# The integrated graphics are "intel i965"
+# It supports OpenGL (opengl), OpenGL ES (gles2) and VAAPI (vaapi)
+# It does not support OpenCL or Vulkan
+
+== Installation ==
+
+=== Remote Control ===
+
+Start a virtual screen; you can disconnect from it at any time by pressing {{Key|Ctrl}}+{{Key|A}} then {{Key|D}}.
+
+{{RootCmd|prompt=livecd ~ #|screen}}
+
+If you disconnect, you can re-attach at any time with:
+
+{{RootCmd|prompt=livecd ~ #|screen -r}}
+
+While disconnected, you can close the SSH session or shut down the host PC without cancelling your work in progress.  This is handy when you kick off a bulid with lots and lots of dependencies.
+
+=== Format The Drive ===
+
+Now, format the HDD and set up partitions.  This example shows settings for a 512GB drive, with the intent to mount /opt as a separate partition.
+{{RootCmd|prompt=livecd ~ #|parted -a optimal /dev/sda
+|output=<pre>
+GNU Parted 3.2
+Using /dev/sda
+Welcome to GNU Parted! Type 'help' to view a list of commands.
+</pre>}}
+
+Now, erase the disk and specify units of MB.
+
+{{GenericCmd|prompt=(parted)|mklabel gpt
+|y
+|unit mib
+}}
+
+{{GenericCmd|prompt=(parted)|mkpart primary 1 3
+|name 1 grub
+|set 1 bios_grub on
+|mkpart primary 3 131
+|name 2 boot
+|mkpart primary 131 8323
+|name 3 swap
+|mkpart primary 8324 -1
+|name 4 rootfs
+|set 2 boot on
+}}
+
+(Optional) You can print the resulting partition scheme.
+
+{{GenericCmd|prompt=(parted)|print
+}}
+
+Write the changes to the disk and get back to the command prompt.
+
+{{GenericCmd|prompt=(parted)|quit
+}}
+
+=== Set up File Systems ===
+
+We are using "btrfs" because it allows us to take snapshots as we progress through the installation.
+
+{{RootCmd|prompt=livecd ~ #|mkfs.fat -F 32 /dev/sda2
+|mkfs.btrfs -f /dev/sda4
+}}
+
+=== Install the Stage 3 Tarball ===
+
+{{RootCmd|prompt=livecd ~ #|mkswap /dev/sda3
+|swapon /dev/sda3
+|mount /dev/sda4 /mnt/gentoo
+|cd /mnt/gentoo
+}}
+
+Go to Gentoo's distribution page to find the latest release.  This example shows the first Stage3 tarball to contain v17.0 profiles.
+
+{{RootCmd|prompt=livecd ~ #|wget http://distfiles.gentoo.org/releases/amd64/autobuilds/20171130/stage3-amd64-20171130.tar.bz2
+|prompt=livecd ~ #|tar xvjpf stage3-*.tar.bz2 --xattrs --numeric-owner && rm -f stage3-*.tar.bz2
+}}
+
+The LiveDVD has already inspected your hardware, so take a moment to make a copy of what it found.  You can use this as a reference later if you think that you are missing a driver.
+
+{{RootCmd|prompt=livecd ~ #|mkdir -p /mnt/gentoo/root/Docs/install
+|dmesg > /mnt/gentoo/root/Docs/install/livecd_dmesg.txt
+|lspci -nnk > /mnt/gentoo/root/Docs/install/livecd_lspci.txt
+|lsusb -t > /mnt/gentoo/root/Docs/install/livecd_lsusb.txt
+|lsmod > /mnt/gentoo/root/Docs/install/livecd_lsmod.txt
+}}
+
+=== Configure the Make system ===
+
+Copy the block of text below into a text editor and edit the processor flags to match the results we got earlier.  You shouldn't need to modify the example if you are using a 3rd Gen X1 Carbon.
+
+{{RootCmd|prompt=livecd ~ #|nano -w /mnt/gentoo/etc/portage/make.conf
+}}
+Delete everything and paste the contents of the example.
+
+ <nowiki># These settings were set for a Lenovo Carbon X1 Gen 3 for a Cinnamon Desktop
+# Please consult /usr/share/portage/config/make.conf.example for a more
+# detailed example.
+CFLAGS="-march=native -O2 -pipe"
+CXXFLAGS="${CFLAGS}"
+MAKEOPTS="-j5"
+
+# WARNING: Changing your CHOST is not something that should be done lightly.
+# Please consult http://www.gentoo.org/doc/en/change-chost.xml before changing.
+CHOST="x86_64-pc-linux-gnu"
+
+# These are the USE and USE_EXPAND flags that were used for
+# buidling in addition to what is provided by the profile.
+USE="-bindist"
+CPU_FLAGS_X86="aes avx avx2 fma3 mmx mmxext pclmul popcnt sse sse2 sse3 sse4_1 sse4_2 ssse3"
+PORTDIR="/usr/portage"
+DISTDIR="${PORTDIR}/distfiles"
+PKGDIR="${PORTDIR}/packages"
+USE_PYTHON="2.7 3.5"
+PYTHON_TARGETS="python2_7 python3_5 python3_6 pypy pypy3"
+PYTHON_SINGLE_TARGET="python3_5"
+LLVM_TARGETS="X86"
+
+GENTOO_MIRRORS="http://ftp.swin.edu.au/gentoo"
+GRUB_PLATFORMS="efi-64"
+
+LINGUAS="en_AU en_GB en_US en"
+L10N="en-AU en-GB en-US en"
+
+VIDEO_CARDS="intel i965"
+INPUT_DEVICES="evdev keyboard mouse synaptics mutouch"
+
+# Main global USE flags
+# Notes:
+# The use of "bindist" or "-bindist" is up to you
+#  * "bindist" gives you binary blobs
+#  * "-bindist" compiles from sources, but may infringe patents
+# "hardened" only applies to packages (not the kernel)
+# "icu" is Internationalization Components for Unicode
+# "pie" is Position Independant Executables (a security thing)
+# "mpi" is the Message Passing Interface
+USE="-bindist hardened pie icu mpi -branding"
+
+# Globals for Intel 5000 series integrated graphics
+# Not using "gles2" because it's a subset of OpenGL
+USE="${USE} opengl vaapi glamor"
+
+# Globals for desktop systems:
+USE="${USE} wayland pulseaudio"
+
+# Globals for filesystems and networking:
+USE="${USE} ldap zeroconf fam acl networkmanager nls"
+
+# Optional extra font handling for desktops
+USE="${USE} truetype type1 cleartype corefonts"
+
+# Globals for Cinnamon
+USE="${USE} bluetooth wifi"
+
+# Globals for programming Vala (language used in Enlightenment.io)
+#USE="${USE} vala"
+
+# Uncomment this to get the latest unstable software packages globally
+#ACCEPT_KEYWORDS="~amd64"</nowiki>
+
+=== Chroot and Sync ===
+
+Mount the drives that you need.
+
+{{RootCmd|prompt=livecd ~ #|mkdir -p /mnt/gentoo/etc/portage/repos.conf
+|cp /mnt/gentoo/usr/share/portage/config/repos.conf /mnt/gentoo/etc/portage/repos.conf/gentoo.conf
+|cp -L /etc/resolv.conf /mnt/gentoo/etc/
+|mount -t proc /proc /mnt/gentoo/proc 
+|mount --rbind /sys /mnt/gentoo/sys 
+|mount --make-rslave /mnt/gentoo/sys 
+|mount --rbind /dev /mnt/gentoo/dev 
+|mount --make-rslave /mnt/gentoo/dev 
+}}
+
+Now enter your (very minimal) OS.
+
+{{RootCmd|prompt=(chroot) livecd ~ #|chroot /mnt/gentoo /bin/bash
+|source /etc/profile 
+|export PS1="(chroot) $PS1"
+|mount /dev/sda2 /boot
+}}
+
+Now, get the latest version of the portage tree.
+
+{{RootCmd|prompt=(chroot) livecd ~ #|mkdir /usr/portage
+|emerge-webrsync
+}}
+
+Please take the time to read the news; it's there for a reason.
+
+{{RootCmd|prompt=(chroot) livecd ~ #|eselect news read
+}}
+
+You are now running off the laptop's SSD, but there are a few steps left before we can boot without the USB stick.
+
+=== Customise Your Environment ===
+
+Check that you're using GCC v6.x
+
+{{RootCmd|prompt=(chroot) livecd ~ #|gcc-config -l
+}}
+
+If you're not running GCC v6.x, you need to run this command:
+
+{{RootCmd|prompt=(chroot) livecd ~ #|gcc-config 2
+}}
+
+Choose a profile for the Cinnamon desktop (unless you want Gnome or KDE)
+
+{{RootCmd|prompt=(chroot) livecd ~ #|eselect profile list
+|eselect profile set default/linux/amd64/17.0/desktop
+}}
+
+Pick your timezone:
+
+{{RootCmd|prompt=(chroot) livecd ~ #|echo "Australia/Sydney" > /etc/timezone
+|emerge --config sys-libs/timezone-data
+|nano -w /etc/locale.gen
+}}
+
+Copy this block of text into the /etc/locale.gen file, adding extra locales as necessary
+
+ <nowiki>en_US ISO-8859-1
+en_US.UTF-8 UTF-8
+en_GB.UTF-8 UTF-8
+en_AU.UTF-8 UTF-8</nowiki>
+
+Activate the new language settings and update your prompt string.
+
+{{RootCmd|prompt=(chroot) livecd ~ #|locale-gen
+|eselect locale list
+|eselect locale set en_AU.utf8
+|env-update && source /etc/profile && export PS1="(chroot) $PS1"
+}}
+
+== Make a Kernel ==
+
+=== Install Sources ===
+
+Install Gentoo-enhanced Linux Kernel Sources
+
+{{RootCmd|prompt=(chroot) livecd ~ #|emerge sys-kernel/gentoo-sources
+|cd /usr/src/linux 
+|make menuconfig
+}}
+
+=== Save the Defaults  ===
+
+Exit straight away and make a reference so you can write a guide like this ;)
+
+{{RootCmd|prompt=(chroot) livecd ~ #|cp .config ~/Docs/default_kernel.config
+}}
+
+=== Menuconfig Settings ===
+
+Now go back and customise the kernel in order to get all device components functional for this laptop. 
+
+{{RootCmd|prompt=(chroot) livecd ~ #|make menuconfig
+}}
+
+{{KernelBox|title=Enable support for hardware drivers, filesystems and features|1=
+-*- Enable the block layer --->
+    Partition Types --->
+        [*] Advanced partition selection
+        [*] EFI GUID Partition support
+
+Processor type and features  --->
+    [*] Symmetric multi-processing support
+    [Y] Machine Check / overheating reporting 
+    [Y]   Intel MCE Features
+    [*] EFI runtime service support 
+    [*]   EFI stub support
+    [*]     EFI mixed-mode support
+
+Executable file formats / Emulations  --->
+    [*] IA32 Emulation
+
+[*] Networking support  --->
+    Networking options  --->
+        <*> Packet socket
+    [*] Wireless  --->
+        <*>   cfg80211 - wireless configuration API
+        [*]     cfg80211 wireless extensions compatibility
+
+Device Drivers --->
+    Generic Driver Options --->
+        [*] Maintain a devtmpfs filesystem to mount at /dev
+        [ ]   Automount devtmpfs at /dev, after the kernel mounted the rootfs
+        -*- Userspace firmware loading support
+    [*] Network device support  --->
+        [*] Wireless LAN  --->
+            [*]   Intel devices   (Note: compile these as modules)
+            <M>     Intel Wireless WiFi Next Gen AGN - Wireless-N/Advanced-N/Ultimate-N (iwlwifi)
+            <M>       Intel Wireless WiFi DVM Firmware support 
+            <M>       Intel Wireless WiFi MVM Firmware support
+    Character devices ->
+        <Y> TPM Hardware Support ->  (Note: required for suspend/resume)
+            <Y> TPM Interface Specification 1.2 Interface / TPM 2.0 FIFO Interface  (Note: required for suspend/resume)
+    IOMMU Hardware Support ->
+        Support for Intel IOMMU using DMA Remapping Devices ->
+            <N> Enable Intel DMA Remapping Devices by default  (Note: can cause GPU hangs if <Y>)
+    SCSI device support  --->
+        <*> SCSI disk support
+    HID support  --->
+        -*- HID bus support
+        <*>   Generic HID driver
+        [*]   Battery level reporting for HID devices
+            USB HID support  --->
+                <*> USB HID transport layer
+    [*] USB support  --->
+        <*>     xHCI HCD (USB 3.0) support
+        <*>     EHCI HCD (USB 2.0) support
+        <*>     OHCI HCD (USB 1.1) support
+    [*] Real Time Clock --->
+          [*]   Set system time from RTC on startup and resume
+          (rtc0)  RTC used to set the system time
+          [*]   Set the RTC time based on NTP synchronization
+          (rtc0)  RTC used to synchronize NTP adjustment
+          [*]   /sys/class/rtc/rtcN (sysfs)
+          [*]   /proc/driver/rtc (procfs for rtc0)
+          [*]   /dev/rtcN (character devices)
+          <*>   PC-style 'CMOS'
+    Graphics support  --->
+        <*> /dev/agpgart (AGP Support)  --->
+            --- /dev/agpgart (AGP Support)
+            < >   AMD Opteron/Athlon64 on-CPU GART support
+            -*-   Intel 440LX/BX/GX, I8xx and E7x05 chipset support
+            < >   SiS chipset support
+            < >   VIA chipset support
+        [ ] VGA Arbitration
+        [ ] Laptop Hybrid Graphics - GPU switching support
+        <*> Direct Rendering Manager (XFree86 4.1.0 and higher DRI support)  --->
+            --- Direct Rendering Manager (XFree86 4.1.0 and higher DRI support)
+            [*]   Enable legacy fbdev support for your modesetting driver
+        [ ] Allow to specify an EDID data set instead of probing for it
+            I2C encoder or helper chips  --->
+        < > 3dfx Banshee/Voodoo3+
+        < > ATI Rage 128
+        < > ATI Radeon
+        < > AMD GPU
+        < > Nouveau (NVIDIA) cards
+        < > Intel I810
+        <*> Intel 8xx/9xx/G3x/G4x/HD Graphics
+        [ ]   Enable preliminary support for prerelease Intel hardware by default
+        < > Matrox g200/g400
+        < > SiS video cards
+        < > Via unichrome video cards
+        < > Savage video cards
+        < > Virtual GEM provider
+        < > DRM driver for VMware Virtual GPU
+        < > Intel GMA5/600 KMS Framebuffer
+        < > DisplayLink
+        < > AST server chips
+        < > Kernel modesetting driver for MGA G200 server engines
+        < > Cirrus driver for QEMU emulated device
+        < > QXL virtual GPU
+        < > DRM Support for bochs dispi vga interface (qemu stdvga)
+            Display Panels  ----                 
+            Display Interface Bridges  ----
+            Frame buffer Devices  --->
+        -*- Backlight & LCD device support  --->
+            Console display driver support  --->
+        [*] Bootup logo  --->
+
+Firmware Drivers  --->
+    EFI (Extensible Firmware Interface) Support  --->
+        <*> EFI Variable Support via sysfs
+
+File systems --->
+    <*> Second extended fs support
+    <*> The Extended 3 (ext3) filesystem
+    <*> The Extended 4 (ext4) filesystem
+    <*> Reiserfs support
+    <*> JFS filesystem support
+    <*> XFS filesystem support
+    <*> Btrfs filesystem support
+    DOS/FAT/NT Filesystems  --->
+        <*> MSDOS fs support
+        <*> VFAT (Windows-95) fs support
+   <*> FUSE (Filesystem in Userspace) support 
+    Pseudo Filesystems --->
+        [*] /proc file system support
+        [*] Tmpfs virtual memory file system support (former shm fs)
+
+-*- Cryptographic API --->  (Note: for WiFi)
+    -*- AES cipher algorithms
+    -*- AES cipher algorithms (x86_64)
+    <*> AES cipher algorithms (AES-NI)
+
+}}
+
+Make any final tweaks, then:
+
+{{RootCmd|prompt=(chroot) livecd ~ #|make && make modules_install && make install
+}}
+
+Check for success; it looks like this:
+ <nowiki>sh ./arch/x86/boot/install.sh 4.12.12-gentoo arch/x86/boot/bzImage \
+	System.map "/boot"</nowiki>
+
+{{RootCmd|prompt=(chroot) livecd ~ #|emerge -v sys-kernel/genkernel
+|genkernel --install initramfs
+|emerge -v sys-kernel/linux-firmware
+}}
+
+
+== Finalise the Configuraion ==
+
+=== Set up your fstab ===
+
+{{RootCmd|prompt=(chroot) livecd ~ #|nano -w /etc/fstab
+}}
+
+ <nowiki>/dev/sda2   /boot        vfat    defaults,noatime     0 2
+/dev/sda3   none         swap    sw                   0 0
+/dev/sda4   /            btrfs   noatime              0 1</nowiki>
+
+=== Change the Hostname ===
+
+{{RootCmd|prompt=(chroot) livecd ~ #|nano -w /etc/conf.d/hostname
+}}
+ my_laptop_name
+
+{{RootCmd|prompt=(chroot) livecd ~ #|nano -w /etc/nsswitch.conf
+}}
+ hosts:       files dns my_laptop_name
+
+{{RootCmd|prompt=(chroot) livecd ~ #|nano -w /etc/hosts
+}}
+ 127.0.0.1       localhost my_laptop_name
+ ::1             localhost my_laptop_name
+
+=== Start the Network on Boot ===
+
+{{RootCmd|prompt=(chroot) livecd ~ #|emerge --noreplace net-misc/netifrc
+|echo "config_eth0=\"dhcp\"" > /etc/conf.d/net
+|cd /etc/init.d 
+|ln -s net.lo net.eth0 
+|rc-update add net.eth0 default
+|cd
+}}
+
+=== Set a root Password ===
+
+{{RootCmd|prompt=(chroot) livecd ~ #|passwd
+}}
+
+=== Install Core Daemons ===
+
+{{RootCmd|prompt=(chroot) livecd ~ #|emerge -v app-admin/syslog-ng
+|emerge -v sys-process/cronie
+|emerge -v net-misc/dhcpcd
+|rc-update add syslog-ng default
+|rc-update add cronie default
+|rc-update add sshd default
+|rc-update add dhcpcd default
+}}
+
+{{RootCmd|prompt=(chroot) livecd ~ #|emerge -v --verbose sys-boot/grub:2
+|eselect news read
+|nano -w /etc/default/grub
+}}
+ GRUB_CMDLINE_LINUX="rootfstype=btrfs"
+
+{{RootCmd|prompt=(chroot) livecd ~ #|grub-install --target=x86_64-efi --efi-directory=/boot
+|grub-mkconfig -o /boot/grub/grub.cfg
+}}
+
+=== Allow root Logins for SSHD ===
+
+Only while we are setting this up; we need to remember to turn this setting off later, for security reasons.
+
+{{RootCmd|prompt=(chroot) livecd ~ #|nano -w /etc/ssh/sshd_config
+}}
+ PermitRootLogin yes
+
+== Reboot ==
+{{RootCmd|prompt=(chroot) livecd ~ #|exit
+}}
+
+{{RootCmd|prompt=livecd ~ #|exit
+}}
+
+{{RootCmd|prompt=livecd ~ #|reboot
+}}
+
+Your laptop should shutdown and reboot.  You can remove the USB stick when you see the screen go black as the system starts up again (before the BIOS logo).
+
+This is everything you need to get Gentoo booting on the X1 Carbon Gen 3.  The next step is to re-establish an SSH session and update the software on your new OS.
+
+=== Compare Your Kernel ===
+
+How well did our configuration match the LiveCD's hardware probing?
+
+{{RootCmd|lspci -nnk > /root/Docs/this_lspci.txt
+|lsmod > /root/Docs/this_lsmod.txt
+|dmesg > /root/Docs/this_dmesg.txt
+}}
+
+Compare these files with the livecd result using "diff", if you like.
+
+Now lets get a virtual terminal again.
+
+{{RootCmd|emerge -v app-misc/screen}}
+{{RootCmd|screen}}
+
+== Rebuild Everything ==
+
+First, take a look at the result from this command:
+
+{{RootCmd|emerge -pv --update --deep --newuse @world
+}}
+
+We have got a circular dependency with mesa, opengl and vaapi.  We solve it by temporarily building "mesa" without "vaapi", then adding "vaapi" back to "mesa" and recompiling it.
+
+{{RootCmd|echo "media-libs/mesa gles2 -vaapi" > /etc/portage/package.use/mesa
+}}
+
+{{RootCmd|emerge --ask --update --deep --newuse @world
+}}
+
+Check the use flags in red; if they're redundant, consider removing them.  Check the flags in blue; if you want any of those features, go back and edit your /etc/portage/make.conf file.
+
+Leave the LLVM_TARGETS flag alone unless you're building on ARM
+
+Modify the use flags, then do the world "emerge" for real.
+
+{{RootCmd|emerge --ask --update --deep --newuse @world
+}}
+
+Go away for a few hours.  This is where it can be useful to disconnect from the screen terminal session and switch off the host PC.  You can tell when the compiler is finished because the laptop fan stops blowing.
+
+Now we can build "mesa" properly, with "vaapi" this time.
+
+{{RootCmd|echo "media-libs/mesa gles2 vaapi" > /etc/portage/package.use/mesa
+|emerge --ask --update --deep --newuse @world
+}}
+
+
+=== Final Stage ===
+
+=== Add More Useful Programs ===
+{{RootCmd|emerge app-admin/sudo
+|nano -w /etc/sudoers
+}}
+Uncomment this line to let users in the "wheel" group use the "sudo" command.
+ %wheel ALL=(ALL) ALL
+
+{{RootCmd|emerge -v gentoolkit
+}}
+
+{{RootCmd|useradd --create-home --groups users,wheel,portage,lpadmin,lp,audio,video,plugdev --shell /bin/bash --comment "First User" my_user
+}}
+
+Don't use "etc-update" anymore; use "dispatch-conf" instead (because it is safer).
+{{RootCmd|dispatch-conf
+}}
+
+=== Make a Snapshot ===
+
+We have to install the "btrfs" tools befopre we can make a snapshot, but the tools use an old version of Python.  We solve this by setting a specific version flag for the "asciidoc" package which requires it.
+
+{{RootCmd|echo "app-text/asciidoc PYTHON_TARGETS: -* python2_7 PYTHON_SINGLE_TARGET: -* python2_7" > /etc/portage/package.use/asciidoc
+|emerge --ask sys-fs/btrfs-progs
+}}
+
+Note: This is the syntax for setting special flags for a single package.
+
+Last action: take a "btrfs" snapshot of what you've built so far in case you want to roll back to this point instead of reinstalling everything from scratch again.
+
+{{RootCmd|mkdir -p /mnt/backup/rootfs
+|btrfs subvolume snapshot / /mnt/backup/rootfs/first_backup
+}}
+
+If that happened so quickly that you can't believe it has safely made a copy of every system file, you can take a look and see what it did:
+
+{{RootCmd|ls /mnt/backup/rootfs/first_backup|output=<span>
+ bin  boot  dev  etc  home  lib  lib32  lib64  media  mnt  opt  proc  root  run  sbin  spare  sys  tmp  usr  var</span>
+}}
+
+Lastly, look for unfinished business or hints/tips that you may have missed during the software installations
+
+{{RootCmd|cat /var/log/portage/elog/summary.log
+}}
+
+You have finished installing the Gentoo base system on your laptop.  From here, you should add the Xorg-server, a Display manager, a Desktop and some apps.  That will be covered in Part 2.
