@@ -1,0 +1,131 @@
+= Gentoo on GPD Pocket =
+
+{{Warning|Work in progress}}
+
+The GPD Pocket is a 7" UMPC manufactured by Game Park Digital running an Intel Atom x7-Z8750 and 8Gb RAM http://www.gpd.hk/pocket.asp. Lots of work has already been done on getting the kernel to work out of the box by [https://github.com/jwrdegoede Hans de Goede].
+
+=== Compile the Kernel ===
+
+{{Note|Knowledge of configuring the kernel is reqired here although it is quite simple}}
+
+This is the most complex step but you can avoid the pain by downloading the pre-built kernel from https://github.com/joshskidmore/gpd-pocket-arch-guide. A kernel can be compiled from gentoo-sources in portage, a working configuration can be found on Hans de Goede's github linux-sunxi config ([https://github.com/jwrdegoede/linux-sunxi]) (I can verify that gentoo-sources-4.14.3 works).
+
+==== Install the Kernel Sources ====
+
+{{RootCmd|1=emerge =gentoo-sources-4.14.3}}
+
+Copy the .config file from Hans de Goede's github repository https://github.com/jwrdegoede/linux-sunxi into <code>/usr/src/linux-4.14.3-gentoo/.config</code>.
+
+This change to the linux-sunxi <code>.config</code> file should help with a funny sound driver problem:
+
+{{KernelBox|1=
+CONFIG_INTEL_ATOMISP=n
+}}
+
+{{RootCmd|make menuconfig
+|make -j4
+|mkdir /usr/src/modules-4.14.3-gpdpocket
+|make INSTALL_MOD_PATH=/usr/src/modules-4.14.3-gpdpocket modules_install
+}}
+
+Your new kernel is available in <code>/usr/src/linux-4.14.3-gentoo/arch/x86_64/boot/bzImage</code> and the new modules in <code>/usr/src/modules-4.14.3-gpdpocket</code>.
+
+=== Creating an EFI-capable bootable USB drive ===
+
+{{Warning|This will make all the data on the USB Stick inaccessable.}}
+
+Use <code>fdisk</code> to create a new GPT partiton table on the USB Stick. The partition table must be UEFI or the BIOS will not be able to read the boot loader files.
+
+{{RootCmd|fdisk /dev/sdc
+<pre>Command (m for help): g
+Created a new GPT disklabel (GUID: C799490C-B64C-4DF0-8466-7EDAB65294B3).
+
+Command (m for help): n
+Partition number (1-128, default 1): 1
+First sector (2048-60547342, default 2048): 4096
+Last sector, +sectors or +size{K,M,G,T,P} (4096-60547342, default 60547342): +256M
+
+Created a new partition 1 of type 'Linux filesystem' and of size 256 MiB.
+
+Command (m for help): t
+Selected partition 1
+Partition type (type L to list all types): 1
+Changed type of partition 'Linux filesystem' to 'EFI System'.
+
+Command (m for help): n
+Partition number (2-128, default 2): 2
+First sector (528384-60547342, default 528384):
+Last sector, +sectors or +size{K,M,G,T,P} (528384-60547342, default 60547342):
+
+Created a new partition 2 of type 'Linux filesystem' and of size 28.6 GiB.
+
+Command (m for help): w</pre>
+}}
+
+An EFI System partition it just a FAT32 partition, to set up the partition you may need to install <code>sys-fs/dosfstools</code>.
+
+{{RootCmd|emerge sys-fs/dosfsutils}}
+
+{{RootCmd|mkfs.vfat -F32 /dev/sdc1}}
+
+Mount the drive and make the UEFI boot directories:
+
+{{RootCmd|mount /dev/sdc1 /mnt/sdc1
+|mkdir -p /mnt/sdc1/EFI/BOOT}}
+
+Create a linux root file system on <code>/dev/sdc2</code>:
+
+{{RootCmd|mkfs.ext2 /dev/sdc2}}
+
+Download and extract a stage 3 onto <code>/dev/sdc2</code> (alter the mirror and date to flavour):
+
+{{RootCmd|mount /dev/sdc2 /mnt/sdc2
+|wget http://gentoomirror/.../stage3-amd64-nomultilib-YYYYMMDD.tar.bz2
+|cd /mnt/sdc2
+|tar -xf stage3-amd64-nomultilib-YYYYMMDD.tar.bz2}}
+
+Edit the <code>etc/passwd</code> and <code>etc/shadow</code> files so that you can login.
+
+=== Installing a Bootloader ===
+
+SYSLINUX will be used to boot the kernel, if syslinux is not installed on your system, do it now:
+
+{{RootCmd|emerge sys-boot/syslinux}}
+
+Copy the required binaries to the USB Stick:
+
+{{RootCmd|cp /usr/share/syslinux/efi64/syslinux.efi /mnt/sdc1/EFI/BOOT/bootx64.efi
+|cp /usr/share/syslinux/efi64/ldlinux.e64 /mnt/sdc1/EFI/BOOT/ldlinux.e64}}
+
+Create the syslinux configuration file:
+
+{{FileBox|filename=/mnt/sdc1/EFI/BOOT/syslinux.cfg|title=|1=
+PROMPT 1
+TIMEOUT 50
+DEFAULT gentoo
+
+LABEL gentoo
+    LINUX ../vmlinuz-4.14.3-gentoo
+    APPEND root=/dev/ram0 fbcon=rotate:1
+    INITRD ../initramfs-4.14.3-gentoo.cpio.gz
+}}
+
+The kernel and the RAM disk will be created next
+
+=== Kernel and Initial RAM Disk ===
+
+Creating a custom <code>initramfs</code> is explained here [https://wiki.gentoo.org/wiki/Custom_Initramfs] to allow access to the GPD Pocket internal eMMC flash and access to the USB stick that the root fs is installed on some modules must be available in the initramfs:
+
+{{RootCmd|find lib/ -type f
+<pre>lib/modules/4.14.3-gentoo/kernel/drivers/usb/storage/usb-storage.ko
+lib/modules/4.14.3-gentoo/kernel/drivers/mmc/core/mmc_block.ko
+lib/modules/4.14.3-gentoo/kernel/drivers/mmc/core/mmc_core.ko
+lib/modules/4.14.3-gentoo/kernel/drivers/mmc/host/sdhci.ko
+lib/modules/4.14.3-gentoo/kernel/drivers/mmc/host/sdhci-acpi.ko</pre>}}
+
+These files can be copied from the kernel modules directory when a kernel is compiled with the Hans de Goede (or Fedora) settings.
+
+When you have created the initramfs and kernel they should be copied to the EFI partition:
+
+{{RootCmd|cp /usr/src/linux-4.14.3-gentoo/arch/x86_64/boot/bzImage /mnt/sdc1/EFI/vmlinuz-4.14.3-gentoo
+|cp /usr/src/initramfs-4.14.3-gentoo.cpio.gz /mnt/sdc1/EFI}}
