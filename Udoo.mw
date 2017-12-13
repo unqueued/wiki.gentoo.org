@@ -7,7 +7,7 @@
 
 [[File:imv6-udoo-quad-1080.jpg|right|500px|caption]]
 
-This document describes how to install Gentoo on the [https://www.udoo.org/ Udoo] Quad and Dual kickstarter boards.
+This document describes how to install Gentoo using mainline u-boot and kernel plus FOSS graphics on the [https://www.udoo.org/ Udoo] Quad and Dual kickstarter boards.
 
 == Prerequisite ==
 
@@ -341,6 +341,48 @@ So far the imx/armada drivers seem to work for 2D in X but the log shows an erro
 The main "thing" about Udoo boards is that they have a built-in Arduino-compatible ARM cortex-M microcontroller.  The original Udoo Quad/Dual boards have an Atmel Sam3 (equivalent to a Cortex-M3, no FPU) connected directly to the i.MX ARM via serial (ttymxc3 on the ARM side).  This can be adjusted via a jumper on the board.  As of the 4.14 mainline kernel there is a new imx-rproc driver similar to the BeagleBone PRU drivers (as well as the rpmsg char interface).
 
 You can use the latest crossdev-99999999 to build a multilib arm-none-eabi toolchain for ARM embedded processors; currently gcc 5.4.0_r4 and 6.4.0 in the ada-overlay have some extra patches for armv8-M and somewhat saner support for thumb/hardfloat/softfloat but it should be possible with the current versions in the main Portage tree.  Without the extra patches, you should add "--with-multilib-list=aprofile" to EXTRA_ECONF on your crossdev command, and for bare metal toolchains you should also add USE="-nptl -sanitize -vtv".
+
+== Hardware Random Number Generator ==
+The FSL/NXP i.MX6 boards have a hardware random number generator.<ref>[https://www.digi.com/resources/documentation/digidocs/90001546/reference/bsp/cc6/r_caam.htm CAAM (Cryptographic Accelerator and Assurance Module)]</ref>
+
+All of the Freescale CAAM kernel options should be enabled as modules (built-in may have trouble with rngd).
+
+Driving /dev/random with the hardware CAAM module is done via the following steps.
+
+=== Install rng-tools ===
+{{RootCmd|emerge -av sys-apps/rng-tools}}
+
+=== Load bcm2708-rng ===
+{{RootCmd|modprobe caamrng
+|modprobe caamhash}}
+
+=== Apply settings in /etc/conf.d/rngd ===
+Add the following to /etc/conf.d/rngd
+{{FileBox|filename=/etc/conf.d/rngd|1=
+NO_TPM=1
+RNGD_OPTS="-o /dev/random -r /dev/hwrng"
+}}
+
+=== Check that /dev/random is slow ===
+To verify that we have done everything correctly, open a new terminal and do: {{Cmd|cat /dev/random}} It will start displaying gibberish (random) but will stop at some point or at least slow down. Now issue CTRL+C to stop it.
+
+=== Restart rngd ===
+{{RootCmd|/etc/init.d/rngd restart}}
+
+=== Test if it works ===
+Again, issue: {{Cmd|cat /dev/random}} in another terminal. Now the random information should be flowing faster than the first time around. Now issue CTRL+C to stop it.
+
+Using the kernel entropy source (a USB keyboard attached, display connected) /dev/random spews approx. 100 "chars" of random information before it blocks. After loading the module and starting rng-tools, it should print out many lines without blocking.
+
+=== Add rng-tools to boot ===
+If all is good, add rngd to boot.
+{{RootCmd|rc-update add rngd boot}}
+
+=== Add loading of caamrng to boot ===
+Add the following to /etc/conf.d/modules so that the module gets loaded at boot
+{{FileBox|filename=/etc/conf.d/modules|1=
+modules="caamrng caamhash"
+}}
 
 == Applications ==
 
