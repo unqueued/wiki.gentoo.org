@@ -352,7 +352,7 @@ Driving /dev/random with the hardware CAAM module is done via the following step
 === Install rng-tools ===
 {{RootCmd|emerge -av sys-apps/rng-tools}}
 
-=== Load bcm2708-rng ===
+=== Load modules ===
 {{RootCmd|modprobe caamrng
 |modprobe caamhash}}
 
@@ -399,12 +399,67 @@ An optional overlay contains ebuilds and patches for Ada language support in the
 
 === Arduino IDE ===
 
-[[File:slim-arduino.png|{{dev|nerdboy}}'s Udoo desktop.|right|500px|caption]]
+[[File:slim-arduino.png|{{dev|nerdboy}}'s Udoo desktop.|right|text-top|thumb|alt=Screenshot of Nerdboy's Udoo desktop with latest Arduino IDE.|600px]]
 
-== Open questions ==
+Due to the way the hardware is integrated, including shared pins and a dedicated serial interface between the ARM side and the sam3 side, the arduino IDE takes several Udoo-specific patches.  All of them are required, including kernel/dts patches, arduino board patches, and a patched version of the bossa upload tool.  The following packages and USE flags will pull all the right integration bits.
 
-* open-source hardware-accelerated video driver 
-** [https://github.com/laanwj/etna_viv reverse engineereddrivers]
-** [https://plus.google.com/113859186888177702948/posts/Y9ZWe7rqumb kms driver is disabled in patched kernel]
+First build your favorite light-weight desktop (eg, lxqt) and use layman to add the arduino-overlay and arm overlay.  Make sure you're running the latest armv7multi kernel with arduino patches, then get rid of old icedtea-7 and install icedtea-8 and crossdev-99999999.  Use crossdev to build the arm-none-eabi toolchain.
+
+{{Note|Feel free to pluck the Udoo patches from the arm overlay and apply them on top the corresponding version of {{Package|sys-kernel/gentoo-sources}} if you prefer.}}
+
+=== Layman ===
+
+Install layman with the portage sync bits:
+
+{{RootCmd|USE{{=}}"git subversion sync-plugin-portage" emerge -av layman}}
+
+For "unofficial" overlays, make layman happy by adding the repository URLs to the layman config file:
+
+{{FileBox|filename=/etc/layman/layman.cfg|1=
+overlays  :
+    https://api.gentoo.org/overlays/repositories.xml
+    https://raw.github.com/gentoo/arm/master/configs/layman.xml
+    https://raw.github.com/sarnold/arduino-overlay/master-local/layman.xml
+}}
+
+Then sync layman and add both repositories one at a time (say "y" at the prompt).
+
+{{RootCmd|layman -a arduino|output=<pre>
+ * Adding overlay...
+ * Overlay "arduino" is not official. Continue installing? [y/n]: y
+ * Running Git... # ( cd /var/lib/layman  && /usr/bin/git clone git://github.com/sarnold/arduino-overlay.git /var/lib/layman/arduino )
+Cloning into '/var/lib/layman/arduino'...
+remote: Counting objects: 664, done.
+remote: Compressing objects: 100% (28/28), done.
+remote: Total 664 (delta 14), reused 34 (delta 11), pack-reused 625
+Receiving objects: 100% (664/664), 180.04 KiB | 360.00 KiB/s, done.
+Resolving deltas: 100% (298/298), done.
+ * Running Git... # ( cd /var/lib/layman/arduino  && /usr/bin/git config user.name "layman" )
+ * Running Git... # ( cd /var/lib/layman/arduino  && /usr/bin/git config user.email "layman@localhost" )
+ * Successfully added overlay(s) arduino.
+</pre>
+}}
+
+=== Required Packages ===
+
+{{RootCmd|USE{{=}}"imx udooqdl" emerge -av armv7multi-sources}}
+
+For arduino to work, you need either armv7multi-sources-4.14.5-r2 or armv7multi-sources-4.14.6-r2.
+
+{{RootCmd|emerge -av icedtea}}
+
+Default USE flags for icedtea should be fine.
+
+{{RootCmd|USE{{=}}"udooqdl" emerge -av arduino}}
+
+For arduino 1.8.5 you need USE="udooqdl" and it should pull in bossa 1.3 which has the Udoo sam3 upload patches.
+
+Finally, for the toolchain you want crossdev-99999999 and something like this crossdev command:
+
+{{RootCmd|PORTDIR_OVERLAY{{=}}"/usr/local/cortex-m3" USE{{=}}"graphite hardened -nptl multitarget lzma multilib -openmp -fortran -jit -sanitize -vtv" crossdev -t arm-none-eabi --genv 'EXTRA_ECONF{{=}}"--with-newlib --disable-decimal-float --enable-plugins --enable-libstdcxx-time{{=}}no --with-multilib-list{{=}}aprofile" USE{{=}}"multilib"' --g 5.4.0-r3 --b 2.27-r1 --lenv 'USE{{=}}"newlib-nano"' -s4 --ex-gdb --show-fail-log}}
+
+{{Note|The PORTDIR_OVERLAY path above is where you want the crossdev output overlay to go.}}
+
+== References ==
 
 [[Category:Embedded systems]]
