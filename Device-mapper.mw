@@ -1,9 +1,4 @@
-{{InfoBox stack|
-{{InfoBox todo
-|Figure out how to compute how large the metadata device should be give the origin size for the mirror/striped targets
-|header=true}}
-}}
-Normally, users rarely use '''dmsetup''' directly. The '''dmsetup''' is a very low level, and difficult tool to use. LVM, mdtool or dmsetup is generally the preferred way to do it, as it takes care of saving the metadata and issuing the dmsetup commands. However, sometimes it is desirable to delay with directly: sometimes for recovery purposes, or to use a target that han't yet been ported to LVM.
+Normally, users rarely use '''dmsetup''' directly. The '''dmsetup''' is a very low level, and difficult tool to use. LVM, mdtool or cryptsetup is generally the preferred way to do it, as it takes care of saving the metadata and issuing the dmsetup commands. However, sometimes it is desirable to deal with directly: sometimes for recovery purposes, or to use a target that han't yet been ported to LVM.
 
 {{Important|The device mapper, like the rest of the Linux block layer deals with things at the sector level. A sector defined as '''512 bytes''', regardless of the actual physical geometry the the block device. All formulas and values to the device mapper will be in sectors unless otherwise stated.}} 
 {{Note|The article uses both IEC (1024-based) and Metric (1000-based). So 1GB is 1,000,000,000 bytes, but 1 GiB is 1,073,741,824 bytes}}
@@ -32,11 +27,11 @@ The '''reload''' command replaces an existing device, possible with new targets 
 == Device-mapper targets ==
 {{Note|To quickly create a sparse file:
 {{Cmd|dd if{{=}}/dev/null of{{=}}nameX.img seek{{=}}#sectors}}
-The number of sectors for a given device will be states to facilitate this. A loopback device can then be setup via <tt>losetup</tt>. Note this won't overwrite old content in the file, so if fresh file is desired the loopback device must be torn down, the file delete and new one created.}} 
+The number of sectors for a given device will be stated to facilitate this. A loopback device can then be setup via <tt>losetup</tt>. Note this won't overwrite old content in the file, so if fresh file is desired the loopback device must be torn down, the file deleted and new one created.}} 
 === Zero ===
 See <tt>Documentation/device-mapper/zero.txt</tt> for usage. This target has no target-specific parameters.  
 
-The "zero" target create that functions similarly to /dev/zero: All reads return binary zero, and all writes are discarded> Normaly used in tests, but also useful in recovering linear and raid-type targets, when combined with the 'snapshot' target: a "zero" target of the same size as the missing piece(s) is created, a (writable) snapshot created (usually a loop device backed by a large sparse file, but it can be far smaller than the missing piece since it only has to the hold the changes). Then the snapshot can be mounted, fsck'd, or recover tools run against it. 
+The "zero" target create that functions similarly to /dev/zero: All reads return binary zero, and all writes are discarded. Normally used in tests, but also useful in recovering linear and raid-type targets, when combined with the 'snapshot' target: a "zero" target of the same size as the missing piece(s) is created, a (writable) snapshot created (usually a loop device backed by a large sparse file, but it can be far smaller than the missing piece since it only has to the hold the changes). Then the snapshot can be mounted, fsck'd, or recovery tools run against it. 
 
 This creates a 1GB (1953125-sector) zero target:
 {{RootCmd|dmsetup create 1gb-zero --table '0 1953125 zero'}}
@@ -74,7 +69,7 @@ The origin should be suspended before creating the snapshot device, if it is a d
 {{RootCmd|dmsetup create test-snapshot-cow --table '0 1953125 snapshot /dev/mapper/test-snapshot-base-real /dev/mapper/test-snapshot-snap-cow P 8'}}
 Note how the origin device is the not the same device as the one we just created, but rather the origin's underlying device
 ==== Merging snapshots ====
-To merge a snapshot, the origin must be suspended, the snapshot device unmapped, replace the '''snapshot-origin''' target replaced with the '''snapshot-merge''' target, and the origin resumed:
+To merge a snapshot, the origin must be suspended, the snapshot device unmapped, the '''snapshot-origin''' target replaced with the '''snapshot-merge''' target, and the origin resumed:
 {{RootCmd
 |dmsetup suspend test-snapshot-base
 |dmsetup remove test-snapshot-cow
@@ -128,8 +123,7 @@ See <tt>Documentation/device-mapper/dm-raid.txt</tt> for parameters and usage. T
 
 To create a simple 1 GB raid1 with no metadata devices.
 {{RootCmd|dmsetup create test-raid1 --table '0 1953125 raid raid1 3 0 region_size 1024 2 - /dev/mapper/test-mirror-data0 - /dev/mapper/test-mirror-data1'}}
-Note that because there's no metadata device, the array must be re-mirrored each time it is created. So normally, a metadata device is desired. Each 
-"leg" needs it own metadata device  If /dev/loop2 and /dev/loop3 are small metadata devices (4 MiB), then to create a 1G RAID1 would be:
+Note that because there's no metadata device, the array must be re-mirrored each time it is created. So normally, a metadata device is desired. Each "leg" needs its own metadata device  If /dev/loop2 and /dev/loop3 are small metadata devices (4 MiB), then to create a 1G RAID1 would be:
 {{RootCmd|dmsetup create test-raid1 --table '0 1953125 raid raid1 3 0 region_size 1024 2 /dev/mapper/test-mirror-log0 /dev/mapper/test-mirror-data0 /dev/mapper/test-mirror-log1 /dev/mapper/test-mirror-data1'}}
 === Striped (RAID 0) and RAID 4/5/6/10 ===
 {{Note|All the following examples for this target will use 4 1GB+4MiB (1961317-sector) disks as /dev/loop{0,1}, split as follows:
@@ -144,7 +138,7 @@ Because the number of sectors (1953125) is not a multiple of 128, it must be rou
 So in this case:
 {{Cmd|echo 'scale{{=}}0; x{{=}}1953125 / 128; x*{{=}}128; x' {{!}} bc|output=1953024}}
 ==== Striped (RAID0) ====
-Stripe sets allow multiple disks to be combined into one with improved performance. The striped target parameters is asymmetric to the RAID ones. First, the # devices comes first, not the cluster size. Second, one must specify the offset (usually 0) of each device the makes up the stripe set.Because there are 4 disks of 1953024 sectors each, the total array size will be 7812096 sectors.
+Stripe sets allow multiple disks to be combined into one with improved performance. The striped target parameters is asymmetric to the RAID ones. First, the # devices comes first, not the cluster size. Second, one must specify the offset (usually 0) of each device the makes up the stripe set. Because there are 4 disks of 1953024 sectors each, the total array size will be 7812096 sectors.
 To create a stripe set (RAID0):
 {{RootCmd|dmsetup create test-raid0 --table '0 7812096 striped 4 128 /dev/mapper/test-raid-data0 0 /dev/mapper/test-raid-data1 0 /dev/mapper/test-raid-data2 0 /dev/mapper/test-raid-data3 0'}}
 ==== RAID4  ====
@@ -284,7 +278,7 @@ Its recommended to mirror the metadata device on the origin and cache device. To
 |dmsetup create test-era-data0 --table '0 1953125 linear /dev/loop0 24576'
 |dmsetup create test-era-data1 --table '0 390625 linear /dev/loop1 24576'}}
 }}
-See <tt>Documentation/device-mapper/era.txt</tt> for the parameters this target takes. The '''era''' target is intended to be use with the '''cache''' target. The purpose of this target is to track change block since the last checkpoint, called an <tt>era</tt>. This target does so efficiently at the expense of possible false positives, but never false negative. Backup software or snapshot would typically use this target. For snapshots, a checkpoint can be created an snapshot time. If it becomes necessary to revert to the snapshot, its possible to invalidate all blocks since the snapshot in the cache, bypass the cache to rollback the snapshot, then reenable the cache - all without trashing the whole cache and lose valuable metadata on which blocks are still "hot". Backup software can use this to see what blocks have changed since the last backujp, and this do an incremental or differential backup of only the changed blocks. 
+See <tt>Documentation/device-mapper/era.txt</tt> for the parameters this target takes. The '''era''' target is intended to be used with the '''cache''' target. The purpose of this target is to track changed blocks since the last checkpoint, called an <tt>era</tt>. This target does so efficiently at the expense of possible false positives, but never false negative. Backup software or snapshots would typically use this target. For snapshots, a checkpoint can be created an snapshot time. If it becomes necessary to revert to the snapshot, its possible to invalidate all blocks since the snapshot in the cache, bypass the cache to rollback the snapshot, then reenable the cache - all without trashing the whole cache and lose valuable metadata on which blocks are still "hot". Backup software can use this to see what blocks have changed since the last backup, and this do an incremental or differential backup of only the changed blocks. 
 
 First, create cache device. Since there will now be 2 metadata devices (one for cache, and one for era), to avoid 2 mirror metadata devices, a single mirror will be created with 1 metadata device and the mirror split up using the '''linear''' target:
 {{RootCmd
