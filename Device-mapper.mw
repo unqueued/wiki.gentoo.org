@@ -293,6 +293,87 @@ To create the '''era''' device:
 In this case, we have a mirror of the era metadata, but its not required, in that case the metadata device should be on the "fast" device. Also note the ''block_size'' argument has the same value as the ''block_size'' of the cache.
 
 This target needs other tools to make use of the metadata it records. The <tt>thin-provisoing-tools</tt> package can fetch this an act upon it, by invaliding all blocks changed in the current era.
+=== Integrity ===
+{{Note|All the following examples for this target will 1 disk: /dev/loop0 will be 1G (1953125 sectors)}}
+See <tt>Documentation/device-mapper/dm-integrity.txt</tt> for the parameters this target takes. The '''integrity''' target can either be used alone, or with the '''crypt''' target. This target is unusual among device-mapper targets what it works on more than just the range of sectors its given, it works on the entire underlying device.
+
+First, the device must be formatted.  Unlike the other targets, to get this target o the formatting, 2 things must be true. First, the first 512 of the destination must be zeroed out. Second, the target must be invoked on the first sector only. It will then write the superblock (always 512 bytes) to the underlying device. The target has 5 mandatory arguments. The ''tag size'' parameter is written to the superblock and if 'J' is specified for the ''journal'' parameter, the journal size is written to it. There are a few optional arguments that will be written to the superblock: ''journal_sector'', ''interleave_sectors'', and ''block_size'' parameters. The ''internal_hash'', ''journal_crypt'', and ''journal_mac'' are NOT saved to the superblock, but must be reproduced in every future invocation of is target the underlying device.
+
+One the device is formatted, it writes the number of usable blocks to the superblock of the target. Unfortunately, this value is required for future invocation of this target on the underlying device, and neither dmsetup nor any other tool (future versions of cryptsetup will have an integritysetup command that can dump this) can retrieve that. Fortunately, writing such a (crude) tool only involves a little C.
+{{CodeBox|title=dump-integrity.c|lang=C|1=<nowiki>#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+
+struct integrity_sb {
+  uint8_t magic[8];               /* "integrt" */
+  uint8_t version;                /* superblock version, 1 */
+  int8_t log2_interleave_sectors; /* interleave sectors */
+  uint16_t integrity_tag_size;    /* tag size per-sector */
+  uint32_t journal_sections;      /* size of journal */
+  uint64_t provided_data_sectors; /* available size for data */
+  uint32_t flags;                 /* flags */
+  uint8_t log2_sectors_per_block; /* presented block (sector) size */
+} __attribute__ ((packed));
+
+int main(int argc,char** argv)
+{
+	FILE* integrityf = NULL;
+	struct integrity_sb this_sb;
+
+	if(argc>1) {
+		if(strcmp(argv[1],"-") !=0 ) {
+			integrityf = fopen(argv[1],"r");
+			if(!integrityf) {
+				perror("fopen: ");
+				return 1;
+			}
+		}
+	}
+
+	if(!integrityf)	
+		integrityf = stdin;
+
+	fread(&this_sb,sizeof this_sb,1,integrityf);
+	if(ferror(integrityf)) {
+		perror("fread: ");
+		return 1;
+	} else
+	if(feof(integrityf)) {
+		printf("Short read\n");
+		return 1;
+	}
+	if(strcmp((char*)&this_sb.magic,"integrt") != 0) {
+		printf("Invalid integrity superblock\n");
+		return 1;
+	}
+	if(this_sb.version != 1) {
+		printf("Unknown integrity superblock version\n");
+		return 1;
+	}
+	printf("Interleave sectors: %d\n",1<<this_sb.log2_interleave_sectors);
+	printf("Tag size per-sector: %hu\n",this_sb.integrity_tag_size);
+	printf("Size of journal: %u\n",this_sb.journal_sections);
+	printf("Available size for data: %lu\n",this_sb.provided_data_sectors);
+	printf("Flags: 0x%x\n",this_sb.flags);
+	printf("Sectors per block: %u\n",1U<<this_sb.log2_sectors_per_block);
+}</nowiki>}}
+==== Standalone ====
+To use this target by itself, specify "-" for the tag size and include the ''internal_hash'' option:
+This example will format the device uses crc32 as the integrity algorithm:
+{{RootCmd|
+dmsetup create test-integrity --table '0 1 integrity /dev/loop0 0 - J 1 internal_hash:crc32'
+dmsetup remove test-integrity}}
+This formats the device with the superblock. To use it, it must be given a sector range based on the AVAILABLE sectors in the superblock, NOT the size of the underlying device. For this example, its 1922872 blocks.
+{{RootCmd|
+dmsetup create test-integrity --table '0 1922872 integrity /dev/loop0 0 - J 1 internal_hash:crc32'}}
+The device still isn't usable yet though - space is allocated for hash, but they are not valid. We must use a special dd command to rady the device:
+{{RootCmd|
+dd if{{=}}/dev/zero of{{=}}/dev/mapper/test-integrity count{{=}}1922872 oflag{{=}}direct}}
+Note the ''oflag=direct'' option. This is important, as this causes the hash check to be bypassed, and new hashes generated. Otherwise, dd would have given an I/O error at the first sector and bailed out. 
+==== With crypt target ====
+To use this target with dm-crypt, specify the tag size (size of the hash, 0 if no hash+size of IV), and don't specify ''internal_hash''. To just store just the IV, the tag size varies on the encryption algorithm. For cbc(aes), it has a 16 byte IV. For gcm(aes)-random and rfc7539(chacha20,poly1305)-random, the hash size is 16 bytes and the IV the 12 bytes. for a total of 28. For authenc(hmac(sha256),xts(aes))-random, it doesn't work and cause a kernel oops.
+===== Just storing IV =====
+===== Hashed authentication =====
 === Testing targets ===
 ==== Delay ====
 See <tt>Documentation/device-mapper/delay.txt</tt> for parameters and usage. The '''delay''' target is used is simulated a congested or slow device (like a floppy). 
