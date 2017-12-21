@@ -369,9 +369,29 @@ The device still isn't usable yet though - space is allocated for hash, but they
 Note the ''oflag=direct'' option. This is important, as this causes the hash check to be bypassed, and new hashes generated. Otherwise, dd would have given an I/O error at the first sector and bailed out.
 
 ==== With crypt target ====
-To use this target with dm-crypt, specify the tag size (size of the hash, 0 if no hash+size of IV), and don't specify ''internal_hash''. To just store just the IV, the tag size varies on the encryption algorithm. For cbc(aes), it has a 16 byte IV. For gcm(aes)-random and rfc7539(chacha20,poly1305)-random, the hash size is 16 bytes and the IV the 12 bytes. for a total of 28. For authenc(hmac(sha256),xts(aes))-random, it doesn't work and cause a kernel oops.
+To use this target with dm-crypt, specify the tag size (size of the hash, 0 if no hash+size of IV), and don't specify ''internal_hash''. dm-crypt has a new IV type: ''random'', which is needed with the authenticated hash types. To just store just the IV, the tag size varies on the encryption algorithm. For cbc(aes), it has a 16 byte IV. For gcm(aes)-random and rfc7539(chacha20,poly1305)-random, the hash size is 16 bytes and the IV the 12 bytes. for a total of 28. For authenc(hmac(sha256),xts(aes))-random, it doesn't work and cause a kernel oops.
 ===== Just storing IV =====
+This example will format the device with 16-bit tags (for cbc(aes)), and encrypt the journal with cbc(aes) as well:
+{{RootCmd|dmsetup create test-integrity --table '0 1 integrity /dev/loop0 0 16 J 1 journal_crypt:cbc(aes):00000000000000000000000000000000'
+|dmsetup remove test-integrity}}
+Just like with standalone mode, the superblock must be read to figure out the number of available blocks, in this case its 1878488.
+{{RootCmd|dmsetup create test-integrity --table '0 1878488 integrity /dev/loop0 0 16 J 1 journal_crypt:cbc(aes):00000000000000000000000000000000'
+Now the crypt target can be stacked on it
+{{RootCmd|dmsetup create test-integrity-crypt --table '0 1878488 crypt aes-cbc-random 0123456789ABCDEF0123456789ABCDEF 0 /dev/mapper/test-integrity 0 1 integrity:16:none'}}
+The important part here is the ''integrity:16:none'' option. The tag size here MUST match the integrity target's one. The ''none'' option indicates to just store IV and not do any authentication.
+
+There is no need to zero out the device as we are just storing IV, not doing any hashed authentication. 
 ===== Hashed authentication =====
+This example will format the device with 28-bit tags, encrypt the journal use ChaCha20 and hash it using hmac(sha256):
+{{RootCmd|dmsetup create test-integrity --table '0 1 integrity /dev/loop0 0 28 J 2 journal_crypt:chacha20:babebabebabebabebabebabebabebabebabebabebabebabebabebabebabebabe journal_mac:hmac(sha256):deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+|dmsetup remove test-integrity}}
+Reading the superblock reveals there are 1835744 blocks for use. Now the crypt target can be stacked on it.
+{{RootCmd|dmsetup create test-integrity-crypt --table '0 1835744 crypt capi:rfc7539(chacha20,poly1305)-random 0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF 0 /dev/mapper/test-integrity 0 1 integrity:28:aead'}}
+The important part here is the ''integrity:28:tag'' option. Again, he tag size here MUST match the integrity target's one. ''aead'' is the integrity profile to use.  
+
+The device must be cleared before use:
+{{RootCmd|dd if{{=}}/dev/urandom of{{=}}/dev/mapper/test-integrity-crypt count{{=}}1835744 oflag{{=}}direct}}
+The ''oflag=direct'' is required to generate the new hashes without I/O errors.
 === Testing targets ===
 ==== Delay ====
 See <tt>Documentation/device-mapper/delay.txt</tt> for parameters and usage. The '''delay''' target is used is simulated a congested or slow device (like a floppy). 
