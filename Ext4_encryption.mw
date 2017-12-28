@@ -1,0 +1,77 @@
+= Quick HOWTO on /home partition encryption =
+
+== Quick overview ==
+Ext4 supports file based encryption, which is superior over classic whole drive encryption (in terms of performance and also - you don't need encrypt things like opensource published projects).
+
+== Basics ==
+https://wiki.archlinux.org/index.php/ext4#Using_file-based_encryption you can find them here.
+
+== Hard part -> decrypt before login ==
+Since ext4 uses kernel keyring, which is divided into '''session''' keyring (everytime you login into console / X / wayland) and '''user''' keyring (persist for user, but only as user keep logged in).
+
+=== Systemd part ===
+So you'll need to run systemd unit before login screens (imposible with systemd). So, I just cut tty6 for password prompt.
+
+No need to use all 6 VT's.. So you need modify logind.conf and reduce number of reserved VTs. 
+# cat /etc/systemd/logind.conf
+<code>
+...
+[Login]
+NAutoVTs=3
+ReserveVT=1
+...
+</code>
+
+Create systemd service 
+
+# cat /etc/systemd/system/decrypt.service 
+<code>
+[Unit]
+Description=Decrypt
+Wants=multi-user.target
+
+[Service]
+Type=oneshot
+User=REPLACEWITH_USERNAMEOFYOURUSER
+ExecStart=/usr/local/sbin/decrypt.sh
+KeyringMode=inherit
+StandardInput=tty-force
+TTYPath=/dev/tty6
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+
+</code>
+
+and script - wait for displaymanager loads itself, then switch to VT 6, ask password and save it to @s (session), set permissions to allow link it to @u (user keyring) and change back to VT 7 (display manager). Sleep infinity, because at moment, when this script ends, user keyring is wiped and it has no point.
+
+Into script you have to fill number, which you'll get after you run
+<code>/usr/sbin/e4crypt add_key</code> under normal circumstances and then run <code>keyctl list @s</code>.
+
+# cat /usr/local/sbin/decrypt.sh
+<code>
+#!/bin/bash
+sleep 10
+chvt 6
+systemd-ask-password | /usr/sbin/e4crypt add_key -k @s
+keyctl setperm `keyctl search @s logon ext4:_THIS_NUMBER_YOU_GET_FROM_keyctl list @u_` 0x3d3d0000
+keyctl link `keyctl search @s logon ext4:_THIS_NUMBER_YOU_GET_FROM_keyctl list @u_` @u
+sleep 1
+chvt 7
+sleep infinity
+</code>
+
+Last think, you need link from @u (user keyring) to @s (session keyring), because otherwise ext4 is not able to detect key (no idea why).
+
+So in my case
+
+/etc/gdm/Xsession 
+<code>
+... somewhere in beggining of file...
+keyctl link @u @s
+... rest of it ....
+</code>
