@@ -1,0 +1,355 @@
+== Raspberry Pi 1 (A/B/A+/B+/zero/zero w) musl/busybox environment. ==
+
+Build your own minimal system using libressl, musl-libc and busybox.
+
+{{Note|This page is a work in progress and has some formatting errors and a few bits of missing information. Please contribute corrections to it if necessary.}}
+
+This entire process was done within an official gentoo-hardened stage3 chroot with USE="libressl",
+updated to ACCEPT_KEYWORDS="~amd64" (if you don't want to do this, set
+~amd64 keyword individually where needed to obtain the same results from
+instructions below). Follow the Gentoo Handbook if you haven't already.
+Please read everything twice before trying - that's recommended when first
+installing Gentoo because it really helps! If you find mistakes below, ask for help in
+the #gentoo-arm or #gentoo-hardened channels on Freenode irc.
+
+=== Make sure you have the following tools installed in your host system. ===
+
+{{RootCmd|emerge -av bc layman squashfs-tools}}
+
+=== Install crossdev. ===
+
+{{RootCmd|emerge -av crossdev}}
+
+=== Build the cross-toolchain for a Raspberry Pi 1 target. ===
+
+{{Note|As of 2017-12-16 when building the cross-toolchain it'll complain that it can't autoconfigure CHOST for the target and errors out because of it. Temporary solution:}}
+
+{{RootCmd|1=export CHOST=armv6j-hardfloat-linux-musleabi}}
+
+{{Note|However, before running emerge for the host, you must unset the CHOST environment variable. for the duration of the cross-compiling process, just leave it set...}}
+
+{{RootCmd|crossdev -t armv6j-hardfloat-linux-musleabi}}
+
+{{Note|Toolchain versions used:
+* gcc-7.2.0
+* linux-headers-4.13
+* musl-1.1.18
+* binutils-2.29.1}}
+
+{{Note|1=As of 2017-12-16, cross-musl fails, complaining about -march=native which is clearly wrong... Temporary solution: set desired target CFLAGS in the hosts's make.conf and revert to the host's cflags once crossdev completes successfully.}}
+
+{{RootCmd|nano -w /etc/portage/make.conf}}
+
+{{Important|1=CFLAGS="-O2 -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s -pipe"}}
+
+{{Note|1=As of 2017-12-16, cross-gcc-stage2 fails due to execinfo.h missing.
+Temporary workaround: USE="-vtv" in make.conf temporarily, because /etc/portage/package.use/cross-armv6j-hardfloat-linux-musleabi gets
+overwritten every time you run the crossdev command. Then, it errors out because of an error in sanitizer functions. So USE="-sanitize" as well, but these are both temporary solutions...}}
+
+{{RootCmd|nano -w /etc/portage/make.conf}}
+
+==== Re-run the crossdev command until it completes successfully... ====
+
+When done, re-edit /etc/portage/make.conf and revert temporary changes.
+
+{{RootCmd|nano -w /etc/portage/make.conf}}
+
+{{Important|Replace CFLAGS with proper host CFLAGS. Also, remove -vtv and -sanitize from USE variables.}}
+
+Add -vtv and -sanitize to cross-gcc portage configuration; now that crossdev
+is finished, a world update should not overwrite the portage configuration
+files.
+
+{{RootCmd|nano -w /etc/portage/package.use/cross-armv6j-hardfloat-linux-museabi}}
+
+=== Add the Gentoo musl overlay with layman. ===
+
+{{RootCmd|layman -a musl}}
+
+==== Disable the musl overlay in host portage configuration. ====
+
+{{RootCmd|layman -D musl}}
+
+==== Add the musl and your local overlays to target portage configuration. ====
+
+{{RootCmd|1=echo 'PORTDIR_OVERLAY="/var/lib/layman/musl /usr/local/portage"' >> /usr/armv6j-hardfloat-linux-musleabi/etc/portage/make.conf}}
+
+=== Edit the cross make.conf to your liking. ===
+
+{{RootCmd|nano -w /usr/armv6j-hardfloat-linux-musleabi/etc/portage/make.conf}}
+
+{{Important|1=Useful settings:
+* CHOST=armv6j-hardfloat-linux-musleabi
+* CFLAGS="-O2 -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s -pipe"
+* USE="${ARCH} -pam libressl"
+* CURL_SSL="libressl"}}
+
+=== Set the correct cross-environment make.profile ===
+
+Replace the cross-environment's make.profile with the directory right before the hardened/musl armv7a profile.
+
+{{RootCmd|rm /usr/armv6j-hardfloat-linux-musleabi/etc/portage/make.profile|ln -s /usr/portage/profiles/default/linux/musl/arm /usr/armv6j-hardfloat-linux-musleabi/etc/portage/make.profile}}
+
+=== Replace linux-headers with raspberry pi kernel headers. ===
+
+{{RootCmd|mkdir -p /usr/armv6j-hardfloat-linux-musleabi/usr/src|cd /usr/armv6j-hardfloat-linux-musleabi/usr/src|3=git clone --depth=1 --branch=rpi-4.14.y https://github.com/raspberrypi/linux}}
+
+==== Backup the downloaded kernel sources. ====
+
+{{RootCmd|cp -r linux rpi-4.14.y}}
+
+{{RootCmd|cd linux|2=ARCH=arm CROSS_COMPILE=armv6j-hardfloat-linux-musleabi- make headers_install INSTALL_HDR_PATH=/usr/armv6j-hardfloat-linux-musleabi/usr}}
+
+=== Time for the package salad buffet, but remember: this system is on a diet! ===
+
+Check what the system would usually install if running emerge world, put it
+in a text file and remove the packages you don't want/need/are replacing with
+busybox, leaving only a very minimal, but functional list comprising of the
+customized stage3 install.
+
+{{RootCmd|armv6j-hardfloat-linux-musleabi-emerge -ep @world > /root/armv6j-world|nano -w /root/armv6j-world|nano -w /usr/armv6j-hardfloat-linux-musleabi/etc/portage/profile/package.provided}}
+
+Here is an example of a slimmed down list of packages that were kept.
+It was formatted for an upcoming emerge command which causes 33 packages to
+install.
+
+{{FileBox|filename=/root/armv6j-world|title=Example package list.|1= =virtual/libintl-0-r2
+=sys-apps/gentoo-functions-0.12
+=virtual/libiconv-0-r2
+=app-misc/mime-types-9
+=virtual/shadow-0
+=net-firewall/iptables-1.6.1-r2:0/12
+=sys-apps/sysvinit-2.88-r9
+=sys-apps/install-xattr-0.5-r1
+=virtual/pager-0
+=sys-apps/busybox-1.27.2
+=virtual/editor-0
+=sys-apps/net-tools-1.60_p20161110235919
+=sys-apps/baselayout-2.4.1-r2
+=virtual/os-headers-0
+=dev-libs/libressl-2.6.3-r2:0/44
+=sys-fs/eudev-3.2.5
+=virtual/dev-manager-0
+=sys-apps/iproute2-4.14.1-r2
+=sys-apps/kbd-2.0.4
+=virtual/modutils-0
+=net-misc/iputils-20171016_pre
+=sys-apps/openrc-0.34.11
+=net-misc/netifrc-0.6.0
+=virtual/service-manager-0
+}}
+
+{{FileBox|filename=/usr/armv6j-hardfloat-linux-musleabi/etc/portage/profile/package.provided|title=Here is an example package.provided file.|
+app-editors/nano-2.9.0
+sys-apps/less-529
+sys-apps/shadow-4.5
+sys-process/psmisc-23.1
+sys-apps/debianutils-4.8.3
+sys-apps/opentmpfiles-0.1.3
+sys-apps/util-linux-2.31
+sys-kernel/linux-headers-4.13}}
+
+Now, set use flags for packages you are going to be installing.
+Remember, it is meant to be tiny, and it'll all be running in the Raspberry Pi's RAM,
+so USE="-static make-symlinks savedconfig syslog" for busybox.
+
+{{RootCmd|nano -w /usr/armv6j-hardfloat-linux-musleabi/etc/portage/package.use/world}}
+
+{{FileBox|filename=/usr/armv6j-hardfloat-linux-musleabi/etc/portage/package.use/world|title=Here is an example of minimizing use flags.|sys-apps/openrc -ncurses
+sys-apps/busybox -static make-symlinks savedconfig syslog
+sys-apps/file -zlib
+sys-apps/kmod -zlib
+sys-fs/eudev -hwdb}}
+
+Configure busybox and choose the tools wanted/needed in order
+to have a fully bootable/usable system. Provided at the end of this document
+will be known working busybox configuration examples to base oneself on.
+
+{{RootCmd|emerge --fetchonly busybox|mkdir -p /root/work/busybox|cd /root/work/busybox|tar xjf /usr/portage/distfiles/busybox-1.27.2.tar.bz2|cd busybox-1.27.2|make menuconfig}}
+
+Save the busybox .config and place it in target portage configuration.
+
+{{RootCmd|mkdir -p /usr/armv6j-hardfloat-linux-musleabi/etc/portage/savedconfig/sys-apps|cp .config /usr/armv6j-hardfloat-linux-musleabi/etc/portage/savedconfig/sys-apps/busybox}}
+
+==== Start by rebuilding musl-libc first, then build the base system. ====
+
+{{Note|As of 2017-12-17, the musl ebuild has a hardcoded file collision test which, in this process, is to be commented out in your local overlay, which may be wrong. Possible alternative: --buildpkgonly
+Look inside the if conditional for cross-* stuff and comment out <code>[[ -e "${D}"/lib/ld-musl-${arch}.so.1 ]] &#124;&#124; die</code> in the src_install section of the ebuild.}}
+
+{{RootCmd|mkdir -p /usr/local/portage/sys-libs|cp -a /usr/portage/sys-libs/musl /usr/local/portage/sys-libs/musl|nano -w /usr/local/portage/sys-libs/musl/musl-1.1.18.ebuild|ebuild /usr/local/portage/sys-libs/musl/musl-1.1.18.ebuild digest}}
+
+{{RootCmd|armv6j-hardfloat-linux-musleabi-emerge -av sys-libs/musl}}
+
+Now, emerge the packages from the minimal list. If you find errors, please make bug reports and/or see if you can find patches for your issues and submit them in your bug reports.
+
+{{Note|As of 2017-12-17, libressl fails because it can't link to musl.
+Solution: env/package.env stuff.}}
+
+{{RootCmd|1=mkdir -p /usr/armv6j-hardfloat-linux-musleabi/etc/portage/env /usr/armv6j-hardfloat-linux-musleabi/etc/portage/package.env|2=echo 'LDFLAGS="${LDFLAGS} -L/usr/armv6j-hardfloat-linux-musleabi/usr/lib"' > /usr/armv6j-hardfloat-linux-musleabi/etc/portage/env/muslpath.conf|3=echo 'dev-libs/libressl muslpath.conf' > /usr/armv6j-hardfloat-linux-musleabi/etc/portage/package.env/libressl|4=armv6j-hardfloat-linux-musleabi-emerge -av `cat /root/armv6j-world`}}
+
+Now wait. musl-libc is built twice for ease of use, once with crossdev and once
+with cross-emerge, as usually one would not be built, but once compiling has
+completed the binary package that this generates will be useful, along with
+all of the other binary packages.
+
+=== Start building your squashfs root tree ===
+
+Now that most of the system is built, time to emerge the extra sotware that
+your Raspberry Pi project will require. For the sake of simplifying these
+instructions, no extra packages will be installed and the instructions will skip
+to the next step: creating a slimmed down version of your cross-built
+environment using the binary packages that cross-emerge generated.
+
+{{RootCmd|1=mkdir /usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs|2=armv6j-hardfloat-linux-musleabi-emerge --root=/usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs --config-root=/usr/armv6j-hardfloat-linux-musleabi -Kav `cat /root/armv6j-world`|3=cd /usr/armv6j-hardfloat-linux-musleabi/usr/arc/squashfs|4=rm -rf usr/include var/db/pkg}}
+
+==== Install missing gcc libraries. ====
+
+{{RootCmd|mkdir usr/lib/gcc|cp -a /usr/lib/gcc/armv6j-hardfloat-linux-musleabi usr/lib/gcc/|rm -rf usr/lib/gcc/*/*/include* usr/lib/gcc/*/*/plugin/include usr/lib/gcc/*/*/*.a usr/lib/gcc/*/*/*.la|cd lib|ln -s ../usr/lib/gcc/*/*/*.so ./}}
+
+==== Set/unset services manually in /etc/runlevels/* ====
+
+{{Note|Make sure you remove hwclock from boot and add swclock. The busybox-syslogd service is also useful. So is iptables, but writing rules manually is out of scope for this document.}}
+
+Here is a runlevel example.
+
+{{RootCmd|cd ../etc/runlevels|ln -s /etc/init.d/swclock boot/|rm boot/hwclock}}
+
+Check what services/init scripts are available.
+
+{{RootCmd|ls ../init.d}}
+
+{{Important|As of 2017-12-17, busybox sysctl doesn't support an option used by Gentoo's sysctl init script. Solution: remove the option from the script.}}
+
+{{RootCmd|cd ../init.d|cp -a sysctl sysctl.old|nano -w sysctl}}
+
+{{Important|Find the sysctl --system command to read /etc/sysctl.conf and replace it with sysctl ${quiet} -p /etc/sysctl.conf}}
+
+Backup the new sysctl init script just in case your change is overwritten
+during updates.
+
+{{RootCmd|cp -a sysctl sysctl.bak}}
+
+{{Note|Here is an example of which init scripts can be in which runlevels.
+* boot:		bootmisc hostname iptables keymaps localmount loopback modules mtab procfs root swclock sysctl termencoding urandom
+* default:	busybox-syslogd local
+* nonetwork:	local
+* shutdown:	killprocs mount-ro savecache
+* sysinit:	devfs dmesg kmod-static-nodes sysfs udev udev-trigger}}
+
+=== Configure everything relevant as you would a normal Gentoo system. ===
+
+You can leave /etc/fstab empty though, for now.
+Read the gentoo handbook and see what configuration is needed before
+first boot if necessary. The other Gentoo Wiki Raspberry Pi pages are useful too.
+
+==== At least set a root password so you can login. ====
+
+{{RootCmd|cp -a /etc/shadow /etc/shadow.bak|passwd|grep root /etc/shadow >> /usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs etc/shadow|mv /etc/shadow.bak /etc/shadow}}
+
+Replace the first root line with the bottom root line.
+
+{{RootCmd|nano -w /usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs/etc/shadow}}
+
+==== Complete the root skeleton of needed but missing files/directories. ====
+
+{{RootCmd|cd /usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs|mkdir dev home media mnt opt proc root sys|chmod 700 root|cp -a /dev/null /dev/console /dev/tty /dev/loop0 /dev/random /dev/urandom dev/|mknod -m 660 dev/ttyAMA0 c 204 64}}
+
+=== Configure and build the kernel. ===
+
+{{RootCmd|1=cd /usr/armv6j-hardfloat-linux-musleabi/usr/src/linux|2=unset CHOST|3=export KERNEL=kernel|4=ARCH=arm CROSS_COMPILE=armv6j-hardfloat-linux-musleabi- make bcmrpi_defconfig|5=ARCH=arm CROSS_COMPILE=armv6j-hardfloat-linux-musleabi- make menuconfig}}
+
+You probably already know what to enable/disable, and you can probably
+mostly leave everything as-is, but make sure that you enable tmpfs, squashfs
+with xz support and overlayfs for this guide, and set the default initramfs
+location to /usr/armv6j-hardfloat-linux-musleabi/usr/src/initramfs
+
+{{Important|Make sure you don't select xz compression for kernel or initramfs or else the kernel xz decompressor will think the xz data is corrupt and will fail to boot the kernel and halt... These instructions use gz compression instead.}}
+
+{{RootCmd|mkdir /usr/armv6j-hardfloat-linux-musleabi/usr/src/initramfs}}
+
+We have a dependency loop here. The kernel needs an initramfs, and the
+initramfs needs to contain kernel modules. So, first we build the kernel and
+install its modules into our new slimmed down/configured gentoo root.
+
+{{RootCmd|1=ARCH=arm CROSS_COMPILE=armv6j-hardfloat-linux-musleabi- make -j4}}
+
+{{Note|These instructions were tested with a dual-core processor with hyperthreading. Set -jN to the correct value for your processor.}}
+
+{{RootCmd|1=ARCH=arm CROSS_COMPILE=armv6j-hardfloat-linux-musleabi- INSTALL_MOD_PATH=/usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs make modules_install}}
+
+{{Note|Building out-of-tree drivers is out of scope for these instructions.}}
+
+=== Build the initramfs ===
+
+Take a break from the kernel to create the initramfs with a
+newly compiled ultra-minimal static busybox binary, the /init script that
+uses busybox, rudimentary device nodes and a compressed squashfs image of
+the /usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs directory.
+
+{{RootCmd|cd /usr/armv6j-hardfloat-linux-musleabi/usr/src/initramfs|mkdir bin dev mnt proc sys|cp -a /dev/null /dev/console /dev/tty /dev/loop0 /dev/random /dev/urandom dev/|mknod -m 660 dev/ttyAMA0 c 204 64}}
+
+==== Rebuild minimal reconfigured busybox with USE="static -syslog -make-symlinks". ====
+
+{{RootCmd|cp /usr/armv6j-hardfloat-linux-musleabi/etc/portage/savedconfig/sys-apps/busybox /root/busybox.config|cd /root/work/busybox/busybox-1.27.2|make menuconfig}}
+
+{{Note|It is a good idea to use the minimal busybox configuration provided below as a base.}}
+
+{{RootCmd|cp .config ../../../busybox.mini.config|cp .config /usr/armv6j-hardfloat-linux-musleabi/etc/portage/savedconfig/sys-apps/busybox|
+export CHOST=armv6j-hardfloat-linux-musleabi|USE="static -syslog -make-symlinks" armv6j-hardfloat-linux-musleabi-emerge -1Bav busybox}}
+
+==== Install minimal busybox in your initramfs. ====
+
+{{RootCmd|1=armv6j-hardfloat-linux-musleabi-emerge --root=/usr/armv6j-hardfloat-linux-musleabi/usr/src/initramfs --config-root=/usr/armv6j-hardfloat-linux-musleabi -1Kav busybox}}
+
+==== Delete unneeded files from initramfs. ====
+
+{{RootCmd|cd /usr/armv6j-hardfloat-linux-musleabi/usr/src/initramfs|rm -rf etc var usr tmp}}
+
+===== Make sure you statically linked busybox. =====
+
+{{RootCmd|file /usr/armv6j-hardfloat-linux-musleabi/usr/src/initramfs/bin/busybox}}
+
+==== Create a squashfs image of your minimal root for inclusion in initramfs. ====
+
+{{RootCmd|cd /usr/armv6j-hardfloat-linux-musleabi/usr/src/squashfs|mksquashfs . ../initramfs/squash -comp xz -b 1048576 -Xbcj arm -Xdict-size 1048576}}
+
+Your squashfs image should be somewhere around 5 to 10 megabytes if you
+didn't install anything other than the list of packages ealier in these
+instructions.
+
+==== Write your initramfs init script and make it executable. ====
+
+{{RootCmd|cd ../initramfs|nano -w init|chmod 700 init}}
+
+{{Note|Example init script in 12 lines:
+
+#!/bin/busybox sh
+
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t tmpfs tmpfs /mnt
+mkdir /mnt/s /mnt/u /mnt/w /mnt/m
+mv squash /mnt
+mount -t squashfs /mnt/squash /mnt/s
+mount -t overlay overlay -olowerdir=/mnt/s,upperdir=/mnt/u,workdir=/mnt/w /mnt/m
+umount /proc
+umount /sys
+exec switch_root /mnt/m /sbin/init || exec sh}}
+
+==== Regenerate an initramfs built into the kernel, including the entire OS. ====
+
+{{RootCmd|cd ../linux|rm usr/initramfs_data.cpio.gz|unset CHOST|4=ARCH=arm CROSS_COMPILE=armv6j-hardfloat-linux-musleabi- make -j4}}
+
+=== Complete the installation. ===
+
+Your cross-gentoo build is complete, all in only one small file!
+One last thing that needs doing is putting it on a FAT32 SD card partition
+along with the Raspberry Pi firmware.
+
+{{RootCmd|mkdir /root/work/bootloader|cd /root/work/bootloader|3=git clone --depth=1 --branch=next https://github.com/raspberrypi/firmware}}
+
+{{RootCmd|mount /dev/SDCARD /media/sdcard|cd /usr/armv6j-hardfloat-linux-musleabi/usr/src/linux|cp arch/arm/boot/zImage /media/sdcard/kernel.img|mkdir /media/sdcard/overlays|cp arch/arm/boot/dts/overlays/*.dtbo /media/sdcard/overlays/|cp arch/arm/boot/dts/*.dtb /media/sdcard/|cd /root/work/bootloader/firmware/boot|cp -r boot* fixup* start* /media/sdcard/|umount /media/sdcard}}
+
+Once you see that the system is booting, it is safe to remove the SD card
+from the Raspberry Pi. This setup allows for SD card swapping, because you
+already loaded the entire operating system into the Raspberry Pi's RAM.
