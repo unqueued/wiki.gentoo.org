@@ -137,6 +137,8 @@ Finally, know that some Portage <var>FEATURES</var> may not work in the LiveCD. 
 <!--T:107-->
 This method is easier to configure than PXE boot based on iSCSI or NFS. Multiple machines can boot from the same set of images distributed via TFTP and can be easily extended to also work over HTTP or other protocol.
 
+Having a nice router or one capable of running open source firmware such as [https://lede-project.org/ LEDE], the successor to [https://openwrt.org/ OpenWRT], is one way to centralize TFTP and DHCP. Getting the firmware online could be an uphill battle, depending on your experience.
+
 <!--T:108-->
 Some other distributions including Fedora already distribute images needed to bootstrap a live or installation CD. With Gentoo, this is not the case. Instead, users need to
 
@@ -148,26 +150,39 @@ Some other distributions including Fedora already distribute images needed to bo
 <!--T:125-->
 Only then can a PXE based boot loader be configured that will load the images and boot into a live system.
 
-<!--T:109-->
-Save the following script, make it executable and put its directory value into the <var>PATH</var> variable (or follow the documented steps manually).
+There are different flavors of PXE, but all of them are going to need the kernel and initrd file, so let's create those files now. Download the [https://www.gentoo.org/downloads/ minimal installation CD]. Then, execute the following script as root. The new files '''initrd''' and '''kernel''' will be created in your specified output directory.
 
 </translate>
 
-{{CodeBox|title=gentoo-pxe-boot|<nowiki>
+{{CodeBox|title=pxe-craft-initrd-kernel|lang=bash|<nowiki>
 #!/bin/bash -xe
+# Create kernel and initrd files from a Gentoo LiveCD (DVD?) for PXE boot.
 
-tftproot="$1"
+print-usage() {
+  echo "Usage: $0 <output-dir> <gentoo-iso>" >&2
+}
+
+# Example Invocation
+# sudo ./gen-pxe-initrd-kernel pxe-boot-files ~/Downloads/install-amd64-minimal-20171228T214501Z.iso
+
+outdir="$1"
 image="$2"
-tmp="./tmp"
+tmp="$outdir/tmp"
 
-test -z "$tftproot" -o -z "$image" && echo "Usage: $0 <tftproot> <gentoo-iso>" >&2 && exit 1
+if [ $(id -u) -ne "0" ]; then
+  echo "You must run as root or with sudo. This is necessary for the loop mount" && 
+  print-usage &&
+  exit 2
+fi
+
+test -z "$outdir" -o -z "$image" && print-usage && exit 1
 test -e "$tmp" && echo "Temporary path '$tmp' already exists." >&2 && exit 1
 
 iso="$tmp/iso"
 initrd="$tmp/initrd.dir"
 
 # prepare directories
-mkdir -p "$tmp" "$iso" "$initrd/mnt/cdrom"
+mkdir -p "$outdir" "$tmp" "$iso" "$initrd/mnt/cdrom"
 
 # extract files from ISO image
 mount -o ro,loop "$image" "$iso"
@@ -217,33 +232,27 @@ EOF
 cp "$tmp/image.squashfs" "$initrd/mnt/cdrom"
 ( cd "$initrd" && find . -print | cpio -o -H newc | gzip -9 -c - ) > "$tmp/initrd"
 
-# prepare boot data
-grub2-mknetdir -v --net-directory="$tftproot"
-cat > "$tftproot/boot/grub/grub.cfg" <<'EOF'
-menuentry "Gentoo Live" {
-    linux /boot/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
-    initrd /boot/initrd
-}
-EOF
-cp "$tmp"/{kernel,initrd} "$tftproot/boot"
-
-# cleanup
+mv "$tmp"/{kernel,initrd} "$outdir"
 rm -rf "$tmp"
 </nowiki>}}
 
+If you know what you're doing, you can be on your way! Enjoy Gentoo on PXE. Otherwise, see below for more directions depending on the PXE flavor you're using.
+
 <translate>
 
+=== TFTP ===
+
+This will be needed in tandem with a DHCP server for most PCs equipped with PXE boot. However, realize that you could use iPXE to boot without a TFTP or DHCP server! See [http://http://ipxe.org/ ipxe.org] for info on embedding scripts, chainloading, and manual booting. There are still merits to TFTP booting such as wide-range device support, so let's get to serving TFTP!
+
 <!--T:110-->
-Download the [https://www.gentoo.org/downloads/ minimal installation CD]. Install {{Package|net-ftp/tftp-hpa}}, make sure it serves {{Path|/tftproot}} and start it.
-
-<!--T:111-->
-Run the script with the appropriate parameters.
-
-<!--T:112-->
-{{RootCmd|gentoo-pxe-boot /tftproot install-amd64-minimal-20141204.iso}}
+Install {{Package|net-ftp/tftp-hpa}}, make sure it serves {{Path|/tftproot}} and start it.
 
 <!--T:113-->
-Now the TFTP boot service is ready, so the next step is to configure a DHCP service. Setting up a DHCP server on the same machine is possible - just make sure that the booted machines are connected to it. Or just tweak the configuration of an existing router.
+Now the TFTP boot service is ready, so the next step is to configure a DHCP service. 
+
+=== DHCP ===
+
+Setting up a DHCP server on the same machine is possible - just make sure that the booted machines are connected to it. Or just tweak the configuration of an existing router.
 
 <!--T:114-->
 Example configuration for OpenWRT DHCP service follows:
@@ -255,6 +264,84 @@ config boot linux
         option servername boot
         option serveraddress 84.246.161.86
 }}
+
+From here, directions will change depending on what flavor your PXE is (ie grub, iPXE). 
+
+
+=== Grub ===
+
+After executing the '''pxe-craft-initrd-kernel''' script, run the following '''pxe-install-grub''' to output proper files into your tftp root directory.
+
+{{CodeBox|title=pxe-install-grub|lang=bash|<nowiki>
+#!/bin/bash -xe
+# prepare boot data
+
+print-usage() {
+  echo "Usage: $0 -i [initrd-file] -k [kernel-file] <tftproot>" >&2
+}
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+    -i|--initrd)
+    initrd="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -k|--kernel)
+    kernel="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    *)    # unknown option
+    POSITIONAL+=("$1") # save it in an array for later
+    shift # past argument
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+tftproot="$1"
+
+test ! -e "$initrd" && echo "initrd Not found" && print-usage && exit 1
+test ! -e "$kernel" && echo "kernel Not found" && print-usage && exit 1
+test -z "$tftproot" && echo "tftproot not specified" && print-usage && exit 1
+                                                                          
+echo "initrd:$initrd"
+echo "kernel:$kernel"
+echo "tftproot:$tftproot"
+
+grub-mknetdir -v --net-directory="$tftproot"
+cat > "$tftproot/boot/grub/grub.cfg" <<'EOF'
+menuentry "Gentoo Live" {
+    linux /boot/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
+    initrd /boot/initrd
+}
+EOF
+
+cp "$kernel" "$initrd" "$tftproot/boot"
+</nowiki>}}
+
+
+=== iPXE ===
+
+Here are relevant stanzas for iPXE.
+
+{{CodeBox|title=gentoo-pxe-boot|<nowiki>
+#!ipxe                                                                    
+menu THRONG OF BAZ                                                       
+item --gap LAN
+item gentoo Gentoo x86_64 minimal
+
+:gentoo                                                                   
+set g http://baz.com/ipxe/gentoo                                        
+kernel ${g}/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
+initrd ${g}/initrd                                                        
+boot
+</nowiki>}}
 
 == Diskless install using PXE boot and NFS == <!--T:31-->
 
