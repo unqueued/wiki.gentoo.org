@@ -290,10 +290,39 @@ According to <code>lxc.network.type</code> option in {{Path|lxc.conf}} there are
 
 === Simple network configuration ===
 
-As suggested in [https://github.com/globalcitizen/lxc-gentoo globalcitizen/lxc-gentoo], basic connectivity can be established by setting the IPs of the guest and vlan interfaces and setting the appropriate iptables/nftables masquerade routes. For example:
+As suggested in [https://github.com/globalcitizen/lxc-gentoo globalcitizen/lxc-gentoo], basic connectivity can be established by setting the IPs of the guest and virtual interfaces and establishing the appropriate iptables/nftables masquerade routes. 
 
+For example, this configuration assigns 192.168.10.101 to the container's interface and sets 192.168.10.100 as the gateway. In this case, the host IP address is 192.168.1.100 and the interface enp5s0. 
 
+{{FileBox|filename=~/.config/lxc/guest.conf|1=
+lxc.network.type = veth
+lxc.network.flags = up
+lxc.network.name = eth0
+lxc.network.ipv4 = 192.168.10.101/24
+lxc.network.ipv4.gateway = <b>192.168.10.100</b>
+}}
 
+A virtual interface will appear after starting the container, like:
+
+{{RootCmd
+|ip link|output=<pre>
+6: vethCOB3OK@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether fe:b7:4a:99:aa:3e brd ff:ff:ff:ff:ff:ff link-netnsid 0
+</pre>}}
+
+Setting the virtual interface to the address of the gateway of the container and adding the masquerade routes will give internet access to the guest:
+
+{{RootCmd
+|ip addr add 192.168.10.100/24 dev vethCOB3OK
+|ip addr|output=<pre>
+|6: vethCOB3OK@if5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default qlen 1000
+    link/ether fe:b7:4a:99:aa:3e brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 192.168.10.100/24 scope global vethCOB3OK
+       valid_lft forever preferred_lft forever
+    inet6 fe80::fcb7:4aff:fe99:aa3e/64 scope link 
+       valid_lft forever preferred_lft forever
+</pre>}}
+{{RootCmd|nft add rule nat postrouting oif enp5s0 masquerade}}
 
 === Host configuration for VLANs inside the bridge which are connected to container's virtual Ethernet pair device ===
 
