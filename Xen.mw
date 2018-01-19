@@ -605,6 +605,47 @@ usbdevice = ['host:XXXX:XXXX','host:XXXX:XXXX'] #Replace with the IDs of your mo
 You can find the IDs of your mouse and keyboard by issuing the command:
 {{cmd|lsusb}}
 
+=== Xen domU hanging with kernel 4.3+ ===
+tl;dr:
+
+{{FileBox|filename=/etc/default/grub|title=increase gnttab_max_frames|lang=bash|1=
+GRUB_CMDLINE_XEN="... gnttab_max_frames=256"
+}}
+
+{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg}}
+{{RootCmd|reboot}}
+
+Kernel 4.3 added blk-mq support for xen-blkfront. In some cases (heavy IO/networking/high number of CPU), you may observe domU hangs. Kernel 4.12 added some mitigation, but it still happens from time to time (depends on your workload). In kernels 4.13+ you at least see the following message in the dmesg:
+
+{{RootCmd|dmesg
+<pre>Jan 10 12:15:19 domU kernel: xen:grant_table: xen/grant-table: max_grant_frames reached cur=32 extra=1 limit=32 gnttab_free_count=0 req_entries=24</pre>
+}}
+
+As both xen-netfront and xen-blkfront support multi-queue, they would consume a lot of grant table references when there are many paravirtual devices and vcpus assigned to guest. Guest domU might panic or hang due to grant allocation failure when nr_grant_frames in guest has reached its max value.
+
+You can use the xen-diag tool from Xen 4.10 to see if you're reaching the limit with your domUs.
+
+{{RootCmd|xl list
+<pre>Name                                        ID   Mem VCPUs      State   Time(s)
+Domain-0                                     0  4096    24     r-----     895.4
+domU                                         1  4992    24     r-----    2065.5</pre>
+}}
+
+{{RootCmd|xen-diag gnttab_query_size 1
+<pre>domid=1: nr_frames=13, max_nr_frames=32</pre>
+}}
+
+The default limit for Xen 4.9 is 32, Xen 4.10 increased the limit to 64. You can change it via the xen "gnttab_max_frames" command line options. A novell support page recommended to set it to 256.
+
+You can add the xen-diag tool to Xen 4.9:
+[https://xenbits.xen.org/gitweb/?p=xen.git;a=patch;h=df36d82e3fc91bee2ff1681fd438c815fa324b6a commit1]
+[https://xenbits.xen.org/gitweb/?p=xen.git;a=patch;h=04e0457e1e786a3a33d1854275fd6cd7ba6306f7 commit2]
+
+More information:
+[https://bugs.gentoo.org/643208 Gentoo bug]
+[https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=880554 Debian bug]
+[https://www.novell.com/support/kb/doc.php?id=7018590 Novell workaround]
+
 == See also ==
 
 * {{See also|HyperV}}
