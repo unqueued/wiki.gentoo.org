@@ -203,6 +203,41 @@ Ensure that the necessary service will come up on boot, and start it (to pull in
 |prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
 }}
 
+=== <span id="set_rc_local_openrc">Post-Boot Script</span> ===
+
+At this point, it's useful to setup an {{Path|/etc/local.d/postboot.start}} script, which will be run each time the main boot process has concluded. We will use this to address two minor glitches:
+# The virtual console does not always fully clear the [[:Wikipedia:Framebuffer|frame buffer]] properly (particularly, when taking over from {{c|plymouth}}), meaning that you sometimes get grey lines at the top or bottom of the console screen.
+# Because {{Package|sys-boot/plymouth}} is not as well integrated with {{c|OpenRC}} as {{c|systemd}}, {{c|plymouthd}} can often be left running in the background even when the boot process itself has finished. This can cause display glitches and, in the worst case, make it impossible to login directly at the machine's keyboard.
+
+To create the script, issue:
+{{RootCmd
+|nano -w /etc/local.d/postboot.start
+|prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}
+and place the following text in that file:
+{{FileBox|filename=/etc/local.d/postboot.start|title=A script to run when boot completed|lang=bash|1=
+#!/bin/bash
+# commands in this script will be run once the main boot process is complete
+
+# ensure the framebuffer is properly cleared...
+cat /dev/zero > /dev/fb0 2>/dev/null
+
+# ... and that plymouth really has stopped
+if pgrep "plymouthd" > /dev/null 2>&1; then
+    plymouth quit
+fi
+}}
+{{Note|Under {{c|OpenRC}}, the {{c|local}} service (which is enabled by default) will run any executable {{Path|/etc/local.d/<name>.start}} files at the final phase of system startup, and any executable {{Path|/etc/local.d/<name>.stop}} files at the first phase of system shutdown.}}
+{{Note|The {{c|cat}} of zeros will stop automatically when the end of the framebuffer ({{Path|/dev/fb0}}) is reached; this will be after 1920*1080*4 (rgba) {{=}} 8294400 bytes on the CF-AX3, but of course your system may vary.}}
+
+Save and exit {{c|nano}}. Now make sure the script is executable, and writeable by root only:
+{{RootCmd
+|chmod -v 755 /etc/local.d/postboot.start
+|prompt=koneko <span style{{=}}"color:royalblue;">~ #</span>
+}}
+
+That's it, the script will now be run automatically at the conclusion of each system boot! You can of course add your own commands to the {{Path|/etc/local.d/postboot.start}} script, if you like.
+
 === <span id="set_time_date_openrc">Time and Date</span> ===
 
 Next, check that the date and time are OK (they ''should'' have been carried across successfully from when you set them earlier for [[OpenRC]] ([[../Installing_the_Gentoo_Stage_3_Files#set_date_and_time|here]]), but it is best to check). Issue:
