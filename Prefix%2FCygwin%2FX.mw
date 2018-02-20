@@ -169,6 +169,55 @@ Once everything is stopped, you can use the Windows Explorer or any other file m
 
 {{Important|This is a complete install of the Base/cygwin package. If anything bad happens, you can re-install that package to undo your hand install.}}
 ----
+== Re-Basing DLLs (fix fork() failures) ==
+The dreaded '''fork() failure''' can happen from time to time. There is much potential for windows software to interfere with Cygwin. Please read "[https://cygwin.com/faq/faq.html#faq.using.fixing-fork-failures Fixing fork()failures]" in the Cygwin FAQ for general information.
+
+However, triggering a full rebase by the Cygwin setup program is meaningless for Gentoo, we are somewhere else.
+The solution is simple, we do it ourselves.
+
+=== Find all relevant libraries ===
+There is more to this than just re-basing. There is also the possibility, that a DLL lacks the executable bit. But DLLs must be executable, or it can not be used. Static libraries on the other hand, do not need that bit set.
+
+I have written this little helper script to beat both issues with one bat. Create a list of DLLs to rebase, and fix the executable bit where appropriate. Just adapt the {{C|EPREFIX}} setting to your need.
+
+{{CodeBox|title=~/sys/bin/make_rebase_list.sh|lang=bash|1=#!/bin/bash
+
+EPREFIX=${EPREFIX:-/gentoo}
+
+echo "Searching libraries in $EPREFIX ..."
+
+find $EPREFIX/bin/ -name '*.dll' -o -name '*.so' > /rebase.lst
+find $EPREFIX/lib/ -name '*.dll' -o -name '*.so' >> /rebase.lst
+find $EPREFIX/usr/bin -name '*.dll' -o -name '*.so' >> /rebase.lst
+find $EPREFIX/usr/lib -name '*.dll' -o -name '*.so' >> /rebase.lst
+
+# For halted builds
+if [[ -n $PORTAGE_TMPDIR ]]; then
+        find $PORTAGE_TMPDIR/portage -name '*.dll' -o -name '*.so' >> /rebase.lst
+fi
+
+echo "Enabling executable bit on all DLLs..."
+cat /rebase.lst {{!}} while read x ; do
+        if [[ "x${x: -3}" = "xdll" {{!}}{{!}} 0 -lt $(file -b "$x" {{!}} grep -c "executable") ]]; then
+                chmod 755 "$x"
+        else
+                chmod 644 "$x"
+        fi
+done
+echo "done"}}
+This will re-create {{C|/rebase.lst}}, which lists all possible re-basable libraries.
+----
+=== Do the rebase ===
+The rebase is done in these simple steps:
+
+# Close all Cygwin processes and log out of your Cygwin X session.
+# End all running cygwin services. The Task Manager in Windows 10 has a "Services" tab you can use.
+# Start a Command Prompt (CMD) with administrator privileges.
+# {{Cmd|prompt=C:\WINDOWS\system32>|C:\Cygwin\bin\dash.exe /bin/rebaseall -T /rebase.lst}}
+# If the above command tells you that only dash.exe must be running when rebasing, you have some Cygwin processes left. You can kill them (bash.exe, dbus, etc.) using the Task Manager.
+
+You are done. Start all Cygwin Services, you X Session, open a console and continue with your bootstrapping.
+
 == Bootstrapping the Prefix ==
 Just do the bootstrap like described on the [[Project:Prefix/Bootstrap]] page, unless you do want to start of with some pre-configuration. I prefer the EPREFIX to be "/gentoo", and will refer to it in this way.
 
