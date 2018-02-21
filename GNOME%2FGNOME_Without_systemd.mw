@@ -1,6 +1,6 @@
 [[File:GNOME_without_systemd.png|thumb|400px|GNOME 3.14 session, under OpenRC (not systemd) init]]
 
-Brief instructions for using '''GNOME''' (3.14, 3.16, 3.18, 3.20, 3.22 or 3.24) under '''OpenRC''' (rather than {{c|systemd}}) in Gentoo, via Dantrell B.'s [https://github.com/dantrell/gentoo-project-gnome-without-systemd patchset].
+Brief instructions for using '''GNOME''' (3.14, 3.16, 3.18, 3.20, 3.22 or 3.24) under '''OpenRC''' (rather than {{c|systemd}}) in Gentoo, via Dantrell B.'s [https://github.com/dantrell/gentoo-project-gnome-without-systemd patchset], on either the X11 or Wayland platforms.
 
 == Introduction ==
 
@@ -28,7 +28,8 @@ Having said that:
 It is assumed that:
 * having followed the normal [[Handbook:AMD64#Installing_Gentoo|"Installing Gentoo" process from the official Handbook]], you are currently running a stock {{c|amd64}} Gentoo system which has working internet access etc. (it is also fine to be on {{c|~amd64}})
 * you have at least one 'regular' (non-root) user set up;
-* you have prepared your kernel and {{Path|/etc/portage/make.conf}} file for X-server installation ({{c|VIDEO_CARDS}} and {{c|INPUT_DEVICES}} variables set), as described [[Xorg/Guide#Installation|here]]. You do not have to have actually installed the X-server, however (although since X-related problems are some of the most commonly encountered when installing GNOME, it is recommended that you do);{{Note|A minimal setup for test purposes, which should run on most systems, can be created by [[Handbook:AMD64/Installation/Kernel#Alternative:_Using_genkernel|building the kernel]] using <kbd>genkernel all</kbd>, and setting <code>VIDEO_CARDS{{=}}"vesa"</code> and <code>INPUT_DEVICES{{=}}"evdev synaptics"</code> in {{Path|/etc/portage/make.conf}}; for full functionality and higher screen resolution, you should of course specify the correct video driver and kernel options, per the [[Xorg/Guide#Installation|guide just cited]].<br>NB, the {{c|vesa}} driver will not work if running as a guest in [[VirtualBox]] with [[:Wikipedia:Unified_Extensible_Firmware_Interface{{!}}EFI]] emulation turned on; in this case, you should instead use the {{Package|x11-drivers/xf86-video-virtualbox}} driver, as selected by <code>VIDEO_CARDS{{=}}"virtualbox"</code> in {{Path|/etc/portage/make.conf}}.}}
+* you have prepared your kernel and {{Path|/etc/portage/make.conf}} file for X-server installation ({{c|VIDEO_CARDS}} and {{c|INPUT_DEVICES}} variables set), as described [[Xorg/Guide#Installation|here]]. You do not have to have actually installed the X-server, however (although since X-related problems are some of the most commonly encountered when installing GNOME, it is recommended that you do);{{Note|A minimal setup for test purposes, which should run on most systems, can be created by [[Handbook:AMD64/Installation/Kernel#Alternative:_Using_genkernel|building the kernel]] using <kbd>genkernel all</kbd>, and setting <code>VIDEO_CARDS{{=}}"vesa fbdev"</code> and <code>INPUT_DEVICES{{=}}"libinput"</code> in {{Path|/etc/portage/make.conf}}; for full functionality and higher screen resolution, you should of course specify the correct video driver and kernel options, per the [[Xorg/Guide#Installation|guide just cited]].<br>NB, the {{c|vesa}} driver will not work if running as a guest in [[VirtualBox]] with [[:Wikipedia:Unified_Extensible_Firmware_Interface{{!}}EFI]] emulation turned on; in this case, you should instead use the {{Package|x11-drivers/xf86-video-virtualbox}} driver, as selected by <code>VIDEO_CARDS{{=}}"virtualbox"</code> in {{Path|/etc/portage/make.conf}}.}}
+** if targeting Wayland, you must have an appropriate [[:Wikipedia:Direct_Rendering_Manager|Direct Rendering Manager]] ('DRM') kernel driver for your PC's graphics card installed (see e.g. [[Sakaki's_EFI_Install_Guide/Setting_up_the_GNOME_3_Desktop_under_OpenRC#Enabling_the_Kernel_DRM_Driver_for_your_Graphics_Card|these notes]] for further details);
 * you have a UTF-8 locale selected (as described [[Handbook:AMD64/Installation/Base#Configure_locales|here]]).
 
 == Installation ==
@@ -37,7 +38,11 @@ It is assumed that:
 
 First, if you have the {{c|bindist}} USE flag set in your {{Path|/etc/portage/make.conf}} file, it is recommended to '''unset''' it now, to avoid issues with {{Package|dev-libs/openssl}}, {{Package|net-misc/openssh}} and dependencies later.
 
-Next, ensure everything is up-to-date on your current setup, before proceeding further:
+Second, if you wish to deploy GNOME on [[:Wikipedia:Wayland_(display_server_protocol)|Wayland]] (rather than the default X11), then add {{c|wayland -ck elogind}} to your global USE flags, in {{Path|/etc/portage/make.conf}} (note that you will still be able to log in to an old-school GNOME-on-X11 session at your option, even if you do elect to use Wayland).
+
+{{Note|Performance notwithstanding, probably the strongest ''end-user'' reason to transition to a Wayland-based desktop is {{Highlight|security}}: unlike X11, by default Wayland enforces application isolation at the GUI level. You can read more about X11's vulnerability in this regard (and how to mitigate it, for legacy apps), in the [[Sakaki's_EFI_Install_Guide/Sandboxing_the_Firefox_Browser_with_Firejail#x11_vulnerability{{!}}additional mini-guide]], here.}}
+
+Then, ensure everything is up-to-date on your current setup, before proceeding further:
 
 {{RootCmd
 |emerge --sync
@@ -251,60 +256,58 @@ With your desired profile set, re-emerge {{c|@world}}, to pick up the new USE fl
 }}
 {{Important|Please do not skip this step - the subsequent GNOME {{c|emerge}} will probably fail if you do.}}
 
-The various [https://github.com/dantrell/gentoo-project-gnome-without-systemd#dependencies dependencies] for GNOME without {{c|systemd}} are now installed automatically, either as part of the above @world update under the custom profile (e.g., {{Package|sys-apps/dbus}} and {{Package|sys-auth/consolekit}} (for <= GNOME 3.22) / {{Package|sys-auth/elogind}} (for >= GNOME 3.24)) or during the {{Package|gnome-base/gnome}} emerge to follow shortly (e.g., {{Package|sys-power/pm-utils}} and {{Package|sys-power/acpid}}); nothing further needs to be emerged at this stage. However, we do need to make sure the various services will come up on boot, and start them:
-{{RootCmd
-|rc-update add dbus default
-}}
-Then, if targeting <= GNOME 3.22, issue:
-{{RootCmd
-|rc-update add consolekit default
-|openrc
-}}
-otherwise, if targeting >= GNOME 3.24, issue:
-{{RootCmd
-|rc-update add elogind boot
-|openrc
-}}
+The various [https://github.com/dantrell/gentoo-project-gnome-without-systemd#dependencies dependencies] for GNOME without {{c|systemd}} are now installed automatically, either as part of the above @world update under the custom profile (e.g., {{Package|sys-apps/dbus}} and {{Package|sys-auth/consolekit}} (for <= GNOME 3.22) / {{Package|sys-auth/elogind}} (for >= GNOME 3.24)) or during the {{Package|gnome-base/gnome}} emerge to follow shortly (e.g., {{Package|sys-power/pm-utils}} and {{Package|sys-power/acpid}}); nothing further needs to be emerged at this stage.
 
 === Preparing USE Flags Prior to GNOME Emerge ===
 
 If there are any additional applications you would like installed as part of the GNOME emerge, set their USE flags now, [https://github.com/dantrell/gentoo-project-gnome-without-systemd#configuration-optional as follows]:
 
 {| class="table table-striped"
-|<code>bijiben</code> || Install the app-misc/bijiben note editor
 |-
-|<code>boxes</code> || Install the gnome-extra/gnome-boxes remote and virtual system manager
+! USE flag
+! Default
+! Description
 |-
-|<code>builder</code> || Install the gnome-extra/gnome-builder IDE (only in GNOME 3.16 or greater)
+|<code>bijiben</code> || {{Yes}} || Install the app-misc/bijiben note editor
 |-
-|<code>california</code> || Install the gnome-extra/california calendar
+|<code>boxes</code> || || Install the gnome-extra/gnome-boxes remote and virtual system manager
 |-
-|<code>epiphany</code> || Install the www-client/epiphany web browser
+|<code>builder</code> || || Install the gnome-extra/gnome-builder IDE (only in GNOME 3.16 or greater)
 |-
-|<code>evolution</code> || Install the mail-client/evolution mail client
+|<code>california</code> || || Install the gnome-extra/california calendar
 |-
-|<code>flashback</code> || Install the gnome-base/gnome-flashback (aka fallback mode)
+|<code>empathy</code> || || Install the net-im/empathy chat client
 |-
-|<code>fonts</code> || Install media-fonts/{noto,symbola,unifont}
+|<code>epiphany</code> || || Install the www-client/epiphany web browser
 |-
-|<code>games</code> || Install Gnome Games
+|<code>evolution</code> || {{Yes}} || Install the mail-client/evolution mail client
 |-
-|<code>geary</code> || Install the mail-client/geary mail client
+|<code>flashback</code> || || Install the gnome-base/gnome-flashback (aka fallback mode; work-in-progress)
 |-
-|<code>gnote</code> || Install the app-misc/gnote note editor
+|<code>fonts</code> || {{Yes}} || Install media-fonts/{noto,symbola,unifont}
 |-
-|<code>latexila</code> || Install the app-editors/latexila integrated LaTeX environment
+|<code>games</code> || {{Yes}} || Install Gnome Games
 |-
-|<code>share</code> || Install the gnome-extra/gnome-user-share personal file sharing tool
+|<code>geary</code> || || Install the mail-client/geary mail client
 |-
-|<code>shotwell</code> || Install the media-gfx/shotwell photo manager
+|<code>gnote</code> || || Install the app-misc/gnote note editor
 |-
-|<code>todo</code> || Install the gnome-extra/gnome-builder task manager (only in GNOME 3.18 or greater)
+|<code>latexila</code> || || Install the app-editors/latexila integrated LaTeX environment
 |-
-|<code>tracker</code> || Install the app-misc/tracker indexer and the GNOME packages that require it
+|<code>recipes</code> || {{Yes}} || Install the gnome-extra/gnome-recipes live cookbook (only in GNOME 3.22 or greater)
+|-
+|<code>share</code> || {{Yes}} || Install the gnome-extra/gnome-user-share personal file sharing tool
+|-
+|<code>shotwell</code> || {{Yes}} || Install the media-gfx/shotwell photo manager
+|-
+|<code>simple-scan</code> || || Install the media-gfx/simple-scan document scanning utility
+|-
+|<code>todo</code> || {{Yes}} || Install the gnome-extra/gnome-builder task manager (only in GNOME 3.18 or greater)
+|-
+|<code>tracker</code> || {{Yes}} || Install the app-misc/tracker indexer and the GNOME packages that require it
 |}
 
-For example, to add the [[epiphany]] browser to the set of installed applications, do:
+For example, to add the [[epiphany]] browser to the default set of installed applications, do:
 {{RootCmd
 |mkdir -pv /etc/portage/package.use
 |echo "gnome-base/gnome-extra-apps epiphany" >> /etc/portage/package.use/gnome-extra-apps
@@ -342,16 +345,26 @@ Once GNOME is emerged, you need to change the {{c|DISPLAYMANGER}} value in the {
 DISPLAYMANAGER{{=}}"gdm"
 }}
 
-Then set {{c|acpid}}, {{c|xdm}}, {{c|[[NetworkManager]]}} and {{c|openrc-settingsd}} to come up on boot, and disable {{c|[[dhcpcd]]}} if you are using it:
+Then set {{c|dbus}}, {{c|xdm}}, {{c|[[NetworkManager]]}} and {{c|openrc-settingsd}} to come up on boot, and disable {{c|[[dhcpcd]]}} if you are using it:
 {{RootCmd
-|rc-update add acpid default
+|rc-update add dbus default
 |rc-update add xdm default
-|rc-update add openrc-settingsd default
 |rc-update add NetworkManager default
 |rc-update del dhcpcd default
 }}
 
-Check if your machine has a plugdev group, and, if it does, add any regular users to it:
+If targeting X11 (rather than Wayland) ''and'' using < GNOME 3.24, issue:
+{{RootCmd
+|rc-update add acpid default
+|rc-update add consolekit default
+}}
+
+Otherwise, if you ''are'' targeting Wayland, ''or'' using >= GNOME 3.24 issue:
+{{RootCmd
+|rc-update add elogind boot
+}}
+
+Next, check if your machine has a plugdev group, and, if it does, add any regular users to it:
 {{RootCmd
 |getent group plugdev && gpasswd -a <yourusername> plugdev
 }}
@@ -365,7 +378,14 @@ Start up GNOME!
 |openrc
 }}
 
-You should now have a GNOME login screen visible (and this will also come up automatically on boot). On some machines, you may need to move the mouse or press a key, for the login screen to appear. 
+You should now have a GNOME login screen visible (and this will also come up automatically on boot). On some machines, you may need to move the mouse or press a key, for the login screen to appear.
+
+{{Tip|<span id{{=}}"legacy_session">Even if you have installed over Wayland</span>, you can still elect to use GNOME over X11 for a given session if you want (this may be useful if you need to use applications that do not yet work correctly under Wayland). To do so, simply click on the "cogwheel" icon when logging in, and select {{Key|GNOME on Xorg}} from the drop-down menu. To log into a Wayland session instead, use the {{Key|GNOME}} "cogwheel" menu item &mdash; the setting is persistent between logins. Incidentally, you can double-check which graphical platform (X11 or Wayland) is in use when logged in, by issuing (in a graphical terminal):{{Cmd
+|echo "${XDG_SESSION_TYPE}"
+|prompt=sakaki@koneko <span style{{=}}"color:royalblue;">~ $</span>
+}}}}
+
+{{Note|When using a Wayland GNOME session, unported applications (such as {{Package|www-client/firefox}}, at the time of writing) will be hosted in a shared, rootless X11 server (the so-called "[https://wayland.freedesktop.org/xserver.html XWayland]" approach). This generally works well, but may not be sufficient for all legacy apps (such as some games and virtualisation environments). For such cases, remember that you [[#legacy_session{{!}}always have the ability]] to login to a 'old-school' GNOME-on-X11 session, should your workflow require.}}
 
 Have fun!
 
