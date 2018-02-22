@@ -526,3 +526,92 @@ However, if you, like me, can not turn off the offending software, here is what 
 ## {{Cmd|SHELL{{=}}/gentoo/bin/bash PATH{{=}}/gentoo/bin:/gentoo/usr/bin:$PATH bootstrap-prefix.sh /gentoo startscript}}
 
 Congratulations, your bootstrap is finished!
+----
+== After the bootstrap ==
+Once your bootstrapping is finished, it is time to update your configuration a bit and install some extra tools. The first tool I always start with, is {{C|app-portage/eix}} ; it makes life so much easier...
+----
+=== Update make.conf ===
+Apart from what you might want to add, here are some information about what I add to it.
+
+# USE flags
+#: I tend to always set almost all flags I want at once. The only flag I do not add is {{C|X}}, as it would pull in a myriad of packages. Too much right now.
+#: So basically I substitute my basic USE flag settings with:{{CodeBox|<nowiki>#===============================
+# === USE flags (Additions) ===
+#===============================
+USE="dbus expat fam git gnome-keyring icu jpeg kerberos nls opengl \
+phonon pulseaudio qt5 sqlite unicode widgets xkb xml"
+
+# === USE flags (Removals)  ===
+#===============================
+USE="${USE} -alsa -caps -consolekit -cryptsetup -egl -eglfs -gles2 \
+-gstreamer -handbook -kwallet -libinput -lvmintrospection -policykit \
+-polkit -qt4 -smartcard -static-libs -udisks -upower -vlc"
+#===============================</nowiki>}}
+# Hardware, provided by cygwin
+#: If you ask what video card cygwin uses, it is:{{CodeBox|<nowiki># === Hardware (provided by cygwin) ===
+VIDEO_CARDS="dummy"</nowiki>}}
+# Python targets
+#: Python 3.x is too much pain to upgrade to, so I explicitly limit it to 2.7:{{CodeBox|<nowiki># === Explicitly limit Python to 2.7 ===
+PYTHON_SINGLE_TARGET="python2_7"
+PYTHON_TARGETS="python2_7"</nowiki>}}
+----
+=== Generate your repos.conf ===
+At least if you must use webrsync, because your companies firewall blocks rsync, you have to create your own repos.conf:{{CodeBox|<nowiki> /gentoo/etc/portage $ mkdir repos.conf
+ /gentoo/etc/portage $ cat >> repos.conf/gentoo.conf <<_EOF
+> [DEFAULT]
+> auto-sync = yes
+> main-repo = gentoo_prefix
+> strict-misc-digests = true
+>
+> [gentoo_prefix]
+> auto-sync = yes
+> location = /gentoo/usr/portage
+> masters =
+> priority = -1000
+> strict-misc-digests = true
+> sync-type = webrsync
+> sync-rsync-extra-opts =
+>
+> [local_overlay]
+> auto-sync = no
+> location = /overlay
+> masters = gentoo_prefix
+> priority = 0
+> strict-misc-digests = true
+> _EOF</nowiki>}}
+----
+=== Install app-portage/eix ===
+As I said, eix makes your life much easier. But we need to prepare some things first.
+
+As you might remember, we installed icu-devel right in the beginning. To use it, add an entry to {{C|/gentoo/etc/portage/profile/package.provided}} like this:{{CodeBox|<nowiki> ~ $ mkdir -p /gentoo/etc/portage/profile
+ ~ $ echo "dev-libs/icu-60.2-r1" >> /gentoo/etc/portage/profile/package.provided</nowiki>}}
+
+For eix to be installable, you have to accept some keywords for it:{{CodeBox|<nowiki> ~ $ cd /gentoo/etc/portage/
+ /gentoo/etc/portage $ mkdir package.accept_keywords
+ /gentoo/etc/portage $ ln -s package.accept_keywords package.keywords
+ /gentoo/etc/portage $ cat >> package.accept_keywords/for_eix <<_EOF
+> =app-crypt/libsecret-0.18.5 **
+> =sys-apps/opentmpfiles-0.1.3-r1 **
+> =virtual/tmpfiles-0 **
+> =dev-libs/libpcre2-10.31 **
+> _EOF</nowiki>}}
+Now you should be ably to simply {{C|emerge eix}}, followed by a {{C|eix-update}} to build your first database.
+----
+=== Add eix-update to postsync.d ===
+Unfortunately it is not a good idea to use {{C|eix-update}} in a cygwin prefix. It just doesn't work as expected, so we simply call {{C|eix-update}} and {{C|eix-diff}} after every {{C|emerge --sync}}:{{CodeBox|<nowiki> /gentoo/etc/portage $ mkdir -p postsync.d
+ /gentoo/etc/portage $ cat >> postsync.d/20_eix <<_EOF
+> #!/bin/sh
+>
+> if [[ -e /gentoo/var/cache/eix/portage.eix ]]; then
+>     cp -a /gentoo/var/cache/eix/portage.eix /gentoo/var/cache/eix/previous.eix;
+> fi
+>
+> eix-update
+>
+> if [[ -e /gentoo/var/cache/eix/previous.eix ]]; then
+>     eix-diff;
+> fi
+> _EOF
+ /gentoo/etc/portage $ chmod a+x postsync.d/20_eix</nowiki>}}
+Now, whenever you have synced, and you should do this now, eix will update itself.
+----
