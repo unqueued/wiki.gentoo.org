@@ -580,7 +580,6 @@ priority = 0
 strict-misc-digests = true
 _EOF</nowiki>}}
 ----
-
 === Install app-portage/eix ===
 As I said, eix makes your life much easier. But we need to prepare some things first.
 
@@ -597,8 +596,9 @@ For eix to be installable, you have to accept some keywords for it:{{CodeBox|<no
 =dev-libs/libpcre2-10.31 **
 _EOF</nowiki>}}
 Now you should be ably to simply {{C|emerge eix}}, followed by a {{C|eix-update}} to build your first database.
-----
 
+If you stumbled over {{C|sys-apps/opentmpfiles}}, don't worry. It just installs three shell scripts. Two are in /Gentoo/etc/init.d and ignored (not usable anyway) in a prefix. The third is {{C|/gentoo/usr/bin/tmpfiles}} and eix uses it to safely create {{C|/gentoo/var/cache/eix}}.
+----
 === Add eix-update to postsync.d ===
 Unfortunately it is not a good idea to use {{C|eix-update}} in a cygwin prefix. It just doesn't work as expected, so we simply call {{C|eix-update}} and {{C|eix-diff}} after every {{C|emerge --sync}}:{{CodeBox|<nowiki> /gentoo/etc/portage $ mkdir -p postsync.d
  /gentoo/etc/portage $ cat >> postsync.d/20_eix <<_EOF
@@ -615,5 +615,98 @@ if [[ -e /gentoo/var/cache/eix/previous.eix ]]; then
 fi
 _EOF
  /gentoo/etc/portage $ chmod a+x postsync.d/20_eix</nowiki>}}
-Now, whenever you have synced, and you should do this now, eix will update itself.
+Now, whenever you have synced, but you should '''not''' do this yet, eix will update itself.
+----
+=== Fix eclasses after each sync ===
+You may find this curious, but this page is about getting your Gentoo prefix to let you emerge Qt apps.
+
+* To use Qt, you need cmake. And unfortunately the cmake.eclass is [https://bugs.gentoo.org/644926 broken for Cygwin].
+* To actually build Qt, you need an [https://bugs.gentoo.org/644748 awful lot of patches and a fix to the qt5-build.eclass] as well.
+* And if you plan to build any KDE apps, a [https://bugs.gentoo.org/648594 fix to kde5-functions.eclass] is also needed.
+
+Luckily I will show you a way how this happens automatically after each {{C|emerge --sync}}, so you do not have to do this by hand each time.
+
+{{Important|I am planning to turn the relevant parts of my prefix adaptation into a github repository, which you then can simply clone and be prepared. But this has to wait a bit. This area will then change heavily.}}
+----
+==== Prepare the postsync.d script ====
+After each {{C|emerge --sync}} is completed, the scripts in the {{C|postsync.d}} folder are executed. We already use this for eix, let's use this for our eclass fixes as well.
+
+{{CodeBox|title=replace /gentoo with your actual prefix|<nowiki> /gentoo/etc/portage $ cat >> postsync.d/99_fix_eclasses. <<_EOF
+#!/bin/sh
+
+pushd /gentoo 1>/dev/null 2>&1
+
+echo "Applying portage fixes ..."
+for p in $(ls fix*.patch) ; do
+        echo -n " => $p"
+        patch -s -f -p 1 -i $p -r -
+        echo " done ($?)"
+done
+
+popd 1>/dev/null 2>&1
+_EOF
+ /gentoo/etc/portage $ chmod a+x postsync.d/99_fix_eclasses</nowiki>}}
+----
+==== Fix cmake-utils.eclass for Cygwin ====
+CMake on Cygwin prefix does not understand CMAKE_PLATFORM_REQUIRED_RUNTIME_PATH, so it does not add the supplied paths as intended, but simply dumps them to the command line, which leads to the configure stage to fail.
+
+The following patch fixes that: 
+[https://644926.bugs.gentoo.org/attachment.cgi?id=515224 fix_cmake-utils.eclass_for_cygwin.patch]
+Just place the file into your prefix path.
+----
+==== Fix qt5-build.eclass for Cygwin ====
+For Qt5 there is more to do, because we have two problems:
+
+# The qt5-build.eclass imposes strict but sane defaults, and makes the Qt5 build system to heed the *FLAGS we set in our make.conf.
+# The Qt5 build systems Cygwin support is utterly broken and must be patched.
+
+Unfortunately the latter is futile, thanks to the first. This is because all the settings needed for Cygwin are ignored, thanks to the qt5-build.eclass.
+
+So first, place [https://644748.bugs.gentoo.org/attachment.cgi?id=516538 fix_qt5-build.eclass_for_cygwin.patch] into your prefix directory.
+
+Second, we have to place the patches:{{CodeBox|<nowiki> ~ $ cd /gentoo/etc/portage
+ /gentoo/etc/portage $ wget https://644748.bugs.gentoo.org/attachment.cgi?id=515302 \
+    -O qt-5.9.3-fix_build_system_on_cygwin_general.patch
+--2018-02-23 10:19:44--  https://644748.bugs.gentoo.org/attachment.cgi?id=515302
+Connecting to 172.16.8.250:3128... connected.
+Proxy request sent, awaiting response... 200 OK
+Length: 9639 (9,4K) [text/plain]
+Saving to: ‘qt-5.9.3-fix_build_system_on_cygwin_general.patch’
+
+qt-5.9.3-fix_build_system_on_cygwin_g 100%[========================================================================>]   9,41K  --.-KB/s    in 0,001s
+
+2018-02-23 10:19:46 (12,8 MB/s) - ‘qt-5.9.3-fix_build_system_on_cygwin_general.patch’ saved [9639/9639]
+
+ /gentoo/etc/portage $ for x in qt3d qtbluetooth qtcharts qtconcurrent qtcore qtdatavis3d qtdbus qtdiag \ 
+    qtgraphicaleffects qtgui qthelp qtimageformats qtlocation qtmultimedia qtnetwork qtnetworkauth qtopengl \
+    qtpaths qtplugininfo qtpositioning qtprintsupport qtquickcontrols qtquickcontrols2 qtscxml qtsensors \
+    qtserialbus qtserialport qtspeech qtsql qttest qttranslations qtvirtualkeyboard qtwayland qtwebchannel \
+    qtwebengine qtwebsockets qtwebview qtwidgets qtxml ; do \
+    mkdir -p patches/dev-qt/$x ; \
+    cp qt-5.9.3-fix_build_system_on_cygwin_general.patch patches/dev-qt/$x/ ; \
+done</nowiki>}}
+
+And finally, a few Qt5 packages need some extra patching:{{CodeBox|<nowiki> /gentoo/etc/portage $ mkdir -p patches/dev-qt/qtchooser
+ /gentoo/etc/portage $ wget https://644748.bugs.gentoo.org/attachment.cgi?id=516036 \
+    -O patches/dev-qt/qtchooser/qtchooser-0_p20170803-fix_build_on_cygwin_prefix.patch
+ /gentoo/etc/portage $ wget https://644748.bugs.gentoo.org/attachment.cgi?id=515304 \
+    -O patches/dev-qt/qtcore/qtcore-5.9.3-fix_build_on_cygwin_prefix.patch
+ /gentoo/etc/portage $ wget https://644748.bugs.gentoo.org/attachment.cgi?id=516040 \
+    -O patches/dev-qt/qtgui/qtgui-5.9.3-fix_build_on_cygwin_prefix.patch
+ /gentoo/etc/portage $ wget https://644748.bugs.gentoo.org/attachment.cgi?id=520668 \
+    -O patches/dev-qt/qtgui/qtgui-5.9.3-fix_shm_not_supported.patch
+ /gentoo/etc/portage $ wget https://644748.bugs.gentoo.org/attachment.cgi?id=516042 \
+    -O patches/dev-qt/qtnetwork/qtnetwork-5.9.3-fix_build_on_cygwin_prefix.patch</nowiki>}}
+----
+==== Fix kde5-functions.eclass for Cygwin ====
+In some cases a build can break, because there is a tiny little oversight in kde5-functions.eclass.
+Just place [https://648594.bugs.gentoo.org/attachment.cgi?id=520670 fix_kde5-functions.eclass_for_cygwin.patch] in your prefix directory and the problem is fixed with each sync.
+----
+=== Sync your tree ===
+Yes. Now is the time to sync your tree. And after you did an {{C|emerge --sync}}, you should have seen eix updating, and the process finishing with:{{CodeBox|<nowiki>Applying portage fixes ...
+ => fix_cmake-utils.eclass_for_cygwin.patch done (0)
+ => fix_kde5-functions.eclass_for_cygwin.patch done (0)
+ => fix_qt5-build.eclass_for_cygwin.patch done (0)
+
+Action: sync for repo: gentoo_prefix, returned code = 0</nowiki>}}
 ----
