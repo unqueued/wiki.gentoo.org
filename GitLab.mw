@@ -26,55 +26,63 @@ The overlay is added to layman using the command:
 One must then add the following keywords to be accepted by portage
 
 {{RootCmd|nano /etc/portage/package.accept_keywords.|output=<pre>
-=dev-vcs/gitlab-shell-M.m.i ~ARCH
-=www-apps/gitlabhq-M.m.i ~ARCH
-=dev-vcs/gitlab-gitaly-M.m.i ~ARCH
-=www-servers/gitlab-workhorse-M.m.i ~ARCH
 =app-eselect/eselect-gitlabhq-M.m.i ~ARCH
-=net-libs/http-parser-M.m.i ~ARCH
-=sys-apps/yarn-M.m.i ~ARCH
 =dev-libs/libuv-M.m.i ~ARCH
-=net-libs/nodejs-M.m.i ~ARCH
+=dev-ruby/bundler-M.m.i ~ARCH
+=dev-ruby/rake-M.m.i ~ARCH
+=dev-ruby/redis-M.m.i ~ARCH
+=dev-vcs/gitlab-gitaly-M.m.i ~ARCH
 =dev-vcs/gitlab-shell-M.m.i ~ARCH
+=net-libs/http-parser-M.m.i ~ARCH
+=net-libs/nodejs-M.m.i ~ARCH
+=sys-apps/yarn-M.m.i ~ARCH
+=www-apps/gitlabhq-M.m.i ~ARCH
+=www-servers/gitlab-workhorse-M.m.i ~ARCH
 </pre>}}
 
-where ARCH is the architecture and M.m.i are the Major, minor and intermittent/incremental version numbers.
+Where ARCH is the architecture and M.m.i are the Major, minor and intermittent/incremental version numbers.
 
-Setup a git user with a home directory, then export it into an environmental variable.
+Setup a git user with a home directory, then export it into an environmental variable. The git user will also need to be part of the 'redis' group. This is important later on as the configuration script needs access to /var/run/redis/redis.sock.
 
 {{RootCmd
-|useradd -m git
+|useradd -m git -g git -G redis
 |export GIT_HOME{{=}}/home/git
 }}
 
-Next emerge and configure the package using the following commands and adhering to the instructions in the emerge output.
+Next emerge the package. You will also need the newest version of bundler, redis and rake for redis to work correctly.
 
 {{RootCmd
 |emerge -av gitlabhq
-|emerge --config gitlabhq
+|emerge -auv bundler rake dev-ruby/redis
 }}
 
 {{Note|The unicorn.rb file is not mentioned in these instructions but it too resides in /etc/gitlabhq-M.m/ and must be created and modified from it's corresponding .example file.}}
 
+For some reason, the gitlabhq package doesn't user bundler to install sidekiq and unicorn-rails. You can install them through using gem. Sidekiq is needed for redis to work correctly, unicorn-rails is needed for gitlabhq.
+
+{{RootCmd
+|gem install sidekiq unicorn-rails
+}}
+
 Next, create all required configuration files from example configs (if they don't exist):
 
 {{RootCmd
-|cp /etc/gitlabhq-8.9/config/database.yml.mysql /etc/gitlabhq-8.9/database.yml
-|cp /etc/gitlabhq-8.9/config/gitlab.yml.example /etc/gitlabhq-8.9/gitlab.yml
-|cp /etc/gitlabhq-8.9/config/resque.yml.example /etc/gitlabhq-8.9/resque.yml
-|cp /etc/gitlabhq-8.9/config/unicorn.yml.example /etc/gitlabhq-8.9/unicorn.yml
+|cp /etc/gitlabhq-10.5/config/database.yml.mysql /etc/gitlabhq-10.5/database.yml
+|cp /etc/gitlabhq-10.5/config/gitlab.yml.example /etc/gitlabhq-10.5/gitlab.yml
+|cp /etc/gitlabhq-10.5/config/resque.yml.example /etc/gitlabhq-10.5/resque.yml
+|cp /etc/gitlabhq-10.5/config/unicorn.yml.example /etc/gitlabhq-10.5/unicorn.yml
 |cp /var/lib/gitlab-shell/config.yml.example /var/lib/gitlab-shell/config.yml
 }}
 
 If intending to use PostgreSQL:
 
 {{RootCmd
-|cp /etc/gitlabhq-8.9/config/database.yml.postgresql /etc/gitlabhq-8.9/database.yml
+|cp /etc/gitlabhq-10.5/config/database.yml.postgresql /etc/gitlabhq-10.5/database.yml
 }}
 
 It may be desirable to create a sidekiq config:
 
-{{FileBox|filename=/etc/gitlabhq-8.9/sidekiq.yml|lang=yaml|1=
+{{FileBox|filename=/etc/gitlabhq-10.5/sidekiq.yml|lang=yaml|1=
 # Sample configuration file for Sidekiq.
 # Options here can still be overridden by cmd line args.
 # Place this file at config/sidekiq.yml and Sidekiq will
@@ -106,8 +114,8 @@ staging:
 Default owners are incorrect.
 
 {{RootCmd
-|chown -R git:git /opt/gitlabhq-8.9
-|chown -R git:git /etc/gitlabhq-8.9
+|chown -R git:git /opt/gitlabhq-10.5
+|chown -R git:git /etc/gitlabhq-10.5
 |chown -R git:git /var/lib/gitlab-shell
 }}
 
@@ -131,9 +139,37 @@ auth_file: "/home/git/.ssh/authorized_keys"
 ...
 }}
 
-Then restart service:
+Now you need to configure redis to have a UNIX socket.
 
-{{RootCmd|/etc/init.d/gitlabhq-8.9 restart}}
+{{FileBox|filename=/etc/redis.conf
+|1=
+...
+unixsocket /var/run/redis/redis.sock
+unixsocketperm 770
+...
+}}
+
+Restart redis.
+
+{{RootCmd
+|/etc/init.d/redis restart
+}}
+
+Assuming you're using Postgresql and have it configured, the gitlabhq configuration script expects a ROLE with the username of git, a password of 'gitlab', LOGIN, CREATEDB and SUPERUSER privileges.
+
+{{RootCmd
+|psql -u postgres -c "CREATE ROLE git PASSWORD 'gitlab' LOGIN CREATEDB SUPERUSER;"
+}}
+
+Finally you can run the configuration script.
+
+{{RootCmd
+|emerge --config gitlabhq
+}}
+
+Now you can start the gitlabhq service:
+
+{{RootCmd|/etc/init.d/gitlabhq-10.5 start}}
 
 '''Otherwise for a more Gentoo-ish approach to installation read on.'''
 
