@@ -13,6 +13,7 @@ Decide which web server will be to used and set it up:
 
 * [[Apache]] with PHP
 * [[Lighttpd]] with [[PHP]]
+* [[Nginx]] with [[PHP]] and [[fcgiwrap]]
 
 Once finished return here to and continue reading.
 
@@ -79,6 +80,62 @@ $HTTP["url"] =~ "nagios" {
 Restart the Lighttpd service:
 
 {{RootCmd|rc-service lighttpd restart}}
+
+
+=== Nginx ===
+
+See the [[Nginx]] guide before continuing if you don't have it already setup.
+
+Emerge {{Package|www-servers/spawn-fcgi}} and {{Package|www-misc/fcgiwrap}}:
+
+{{Emerge|www-servers/spawn-fcgi www-misc/fcgiwrap}}
+
+Next, create an init script for a spawn-fcgi instance dedicated to nagios:
+{{RootCmd
+|ln -s /etc/init.d/spawn-fcgi /etc/init.d/spawn-fcgi.nagios
+|cp /etc/conf.d/spawn-fcgi /etc/conf.d/spawn-fcgi.nagios
+}}
+
+Then, configure our spawn-fcgi instance to launch fcgiwrap and listen on a unix socket:
+{{FileBox|filename=/etc/conf.d/spawn-fcgi.nagios|1=
+# edit these variables:
+FCGI_SOCKET=/run/fcgiwrap.nagios.socket
+FCGI_USER=nginx
+FCGI_GROUP=nginx
+FCGI_PORT= # must be empty for the socket to work
+FCGI_PROGRAM=/usr/sbin/fcgiwrap
+}}
+
+Don't forget to add the spawn-fcgi.nagios default runlevel and start it:
+{{RootCmd
+|rc-update add spawn-fcgi.nagios default
+|rc-service spawn-fcgi.nagios start
+}}
+
+
+Nginx can now be configured to serve our nagios instance. Here's an example configuration for nginx, assuming you have defined a php upstream:
+{{FileBox|filename=/etc/nginx/nginx.conf|1=
+location /nagios {
+        alias /usr/share/nagios/htdocs;
+
+        location ~ \.php$ {
+                # Filter out arbitrary code execution
+                location ~ \..*/.*\.php$ {return 404;}
+                fastcgi_pass php;
+                include fastcgi.conf;
+        }
+
+        location /nagios/cgi-bin/ {
+                root /usr/lib/;
+                include /etc/nginx/fastcgi_params;
+                fastcgi_param  AUTH_USER nagiosadmin;
+                fastcgi_param  REMOTE_USER nagiosadmin;
+                if ($uri ~ "\.cgi$"){
+                        fastcgi_pass unix:/run/fcgiwrap.nagios.socket-1;
+                }
+        }
+}
+}}
 
 === Permissions ===
 
