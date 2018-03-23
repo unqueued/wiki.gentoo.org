@@ -1,19 +1,23 @@
-This article [[Article description::provides instructions on encrypting a /home partition using the ext4 filesystem built-in encryption.]]
+This article [[Article description::provides instructions on encrypting a home partition using the ext4 filesystem built-in encryption.]]
 
-== Quick overview ==
+== Overview ==
 
-Ext4 supports file based encryption, which is superior over classic whole drive encryption (in terms of performance and also - you don't need encrypt things like opensource published projects).
+Ext4 supports file based encryption, which is superior over classic whole drive encryption (in terms of performance and also - you do not need encrypt things like opensource published projects).
 
 == Basics ==
+
 https://wiki.archlinux.org/index.php/ext4#Using_file-based_encryption you can find them here.
 
-== Hard part -> decrypt before login ==
+== Decryption before login ==
+
 Since ext4 uses kernel keyring, which is divided into '''session''' keyring (everytime you login into console / X / wayland) and '''user''' keyring (persist for user, but only as user keep logged in).
 
-=== Systemd part ===
+=== Systemd ===
+
 So you'll need to run systemd unit before login screens (imposible with systemd). So, I just cut tty6 for password prompt.
 
-No need to use all 6 VT's.. So you need modify logind.conf and reduce number of reserved VTs. 
+No need to use all 6 VT's.. So you need modify logind.conf and reduce number of reserved VTs.
+
 {{FileBox|filename=/etc/systemd/logind.conf|lang=systemd|1=
 ...
 [Login]
@@ -24,7 +28,8 @@ ReserveVT=1
 
 Create systemd service 
 
-{{FileBox|filename=/etc/systemd/system/decrypt.service |lang=systemd|1=[Unit]
+{{FileBox|filename=/etc/systemd/system/decrypt.service|lang=systemd
+|1=[Unit]
 Description=Decrypt
 Wants=multi-user.target
 
@@ -44,24 +49,28 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 }}
 
-and script - wait for displaymanager loads itself, then switch to VT 6, ask password and save it to @s (session), set permissions to allow link it to @u (user keyring) and change back to VT 7 (display manager). Sleep infinity, because at moment, when this script ends, user keyring is wiped and it has no point.
+and script - wait for display manager loads itself, then switch to VT 6, ask password and save it to @s (session), set permissions to allow link it to @u (user keyring) and change back to VT 7 (display manager). Sleep infinity, because at moment, when this script ends, user keyring is wiped and it has no point.
 
-Into script you have to fill number, which you'll get after you run
-<code>/usr/sbin/e4crypt add_key</code> under normal circumstances and then run <code>keyctl list @s</code>.
+Into script you have to fill number, which you'll get after you run {{c|/usr/sbin/e4crypt add_key}} under normal circumstances and then run {{c|keyctl list @s}}.
 
-{{FileBox|filename=/usr/local/sbin/decrypt.sh|lang=bash|1=#!/bin/bash
+{{FileBox|filename=/usr/local/sbin/decrypt.sh|lang=bash|1=
+#!/bin/bash
 sleep 10
 chvt 6
-systemd-ask-password | /usr/sbin/e4crypt add_key -k @s
+systemd-ask-password {{!}} /usr/sbin/e4crypt add_key -k @s
 keyctl setperm `keyctl search @s logon ext4:_THIS_NUMBER_YOU_GET_FROM_keyctl list @u_` 0x3d3d0000
 keyctl link `keyctl search @s logon ext4:_THIS_NUMBER_YOU_GET_FROM_keyctl list @u_` @u
 sleep 1
 chvt 7
-sleep infinity}} 
+sleep infinity
+}}
 
-Last think, you need link from @u (user keyring) to @s (session keyring), because otherwise ext4 is not able to detect key (no idea why).
+Last thing, you need link from @u (user keyring) to @s (session keyring), because otherwise ext4 is not able to detect key (no idea why).
 
 So in my case
-{{FileBox|filename=/etc/gdm/Xsession |1=... somewhere in beggining of file...
+
+{{FileBox|filename=/etc/gdm/Xsession|1=
+... somewhere in beggining of file...
 keyctl link @u @s
-... rest of it ....}}
+... rest of it ....
+}}
