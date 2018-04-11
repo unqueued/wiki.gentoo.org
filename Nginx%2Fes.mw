@@ -1,0 +1,412 @@
+<languages />
+
+{{Metadata|abstract=nginx is a robust, small, high performance web server and reverse proxy server. It is a good alternative to popular web servers like Apache and lighttpd.}}
+
+{{Lowercase title}}
+{{InfoBox stack
+|{{InfoBox homepage|https://nginx.org/en/|header=true}}
+|{{InfoBox wikipedia}}
+|{{InfoBox odoc|https://nginx.org/en/docs/}}
+}}
+
+'''nginx''' is a robust, small, high performance [[:Category:Web Servers|web server]] and reverse proxy server. It is a good alternative to popular web servers like [[Apache]] and [[lighttpd]].
+
+== Installation ==
+
+Before immediately installing the {{Package|www-servers/nginx}} package, first take a good look at the USE flags for Nginx.
+
+=== Expanded USE flags ===
+
+Nginx uses modules to enhance its features. To simplify the maintenance of this modular approach, the nginx ebuild uses expanded USE (<var>[[USE_EXPAND]]</var>) flags to denote which modules should be installed.
+
+* HTTP related modules can be enabled through the <var>NGINX_MODULES_HTTP</var> variable
+* Mail related modules can be enabled through the <var>NGINX_MODULES_MAIL</var> variable
+* Third party modules can be enabled through the <var>NGINX_ADD_MODULES</var> variable
+
+These variables need to be set in {{Path|/etc/portage/make.conf}}. Their descriptions can be found in {{Path|[https://gitweb.gentoo.org/repo/gentoo.git/plain/profiles/desc/nginx_modules_http.desc /usr/portage/profiles/desc/nginx_modules_http.desc]}} and {{Path|[https://gitweb.gentoo.org/repo/gentoo.git/plain/profiles/desc/nginx_modules_mail.desc /usr/portage/profiles/desc/nginx_modules_mail.desc]}}.
+
+For example, to enable the <code>fastcgi</code> module:
+
+{{FileBox|filename=/etc/portage/make.conf|lang=bash|1=
+NGINX_MODULES_HTTP="fastcgi"
+}}
+
+The above will overwrite the default value of <var>NGINX_MODULES_HTTP</var> and set it to <code>fastcgi</code>. To enable the <code>fastcgi</code> module without overwriting the default <var>NGINX_MODULES_HTTP</var> value, the following USE flag notation can be specified in {{Path|[[:/etc/portage/package.use]]}}:
+
+{{FileBox|filename=/etc/portage/package.use|lang=bash|1=
+www-servers/nginx NGINX_MODULES_HTTP: fastcgi
+}}
+
+=== USE flags ===
+
+{{USEflag|package=www-servers/nginx}}
+
+=== Emerge ===
+
+With the USE flags set, install {{Package|www-servers/nginx}}:
+
+{{Emerge|www-servers/nginx}}
+
+=== Installation verification ===
+
+The default nginx configuration defines a virtual server with the root directory set to {{Path|/var/www/localhost/htdocs}}. However due to {{Bug|449136}}, the nginx ebuild will only create the {{Path|/var/www/localhost}} directory and without an index file. To have a working default configuration, create the {{Path|/var/www/localhost/htdocs}} directory and simple index file:
+
+{{RootCmd
+|mkdir /var/www/localhost/htdocs
+|echo 'Hello, world!' > /var/www/localhost/htdocs/index.html
+}}
+
+The nginx package installs an init service script allowing administrators to stop, start, or restart the service. Run the next command to start the nginx service:
+
+{{RootCmd|/etc/init.d/nginx start}}
+
+To verify that nginx is properly running, point a web browser to the [http://localhost http://localhost] address or use a command-line web tool like {{c|curl}}:
+
+{{Cmd|curl http://localhost}}
+
+== Configuration ==
+
+The nginx configuration is handled through the {{Path|/etc/nginx/nginx.conf}} file.
+
+=== Single site access ===
+
+The following example shows a single-site access, without dynamic capabilities (such as [[PHP]]).
+
+{{FileBox|filename=/etc/nginx/nginx.conf|title=Gentoo's default configuration|1=
+user nginx nginx;
+worker_processes 1;
+ 
+error_log /var/log/nginx/error_log info;
+ 
+events {
+	worker_connections 1024;
+	use epoll;
+}
+ 
+http {
+	include /etc/nginx/mime.types;
+	default_type application/octet-stream;
+ 
+	log_format main
+		'$remote_addr - $remote_user [$time_local] '
+		'"$request" $status $bytes_sent '
+		'"$http_referer" "$http_user_agent" '
+		'"$gzip_ratio"';
+ 
+	client_header_timeout 10m;
+	client_body_timeout 10m;
+	send_timeout 10m;
+ 
+	connection_pool_size 256;
+	client_header_buffer_size 1k;
+	large_client_header_buffers 4 2k;
+	request_pool_size 4k;
+ 
+	gzip off;
+ 
+	output_buffers 1 32k;
+	postpone_output 1460;
+ 
+	sendfile on;
+	tcp_nopush on;
+	tcp_nodelay on;
+ 
+	keepalive_timeout 75 20;
+ 
+	ignore_invalid_headers on;
+ 
+	index index.html;
+ 
+	server {
+		listen 127.0.0.1;
+		server_name localhost;
+ 
+		access_log /var/log/nginx/localhost.access_log main;
+		error_log /var/log/nginx/localhost.error_log info;
+ 
+		root /var/www/localhost/htdocs;
+	}
+}
+}}
+
+=== Multiple site access ===
+
+It is possible to leverage the <code>include</code> directive to split the configuration in multiple files:
+
+{{FileBox|filename=/etc/nginx/nginx.conf|title=Multisite configuration|1=
+user nginx nginx;
+worker_processes 1;
+ 
+error_log /var/log/nginx/error_log info;
+ 
+events {
+	worker_connections 1024;
+	use epoll;
+}
+ 
+http {
+	include /etc/nginx/mime.types;
+	default_type application/octet-stream;
+ 
+	log_format main
+		'$remote_addr - $remote_user [$time_local] '
+		'"$request" $status $bytes_sent '
+		'"$http_referer" "$http_user_agent" '
+		'"$gzip_ratio"';
+ 
+	client_header_timeout 10m;
+	client_body_timeout 10m;
+	send_timeout 10m;
+ 
+	connection_pool_size 256;
+	client_header_buffer_size 1k;
+	large_client_header_buffers 4 2k;
+	request_pool_size 4k;
+ 
+	gzip off;
+ 
+	output_buffers 1 32k;
+	postpone_output 1460;
+ 
+	sendfile on;
+	tcp_nopush on;
+	tcp_nodelay on;
+ 
+	keepalive_timeout 75 20;
+ 
+	ignore_invalid_headers on;
+ 
+	index index.html;
+ 
+	include /etc/nginx/conf.d/*.conf;
+}
+}}
+
+{{FileBox|filename=/etc/nginx/conf.d/local.conf|title=Simple host|1=
+server {
+        listen 127.0.0.1;
+        server_name localhost;
+  
+        access_log /var/log/nginx/localhost.access_log main;
+        error_log /var/log/nginx/localhost.error_log info;
+  
+        root /var/www/localhost/htdocs;
+}
+}}
+
+{{FileBox|filename=/etc/nginx/conf.d/local-ssl.conf|title=Simple SSL host|1=
+server {
+    listen 443 ssl;
+    server_name host.tld;
+    ssl_certificate /etc/ssl/nginx/host.tld.pem;
+    ssl_certificate_key /etc/ssl/nginx/host.tld.key;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-ECDSA-RC4-SHA:AES128:AES256:RC4-SHA:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!3DES:!MD5:!PSK;
+    ssl_dhparam /etc/ssl/nginx/host.tld.dh4096.pem;
+    ssl_session_timeout 5m;
+    ssl_session_cache shared:SSL:50m;
+}
+}}
+
+=== PHP support  ===
+
+Add the following lines to the nginx configuration to enable PHP support. In this example nginx is exchanging information with the PHP process via a UNIX socket.
+
+{{FileBox|filename=/etc/nginx/nginx.conf|title=Enabling PHP support|1=
+...
+http {
+...
+    server { 
+    ...
+            location ~ \.php$ {
+                       # Test for non-existent scripts or throw a 404 error
+                       # Without this line, nginx will blindly send any request ending in .php to php-fpm
+                       try_files $uri =404;
+                       include /etc/nginx/fastcgi.conf;
+                       fastcgi_pass unix:/run/php-fpm.socket;
+           }
+    }
+}
+}}
+
+To support this setup, PHP needs to be built with FastCGI Process Manager support ({{Package|dev-lang/php}}), which is handled through the <code>fpm</code> USE flag:
+
+{{RootCmd|echo "dev-lang/php fpm" >> /etc/portage/package.use}}
+
+Rebuild PHP with the <code>fpm</code> USE flag enabled:
+
+{{Emerge|dev-lang/php}}
+ 
+{{Note|Using UNIX socket communication is the preferred and recommended configuration}}
+
+Review the {{Path|/etc/php/fpm-php5.5/php-fpm.conf}} configuration and add following line:
+
+{{FileBox|filename=/etc/php/fpm-php5.5/php-fpm.conf|title=Running PHP with UNIX socket support|lang=ini|1=
+listen = /run/php-fpm.socket
+listen.owner = nginx
+}}
+
+Set the timezone in the php-fpm {{Path|php.ini}} file. Substitute the <code><PUT_TIMEZONE_HERE></code> text in the FileBox below with the appropriate timezone information:
+
+{{FileBox|filename=/etc/php/fpm-php5.5/php.ini|title=Setup timezone in php.ini|lang=ini|1=
+date.timezone = <PUT_TIMEZONE_HERE>
+}}
+
+Start the {{c|php-fpm}} daemon:
+
+{{RootCmd|/etc/init.d/php-fpm start}}
+
+Add {{c|php-fpm}} to the default runlevel:
+
+{{RootCmd|rc-update add php-fpm default}}
+
+Reload {{c|nginx}} with changed configuration:
+
+{{RootCmd|/etc/init.d/nginx reload}}
+
+=== IP address access list ===
+
+The next example shows how to allow access to a particular URL (in this case {{Path|/nginx_status}}) only to:
+
+* certain hosts (e.g. ''192.0.2.1 127.0.0.1'')
+* and IP networks (e.g. ''198.51.100.0/24'')
+
+{{FileBox|filename=/etc/nginx/nginx.conf|title=Enabling and configuring an IP access lists for /nginx_status page|1=
+http {
+    server { 
+            location /nginx_status {
+                     stub_status on;
+                     allow 127.0.0.1/32;
+                     allow 192.0.2.1/32;
+                     allow 198.51.100.0/24;
+                     deny all;
+             }
+     }
+}
+}}
+
+=== Basic authentication ===
+
+nginx allows limiting access to resources by validating the user name and password:
+
+{{FileBox|filename=/etc/nginx/nginx.conf|title=Enabling and configuring user authentication for the / location|1=
+http {
+    server { 
+            location / {
+                   auth_basic           "Authentication failed";
+                   auth_basic_user_file conf/htpasswd;
+             }
+     }
+}
+}}
+ 
+The {{Path|htpasswd}} file can be generated using:
+
+{{Cmd|openssl passwd}}
+
+=== TLS support ===
+
+It is warmly suggested to support ''only'' TLS and disable known insecure ciphers.
+
+{{FileBox|filename=/etc/nginx/nginx.conf|title=Enabling TLS and disabling insecure ciphers|1=
+server {
+    listen 443;
+    server_name host.tld;
+    ssl on;
+    ssl_certificate /etc/ssl/nginx/host.tld.pem;
+    ssl_certificate_key /etc/ssl/nginx/host.tld.key;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:DHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:ECDHE-RSA-RC4-SHA:ECDHE-ECDSA-RC4-SHA:AES128:AES256:RC4-SHA:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!3DES:!MD5:!PSK;
+    ssl_dhparam /etc/ssl/nginx/host.tld.dh4096.pem;
+}
+}}
+
+The ebuild provides stock self signed certificates in {{Path|/etc/ssl/nginx/}}
+
+==== Forward secrecy ====
+
+The diffie-hellman certificate can be created using {{c|openssl}}:
+
+{{Cmd|openssl dhparam -out dh4096.pem 4096}}
+
+=== Third party modules  ===
+
+Download third party module source and move it to {{Path|/usr/src}}. Manually compile the selected Nginx module, then add the following line to {{Path|/etc/portage/make.conf}}:
+
+{{FileBox|filename=/etc/portage/make.conf|title=Adding third party module|1=
+NGINX_ADD_MODULES="/usr/src/nginxmodule"}}
+
+Rebuild nginx with the third party module enabled:
+
+{{Emerge|www-servers/nginx}}
+
+== Usage ==
+
+=== Service control ===
+
+==== OpenRC ====
+
+Start nginx:
+
+{{RootCmd|/etc/init.d/nginx start}}
+
+Stop nginx:
+
+{{RootCmd|/etc/init.d/nginx stop}}
+
+Add nginx to the default runlevel:
+
+{{RootCmd|rc-update add nginx default}}
+
+Restart the nginx service: 
+
+{{RootCmd|/etc/init.d/nginx restart}}
+
+== Troubleshooting ==
+
+In case of problems, the following commands can help troubleshoot the situation.
+
+=== Validate configuration ===
+
+Verify that the running nginx configuration has no errors:
+
+{{RootCmd|/usr/sbin/nginx -t|output=<pre>
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+</pre>}}
+
+By running {{c|nginx}} with the <code>-t</code> option, it will validate the configuration file without actually starting the {{c|nginx}} daemon.
+
+=== Verify processes are running ===
+
+Check if {{c|nginx}} processes are running:
+
+{{Cmd|ps aux {{!}} egrep 'nginx{{!}}PID'|output=<pre>
+  PID TTY      STAT   TIME COMMAND
+26092 ?        Ss     0:00 nginx: master process /usr/sbin/nginx -c /etc/nginx/nginx.conf
+26093 ?        S      0:00 nginx: worker proces
+</pre>}}
+
+=== Verify bound addresses and ports ===
+
+Verify nginx daemon is listening on the right TCP port (such as 80 for HTTP or 443 for HTTPS):
+
+{{RootCmd|netstat -tulpen {{!}} grep :80|output=<pre>
+tcp        0      0 127.0.0.1:80            0.0.0.0:*               LISTEN      0          12336835   -26092/nginx: master
+</pre>}}
+
+== See also ==
+
+* [[Apache]] - The most popular HTTP server used the Internet.
+* [[Lighttpd]] - A fast, lightweight web server.
+
+== External resources ==
+
+* https://nginx.org/en/docs/beginners_guide.html - A {{c|nginx}} beginner's guide. Helpful for those who do not know much about {{c|nginx}}.
+* https://nginx.com/resources/admin-guide/ - The {{c|ngnix}} administration guide. Helpful for web administrators who have been working in the field.
+* http://wiki.nginx.org/Main - The nginx wiki.
+* https://github.com/h5bp/server-configs-nginx - H5BP nginx config.
+
+[[Category:Web Servers]]
