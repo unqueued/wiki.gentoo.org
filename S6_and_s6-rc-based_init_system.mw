@@ -12,8 +12,8 @@ The general setup of an s6 and s6-rc based init system is as follows:
 # When the machine boots, all initialization tasks needed to bring it to its stable, normal 'up and running' state, are split into a [[#stage1|stage1 init]] and a a [[#stage2|stage2 init]]. The stage1 init runs as process 1, and replaces itself with the {{C|s6-svscan}} program from [[s6]] when its work is done. The stage2 init runs as a child of process 1, blocks until {{C|s6-svscan}} starts to execute, and exits when its work is done.
 # During most of the machine's uptime, {{C|s6-svscan}} [[s6#s6process1|runs as process 1]] with [[s6#s6signaldivert|signal diversion turned on]], and there is an s6 supervision tree rooted in process 1, that is launched as soon as {{C|s6-svscan}} starts to execute.
 # A supervised [[#logger|catch-all logger]] is launched as part of the supervision tree. The catch-all logger logs messages sent by supervision tree processes to {{C|s6-svscan}}'s standard output and error.
-# The stage2 init initializes the [[s6-rc]] service manager and starts a subset of the services defined in its compiled services database. Some of them might carry out part of the machine's initialization tasks.
-# While {{C|s6-svscan}} is running as process 1, supervised processes and s6-rc-managed services can be controlled with s6 programs, and the {{C|s6-rc}} program's subcommands.
+# The stage2 init [[s6-rc#initialization|initializes the s6-rc service manager]] and starts a subset of the services defined in its [[s6-rc#database|compiled service database]]. Some of them might carry out part of the machine's initialization tasks.
+# While {{C|s6-svscan}} is running as process 1, services are normally [[s6-rc#manage|managed using s6-rc tools]].
 # When the administrator wants to initiate the machine's shutdown sequence, a signal is sent to process 1. The BusyBox ({{Package|sys-apps/busybox}}) {{C|halt}}, {{C|poweroff}} and {{C|reboot}} applets, or the {{C|s6-halt}}, {{C|s6-poweroff}} and {{C|s6-reboot}} programs from s6-linux-init, can be used for this.
 # {{C|s6-svscan}} then executes an appropriate diverted signal handler as a child process, which in turn executes a ''stage2_finish'' program that performs some of the tasks needed to shut the machine down, and stops all s6-rc-managed services.
 # When the stage2_finish program exits, the {{C|s6-svscan}} diverted signal handler invokes the {{C|s6-svscanctl}} program, which makes {{C|s6-svscan}} perform [[s6#s6svscanfinish|its finish procedure]], and results in execution of the {{Path|.s6-svscan/finish}} file in process 1's scan directory.
@@ -95,13 +95,13 @@ s6-svscan -st 0 -- ${tmpfsdir}/${scandir_relpath}</nowiki>}}
 
 Where:
 
-* ''${stage1_envdir}'' is the absolute pathname of an [[daemontools-encore#changingstate|environment directory]] to be used by the stage1 and stage2 init (e.g. {{Path|/lib/s6-init/env}}).
-* ''${tmpfsdir}'' is the absolute pathname of the directory where the read-write tmpfs will be mounted (normally {{Path|/run}}).
-* ''${run_image}'' is the absolute pathname of the directory where the run image is stored (e.g. {{Path|/lib/s6-init/run-image}} in the rootfs).
-* ''${logger_fifo}'' is the absolute pathname of [[#logger|the catch-all logger's FIFO]] (e.g. {{Path|${tmpfsdir}/${scandir_relpath}/s6-svscan-log/fifo}}).
-* ''${stage2_init}'' is the name (if PATH search would find it) or absolute pathname of the stage2 init (e.g. {{Path|/lib/s6-init/init-stage2}}).
-* ''${s6_svscan_envdir}'' is the absolute pathname of an environment directory used to set up the supervision tree's initial environment (e.g. {{Path|/etc/s6-svscan/env}}).
-* ''${scandir_relpath}''  is the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, so absolute pathname would be {{Path|/run/s6/service}}).
+* ''${stage1_envdir}'' is a placeholder for the absolute pathname of an [[daemontools-encore#changingstate|environment directory]] to be used by the stage1 and stage2 init (e.g. {{Path|/lib/s6-init/env}}).
+* ''${tmpfsdir}'' is a placeholder for the absolute pathname of the directory where the read-write tmpfs will be mounted (normally {{Path|/run}}).
+* ''${run_image}'' is a placeholder for the absolute pathname of the directory where the run image is stored (e.g. {{Path|/lib/s6-init/run-image}} in the rootfs).
+* ''${logger_fifo}'' is a placeholder for the absolute pathname of [[#logger|the catch-all logger's FIFO]] (e.g. {{Path|${tmpfsdir}/${scandir_relpath}/s6-svscan-log/fifo}}).
+* ''${stage2_init}'' is a placeholder for the name (if <var>PATH</var> search would find it) or absolute pathname of the stage2 init (e.g. {{Path|/lib/s6-init/init-stage2}}).
+* ''${s6_svscan_envdir}'' is a placeholder for the absolute pathname of an environment directory used to set up the supervision tree's initial environment (e.g. {{Path|/etc/s6-svscan/env}}).
+* ''${scandir_relpath}'' is a placeholder for the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, if the absolute pathname is {{Path|/run/s6/service}}).
 
 Gentoo's official repository does not supply any package with a stage1 init for s6 and s6-rc-based init systems. Users must create one from scratch or take it from somewhere else (e.g. alternative ebuild repositories). The {{C|s6-linux-init-maker}} program from s6-linux-init can create a minimal execline stage1 script with the aforementioned structure, that uses programs from packages s6-portable-utils ({{Package|sys-apps/s6-portable-utils}}) and s6-linux-utils ({{Package|sys-apps/s6-linux-utils}}), and can be used as a basis for writing a custom or more elaborate one, if so desired. The scan directory set up by the {{C|s6-linux-init-maker}} stage1 script is named {{Path|service}} (so by default, its absolute pathname would be {{Path|/run/service}}), and all additional initialization the script does is optionally mounting a devtmpfs on {{Path|/dev}}, and optionally dumping the kernel's enviroment in an environment directory using {{C|s6-dumpenv}} from s6-portable-utils. 
 {{anchor|stage2}}
@@ -109,11 +109,11 @@ Gentoo's official repository does not supply any package with a stage1 init for 
 
 The stage2 init is spawned by the stage1 init as a child process, and is blocked from running until the latter replaces itself with {{C|s6-svscan}}. To achieve this, the child process of the stage1 init opens [[#logger|the catch-all logger's FIFO]] for writing using the POSIX <code>open()</code> call. The call will block until some other process opens the FIFO for reading. The catch-all logger is a supervised process, so it starts executing when {{C|s6-svscan}} does, and opens the FIFO for reading, thereby unblocking the process, which then replaces itself with the stage2 init.
 
-The stage2 init executes with {{C|s6-svscan}} as process 1, and performs all remaining initialization tasks needed to bring the machine to its stable, normal 'up and running' state. It can execute with a few vital supervised long-lived processes already running, started as part of process 1's supervision tree, including the catch-all logger. Part of the remaining initialization is creating the s6-rc service manager's live state directory using the {{C|s6-rc-init}} program, which can't be done until {{C|s6-svscan}} is running. This program takes the pathname of a compiled services database as an argument (or defaults it to {{Path|/etc/s6-rc/compiled}}), as well as the pathname of process 1's scan directory. So a suitable services database must exist and be available at least in a read-only filesystem. This is the ''boot-time services database''. The live state directory must be in a read-write filesystem, and the customary setup of an s6 and s6-rc-based init system has {{C|s6-rc-init}} create it in the read-write tmpfs mounted by the stage1 init.
+The stage2 init executes with {{C|s6-svscan}} as process 1, and performs all remaining initialization tasks needed to bring the machine to its stable, normal 'up and running' state. It can execute with a few vital supervised long-lived processes already running, started as part of process 1's supervision tree, including the catch-all logger. Part of the remaining initialization is creating the s6-rc service manager's [[s6-rc#initialization|live state directory]] using the {{C|s6-rc-init}} program, which can't be done until {{C|s6-svscan}} is running. This program takes the pathname of [[s6-rc#database|a compiled service database]] as an argument (or defaults it to {{Path|/etc/s6-rc/compiled}}), as well as the pathname of process 1's scan directory. So a suitable services database must exist and be available at least in a read-only filesystem. This is the ''boot-time service database''. The live state directory must be in a read-write filesystem, and the customary setup of an s6 and s6-rc-based init system has {{C|s6-rc-init}} create it in the read-write tmpfs mounted by the stage1 init.
 
-{{C|s6-rc-init}} also copies to the live state directory all s6-rc longruns' compiled s6 service directories, creates symbolic links to them in process 1's scan directory, and uses an <kbd>s6-svscanctl -a</kbd> command to trigger a scan. The scan makes process 1 spawn an {{C|s6-supervise}} child for each longrun, but because {{C|s6-rc-compile}} produces s6 service directories that contain a {{Path|down}} file, the longrun doesn't execute yet.
+{{C|s6-rc-init}} also copies to the live state directory all s6-rc longruns' compiled s6 service directories, creates symbolic links to them in process 1's scan directory, and uses an equivalent of the <kbd>s6-svscanctl -a</kbd> command to trigger a scan. The scan makes process 1 spawn an {{C|s6-supervise}} child for each longrun, but because {{C|s6-rc-compile}} produces s6 service directories that contain a {{Path|down}} file, the longrun doesn't execute yet.
 
-The initial state of all s6-rc services, as set by {{C|s6-rc-init}}, is 'down'. So the the stage2 init must also start all atomic services (oneshots and longruns) that are needed to complete the machine's initialization, if any, and the longruns that are wanted up at the end of the boot sequence. This is performed by defining a service bundle in the boot-time services database that groups these atomic services, and having the stage2 init start them with an <kbd>s6-rc -u change</kbd> command naming the bundle. This bundle would be the s6-rc counterpart to [[OpenRC]]'s default runlevel, [[systemd]]'s {{Path|default.target}} unit, or [[nosh]]'s {{Path|normal}} target bundle directory.
+The initial state of all s6-rc services, as set by {{C|s6-rc-init}}, is 'down'. So the the stage2 init must also start all atomic services (oneshots and longruns) that are needed to complete the machine's initialization, if any, and the longruns that are wanted up at the end of the boot sequence. This is performed by defining [[s6-rc#bundles|a service bundle]] in the boot-time service database that groups these atomic services, and having the stage2 init start them with an <kbd>s6-rc -u change</kbd> command naming the bundle. This bundle would be the s6-rc counterpart to [[OpenRC]]'s default runlevel, [[systemd]]'s {{Path|default.target}} unit, or [[nosh]]'s {{Path|normal}} target bundle directory.
 
 When the stage2 init finishes its work, it exits and gets reaped by {{C|s6-svscan}}. The stage2 init can be, and normally is, an execline or shell script. Gentoo's official repository does not supply any package with a stage2 init for s6 and s6-rc-based init systems. Users must create one from scratch or take it from somewhere else (e.g. alternative ebuild repositories). The s6-linux-init package contains an example execline stage2 script, it is the {{Path|examples/rc.init}} file in the package's {{Path|/usr/share/doc}} subdirectory.
 {{anchor|logger}}
@@ -164,9 +164,9 @@ s6-svscanctl ${option} .}}
 
 Where:
 
-* ''${tmpfsdir}'' is the absolute pathname of the directory where the stage1 init mounted the read-write tmpfs (normally {{Path|/run}}).
-* ''${scandir_relpath}''  is the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, so absolute pathname would be {{Path|/run/s6/service}}).
-* ''${stage2_finish}'' is the name (if PATH search would find it) or absolute pathname of the stage2_finish program (e.g. {{Path|/lib/s6-init/stage2_finish}}).
+* ''${tmpfsdir}'' is a placeholder for the absolute pathname of the directory where the stage1 init mounted the read-write tmpfs (normally {{Path|/run}}).
+* ''${scandir_relpath}'' is a placeholder for the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, if the absolute pathname is {{Path|/run/s6/service}}).
+* ''${stage2_finish}'' is a placeholder for the name (if <var>PATH</var> search would find it) or absolute pathname of the stage2_finish program (e.g. {{Path|/lib/s6-init/stage2_finish}}).
 * ''${option}'' is the {{C|s6-svscanctl}} option for the operation corresponding to the signal:
 ** '''-0''' or '''-st''' for halt.
 ** '''-7''' or '''-pt''' for poweroff.
@@ -209,10 +209,10 @@ ${stage3_init} $@}}
 
 Where:
 
-* ''${tmpfsdir}'' is the absolute pathname of the directory where the stage1 init mounted the read-write tmpfs (normally {{Path|/run}}).
-* ''${scandir_relpath}'' is the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, so absolute pathname would be {{Path|/run/s6/service}}).
-* ''${logger_servicedir}'' is the name of the catch-all logger's service directory (e.g. {{Path|s6-svscan-log}}, so absolute pathname would be {{Path|/run/s6/service/s6-svscan-log}}).
-* ''${stage3_init}'' is the name (if PATH search would find it) or absolute pathname of the stage3 init (e.g. {{Path|/lib/s6-init/init-stage3}}).
+* ''${tmpfsdir}'' is a placeholder for the absolute pathname of the directory where the stage1 init mounted the read-write tmpfs (normally {{Path|/run}}).
+* ''${scandir_relpath}'' is a placeholder for the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, if the absolute pathname is {{Path|/run/s6/service}}).
+* ''${logger_servicedir}'' is a placeholder for the name of the catch-all logger's service directory (e.g. {{Path|s6-svscan-log}}, if the absolute pathname is {{Path|/run/s6/service/s6-svscan-log}}).
+* ''${stage3_init}'' is a placeholder for the name (if <var>PATH</var> search would find it) or absolute pathname of the stage3 init (e.g. {{Path|/lib/s6-init/init-stage3}}).
 
 The {{C|s6-linux-init-maker}} program from s6-linux-init can create a suitable process 1 execline {{Path|finish}} script.
 
@@ -232,7 +232,7 @@ Gentoo's official repository does not supply any package with a stage3 init for 
 
 == Service management ==
 
-On an s6 and s6-rc-based init system, the [[s6-rc]] package is used for service management. In particular, the administrator can replace the init system's compiled services database with a new one using the {{C|s6-rc-update}} program, and can create a new boot-time services database, to be used next time the machine boots, with the {{C|s6-rc-compile}} program and a set of service definitions in the program's supported source format. It is best to have the {{C|s6-rc-init}} invocation [[#stage2|in the stage2 init]] use a symbolic link as the compiled services database pathname, so that the boot-time database can be changed by modifying the symlink instead of the stage2 init code, e.g. by having an {{Path|/etc/s6-rc/db}} directory for storing one or more compiled databases, making {{Path|/etc/s6-rc/boot}} a symbolic link to one of those databases, and using the symlink in the {{C|s6-rc-init}} invocation.
+On an s6 and s6-rc-based init system, the [[s6-rc]] package is used for service management. In particular, the administrator can [[s6-rc#s6rcupdate|replace the init system's compiled service database]] with a new one using the {{C|s6-rc-update}} program, and can create a new boot-time service database, to be used next time the machine boots, with the {{C|s6-rc-compile}} program and a set of service definitions in the program's supported source format. It is best to have the {{C|s6-rc-init}} invocation [[#stage2|in the stage2 init]] use a symbolic link as the compiled service database pathname, so that the boot-time database can be changed by modifying the symlink instead of the stage2 init code, e.g. by having an {{Path|/etc/s6-rc/db}} directory for storing one or more compiled databases, making {{Path|/etc/s6-rc/boot}} a symbolic link to one of those databases, and using the symlink in the {{C|s6-rc-init}} invocation.
 
 It is possible to have long-lived processes not managed by s6-rc but supervised by process 1, by directly managing [[s6]] service directories, placing them (or symbolic links to them) in process 1's scan directory, and using <kbd>s6-svscanctl -a</kbd>, <kbd>s6-svscanctl -n</kbd> or <kbd>s6-svscanctl -N</kbd> commands as needed. It is also possible to use {{C|s6-svscan}} as process 1 and just s6 tools, without s6-rc, but then the init system becomes more [[runit#servicemgmt|like runit]]. In that case, executing {{C|s6-svscan}} with signal diversion turned on is not necessary.
 
@@ -241,5 +241,11 @@ s6 service directories and s6-rc service definitions for anything not supplied i
 == See also ==
 
 * [[Comparison of init systems]]
+
+== External resources ==
+
+* [https://www.skarnet.org/software/lh-bootstrap lh-bootstrap], a set of scripts that build a disk image for a virtual machine such as [[QEMU]]. The image contains a Linux kernel and a collection of small user-space tools such as BusyBox ({{Package|sys-apps/busybox}}) and [https://matt.ucc.asn.au/dropbear/dropbear.html dropbear], all statically linked to ({{Package|sys-libs/musl}}), and an s6 and s6-rc based init system.
+* [https://web.obarun.org Obarun], an [https://www.archlinux.org Arch-based] GNU/Linux distribution with an s6 and s6-rc based init system.
+* [https://gitlab.com/CasperVector/slew Slew], a project that provides stage1, stage2, stage3 inits and s6-svscan diverted signal handlers, as well as s6-rc service definition directories in {{C|s6-rc-compile}}'s source format for several services and other supporting scripts, to make an s6 and s6-rc based init system. Most scripts require the Byron Rakitzis's implementation of the Plan 9 shell, {{C|rc}}, for Unix ({{Package|app-shells/rc}}).
 
 [[Category:Init systems]]
