@@ -34,8 +34,8 @@ Also, all special files that might be needed by {{C|s6-svscan}} and the stage1 a
 Because the stage1 init runs as process 1, if it exits or is killed, there will be a kernel panic and the machine will hang. Therefore, it must be simple enough and not fail, because recovery in this stage of initialization is almost impossible. So s6 and s6-rc-based init systems split initialization into a stage1 init and a [[#stage2|stage2 init]]. The stage2 init is spawned as a child process by the stage1 init, which, as soon as it finishes its work, replaces itself with {{C|s6-svscan}} using a POSIX <code>exec...()</code> call.
 
 The author of s6 has designed the execline package ({{Package|dev-lang/execline}}) so that the stage1 init can be an execline script. The general structure of an execline stage1 script is as follows, or a variation thereof:
-{{CodeBox|title=Execline stage1 script|
-1=<nowiki>#!/bin/execlineb -S0
+{{CodeBox|lang=bash|title=Execline stage1 script|
+1=#!/bin/execlineb -S0
 # 'execlineb -S0' allows the script to use arguments supplied by the kernel as $1, $2, etc.
 # If no arguments are used, '-P' can be specified instead of '-S0'.
 
@@ -91,7 +91,7 @@ fdmove -c 2 1
 # stdin: /dev/null
 # stdout: the catch-all logger's FIFO
 # stderr: the catch-all logger's FIFO
-s6-svscan -st 0 -- ${tmpfsdir}/${scandir_relpath}</nowiki>}}
+s6-svscan -st 0 -- ${tmpfsdir}/${scandir_relpath} }}
 
 Where:
 
@@ -157,7 +157,7 @@ An s6 and s6-rc-based init system is asked to initiate the shutdown sequence by 
 When process 1 receives such a signal, the corresponding diverted signal handler is executed as a child process. The handler then calls a ''stage2_finish'' program that performs part of the tasks needed to shut the machine down. Generally speaking, the stage2_finish program undoes what the stage2 init has done at boot time. This part of the machine's shutdown sequence can be carried out by s6-rc services and can use s6 tools, since {{C|s6-svscan}} is still running. However, all s6-rc-managed services have to be stopped (normally with a <kbd>s6-rc -da change</kbd> command) before the stage2_finish program exits, because {{C|s6-svscan}} will stop running after it does, and s6-rc does not work without an s6 supervision tree. The stage2_finish program can be, and normally is, an execline or shell script.
 
 The general structure of an execline diverted signal handler script is as follows, or a variation thereof:
-{{FileBox|filename=${tmpfsdir}/${scandir_relpath}/.s6-svscan/SIGxxx|title=Execline diverted signal handler script|
+{{CodeBox|lang=bash|filename=${tmpfsdir}/${scandir_relpath}/.s6-svscan/SIGxxx|title=Execline diverted signal handler script|
 1=#!/bin/execlineb -P
 foreground { ${stage2_finish} }
 s6-svscanctl ${option} .}}
@@ -177,14 +177,14 @@ The {{C|s6-linux-init-maker}} program from s6-linux-init can create execline han
 Gentoo's official repository does not supply any package with a stage2_finish program for s6 and s6-rc-based init systems. Users must create one from scratch or take it from somewhere else (e.g. alternative ebuild repositories). The s6-linux-init package contains an example execline stage2_finish script, it is the {{Path|examples/rc.tini}} file in the package's {{Path|/usr/share/doc}} subdirectory.
 
 This means that {{C|s6-svscan}} is not directly compatible with sysvinit's {{C|telinit}}, {{C|halt}}, {{C|poweroff}}, {{C|reboot}}, and {{C|shutdown}} commands. However, many programs (e.g. those from desktop environments) expect to be able to call programs with those names during operation, so if such thing is needed, it is possible to use compatibility execline scripts:
-{{FileBox|filename=shutdown|
+{{CodeBox|lang=bash|filename=shutdown|
 1=#!/bin/execlineb -P
 # For BusyBox:
 # busybox poweroff
 # For s6-linux-init:
 # s6-poweroff}}
 
-{{FileBox|filename=reboot|
+{{CodeBox|lang=bash|filename=reboot|
 1=#!/bin/execlineb -P
 # For BusyBox:
 # busybox reboot
@@ -197,7 +197,7 @@ This means that {{C|s6-svscan}} is not directly compatible with sysvinit's {{C|t
 When the stage2_finish exits, the {{C|s6-svscan}} diverted signal handler that invoked it then calls the {{C|s6-svscanctl}} program with an appropriate option to make {{C|s6-svscan}} perform its finish procedure. {{C|s6-svscan}} executes the {{Path|finish}} file in the {{Path|.s6-svscan}} control subdirectory of its scan directory, using the POSIX <code>execve()</code> call, passing a '''halt''', '''poweroff''' or '''reboot''' argument to it. {{Path|finish}} executes as process 1, redirects its standard output and error to {{Path|/dev/console}}, uses the <kbd>s6-svc -X</kbd> command to [[#logger|make the catch-all logger exit cleanly]], and replaces itself with a ''stage3 init'', again using a POSIX <code>exec...()</code> call, passing along the argument supplied by {{C|s6-svscan}}. Alternatively, the stage3 init code might be part of the {{Path|finish}} file, in which case that file would be considered the stage3 init.
 
 The general structure of a process 1 execline {{Path|finish}} script is as follows, or a variation thereof:
-{{FileBox|filename=${tmpfsdir}/${scandir_relpath}/.s6-svscan/finish|title=Execline {{Path|finish}} script|
+{{CodeBox|lang=bash|filename=${tmpfsdir}/${scandir_relpath}/.s6-svscan/finish|title=Execline {{Path|finish}} script|
 1=#!/bin/execlineb -S0
 cd /
 redirfd -w 2 /dev/console
@@ -219,7 +219,7 @@ The {{C|s6-linux-init-maker}} program from s6-linux-init can create a suitable p
 The stage3 init runs as process 1 to perform all remaining tasks needed to shut the machine down. It must also kill all other processes that are still running at that point, after a grace period to allow them to exit on their own, so that filesystems can be synced and unmounted, or remounted read-only. This can be done with a POSIX <code>kill()</code> call specifying '''-1''' as the process ID argument, usually to send a <code>SIGTERM</code> signal followed by a <code>SIGCONT</code> signal first, waiting for a short period of time, and then sending a <code>SIGKILL</code> signal. Because the stage3 init runs as process 1, and process 1 does not get killed by a <code>kill(-1, SIGKILL)</code> call, it continues executing after that. Sending a <code>SIGKILL</code> signal to all processes from a non-PID 1 process that is expected to continue running is much harder. The stage3 init can be, and normally is, an execline or shell script. The {{C|kill}} program provided by either the GNU Core Utilities package ({{Package|sys-apps/coreutils}}), the util-linux package ({{Package|sys-apps/util-linux}}) or the procps package ({{Package|sys-process/procps}}), can be used in such a script as <kbd>kill -TERM -1</kbd>, <kbd>kill -CONT -1</kbd> and <kbd>kill -KILL -1</kbd> (the last form will also kill itself, but not the stage3 init). The {{C|s6-nuke}} program from the s6-portable-utils package can also be used in such a script, as <kbd>s6-nuke -t</kbd> (<code>SIGTERM</code> + <code>SIGCONT</code>) and <kbd>s6-nuke -k</kbd> (<code>SIGKILL</code>). And a shell stage3 script that invokes a shell with a builtin {{C|kill}} utility works too. In that case, process 1 will be a shell process that sends the signals itself. A <kbd>wait -r {}</kbd> command can be used in an execline stage3 script to reap all resulting zombie processes.
 
 When the stage3 init finishes its work, it performs the halt, poweroff or reboot operation with a Linux <code>reboot()</code> call. If it is a script, it can use the BusyBox {{C|halt}}, {{C|poweroff}} and {{C|reboot}} applets, or the {{C|s6-halt}}, {{C|s6-poweroff}} and {{C|s6-reboot}} programs from s6-linux-init, passing them an <code>-f</code> (''force'') option and the argument supplied by {{C|s6-svscan}}:
-{{CodeBox|title=Execline stage3 script|
+{{CodeBox|lang=bash|title=Execline stage3 script|
 1=#!/bin/execlineb -S0
 # Shutdown tasks
 # ...
@@ -244,8 +244,8 @@ s6 service directories and s6-rc service definitions for anything not supplied i
 
 == External resources ==
 
-* [https://www.skarnet.org/software/lh-bootstrap lh-bootstrap], a set of scripts that build a disk image for a virtual machine such as [[QEMU]]. The image contains a Linux kernel and a collection of small user-space tools such as BusyBox ({{Package|sys-apps/busybox}}) and [https://matt.ucc.asn.au/dropbear/dropbear.html dropbear], all statically linked to ({{Package|sys-libs/musl}}), and an s6 and s6-rc based init system.
-* [https://web.obarun.org Obarun], an [https://www.archlinux.org Arch-based] GNU/Linux distribution with an s6 and s6-rc based init system.
-* [https://gitlab.com/CasperVector/slew Slew], a project that provides stage1, stage2, stage3 inits and s6-svscan diverted signal handlers, as well as s6-rc service definition directories in {{C|s6-rc-compile}}'s source format for several services and other supporting scripts, to make an s6 and s6-rc based init system. Most scripts require the Byron Rakitzis's implementation of the Plan 9 shell, {{C|rc}}, for Unix ({{Package|app-shells/rc}}).
+* [https://www.skarnet.org/software/lh-bootstrap lh-bootstrap], a set of scripts that build a disk image for a virtual machine such as [[QEMU]]. The image contains a Linux kernel and a collection of small user-space tools such as BusyBox and dropbear ({{Package|sys-apps/busybox}}, {{Package|net-misc/dropbear}}), all statically linked to musl ({{Package|sys-libs/musl}}), and an s6 and s6-rc based init system.
+* [https://web.obarun.org Obarun], an [https://www.archlinux.org Arch derivative] with an s6 and s6-rc based init system.
+* [https://gitlab.com/CasperVector/slew Slew], a project that provides stage1, stage2, stage3 inits and s6-svscan diverted signal handlers, as well as s6-rc service definition directories in {{C|s6-rc-compile}}'s source format for several services and other supporting scripts, to make an s6 and s6-rc based init system. Most scripts require Byron Rakitzis's implementation of the Plan 9 shell, {{C|rc}}, for Unix ({{Package|app-shells/rc}}).
 
 [[Category:Init systems]]
