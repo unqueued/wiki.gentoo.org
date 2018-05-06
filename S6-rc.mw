@@ -65,7 +65,7 @@ output=<pre>total 16
 
 {{FileBox|filename=test-longrun/type|1=longrun}}
 
-{{FileBox|filename=test-longrun/run|
+{{FileBox|lang=bash|filename=test-longrun/run|
 1=#!/bin/execlineb -P
 foreground { echo test-daemon starting }
 fdmove -c 2 1
@@ -73,7 +73,7 @@ test-daemon --s6=3}}
 
 {{FileBox|filename=test-longrun/notification-fd|1=3}}
 
-{{FileBox|filename=test-longrun/finish|
+{{FileBox|lang=bash|filename=test-longrun/finish|
 1=#!/bin/execlineb -S0
 ifelse { test $1 = 256 } {
    echo test-daemon killed by signal $2
@@ -84,11 +84,11 @@ This service's transition to up state spawns a long-lived process that executes 
 {{anchor|oneshots}}
 ==== Oneshot definitions ====
 
-A oneshot service definition in {{C|s6-rc-compile}}'s source format is a directory that must contain a regular file named {{Path|up}}, and can optionally contain a regular file named {{Path|down}}. This files encode the actions that must be performed to bring the service to up and down state, respectively. When s6-rc is asked to start or stop the service, it behaves '''as if''' it executed a <kbd>s6-sudo -e supervision-socket execlineb -P up</kbd>, and <kbd>s6-sudo -e supervision-socket execlineb -P down</kbd> command, respectively, where ''supervision-socket'' would be the UNIX domain socket of a supervised [[s6#s6sudo|{{C|s6-sudod}} process that executes {{C|s6-sudo}}'s arguments]], and {{C|execlineb}} is the script parser and launcher from the execline package ({{Package|dev-lang/execline}}). This means that the {{Path|up}} and {{Path|down}} files can have [https://www.skarnet.org/software/execline/execlineb.html execline syntax] (quoted strings, {}-blocks, backslash sequences, #-coments, etc.), and that it is possible to have them contain full execline scripts. However, because a program name that can be found by <var>PATH</var> search, or a program's absolute pathname, followed by program arguments is a valid execline script, it is possible to use shell scripts for the oneshot's actions by simply invoking them in the {{Path|up}} and {{Path|down}} files.
+A oneshot definition in {{C|s6-rc-compile}}'s source format is a directory that must contain a regular file named {{Path|up}}, and can optionally contain a regular file named {{Path|down}}. This files encode the actions that must be performed to bring the service to up and down state, respectively. When s6-rc is asked to start or stop the service, it behaves '''as if''' it executed a <kbd>s6-sudo -e supervision-socket execlineb -P up</kbd>, and <kbd>s6-sudo -e supervision-socket execlineb -P down</kbd> command, respectively, where ''supervision-socket'' would be the UNIX domain socket of a supervised [[s6#s6sudo|{{C|s6-sudod}} process that executes {{C|s6-sudo}}'s arguments]], and {{C|execlineb}} is the script parser and launcher from the execline package ({{Package|dev-lang/execline}}). This means that the {{Path|up}} and {{Path|down}} files can have [https://www.skarnet.org/software/execline/execlineb.html execline syntax] (quoted strings, {}-blocks, backslash sequences, #-coments, etc.), and that it is possible to have them contain full execline scripts. However, because a program name that can be found by <var>PATH</var> search, or a program's absolute pathname, followed by program arguments is a valid execline script, it is possible to use shell scripts for the oneshot's actions by simply invoking them in the {{Path|up}} and {{Path|down}} files.
 
 An absent {{Path|down}} file is equivalent to an empty {{Path|down}} file. Because invoking {{C|execlineb}} with an empty file does nothing but making it exit with a 0 code, stopping the corresponding service performs no actions other than updating s6-rc's notion of the service state. The {{Path|type}} file of a oneshot definition must contain the word '''oneshot''' followed by a newline. A oneshot definition can also contain regular files named {{Path|dependencies}} (see [[#dependencies|service dependencies]]), {{Path|timeout-up}} and {{Path|timeout-down}} (see [[#manage|managing services]]). For the full description of the oneshot definition source format, please consult {{C|s6-rc-compile}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-Oneshot service definitions are 'compiled' by {{C|s6-rc-compile}} to a sequence of strings, suitable as an argument of a POSIX <code>execve()</code> call. {{C|s6-rc-compile}} actually performs execlineb-style parsing itself using the execline package's library, '''libexecline'''. At the time of a service state transition, what s6-rc actually does is perform an {{C|s6-sudo}} invocation with the <code>-e</code> option and the UNIX domain socket mantained by an internal support service named '''s6rc-oneshot-runner'''. {{Path|s6rc-oneshot-runner}} spawns a long-lived {{C|s6-sudod}} process; when a connection is made by an {{C|s6-sudoc}} client to this process' socket, an s6-rc internal program, {{C|s6-rc-oneshot-run}}, is executed with the arguments supplied by the client. {{C|s6-rc-oneshot-run}} accepts an action name ('up' or 'down') and the numerical encoding of a oneshot, that it uses to retrieve the corresponding compiled sequence of strings from the service database, and then make the <code>execve()</code> call that actually performs the oneshot's actions. This ensures that the {{C|s6-sudoc}} - {{C|s6-sudod}} mechanism is only used to run {{C|s6-rc-oneshot-run}}, so that only actions explicitly encoded in the database are executed. Because the {{Path|s6rc-oneshot-runner}} service is an s6-rc longrun, the corresponding {{C|s6-sudod}} process is supervised. Therefore, it runs with the environment set up by the s6 supervision tree used for longruns, which is inherited by its {{C|s6-rc-oneshot-run}} child process. This ensures that oneshot's actions are always performed in this known environment, and using {{C|s6-sudo}}'s <code>-e</code> option ensures that it is not accidentally modified by the {{C|s6-sudoc}} client's environment. {{C|s6-rc-compile}} automatically makes {{Path|s6rc-oneshot-runner}} a direct dependency of every oneshot. For further information about {{C|s6-rc-oneshot-run}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+Oneshot definitions are 'compiled' by {{C|s6-rc-compile}} to a sequence of strings, suitable as an argument of a POSIX <code>execve()</code> call. {{C|s6-rc-compile}} actually performs execlineb-style parsing itself using the execline package's library, '''libexecline'''. At the time of a service state transition, what s6-rc actually does is perform an {{C|s6-sudo}} invocation with the <code>-e</code> option and the UNIX domain socket mantained by an internal support service named '''s6rc-oneshot-runner'''. {{Path|s6rc-oneshot-runner}} spawns a long-lived {{C|s6-sudod}} process; when a connection is made by an {{C|s6-sudoc}} client to this process' socket, an s6-rc internal program, {{C|s6-rc-oneshot-run}}, is executed with the arguments supplied by the client. {{C|s6-rc-oneshot-run}} accepts an action name ('up' or 'down') and the numerical encoding of a oneshot, that it uses to retrieve the corresponding compiled sequence of strings from the service database, and then make the <code>execve()</code> call that actually performs the oneshot's actions. This ensures that the {{C|s6-sudoc}} - {{C|s6-sudod}} mechanism is only used to run {{C|s6-rc-oneshot-run}}, so that only actions explicitly encoded in the database are executed. Because the {{Path|s6rc-oneshot-runner}} service is an s6-rc longrun, the corresponding {{C|s6-sudod}} process is supervised. Therefore, it runs with the environment set up by the s6 supervision tree used for longruns, which is inherited by its {{C|s6-rc-oneshot-run}} child process. This ensures that oneshot's actions are always performed in this known environment, and using {{C|s6-sudo}}'s <code>-e</code> option ensures that it is not accidentally modified by the {{C|s6-sudoc}} client's environment. {{C|s6-rc-compile}} automatically makes {{Path|s6rc-oneshot-runner}} a direct dependency of every oneshot. For further information about {{C|s6-rc-oneshot-run}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
 Example definition in source format for a oneshot named ''test-oneshot'':
 {{Cmd|ls -l test-oneshot|
@@ -99,11 +99,11 @@ output=<pre>total 12
 
 {{FileBox|filename=test-oneshot/type|1=oneshot}}
 
-{{FileBox|filename=test-oneshot/up|
+{{FileBox|lang=bash|filename=test-oneshot/up|
 1=foreground { echo "Calling /home/user/s6-rc-scripts/real-script.sh..." }
 /home/user/s6-rc-scripts/real-script.sh start}}
 
-{{FileBox|filename=test-oneshot/down|
+{{FileBox|lang=bash|filename=test-oneshot/down|
 1=foreground { echo "Calling /home/user/s6-rc-scripts/real-script.sh..." }
 /home/user/s6-rc-scripts/real-script.sh stop}}
 
@@ -330,7 +330,7 @@ output=<pre>total 4
 prw------- 1 user user   0 Mar 30 12:00 fifo
 -rwxr-xr-x 1 user user 144 Mar 30 12:00 run</pre>}}
 
-{{FileBox|filename=logger/run|
+{{FileBox|lang=bash|filename=logger/run|
 1=#!/bin/execlineb -P
 redirfd -w 1 /dev/null
 redirfd -rnb 0 fifo
@@ -735,7 +735,7 @@ Legend <code>X <-- Y</code> means "Y directly depends on X". This diagram shows 
 
 {{FileBox|filename=srv-src3/service-A/type|1=longrun}}
 
-{{FileBox|filename=srv-src3/service-A/run|
+{{FileBox|lang=bash|filename=srv-src3/service-A/run|
 1=#!/bin/execlineb -P
 foreground { echo Service A starting }
 s6-envdir env
@@ -750,7 +750,7 @@ test-daemon --s6=3}}
 
 {{FileBox|filename=srv-src3/service-A/timeout-up|1=15000}}
 
-{{FileBox|filename=srv-src3/service-A/finish|
+{{FileBox|lang=bash|filename=srv-src3/service-A/finish|
 1=#!/bin/execlineb -P
 echo Service A stopping}}
 
@@ -761,7 +761,7 @@ Service B also runs {{C|test-daemon}}, and has service A as a direct dependency:
 
 {{FileBox|filename=srv-src3/service-B/dependencies|1=service-A}}
 
-{{FileBox|filename=srv-src3/service-B/run|
+{{FileBox|lang=bash|filename=srv-src3/service-B/run|
 1=#!/bin/execlineb -P
 foreground { echo Service B starting }
 fdmove -c 2 1
@@ -769,14 +769,14 @@ test-daemon --s6=3}}
 
 {{FileBox|filename=srv-src3/service-B/notification-fd|1=3}}
 
-{{FileBox|filename=srv-src3/service-B/finish|
+{{FileBox|lang=bash|filename=srv-src3/service-B/finish|
 1=#!/bin/execlineb -P
 echo Service B stopping}}
 
 Service C is a oneshot with no dependencies that prints messages to standard output, so that service events can be tracked, but does nothing else:
 {{FileBox|filename=srv-src3/service-C/type|1=oneshot}}
 
-{{FileBox|filename=srv-src3/service-C/up|
+{{FileBox|lang=bash|filename=srv-src3/service-C/up|
 1=foreground {
    pipeline -d { echo Service C starting }
    s6-tai64n
@@ -785,7 +785,7 @@ s6-envdir -I /home/user/s6-rc-env/service-C
 importas -D 0 E ONESHOT_STATUS
 exit $E}}
 
-{{FileBox|filename=srv-src3/service-C/down|
+{{FileBox|lang=bash|filename=srv-src3/service-C/down|
 1=pipeline -d { echo Service C stopping }
 s6-tai64n}}
 
@@ -799,20 +799,20 @@ Service D also runs {{C|test-daemon}} with readiness notification turned off, an
 service-C}}
 
 This means it has both a longrun (service B) and a oneshot (service C) as dependencies.
-{{FileBox|filename=srv-src3/service-D/run|
+{{FileBox|lang=bash|filename=srv-src3/service-D/run|
 1=#!/bin/execlineb -P
 foreground { echo Service D starting }
 fdmove -c 2 1
 test-daemon}}
 
-{{FileBox|filename=srv-src3/service-D/finish|
+{{FileBox|lang=bash|filename=srv-src3/service-D/finish|
 1=#!/bin/execlineb -P
 echo Service D stopping}}
 
 Service E is a longrun with no dependencies:
 {{FileBox|filename=srv-src3/service-E/type|1=longrun}}
 
-{{FileBox|filename=srv-src3/service-E/run|
+{{FileBox|lang=bash|filename=srv-src3/service-E/run|
 1=#!/bin/execlineb -P
 foreground { echo Service E starting }
 s6-envdir env
@@ -824,7 +824,7 @@ test-daemon --s6=3}}
 {{FileBox|filename=srv-src3/service-E/notification-fd|1=3}}
 
 This {{Path|run}} execline script exits 1 if environment variable <var>LONGRUN_FAIL</var> has the value '''yes''', and runs {{C|test-daemon}} otherwise. The environment is set by the s6 supervision tree and modified by the contents of environment subdirectory {{Path|env}}.
-{{FileBox|filename=srv-src3/service-E/finish|
+{{FileBox|lang=bash|filename=srv-src3/service-E/finish|
 1=#!/bin/execlineb -P
 s6-envdir env
 importas -D no Y LONGRUN_FAIL
@@ -843,11 +843,11 @@ Service F is a oneshot that only prints messages to standard output, and that ha
 
 {{FileBox|filename=srv-src3/service-F/dependencies|1=service-E}}
 
-{{FileBox|filename=srv-src3/service-F/up|
+{{FileBox|lang=bash|filename=srv-src3/service-F/up|
 1=pipeline -d { echo Service F starting }
 s6-tai64n}}
 
-{{FileBox|filename=srv-src3/service-F/down|
+{{FileBox|lang=bash|filename=srv-src3/service-F/down|
 1=foreground {
    pipeline -d { echo Service F stopping }
    s6-tai64n
@@ -857,13 +857,13 @@ sleep 10}}
 And finally, service G is a longrun with no dependencies and no relation with any other service, that also runs {{C|test-daemon}} with readiness notification turned off:
 {{FileBox|filename=srv-src3/service-G/type|1=longrun}}
 
-{{FileBox|filename=srv-src3/service-G/run|
+{{FileBox|lang=bash|filename=srv-src3/service-G/run|
 1=#!/bin/execlineb -P
 foreground { echo Service G starting }
 fdmove -c 2 1
 test-daemon}}
 
-{{FileBox|filename=srv-src3/service-G/finish|
+{{FileBox|lang=bash|filename=srv-src3/service-G/finish|
 1=#!/bin/execlineb -P
 echo Service G stopping}}
 
@@ -1126,11 +1126,11 @@ Service A is gone from {{Path|service-D/dependencies}}, and so is file {{Path|se
 
 {{FileBox|filename=srv-src4/service-E/type|1=oneshot}}
 
-{{FileBox|filename=srv-src4/service-E/up|
+{{FileBox|lang=bash|filename=srv-src4/service-E/up|
 1=pipeline -d { echo Service E starting }
 s6-tai64n}}
 
-{{FileBox|filename=srv-src4/service-E/down|
+{{FileBox|lang=bash|filename=srv-src4/service-E/down|
 1=pipeline -d { echo Service E stopping }
 s6-tai64n}}
 
@@ -1224,13 +1224,13 @@ service-H}}
 Service H is a longrun with no dependencies that runs program {{C|test-daemon}} with readiness notification turned off:
 {{FileBox|filename=srv-src5/service-H/type|1=longrun}}
 
-{{FileBox|filename=srv-src5/service-H/run|
+{{FileBox|lang=bash|filename=srv-src5/service-H/run|
 1=#!/bin/execlineb -P
 foreground { echo Service H starting }
 fdmove -c 2 1
 test-daemon}}
 
-{{FileBox|filename=srv-src5/service-H/finish|
+{{FileBox|lang=bash|filename=srv-src5/service-H/finish|
 1=#!/bin/execlineb -P
 echo Service H stopping}}
 
@@ -1379,7 +1379,7 @@ total 12
 Service A spawns a process that executes a hypothetical {{C|test-daemon}} program. It is assumed that this program prints a message of the form "Message #N", where ''N'' is an incrementing number, each time it receives a <code>SIGHUP</code> signal.
 {{FileBox|filename=srv-src6/service-A/type|1=longrun}}
 
-{{FileBox|filename=srv-src6/service-A/run|
+{{FileBox|lang=bash|filename=srv-src6/service-A/run|
 1=#!/bin/execlineb -P
 test-daemon}}
 
@@ -1388,7 +1388,7 @@ test-daemon}}
 Reader A spawns a process that reads lines of text from its standard input and prints them to its standard output, prepended with the string "This comes from service A:":
 {{FileBox|filename=srv-src6/reader-A/type|longrun}}
 
-{{FileBox|filename=srv-src6/reader-A/run|
+{{FileBox|lang=python|filename=srv-src6/reader-A/run|
 1=#!/usr/bin/python
 import sys
 for line in sys.stdin: print ('This comes from service A:', line, end='', flush=True)}}
@@ -1399,7 +1399,7 @@ Service A's standard ouput is connected to reader A's standard input with a pipe
 
 {{FileBox|filename=srv-src6/service-B/type|1=longrun}}
 
-{{FileBox|filename=srv-src6/service-B/run|
+{{FileBox|lang=bash|filename=srv-src6/service-B/run|
 1=#!/bin/execlineb -P
 test-daemon}}
 
@@ -1407,8 +1407,9 @@ test-daemon}}
 
 {{FileBox|filename=srv-src6/reader-B/type|1=longrun}}
 
-{{FileBox|filename=srv-src6/reader-B/run|
-1=import sys
+{{FileBox|lang=python|filename=srv-src6/reader-B/run|
+1=#!/usr/bin/python
+import sys
 for line in sys.stdin: print ('This comes from service B:', line, end='', flush=True)}}
 
 {{FileBox|filename=srv-src6/reader-B/consumer-for|1=service-B}}
@@ -1417,7 +1418,7 @@ And finally, service ''final-reader'' spawns an {{C|s6-log}} process. Messages r
 
 {{FileBox|filename=srv-src6/final-logger/type|1=longrun}}
 
-{{FileBox|filename=srv-src6/final-logger/run|
+{{FileBox|lang=bash|filename=srv-src6/final-logger/run|
 1=#!/bin/execlineb -P
 redirfd -w 1 /dev/null
 foreground {
