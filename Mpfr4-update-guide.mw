@@ -1,1 +1,69 @@
+{{Package|dev-libs/mpfr}} version 4 introduced an ABI and soname change that has the potential of breaking the compiler toolchain. In order to minimize potential problems it is strongly recommended to rebuild {{Package|dev-libs/mpc}} and {{Package|sys-devel/gcc}} immediately after mpfr.
 
+=== The problem ===
+
+{{path|libmpfr.so}} is used by {{path|libmpc.so}} (provided by {{Package|dev-libs/mpc}}), as well as
+internal executables (e.g. {{c|cc1}}, {{c|cc1plus}}) of {{Package|sys-devel/gcc}}.
+Appropriate subslots in mpfr and slot-operators in dependencies in mpc and gcc will cause a rebuild of mpc and gcc after an upgrade of mpfr.
+
+However, after {{Package|dev-libs/mpfr}} version 4 is installed and {{Package|dev-libs/mpc}} rebuilt, but <b>before</b> {{Package|sys-devel/gcc}} is rebuilt, the gcc compiler will be in an inconsistent state wherein symbols from incorrect library versions of mpfr might get used. This can result in segmentation faults and internal compiler errors. It is therefore important to rebuild gcc immmediately after mpc.
+
+=== Preparatory steps ===
+
+Make sure that you have enabled the "preserved libs" feature:
+{{Cmd|emerge --info {{!}} grep preserve-libs | output=<pre>FEATURES="... preserve-libs ..."</pre>}}
+
+=== Detailed upgrade steps ===
+
+Update and rebuild all affected packages as atomically as possible:
+{{Emerge|>{{=}}dev-libs/mpfr-4" dev-libs/mpc sys-devel/gcc|params+=--oneshot}}
+Check that {{c|cc1}} is dynamically linked against the new mpfr version. First identify the absolute path of the {{c|cc1}} executable by running
+{{Cmd|qlist gcc {{!}} grep -P "cc1$"|output=<pre>/usr/libexec/gcc/x86_64-pc-linux-gnu/7.3.0/cc1</pre>}}
+Then, use ldd to list all dynamically linked libraries:
+{{Cmd|ldd /usr/libexec/gcc/x86_64-pc-linux-gnu/7.3.0/cc1 {{!}} grep mpfr|output=<pre>
+        libmpfr.so.6 => /usr/lib64/libmpfr.so.6 (0x00007fe37e9df000)</pre>}}
+You should only see {{Path|libmpfr.so.6}} and <b>not</b> the old {{Path|libmpfr.so.4}} in the output of ldd.
+
+== Troubleshooting ==
+
+=== Mixed linkage ===
+If the ldd command in the previous step returns two library versions,
+{{Cmd|ldd /usr/libexec/gcc/x86_64-pc-linux-gnu/7.3.0/cc1 {{!}} grep mpfr|output=<pre>
+        libmpfr.so.4 => /usr/lib64/libmpfr.so.4 (0x00007fe37fa02000)
+        libmpfr.so.6 => /usr/lib64/libmpfr.so.6 (0x00007fe37e9df000)</pre>}}
+You have rebuilt {{Package|sys-libs/mpc}} against the new mpfr version, but not {{Package|sys-devel/gcc}} (or vice versa). Rebuild the mpc library and the gcc executable immediately:
+{{Emerge|dev-libs/mpc sys-devel/gcc|params+=--oneshot}}
+
+=== Warning about preserved libraries ===
+If you get the following warning you had the preserve-libs feature disabled:
+{{Cmd|prompt=|<pre>
+ * Messages for package dev-libs/mpfr-4.0.1:                                                                                                                                                   
+                                                                                                                                                                                               
+ * Old versions of installed libraries were detected on your system.                                                                                                            
+ * In order to avoid breaking packages that depend on these old libs,                                                 
+ * the libraries are not being removed.  You need to run revdep-rebuild                                         
+ * in order to remove these old dependencies.  If you do not have this                                        
+ * helper program, simply emerge the 'gentoolkit' package.                                                               
+ *                                                                                                                    
+ *   # revdep-rebuild --library '/usr/lib64/libmpfr.so.4' && rm '/usr/lib64/libmpfr.so.4</pre>}}
+
+Follow above instructions immediately and check that the link interface is consistent before you remove the {{Path|libmpfr.so.4}} library. {{c|ldd}} must return exactly one mpfr library:
+{{Cmd|ldd /usr/libexec/gcc/x86_64-pc-linux-gnu/7.3.0/cc1 {{!}} grep mpfr|output=<pre>
+        libmpfr.so.6 => /usr/lib64/libmpfr.so.6 (0x00007fe37e9df000)</pre>}}
+
+
+=== Missing mpfr-4 library ===
+If you encounter internal compiler errors of the form
+{{Cmd|prompt=|/usr/libexec/gcc/x86_64-pc-linux-gnu/7.3.0/cc1plus: error while loading shared libraries: libmpfr.so.4: cannot open shared object file: No such file or directory}}
+The {{Path|libmpfr.so.4}} library got removed before mpc and gcc had been both rebuilt. The preserve-libs feature and the manual check mentioned above should have prevented this.
+
+There is a workaround to bring the system back into working order:
+{{Warning|This is a very fragile workaround and only meant as last resort. Under normal circumstances, you should refrain from changing sonames in such manner.}}
+{{RootCmd|
+ln -s /usr/lib64/libmpfr.so.6 /usr/lib64/libmpfr.so.4|
+emerge --ask --oneshot dev-libs/mpc sys-devel/gcc|
+rm /usr/lib64/libmpfr.so.4|
+revdep-rebuild}}
+Make sure that the link interface is consistent after above steps:
+{{Cmd|ldd /usr/libexec/gcc/x86_64-pc-linux-gnu/7.3.0/cc1 {{!}} grep mpfr|output=<pre>
+        libmpfr.so.6 => /usr/lib64/libmpfr.so.6 (0x00007fe37e9df000)</pre>}}
