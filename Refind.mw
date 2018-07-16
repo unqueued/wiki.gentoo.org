@@ -82,6 +82,7 @@ Where {{Path|/dev/sda}} is your [[EFI System Partition]].
 This isntallation method can be used as either a permanent setup to create a bootable USB flash drive or install rEFInd on a computer that tends to "forget" its NVRAM settings or as a temporary bootstrap to get the system to boot in EFI mode.
 
 == Kernel management ==
+=== Kernel image at ESP partition  ===
 
 rEFInd detects and displays an icon appropriate for the operating system kernel based on the directory it is in. To display a nice Gentoo logo, move the kernel (and initramfs if required) to {{Path|/boot/EFI/Gentoo}}.
 
@@ -108,6 +109,57 @@ Alternatively, kernels (and initramfs if in use) may be kept in {{path|/boot}}. 
 
 {{Note|File names are important to rEFInd, especially for matching kernels with their initramfs. Follow the above naming convention for best results, though more detail can be found in the config file.}}
 
+=== Kernel image outside ESP partition ===
+To silplify kernel updates, you can use features of the installkernel script, which is part of the {{Package|sys-apps/debianutils}} package:
+{{RootCmd
+|emerge -av debianutils
+}}
+
+As the ESP partition filesystem doesn't support symlinks, which will be updated by installkernel script, we will use default {{path|/boot}} directory outside the ESP partition (e.g. root partition with EXT4 filesystem).
+Umount ESP boot partition, and navigate to your default {{path|/boot}} directory, where you will store the kernels images:
+{{RootCmd
+|umount /boot
+|cd /boot
+}}
+
+As the installkernel script only [[Kernel/Configuration#Setup|update symlinks]], we need to create it first:
+{{RootCmd
+|ln -s vmlinuz-`uname -r` vmlinuz
+|ln -s vmlinuz-`uname -r`.old vmlinuz.old
+|ln -s config-`uname -r` config
+|ln -s config-`uname -r`.old config.old
+|ln -s System.map-`uname -r` System.map
+|ln -s System.map-`uname -r`.old System.map.old
+}}
+
+As result, we created initial symlinks, pointed to the current kernel version. You could replace the {{c|`uname -r`}} part with kernel version of your choice.
+
+Now mount ESP partition:
+{{RootCmd
+|mount /boot
+}}
+
+And update {{C|menuentry}} in the {{C|refind.conf}}ː
+{{FileBox|filename=/boot/EFI/BOOT/refind.conf:|lang=bash|1=
+menuentry "Gentoo Linux" {
+	icon     /EFI/refind/icons/os_gentoo.png
+	volume   XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+	loader   /boot/vmlinuz
+	options  "root=PARTUUID=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+	submenuentry "Boot using old kernel image" {
+		volume   XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+		loader /boot/vmlinuz.old
+	}
+}
+}}
+
+{{Note|
+{{C|loader}} and {{C|initrd}} paths are relative to the root of {{C|volume}}.
+
+You need to change {{C|volume}} to math filesystem's {{C|LABEL}}, a {{C|PARTLABEL}}, or a {{C|PARTUUID}} of the partition where the kernel images resides.}}
+
+Next time, if you call {{C|make install}} when installing new kernel image, the installkernel script will update symlinks at your {{path|/boot}} directory automatically and point vmlinuz, config, System.map symlinks to current version of the kernel, also, it will update vmlinuz.old, config.old, System.map.old symlinks and point it to previous version of the kernel and you don't need to update rEFInd config file or NVRAM to use new version of the kernel.
+
 === Different boot configurations ===
 
 Also different boot configurations can be specified to appear as different menu options within the rEFInd menu. This is done by creating the file {{Path|/boot/EFI/gentoo/refind_linux.conf}} with a menu title and the matching cmdline options on each line.
@@ -119,6 +171,8 @@ Also different boot configurations can be specified to appear as different menu 
 The main selection screen for rEFInd will use the first option as the default option, however alternate boot entries can be accessed by highlighting your kernel and pressing {{Key|F2}}. You can also modify cmdline on-the-fly by pressing {{Key|F2}} on a menu item to open it in an editor. When ready, press {{Key|Enter}} to boot the kernel.
 
 {{Note|The kernel cmdline options above are for example only - you will need to have your own options that allow your kernel to boot for your system.}}
+
+
 
 == See also ==
 
