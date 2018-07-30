@@ -1,4 +1,4 @@
-To build the Android Platform, we need a toolchain that can produce executables that link correctly against Android's <code>libc</code>, Bionic. To achieve this, a toolchain targeting <code>aarch64-linux-android</code> (and <code>arm-linux-androideabi</code>) is needed. This article aims to provide a step-by-step guide for reproducing the desired toolchain on all architecture that GCC supports running on, including AArch64, which my GSoC project needs. Unfinished work on this topic is documented at the end of this article.
+To build the Android Platform, we need a toolchain that can produce executables that link correctly against Android's {{c|libc}}, Bionic. To achieve this, a toolchain targeting {{c|aarch64-linux-android}} (and {{c|arm-linux-androideabi}}) is needed. This article aims to provide a step-by-step guide for reproducing the desired toolchain on all architecture that GCC supports running on, including AArch64, which my GSoC project needs. Unfinished work on this topic is documented at the end of this article.
 
 __TOC__
 
@@ -10,70 +10,68 @@ Clone the following repositories which hold Google's modifications to the GCC to
 * [https://android.googlesource.com/platform/bionic Bionic]
 * [https://android.googlesource.com/toolchain/binutils GCC]
 
-The rest of this article assumes that <code>$PWD</code> is in the corresponding project for each step.
+The rest of this article assumes that {{c|$PWD}} is in the corresponding project for each step.
 
 Export the environment variables to get the paths right:
 
-<source lang="bash">export TARGET=aarch64-linux-android
-export PREFIX=/usr/local/$TARGET</source>
+{{Cmd|export TARGET{{=}}aarch64-linux-android|export PREFIX{{=}}/usr/local/$TARGET}}
 == Step 1 -- Build and install binutils ==
 
 Binutils that can process binaries for the target is needed. Create a separate build directory, configure, compile, and then install for target:
 
-<source lang="bash">mkdir build && cd build
-../binutils-2.27/configure --target=$TARGET --prefix=$PREFIX --enable-werror=no
-make -j8 && sudo make install</source>
-The <code>--enable-werror=no</code> option is used to work around failed compiles due to newer versions of GCC generating new warnings. Examine <code>$PREFIX</code> and see if the binutils for the target has been properly installed.
+{{Cmd|mkdir build && cd build|../binutils-2.27/configure --target{{=}}$TARGET --prefix{{=}}$PREFIX --enable-werror{{=}}no|make -j8 && sudo make install}}
+The <code>--enable-werror=no</code> option is used to work around failed compiles due to newer versions of GCC generating new warnings. Examine {{c|$PREFIX}} and see if the binutils for the target has been properly installed.
 
 == Step 2 -- Install prebuilt libc &amp; headers ==
 
 The next step, as most cross-compiler creation guides instructs, is to install libc. Unfortunately, we have not figured out a proper way to compile Bionic without Android's (gigantic) build system, so we're just doing a voodoo copy-and-paste. The libc part in this section is expected to get better when we develop a mature solution for building Bionic.
 
-Install <code>sys-kernel/linux-headers-3.10.73</code> from [https://github.com/KireinaHoro/android/tree/master/sys-kernel/linux-headers here]. Set up libc and kernel headers.
+Install {{c|sys-kernel/linux-headers-3.10.73}} from [https://github.com/KireinaHoro/android/tree/master/sys-kernel/linux-headers here]. Set up libc and kernel headers.
 
-<source lang="bash">sudo emerge -av =sys-kernel/linux-headers-3.10.73
-mkdir -p $PREFIX/$TARGET/sys-include
-cp -Rv bionic/libc/include/* $PREFIX/$TARGET/sys-include/
-for a in linux asm asm-generic; do
-    ln -s /usr/include/$a $PREFIX/$TARGET/sys-include/
-done</source>
+{{Cmd|sudo emerge -av {{=}}sys-kernel/linux-headers-3.10.73|mkdir -p $PREFIX/$TARGET/sys-include|cp -Rv bionic/libc/include/* $PREFIX/$TARGET/sys-include/|for a in linux asm asm-generic; do ln -s /usr/include/$a $PREFIX/$TARGET/sys-include/; done}}
 The following object files are needed for a successful generation of the toolchain:
 
-* <code>crtbegin_so.o</code>: from NDK
-* <code>crtend_so.o</code>: from NDK
-* <code>crtbegin_dynamic.o</code>: from NDK
-* <code>crtend_android.o</code>: from NDK
-* <code>libc.so</code>: from AOSP
-* <code>libm.so</code>: from AOSP
-* <code>libdl.so</code>: from AOSP
-* <code>ld-android.so</code>: from AOSP
+* {{c|crtbegin_so.o}}: from NDK
+* {{c|crtend_so.o}}: from NDK
+* {{c|crtbegin_dynamic.o}}: from NDK
+* {{c|crtend_android.o}}: from NDK
+* {{c|libc.so}}: from AOSP
+* {{c|libm.so}}: from AOSP
+* {{c|libdl.so}}: from AOSP
+* {{c|ld-android.so}}: from AOSP
 
-Obtain the above files and place them under <code>$PREFIX/$TARGET/lib</code> for discovery by the linker.
+Obtain the above files and place them under {{c|$PREFIX/$TARGET/lib}} for discovery by the linker.
 
 == Step 3 -- Build and install GCC ==
 
 The final part is relatively simple. Just compile GCC and install it into the toolchain prefix:
 
-<source lang="bash">mkdir build && cd build
-../gcc-4.9/configure --target=$TARGET --prefix=$PREFIX --without-headers --with-gnu-as --with-gnu-ld --enable-languages=c,c++
-make -j8 && sudo make install</source>
+{{Cmd|mkdir build && cd build|../gcc-4.9/configure --target{{=}}$TARGET --prefix{{=}}$PREFIX --without-headers --with-gnu-as --with-gnu-ld --enable-languages{{=}}c,c++|make -j8 && sudo make install}}
 == Step 4 -- Build and verify &quot;Hello, world!&quot; ==
 
-We need to verify that the toolchain is really working by creating executables for our target. Write a simple &quot;Hello, world!&quot; program and compile it with:
+We need to verify that the toolchain is really working by creating executables for our target. Write a simple &quot;Hello, world!&quot; program:
+{{FileBox|filename=hello.cc|lang=c++|1=#include <iostream>
+int main() {
+    std::cout << "Hello, world!" << std::endl;
+    return 0;
+}
+}}
 
-<pre>aarch64-linux-android-g++ hello.cc -o hello -pie -static-libgcc -nostdinc++ -I/usr/local/aarch64-linux-android/include/c++/v1 -nodefaultlibs -lc -lm -lc++</pre>
+Compile it with:
+
+{{Cmd|aarch64-linux-android-g++ hello.cc -o hello -pie -static-libgcc -nostdinc++ -I/usr/local/aarch64-linux-android/include/c++/v1 -nodefaultlibs -lc -lm -lc++}}
 Explanation for the commandline options used:
 
 * <code>-pie</code>: Android requires [https://en.wikipedia.org/wiki/Position-independent_code Position Independent Executables] property for dynamically-linked executables.
-* <code>-static-libgcc</code>: Android platform does not have <code>libgcc_s.so</code> available; we'll have to make it statically-linked.
-* <code>-nostdinc++</code> and <code>-I...</code>: Android uses <code>libc++</code> as its default STL implementation, and we need this to get the right symbols used by including right C++ headers.
-** This suggests that a correct copy of <code>libcxx</code> headers should be present at the path shown above.
-* <code>-nodefaultlibs</code> and <code>-l...</code>: by default GCC links to <code>libstdc++</code>, which is not desirable in this case; we manually specify what to consider during the linking process.
-** This suggests that <code>libc++.so</code> should be present in the linker search path.
+* <code>-static-libgcc</code>: Android platform does not have {{c|libgcc_s.so}} available; we'll have to make it statically-linked.
+* <code>-nostdinc++</code> and <code>-I...</code>: Android uses {{c|libc++}} as its default STL implementation, and we need this to get the right symbols used by including right C++ headers.
+** This suggests that a correct copy of {{c|libcxx}} headers should be present at the path shown above.
+* <code>-nodefaultlibs</code> and <code>-l...</code>: by default GCC links to {{c|libstdc++}}, which is not desirable in this case; we manually specify what to consider during the linking process.
+** This suggests that {{c|libc++.so}} should be present in the linker search path.
 
 == What else? ==
 
 The work is not finished yet on this topic:
 
-* We still copy-and-paste <code>libc</code> object files instead of properly building them separately. Proper packaging of <code>bionic</code> is needed.
-* The toolchain build process needs integrating with <code>crossdev</code>, Gentoo's flexible cross-compile toolchain generator.
+* We still copy-and-paste {{c|libc}} object files instead of properly building them separately. Proper packaging of {{c|bionic}} is needed.
+* The toolchain build process needs integrating with {{c|crossdev}}, Gentoo's flexible cross-compile toolchain generator.
