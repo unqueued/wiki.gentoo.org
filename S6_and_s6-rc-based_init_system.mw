@@ -12,12 +12,12 @@ The general setup of an s6 and s6-rc based init system is as follows:
 # When the machine boots, all initialization tasks needed to bring it to its stable, normal 'up and running' state, are split into a [[#stage1|stage1 init]] and a a [[#stage2|stage2 init]]. The stage1 init is invoked by the kernel, runs as process 1, and replaces itself with the {{C|s6-svscan}} program from [[s6]] when its work is done. The stage2 init is invoked by the stage1 init, runs as a child of process 1, blocks until {{C|s6-svscan}} starts to execute, and exits when its work is done.
 # During most of the machine's uptime, {{C|s6-svscan}} [[s6#s6process1|runs as process 1]] with [[s6#s6signaldivert|signal diversion turned on]], and there is an s6 supervision tree rooted in process 1, that is launched as soon as {{C|s6-svscan}} starts to execute.
 # A supervised [[#logger|catch-all logger]] is started as part of the supervision tree. The catch-all logger logs messages sent by supervision tree processes to {{C|s6-svscan}}'s standard output and error.
-# The stage2 init [[s6-rc#initialization|initializes the s6-rc service manager]] and starts a subset of the services defined in the [[s6-rc#database|compiled service database]] it was initialized with. Some of these s6-rc-managed services might carry out part of the machine's initialization tasks.
+# The stage2 init [[#s6rcsetup|initializes the s6-rc service manager]] and starts a subset of the services defined in the compiled service database it was initialized with. Some of these s6-rc-managed services might carry out part of the machine's initialization tasks.
 # While {{C|s6-svscan}} is running as process 1, services are normally [[s6-rc#manage|managed using s6-rc tools]].
 # The administrator initiates the machine's shutdown sequence by running a program that sends a signal to process 1. The BusyBox ({{Package|sys-apps/busybox}}) {{C|halt}}, {{C|poweroff}} and {{C|reboot}} applets, or the {{C|s6-halt}}, {{C|s6-poweroff}} and {{C|s6-reboot}} programs from s6-linux-init, can be used for this.
 # {{C|s6-svscan}} then executes an appropriate [[#signals|diverted signal handler]] as a child process, that performs some of the tasks needed to shut the machine down, and stops all s6-rc-managed services.
 # When the diverted signal handler's work is done, it invokes the {{C|s6-svscanctl}} program, which makes {{C|s6-svscan}} perform [[s6#s6svscanfinish|its finish procedure]], and results in execution of the {{Path|.s6-svscan/finish}} file in process 1's scan directory.
-# The {{Path|finish}} becomes the [[#stage3|stage3 init]]: it runs as process 1, makes the catch-all logger exit cleanly, if it didn't when the supervision tree was brought down by {{C|s6-svscan}}'s finish procedure, and then performs all remaining tasks needed to shut the machine down.
+# The {{Path|finish}} file becomes the [[#stage3|stage3 init]]: it runs as process 1, makes the catch-all logger exit cleanly, if it didn't when the supervision tree was brought down by {{C|s6-svscan}}'s finish procedure, and then performs all remaining tasks needed to shut the machine down.
 # When the stage3 init's work is done, it halts, powers off or reboots the machine, as requested by the administrator.
 
 == The boot sequence ==
@@ -97,7 +97,7 @@ Where:
 * ''${stage1_envdir}'' is a placeholder for the absolute pathname of an [[daemontools-encore#changingstate|environment directory]] to be used by the stage1 and stage2 init (e.g. {{Path|/lib/s6-init/env}}).
 * ''${tmpfsdir}'' is a placeholder for the absolute pathname of the directory where the read-write tmpfs will be mounted (normally {{Path|/run}}).
 * ''${run_image}'' is a placeholder for the absolute pathname of the directory where the run image is stored (e.g. {{Path|/lib/s6-init/run-image}} in the rootfs).
-* ''${logger_fifo}'' is a placeholder for the absolute pathname of [[#logger|the catch-all logger's FIFO]] (e.g. {{Path|${tmpfsdir}/${scandir_relpath}/s6-svscan-log/fifo}}).
+* ''${logger_fifo}'' is a placeholder for the absolute pathname of [[#fifo|the catch-all logger's FIFO]] (e.g. {{Path|${tmpfsdir}/${scandir}/s6-svscan-log/fifo}}).
 * ''${stage2_init}'' is a placeholder for the name (if <var>PATH</var> search would find it) or absolute pathname of the stage2 init (e.g. {{Path|/lib/s6-init/init-stage2}}).
 * ''${s6_svscan_envdir}'' is a placeholder for the absolute pathname of an environment directory used to set up the supervision tree's initial environment (e.g. {{Path|/etc/s6-svscan/env}}).
 * ''${scandir}'' is a placeholder for the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, making the scan directory's absolute pathname {{Path|/run/s6/service}}).
@@ -106,7 +106,7 @@ Gentoo's official repository does not supply any package with a stage1 init for 
 {{anchor|stage2}}
 === The stage2 init ===
 
-The stage2 init is spawned by the stage1 init as a child process, and is blocked from running until the latter replaces itself with {{C|s6-svscan}}. To achieve this, the child process of the stage1 init opens [[#logger|the catch-all logger's FIFO]] for writing using the POSIX <code>open()</code> call. The call will block until some other process opens the FIFO for reading. The catch-all logger is a supervised process, so it starts executing when {{C|s6-svscan}} does, and opens the FIFO for reading, thereby unblocking the process, which then replaces itself with the stage2 init.
+The stage2 init is spawned by the stage1 init as a child process, and is blocked from running until the latter replaces itself with {{C|s6-svscan}}. To achieve this, the child process of the stage1 init opens [[#fifo|the catch-all logger's FIFO]] for writing using the POSIX <code>open()</code> call. The call will block until some other process opens the FIFO for reading. The catch-all logger is a supervised process, so it starts executing when {{C|s6-svscan}} does, and opens the FIFO for reading, thereby unblocking the process, which then replaces itself with the stage2 init.
 
 The stage2 init executes with {{C|s6-svscan}} as process 1, and performs all remaining initialization tasks needed to bring the machine to its stable, normal 'up and running' state. It can execute with a few vital supervised long-lived processes already running, started as part of process 1's supervision tree, including the catch-all logger.
 
@@ -125,7 +125,7 @@ In the context of an s6 and s6-rc-based init system, the ''catch-all logger'' is
 The logging directory is owned by the catch-all logger's effective user after dropping privileges, and normally has permissions '''2700''' (i.e. the output of <kbd>ls -l</kbd> displays <code>drwx--S---</code>). Because it is possible to have a setup where a read-only rootfs is the only filesystem available, the logging directory is also normally placed in the read-write tmpfs mounted by the stage1 init, unless a different read-write filesystem can be guaranteed to exist before {{C|s6-svscan}} starts executing as process 1 (e.g. {{Path|/var/log/s6-svscan}} is used, but {{Path|/var}} is guaranteed to be in the rootfs, and either the kernel mounts the rootfs read-write or the stage1 init remounts it read-write, or {{Path|/var}} is a filesystem mounted read-write by the stage1 init or the [[initramfs]], etc.). If the logging directory is in the aforementioned tmpfs, it must be created with appropriate owner and permissions by the code of the catch-all logger's {{Path|run}} file, or be present as an empty directory with appropriate owner and permissions in the run image copied to the tmpfs.
 
 Gentoo's official repository does not supply any package with a catch-all logger service directory for s6 and s6-rc-based init systems. Users must create one from scratch or take it from somewhere else (e.g. alternative ebuild repositories). The {{C|s6-linux-init-maker}} program from s6-linux-init can create a catch-all logger service directory named {{Path|s6-svscan-log}}, that can be used as a basis for writing a custom or more elaborate one, if so desired. The {{C|s6-linux-init-maker}} catch-all logger uses {{C|s6-log}} with the <code>-p</code> option, and logs to a subdirectory named {{Path|uncaught-logs}} of the tmpfs mounted by the {{C|s6-linux-init-maker}} stage1 script.
-
+{{anchor|fifo}}
 === The catch-all logger's FIFO ===
 
 An s6 and s6-rc-based init system has a FIFO some place in the filesystem, reserved for the catch-all logger. The FIFO is owned by root and has permissions '''0600''' (i.e. the output of <kbd>ls -l</kbd> displays <code>prw-------</code>). The run image that is copied to the read-write tmpfs mounted by the [[#stage1|stage1 init]] contains {{C|s6-svscan}}'s initial scan directory, with at least a service directory for the catch-all logger already present, and possibly an additional service directory for an {{C|agetty}} process or similar also present. The former, so that the catch-all logger is started as soon as {{C|s6-svscan}} begins execution as process 1, and the latter, so that it is possible to log in to the machine if the supervision tree starts successfully, even if something else fails (e.g. [[#s6rcsetup|s6-rc's setup]]). The code of the catch-all logger's {{Path|run}} file opens the FIFO for reading, redirects its standard input to it, its standard error to {{Path|/dev/console}}, drops privileges (e.g. by invoking {{C|s6-setuidgid}} or {{C|s6-applyuidgid}} if it is a script) and calls the logger program, which is normally {{C|s6-log}}.
@@ -170,7 +170,7 @@ When process 1 receives such a signal, the corresponding diverted signal handler
 Generally speaking, the handlers undo what the stage2 init has done at boot time. Because most of this work is the same for all diverted signal handlers, they usually execute a common file, named ''the shutdown file'', and wait for it to finish before invoking {{C|s6-svscanctl}}. The shutdown file's code can use s6 tools and s6-rc services to do its work, because {{C|s6-svscan}} is still running. However, all s6-rc-managed services have to be stopped (normally with a <kbd>s6-rc -da change</kbd> command) before {{C|s6-svscanctl}} is invoked, because {{C|s6-svscan}} will stop running after that, and s6-rc does not work without an s6 supervision tree. The {{C|s6-svscan}} diverted signal handlers and the shutdown file can be, and normally are, execline or shell scripts.
 
 The general structure of an execline handler script is as follows, or a variation thereof:
-{{FileBox|lang=bash|filename=${tmpfsdir}/${scandir_relpath}/.s6-svscan/SIGxxx|title=Execline diverted signal handler script|
+{{FileBox|lang=bash|filename=${tmpfsdir}/${scandir}/.s6-svscan/SIGxxx|title=Execline diverted signal handler script|
 1=#!/bin/execlineb -P
 foreground { ${shutdown_file} }
 s6-svscanctl ${option} .}}
@@ -178,7 +178,7 @@ s6-svscanctl ${option} .}}
 Where:
 
 * ''${tmpfsdir}'' is a placeholder for the absolute pathname of the directory where the stage1 init mounted the read-write tmpfs (normally {{Path|/run}}).
-* ''${scandir_relpath}'' is a placeholder for the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, if the absolute pathname is {{Path|/run/s6/service}}).
+* ''${scandir}'' is a placeholder for the pathname, relative to ''${tmpfsdir}'', of process 1's scan directory (e.g. {{Path|s6/service}}, making the scan directory's absolute pathname {{Path|/run/s6/service}}).
 * ''${shutdown_file}'' is a placeholder for the name (if <var>PATH</var> search would find it) or absolute pathname of the shutdown file (e.g. {{Path|/lib/s6-init/shutdown}}).
 * ''${option}'' is the {{C|s6-svscanctl}} option for the action that corresponds to the signal:
 ** '''-0''' or '''-st''' for halt.
@@ -226,6 +226,7 @@ wait -r { }
 # This includes killing all processes so that filesystems can be unmounted / remounted read-only.
 # Using kill from procps and sleep from GNU Coreutils; s6-nuke and s6-sleep from s6-portable-utils work too:
 # foreground { kill -TERM -1 }
+# foreground { kill -CONT -1 }
 # foreground { sleep 2 }
 # foreground { kill -KILL -1 }
 # wait { }
