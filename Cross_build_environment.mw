@@ -29,7 +29,7 @@ ARCH=arm #check your target architecture
 FEATURES=buildpkg #remove buildpkg if you don't want all binary packages in $ROOT/packages
 USE="${ARCH} -pam -acl" # disable acl to build the base system (essential packages will fail cross compilation otherwise),enable it later if it's needed
 MAKEOPTS="-j5" # set -j1 for debugging failed compilation if necessary, otherwise set the build jobs appropriate to the number of cpu cores
-CFLAGS="" # you can't use -march=native here if the target has a different CPU. See the following subsections for useful adaptions.
+CFLAGS="..." # you can't use -march=native here if the target has a different CPU. See the following subsections for useful adaptions.
 }}
 
 * Set the appropriate make profile. See below for target architecture specific examples.
@@ -42,7 +42,7 @@ CFLAGS="-Ofast -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s -fo
 ...
 }}
 * Set the appropriate make profile. For the raspberry-pi it would be:
-: {{RootCmd|cd /usr/armv6j-hardfloat-linux-gnueabi/etc/portage && rm make.profile && ln -s /usr/portage/profiles/default/linux/arm/13.0/armv6j make.profile|prompt=pi #|color=white}}
+: {{RootCmd|ARCH{{=}}arm PORTAGE_CONFIGROOT{{=}}/usr/armv6j-hardfloat-linux-gnueabi eselect profile set default/linux/arm/13.0/armv6j|prompt=pi #|color=white}}
 
 === Allwinner A20 specific ===
 In addition to the auto-generated file content, the following modifications are necessary for successful cross-compilation:
@@ -130,17 +130,16 @@ umount proc|lang=bash}}
 ** Check/Reload config:
 *: {{RootCmd|<nowiki>gcc-config -l;ldconfig -v;ROOT=/ env-update; source /etc/profile</nowiki>}}
 ** To run emerge inside the chroot it is needed to pass other config variables to portage, it can be done with an alias:
-*: {{RootCmd|<nowiki>echo 'alias emerge-chroot="ROOT=/ CBUILD=$(grep CHOST= /etc/portage/make.conf|cut -d= -f2) HOSTCC=$CBUILD emerge"' > /etc/bash/bashrc.d/emerge-chroot && source /etc/profile</nowiki>}}
+*: {{RootCmd|<nowiki>echo 'alias emerge-chroot="ROOT=/ CBUILD=$(portageq envvar CHOST) HOSTCC=$CBUILD emerge"' > /etc/bash/bashrc.d/emerge-chroot && source /etc/profile</nowiki>}}
 ** Packages, that refused the cross compilation can now be built with:
 *: {{RootCmd|emerge-chroot --ask --update -v --keep-going @system}}
 * After installation of the base system the target environment can be finished according to the installation handbook
 
 == Known bugs and limitations ==
 
-* On amd64 build hosts, some cross compiled packages end up in the target environment in /usr/lib64 even if it is not a 64bit target, so set a symlink {{RootCmd|1=cd /usr/<TARGET>/usr && ln -s lib lib64}}
+* On amd64 build hosts, some cross compiled packages end up in the target environment in /usr/lib64 even if it is not a 64bit target, so set a symlink {{RootCmd|1=cd /usr/<TARGET>/usr && ln -s lib lib64}}.
 * Some packages, that create new system users fail to create them in the target environment and create them in build host instead (i.e. openssh). You need to create the user manually or emerge the package in the chroot again.
 * If the build host is no-multilib and target environment is multilib: Emerge of sys-apps/sandbox fails because of missing 32bit support of the cross compiler. To solve this remove temporarily the dependency to sys-apps/sandbox in sys-apps/portage. Emerge sys-devel/gcc after that in the chroot environment. Now it is possible to emerge sys-apps/sandbox in the chroot.
-* Some targets (e.g. {{c|powerpc-unknown-linux-gnu}}) may require you to add {{c|--genv 'EXTRA_ECONF{{=}}"--disable-libstdc++-v3"'}} to the {{c|crossdev}} command line, otherwise the {{c|gcc}} (version 5) stage 2 will fail to build (as discussed in Gentoo {{Bug|582002}}).
 
 ==Cross building static binaries for closed systems==
 Static binaries are not needed often, but there are some occasions where they are useful.
@@ -185,8 +184,8 @@ Rebuild glibc with static options. When the default path was changed in the prev
 * Chroot into the target environment (e.g. <code>chroot-armv7a-android</code>)
 * If the default path for glibc config files was changed symlink it <code>mv -i /sdcard/etc/* /etc && rmdir /sdcard/etc && ln -s /etc /sdcard/etc</code>
 * Build a statically linked package
-** an example for android is privoxy {{RootCmd|<nowiki>CFLAGS="$(emerge --info|grep ^CFLAGS|grep -oP '(?<=").*(?=")') -static" CXXFLAGS=$CFLAGS LDFLAGS="$(emerge --info|grep LDFLAGS|grep -oP '(?<=").*(?=")') -static"  PKGDIR=/tmp/ emerge-chroot privoxy --buildpkgonly -va1</nowiki>|prompt=android #|color=green}}
-** an example for a statically linked nginx is {{RootCmd|<nowiki>NGINX_MODULES_HTTP="gzip" CFLAGS="$(emerge --info|grep ^CFLAGS|grep -oP '(?<=").*(?=")') -static" CXXFLAGS=$CFLAGS LDFLAGS="$(emerge --info|grep LDFLAGS|grep -oP '(?<=").*(?=")') -static"  PKGDIR=/tmp/ emerge-chroot -va1 --buildpkgonly nginx:mainline</nowiki>|prompt=container #|color=grey}}
+** an example for android is privoxy {{RootCmd|<nowiki>CFLAGS="$(portageq envvar CFLAGS) -static" CXXFLAGS=$CFLAGS LDFLAGS="$(portageq envvar LDFLAGS) -static"  PKGDIR=/tmp/ emerge-chroot privoxy --buildpkgonly -va1</nowiki>|prompt=android #|color=green}}
+** an example for a statically linked nginx is {{RootCmd|<nowiki>NGINX_MODULES_HTTP="gzip" CFLAGS="$(portageq envvar CFLAGS) -static" CXXFLAGS=$CFLAGS LDFLAGS="$(portageq envvar LDFLAGS) -static"  PKGDIR=/tmp/ emerge-chroot -va1 --buildpkgonly nginx:mainline</nowiki>|prompt=container #|color=grey}}
 ===Example: Use a statically linked privoxy on Android===
 * unzip the binary tarball from above to /sdcard/ on the android device (e.g. trough the ssh server "sshelper" via Google Play or "ftpserver" via F-Droid)
 ** change in the privoxy config <code>/sdcard/etc/privoxy/config</code> at least all entries with <code>/etc/</code> and <code>/var/</code> in <code>/sdcard/etc</code> and <code>/sdcard/var/</code>
