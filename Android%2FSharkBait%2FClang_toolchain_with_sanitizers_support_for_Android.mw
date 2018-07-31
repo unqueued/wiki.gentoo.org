@@ -14,30 +14,30 @@ __TOC__
 
 == Set up environment and repositories ==
 
-This part defaults to using <code>aarch64-linux-android</code> as the target and using the HEAD version of LLVM tools. Edit accordingly if this is not desired. CMake and Ninja is required to follow this guide; install them if they're not present on your system.
+This part defaults to using {{c|aarch64-linux-android}} as the target and using the HEAD version of LLVM tools. Edit accordingly if this is not desired. CMake and Ninja is required to follow this guide; install them if they're not present on your system.
 
 == Set up GCC for target ==
 
-GCC is needed for cross compiling with Clang/LLVM. Follow [[%7Bfilename%7Dtoolchain-for-aarch64-linux-android.html|this article on GCC cross-compiling for Android]] to get a working copy of cross GCC. This should get you through the comment block that reads:
+GCC is needed for cross compiling with Clang/LLVM. Follow [[User:Jsteward/Building a toolchain for aarch64-linux-android|this article on GCC cross-compiling for Android]] to get a working copy of cross GCC. This should get you through the comment block that reads:
 
-<source lang="bash"># install GNU binutils
+{{CodeBox|title=Comment section in bootstrap.sh|lang=bash|1=# install GNU binutils
 # copy headers into $PREFIX/$TARGET/sys-include
 # copy crt*.o lib{c,m,dl}.so to $PREFIX/lib64 and $PREFIX/$TARGET/lib
-# install GCC</source>
+# install GCC}}
 Note that later Clang/LLVM build requires prebuilt libraries in two different locations. Copy the object files accordingly.
 
 == LLVM + Clang ==
 
 Configure options to note:
 
-* <code>LLVM_TARGETS_TO_BUILD=AArch64</code>: Enable only AArch64 target. Remember to substitute this if the target is not <code>aarch64</code> (e.g. <code>ARM</code> for 32 bit)
+* <code>LLVM_TARGETS_TO_BUILD=AArch64</code>: Enable only AArch64 target. Remember to substitute this if the target is not {{c|aarch64}} (e.g. {{c|ARM}} for 32 bit)
 
 == Compiler-rt builtins ==
 
 Configure options to note:
 
 * <code>CMAKE_INSTALL_PREFIX=$PREFIX/lib/clang/7.0.0</code>: Install to Clang &quot;resource path&quot; so that libraries can be automatically found by Clang while compiling.
-* <code>COMPILER_RT_BUILD_BUILTINS=ON</code> and <code>COMPILER_RT_BUILD_*=OFF</code>: Build builtins only as other components require <code>libc++</code> to build.
+* <code>COMPILER_RT_BUILD_BUILTINS=ON</code> and <code>COMPILER_RT_BUILD_*=OFF</code>: Build builtins only as other components require {{c|{{c|libc++}}}} to build.
 
 == Libunwind ==
 
@@ -47,51 +47,49 @@ Nothing special here.
 
 Configure options to note:
 
-* <code>LIBCXXABI_LIBCXX_INCLUDES=&quot;../../libcxx/include&quot;</code>: Specify libc++ header path for reference by libc++abi during build.
+* <code>LIBCXXABI_LIBCXX_INCLUDES=&quot;../../libcxx/include&quot;</code>: Specify {{c|libc++}} header path for reference by {{c|libc++abi}} during build.
 * <code>LIBCXXABI_USE_COMPILER_RT=ON</code>: This option name speaks for itself.
 * <code>LIBCXXABI_USE_LLVM_UNWINDER=ON</code>: This option name speaks for itself.
 
-Remember to install libc++abi headers into the prefix as CMake doesn't generate libc++abi header install rules:
+Remember to install {{c|libc++abi}} headers into the prefix as CMake doesn't generate {{c|libc++abi}} header install rules:
 
-<source lang="bash">sudo cp -R ../include $PREFIX/include/libcxxabi</source>
+{{CodeBox|title=Install libcxxabi headers|lang=bash|1=sudo cp -R ../include $PREFIX/include/libcxxabi}}
 == Libcxx ==
 
-As discussed in [https://reviews.llvm.org/D46558 this thread], LLVM HEAD at the time of writing uses NDK headers that are newer than the prebuilt NDK version (r16 vs r14). As a result, we have to rebase to remove commit <code>85a7702b4cc5d69402791fe685f151cf3076be71</code> from Libcxx repository:
+As discussed in [https://reviews.llvm.org/D46558 this thread], LLVM HEAD at the time of writing uses NDK headers that are newer than the prebuilt NDK version (r16 vs r14). As a result, we have to rebase to remove commit {{c|85a7702b4cc5d69402791fe685f151cf3076be71}} from Libcxx repository:
 
-<source lang="bash">pushd .. && \
+{{CodeBox|title=Remove commit that uses new NDK headers|lang=bash|1=pushd .. && \
     git fetch --unshallow && \
     git rebase -i 85a7702b4cc5d69402791fe685f151cf3076be71^ && \
-    popd</source>
+    popd}}
 Configure options to note:
 
-* <code>LIBCXX_CXX_ABI=&quot;libcxxabi&quot;</code>: Use <code>libcxxabi</code> as the C++ ABI library (instead of <code>libcxxrt</code> or <code>libsupc++</code>).
-* <code>LIBCXX_CXX_ABI_INCLUDE_PATHS=&quot;$PREFIX/include/libcxxabi&quot;</code>: Reference to <code>libcxxabi</code> headers (installed in the previous step).
+* <code>LIBCXX_CXX_ABI=&quot;libcxxabi&quot;</code>: Use {{c|libcxxabi}} as the C++ ABI library (instead of {{c|libcxxrt}} or {{c|libsupc++}}).
+* <code>LIBCXX_CXX_ABI_INCLUDE_PATHS=&quot;$PREFIX/include/libcxxabi&quot;</code>: Reference to {{c|libcxxabi}} headers (installed in the previous step).
 * <code>LIBCXX_USE_COMPILER_RT=ON</code>: This option name speaks for itself.
 
-Note that Android by default combines libc++, libc++abi, and libunwind into a single <code>libc++.so</code>. We'll do this as well so that the executable does not contain stray dynamic link references.
+Note that Android by default combines {{c|libc++}}, {{c|libc++abi}}, and libunwind into a single {{c|libc++.so}}. We'll do this as well so that the executable does not contain stray dynamic link references.
 
-<source lang="bash">pushd $TARGET/lib
+{{CodeBox|title=Create combined {{c|libc++}}|lang=bash|1=pushd $TARGET/lib
 sudo mv libc++.so libc++.so.old
 sudo /usr/local/aarch64-linux-android/bin/clang -shared \
     -o libc++.so -Wl,--whole-archive libc++.a libc++abi.a libunwind.a \
     -Wl,--no-whole-archive
-popd</source>
+popd}}
 == Compiler-rt non-builtin (sanitizers, etc.) ==
 
-Bionic headers as of commit <code>a9713035baecf21f607ef81c8652eb344086966c</code> misses definition for <code>in_addr_t</code> in its headers. It is possible that the Linux headers are expected to define this, but <code>android_kernel_huawei_angler</code> did not define this. Apply [https://gist.github.com/KireinaHoro/141d27321b2aab27fa8292b1bd0f7105 this patch] on Bionic headers to continue.
+Bionic headers as of commit {{c|a9713035baecf21f607ef81c8652eb344086966c}} misses definition for {{c|in_addr_t}} in its headers. It is possible that the Linux headers are expected to define this, but {{c|android_kernel_huawei_angler}} did not define this. Apply [https://gist.github.com/KireinaHoro/141d27321b2aab27fa8292b1bd0f7105 this patch] on Bionic headers to continue.
 
 Configure options to note:
 
 * <code>CMAKE_INSTALL_PREFIX=$PREFIX/lib/clang/7.0.0</code>: Install to Clang &quot;resource path&quot; so that libraries can be automatically found by Clang while compiling.
-* <code>COMPILER_RT_BUILD_BUILTINS=OFF</code> and <code>COMPILER_RT_BUILD_*=ON</code>: Build components other than builtins as we have <code>libc++</code> now.
+* <code>COMPILER_RT_BUILD_BUILTINS=OFF</code> and <code>COMPILER_RT_BUILD_*=ON</code>: Build components other than builtins as we have {{c|libc++}} now.
 
 == Testing ==
 
-<source lang="bash"># C:
-/usr/local/aarch64-linux-android/bin/clang hello.c -o hello
-# C++:
-/usr/local/aarch64-linux-android/bin/clang++ hello.cc -o hello \
-    --stdlib=libc++ --rtlib=compiler-rt
-# C++ with sanitizers (ubsan as an example):
-/usr/local/aarch64-linux-android/bin/clang++ hello.cc -o hello --stdlib=libc++ \
-    -fsanitize=undefined -static-libsan --rtlib=compiler-rt</source>
+C source file:
+{{Cmd|/usr/local/aarch64-linux-android/bin/clang hello.c -o hello}}
+C++ source file:
+{{Cmd|/usr/local/aarch64-linux-android/bin/clang++ hello.cc -o hello --stdlib{{=}}libc++ --rtlib{{=}}compiler-rt}}
+C++ source file with sanitizers (ubsan as an example):
+{{Cmd|/usr/local/aarch64-linux-android/bin/clang++ hello.cc -o hello --stdlib{{=}}libc++ -fsanitize{{=}}undefined -static-libsan --rtlib{{=}}compiler-rt}}
