@@ -1,11 +1,42 @@
-== Background ==
+{{Warning|'''Work still in progress.'''}}
 
-=== Why migrate? ===
+== Why migrate? ==
 
-Originally, Gentoo used [https://code.google.com/archive/p/openssh-lpk/ OpenSSH LDAP public key patch] from Eric Auge. However, this patch is dead and doesn't work anymore with OpenSSH 7.7 or newer because auth_parse_options() function was removed in OpenSSH via [https://github.com/openssh/openssh-portable/commit/7c856857607112a3dfe6414696bf4c7ab7fb0cb3 commit 7c856857607112a3dfe6414696bf4c7ab7fb0cb3].
+Originally, Gentoo used [https://code.google.com/archive/p/openssh-lpk/ OpenSSH LDAP public key patch (OpenSSH-LPK patch set)] from Eric Auge. However, this patch is dead and doesn't work anymore with OpenSSH 7.7 or newer because ''auth_parse_options()'' function was removed in OpenSSH via [https://github.com/openssh/openssh-portable/commit/7c856857607112a3dfe6414696bf4c7ab7fb0cb3 commit 7c856857607112a3dfe6414696bf4c7ab7fb0cb3].
 
-In the meantime this patch was rewritten by Red Hat from scratch. Instead of patching OpenSSH, the new implementation make use of OpenSSH's AuthorizedKeysCommand feature. However, this requires a configuration change.
+Since the creation of the OpenSSH-LPK patch set, OpenSSH has changed a lot. With the release of [https://www.openssh.com/txt/release-6.2 OpenSSH 6.2_p1] in 2013-03-22, a new sshd option called "''AuthorizedKeysCommand''" was implemented which supports fetching ''authorized_keys'' from a command in addition to (or instead of) from the filesystem. Thanks to this feature, we no longer need to patch OpenSSH itself. Instead we can move LDAP lookup into an own package which is developed and maintained independently of OpenSSH.
 
-{{Warning|'''The new LDAP implementation uses a different LDAP schema per default. However, you can use previous schema. This migration guide will tell you how you need to configure sshd to work with previous schema.'''}}
+In Gentoo we added {{Package|sys-auth/ssh-ldap-pubkey}} package which will provides a wrapper which can be used by "''AuthorizedKeysCommand''" option and also provides tools to manage keys in LDAP.
 
-...but someone needs to write that guide first.
+== How to migrate ==
+
+=== Step 1: Install wrapper of your choice ===
+{{Note|As of today (2018-08-03) we only have one suitable wrapper in the official Gentoo repository available.}}
+{{Emerge|sys-auth/ssh-ldap-pubkey}}
+
+=== Step 2: Update ldap.conf ===
+Compare your existing ''ldap.conf'' against ''ldap.conf'' provided by the wrapper and update your configuration in case something is missing or needs to be updated:
+{{Cmd
+|diff -u  diff -u /etc/openldap/ldap.conf /usr/share/ssh-ldap-pubkey/examples/ldap.conf}}
+
+=== Step 3: Verify that your configuration is working ===
+If your current user has keys stored in LDAP, just run
+{{Cmd|ssh-ldap-pubkey list}}
+or
+{{Cmd|ssh-ldap-pubkey list -u larry}}
+to verify that your or Larry's keys are available like expected.
+
+{{Warning|'''If these commands don't retrieve any keys, you need to check your LDAP configuration before your proceed.'''}}
+
+=== Step 4: Update OpenSSH configuration ===
+Now you need to update your sshd's configuration so that it will use the new wrapper to fetch ''authorized_keys'' from LDAP.
+{{rootCmd|nano /etc/ssh/sshd_config}}
+Add the following:
+    AuthorizedKeysCommand /usr/bin/ssh-ldap-pubkey-wrapper
+
+=== Step 5: Restart sshd ===
+As last step don't forget to restart your sshd so that your updated configuration will be used.
+When you are using OpenRC you do
+{{rootCmd|/etc/init.d/sshd restart}}
+When you are using systemD you do
+{{rootCmd|systemctl restart sshd.service}}
