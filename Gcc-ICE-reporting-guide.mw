@@ -1,0 +1,235 @@
+If you have {{c|gcc}} crashing when building some gentoo package
+<code>internal compiler error: Segmentation fault</code> this page is
+for you!
+
+To extract useful information from the crash to report a bug requires a
+few steps. This article lists the steps and provides a few real-world
+debugging sessions.
+
+== Steps to track an ICE (internal compiler errors) down ==
+
+=== Check if an ICE is reproducible ===
+Sometimes {{c|gcc}} crashes due to external reasons
+not directly related to gcc:
+
+* out-of-memory condition (check {{c|dmesg}})
+* bad RAM modules ({{Package|sys-apps/memtest86+}})
+
+Make sure the above is not your case.
+
+Look at {{Path|build.log}} with ICE and try to resume
+the build to see if the same command causes the same
+ICE. Usually command looks something like
+<code>make --jobs=8 --load-average=8 CPPFLAGS= CFLAGS= LDFLAGS=</code>.
+
+Go to <code>Working directory</code> (specified in
+{{Path|build.log}} as well) and rerun build command.
+You should see exact command and the failure.
+
+Our running example will be ICE on <code>dev-lang/python-3.6.5</code>:
+
+{{Cmd|cd '/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5'|LANG{{=}}C make|output=<pre>
+running build
+running build_ext
+INFO: Can't locate Tcl/Tk libs and/or headers
+building 'cmath' extension
+gcc-7.3.0 -pthread -fPIC -Wno-unused-result -Wsign-compare -DNDEBUG -march=prescott -mfpmath=sse -O2 -pipe -fomit-frame-pointer -fwrapv -std=c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -I./Include -I. -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Include -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5 -c /dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.c -o build/temp.linux-i686-3.6/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.o
+In file included from /dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.c:11:0:
+/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/clinic/cmathmodule.c.h: In function 'cmath_acos':
+/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/clinic/cmathmodule.c.h:45:1: internal compiler error: Segmentation fault
+ }
+ ^
+Please submit a full bug report,
+with preprocessed source if appropriate.
+See <https://bugs.gentoo.org/> for instructions.
+</pre>}}
+
+The build fails every time <code>LANG=C make</code> is reran. Yay!
+
+=== Extract exact command ===
+
+If build system already prints exact command just re-execute it
+(make sure you are in correct directory). If build system does
+not print the command you will have to use other methods of
+getting command like running <code>strace</code> or passing
+verbose flags manually.
+
+In case of python command is printed as-is:
+
+{{Cmd|LANG{{=}}C gcc-7.3.0 -pthread -fPIC -Wno-unused-result -Wsign-compare -DNDEBUG -march{{=}}prescott -mfpmath{{=}}sse -O2 -pipe -fomit-frame-pointer -fwrapv -std{{=}}c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -I./Include -I. -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Include -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5 -c /dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.c -o build/temp.linux-i686-3.6/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.o|output=<pre>
+In file included from /dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.c:11:0:
+/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/clinic/cmathmodule.c.h: In function 'cmath_acos':
+/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/clinic/cmathmodule.c.h:45:1: internal compiler error: Segmentation fault
+ }
+ ^
+Please submit a full bug report,
+with preprocessed source if appropriate.
+See <https://bugs.gentoo.org/> for instructions.
+</pre>}}
+
+=== Extract self-contained source (use -save-temps) ===
+
+Add <code>-save-temps</code> to {{c|gcc}} command on a previous step to extract preprocessed sample.
+<code>foo.c</code> will create <code>foo.i</code> (or <code>foo.ii</code> for <code>c++</code>).
+
+Obligatory python example:
+
+{{Cmd|LANG{{=}}C gcc-7.3.0 -pthread -fPIC -Wno-unused-result -Wsign-compare -DNDEBUG -march{{=}}prescott -mfpmath{{=}}sse -O2 -pipe -fomit-frame-pointer -fwrapv -std{{=}}c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -I./Include -I. -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Include -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5 -c /dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.c -o build/temp.linux-i686-3.6/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Modules/cmathmodule.o -save-temps</pre>|output=<pre>
+... same failure ...
+</pre>}}
+
+The preprocessed file is in <code>cmathmodule.i</code> now.
+You can get more tips at https://gcc.gnu.org/bugs/
+
+=== Expand -march=native, exact gcc version and other system-specific options ===
+
+Some compiler options like <code>-march=native</code> are depend on the environment.
+You need to resolve them into exact options. One way to do it is to query {{c|gcc}}
+for expansion:
+
+{{Cmd|LANG{{=}}C gcc -Q --help{{=}}target > default.opts
+|LANG{{=}}C gcc -march{{=}}native -Q --help{{=}}target > native.opts
+|diff -U0 default.opts native.opts|output=<pre>
+--- default.opts        2018-08-05 00:27:33.038834012 +0100
++++ native.opts 2018-08-05 00:27:33.052834195 +0100
+@@ -16 +16 @@
+-  -maes                                [disabled]
++  -maes                                [enabled]
+@@ -24 +24 @@
+-  -march=                              x86-64
++  -march=                              sandybridge
+@@ -26 +26 @@
+-  -mavx                                [disabled]
++  -mavx                                [enabled]
+...
+</pre>}}
+
+Here <code>-march=native</code> is substituted for <code>-march=sandybridge -maes -mavx ...</code>.
+Make sure bug is reproducible after substitution as well.
+
+=== Report bug on bugs.gentoo.org ===
+
+File a bug at https://bugs.gentoo.org/ against toolchain@gentoo.org
+and provide a few details:
+
+* <code>gcc -v</code> output
+* attach <code>.i</code> reproducer
+
+=== [bonus] minimize needed flags to reproduce failure ===
+
+You can do similar expansion for optimizer options as well:
+<code>LANG=C gcc -O2 -Q --help=optimizers</code>
+
+Try to find minimal set of flags needed to trigger the crash by
+removing some expanded options.
+
+=== [bonus] minimize self-contained source using creduce ===
+
+Not to the fun part! Let's shrink <code>.i</code> down to a
+manageable size with help of https://embed.cs.utah.edu/creduce/.
+
+1. emerge creduce
+
+2. write a tester:
+
+<pre>
+$ cat test.sh 
+LANG=C gcc-7.3.0 -pthread -fPIC -Wno-unused-result -Wsign-compare -DNDEBUG -march=prescott -mfpmath=sse -O2 -pipe -fomit-frame-pointer -fwrapv -std=c99 -Wextra -Wno-unused-result -Wno-unused-parameter -Wno-missing-field-initializers -I./Include -I. -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5/Include -I/dev/shm/portage/dev-lang/python-3.6.5/work/Python-3.6.5 -c cmathmodule.i -o cmathmodule.o \
+>gcc_out.txt 2>&1
+grep "internal compiler error" gcc_out.txt >/dev/null 2>&1
+</pre>
+
+3. validate tester
+
+<pre>
+$ ./test.sh
+$ echo $?
+0
+</pre>
+
+4. Reduce!
+
+<pre>
+$ creduce test.sh cmathmodule.i
+
+===< 2430 >===
+running 4 interestingness tests in parallel
+===< pass_includes :: 0 >===
+===< pass_unifdef :: 0 >===
+===< pass_comments :: 0 >===
+===< pass_blank :: 0 >===
+(1.2 %, 733906 bytes)
+(27.4 %, 539234 bytes)
+===< pass_clang_binsrch :: replace-function-def-with-decl >===
+(29.5 %, 523834 bytes)
+(30.2 %, 518466 bytes)
+(32.0 %, 505350 bytes)
+...
+          ******** cmathmodule.i ********
+
+typedef struct {
+  double a
+} b;
+b c;
+d, e, f;
+g() {
+  _setjmp();
+  b h;
+  if (e)
+    h.a = copysign(f, d);
+  c = h;
+}
+</pre>
+
+Done!
+
+<code>cmathmodule.i</code> contains the same shrunk example.
+
+=== [bonus] Check if bug still exists on vanilla gcc master ===
+
+Building gcc locally could look like that:
+
+<pre>
+$ git clone git://gcc.gnu.org/git/gcc.git
+$ mkdir -p gcc-build && cd gcc-build
+$ ../gcc/configure --enable-languages=c,c++ --disable-bootstrap --prefix="$(pwd)/../gcc-installed" --disable-nls CFLAGS="-O1 -ggdb" CXXFLAGS="-O1 -ggdb"
+$ make && make install
+</pre>
+
+Look at configure options of gentoo's <code>gcc -v</code>
+to get more options to add to defaults. Be careful: some
+configure options like
+<code>--enable-default-pie --enable-default-ssp</code>
+can change code generation enough to trigger or hide a bug.
+
+=== [bonus] Report bug on gcc.gnu.org/bugzilla ===
+
+File the bug at https://gcc.gnu.org/bugzilla/ with attached minimal reproducer
+and <code>gcc -v</code> detals.
+
+=== [bonus] Extract gcc backtrace ===
+
+Example session would be:
+
+<pre>
+    $ gdb --quiet --args gcc-7.3.0 -fPIC -march=prescott -mfpmath=sse -O1 -c cmathmodule.c -o cmathmodule.o
+    (gdb) set follow-fork-mode child 
+    (gdb) run
+    ...
+    Thread 2.1 "cc1" received signal SIGSEGV, Segmentation fault.
+    [Switching to process 17286]
+    0x085375d4 in lra_eliminate_reg_if_possible(rtx_def**) ()
+    (gdb) bt
+    #0  0x085375d4 in lra_eliminate_reg_if_possible(rtx_def**) ()
+    ...
+</pre>
+
+=== [bonus] Fix gcc bug ===
+
+By now you have a source tree and command how to build it!
+
+A few starting points for you:
+* https://gcc.gnu.org/contribute.html for general notes on coding tips and guidelines
+* https://gcc.gnu.org/onlinedocs/
+
+Good luck!
