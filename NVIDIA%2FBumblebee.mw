@@ -1,0 +1,211 @@
+{{Note|This article is a Work In Progress Created to consolidate various external guides and How-Tos about using Bumblebee/bbswitch/primus with the proprietary Nvidia Drivers. It is NOT a definitive guide in itself at this stage. It is based mainly on the following links:
+[https://forums.gentoo.org/viewtopic-t-1044954.html Fedeliallalinea's Guide on the Gentoo Forum (Italian)]
+[https://web.archive.org/web/20180226135955/https://www.dotslashlinux.com/post/setting-up-bumblebee-on-gentoo-linux/ DotSlashLinux's Guide (On the way back machine as link was dead)]}}
+
+This is a guide to configuring a Gentoo system to make use of Hybrid Graphics using:
+* The proprietary Nvidia graphics drivers
+* The open source modesetting Intel/i915/i965 drivers
+* Bumblebee
+* bbswitch for hardware switching
+* Primus for bridging
+
+This configuration prefers Primus over Optirun/VGL.
+
+== Pre Installation ==
+
+=== NVIDIA Optimus Support ===
+This is pretty much straightforward. If you have an intel processor (2nd Gen +) and a NVIDIA gpu, then you probably have optimus on your laptop. To check for sure, run
+{{RootCmd|lspci -k}}
+and look for VGA or 3D controllers to see your present GPUs.
+If you don't have an optimus system, this guide will do nothing for you.
+
+== Installation ==
+
+=== Nvidia Drivers ===
+First configure your system to use [https://wiki.gentoo.org/wiki/NVidia/nvidia-drivers Nvidia's proprietary drivers] over the [https://wiki.gentoo.org/wiki/Nouveau open source Nouveau Drivers] and install the drivers. This is already detailed elsewhere on the wiki and is not repeated here.
+
+=== Kernel ===
+Ensure that you system can load and unload modules:
+{{KernelBox|title=Linux kernel 4.3.3+|1=
+CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y
+}}
+
+=== Configuring /etc/portage/make.conf ===
+==== Video Cards ====
+Set your video card variables like so:
+{{FileBox|filename=/etc/portage/make.conf|1=
+...
+VIDEO_CARDS="intel i965 nvidia"
+...
+}}
+
+{{Note|People with older Intel cards may need to use <code>i915</code> instead of <code>i965</code>}}
+
+==== USE Flags ====
+In order to allow easy enabling and disabling of the nvidia drivers, we need to disable the <code>kvm</code> and <code>uvm</code> USE flags for the nvidia drivers:
+{{FileBox|filename=/etc/portage/package.use|1=
+x11-drivers/nvidia-drivers -kvm -uvm
+}}
+
+Now update your @world set:
+{{RootCmd|emerge --ask --update --deep --newuse @world}}
+
+Then reboot your system
+{{RootCmd|shutdown -r now}}
+
+=== Installing Bumblebee, bbswitch, Primus ===
+Emerge the packages:
+{{RootCmd|emerge --ask sys-power/bbswitch x11-misc/bumblebee xx1-misc/primus}}
+
+== Configuration ==
+=== User access to Bumblebee ===
+Make sure to add your user to the <code>video</code> and <code>bumblebee</code> groups to allow use of bumblebee:
+{{RootCmd|usermod -a -G video, bumblebee USER}}
+(Replacing USER with your username)
+
+=== Configuring /etc/init.d/bumblebee ===
+By default, the OpenRC bumblebee module is set to depend on VGL and XDM. We are using primus over VGL. The XDM dependancy can cause problems if this configuration is being setup prior to the x server. Remove the following lines (which should be near the start of the file):
+{{FileBox|filename=/etc/init.d/bumblebee|1=
+...
+depend() {
+    need xdm
+    need vgl
+}
+...
+}}
+
+Your final file should look something like this:
+{{FileBox|filename=/etc/init.d/bumblebee|1=
+PIDFILE="${PIDFILE:-/var/run/bumblebee.pid}"
+
+start() {
+    ebegin "Starting BumbleBee Daemon"
+        start-stop-daemon -S -p "${PIDFILE}" -x /usr/sbin/bumblebeed -- -D ${BUMBLEBEE_EXTRA_OPTS} --pidfile "${PIDFILE}"
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping BumbleBee Daemon"
+        start-stop-daemon -K -p "${PIDFILE}" -R SIGTERM/10
+    eend $?
+}
+}}
+The important part is that it no longer has any dependencies.
+
+=== Configuring /etc/bumblebee/bumblebee.conf ===
+The following settings need to be present in the /etc/bumblebee/bumblebee.conf file.
+{{FileBox|filename=/etc/bumblebee/bumblebee.conf|1=
+[bumblebeed]
+...
+KeepUnusedXServer=false
+...
+Driver=nvidia
+...
+
+[optirun]
+...
+Bridge=primus
+...
+VGLTransport=rgb
+...
+
+[driver-nvidia]
+...
+KernelDriver=nvidia
+...
+PMMethod=bbswitch
+...
+}}
+
+{{Note|The VGLTransport setting is only needed if the reader is attempting to configure bumblebee to work with VGL instead of Primus. It does no harm to set it anyway.}}
+
+=== OpenRC ===
+Now enable bumblebe to load at runlevel <code>default</code>
+{{RootCmd|rc-update add bumblebee default}}
+
+And once again, reboot the system:
+{{RootCmd|shutdown -r now}}
+
+=== Configuring /etc/modprobe.d/nvidia-rmmod.conf
+Earlier, we disabled the <code>kvm</code> and <code>uvm</code> USE flags for the Nvidia drivers. This means we should only have the module <code>nvidia</code> present and not <code>nvidia-uvm</code>, <code>nvidia-drm</code>, or <code>nvidia-modeset</code>.
+In order that <code>modprobe -r nvidia</code> functions correctly, we need it to remove only <code>nvidia</code> and nothing else. Remove all other modules from /etc/modprobe.d/nvidia-rmmod.conf so that it changes from looking like this:
+{{FileBox|filename=/etc/modprobe.d/nvidia-rmmod.conf|1=
+remove nvidia modprobe -r --ignore-remove nvidia-drm nvidia-modeset nvidia-uvm nvidia
+}}
+to this:
+{{FileBox|filename=/etc/modprobe.d/nvidia-rmmod.conf|1=
+remove nvidia modprobe -r --ignore-remove nvidia
+}}
+
+== Post Installation ==
+=== Check if Bumblebee is Working ===
+==== Using glxgears ====
+Install the <code>mesa-progs</code> package to access <code>glxgears</code>:
+{{RootCmd|emerge --ask x11-apps/mesa-progs}}
+
+Before we run our test, make sure the <code>nvidia</code> is NOT loaded:
+{{RootCmd|lsmod|output=<pre>
+Module    Size   Used by
+bbswitch  5461   0
+</pre>}}
+
+And check the status of bbswitch using:
+{{RootCmd|cat /proc/acpi/bbswitch|output=<pre>
+0000:01:00.0 OFF
+</pre>}}
+
+As you can see:
+* bbswitch is loaded
+* nvidia is NOT loaded
+* the nvidia GPU (at PCI location 01:00.0) is OFF
+
+Now let’s check if the NVIDIA card will be switched ON and the nvidia module will be loaded once optirun/primusrun are executed, and if it’ll switch OFF and the nvidia module will be unloaded once optirun/primusrun finish executing.
+From within an Xorg Session:
+{{Cmd|optirun glxgears}}
+or (but not both at once):
+{{Cmd|primusrun glxgears}}
+A window showing glxgears should open. While it's running, check:
+{{RootCmd|lsmod|output=<pre>
+Module        Size   Used by
+nvidia    10652360   51
+bbswitch      5461   0
+</pre>}}
+
+{{RootCmd|cat /proc/acpi/bbswitch|output=<pre>
+0000:01:00.0 ON
+</pre>}}
+
+This shows that the Nvidia GPU is now on, its module loaded, and openGL is using it as expected. Once you end the <code>optirun</code> or <code>primusrun</code> command and exit glxgears, the previous checks run again should show the GPU off and the module unloaded.
+
+{{Note| If your card did NOT turn off when glxgears exited, try the following:
+{{RootCmd|rmmod nvidia && echo "OFF" >> /proc/acpi/bbswitch}}
+}}
+
+==== Using glxinfo ====
+Alternatively, <code>glxinfo</code> can be used to see if bumblebee is working (Pipe the commands to grep to see the displayed output):
+{{RootCmd|glxinfo|output=<pre>
+OpenGL vendor string: Intel Open Source Technology Center
+OpenGL renderer string: Intel Mesa DRI (R) Skylake Halo GT2
+OpenGL core profile version string: 3.3 (Core Profile) Mesa 11.0.6
+OpenGL core profile shading language version string: 3.30
+OpenGL core profile context flags: (none)
+OpenGL core profile profile mask: core profile
+OpenGL core profile extensions:
+OpenGL version string: 3.0 Mesa 11.0.6
+OpenGL shading language version string: 1.30
+</pre>}}
+
+{{RootCmd|primusrun glxinfo|output=<pre>
+OpenGL vendor string: NVIDIA Corporation
+OpenGL renderer string: GeForce GTX 960M / PCIe / SSE2
+OpenGL core profile version string: 4.4.0 NVIDIA 361.28
+OpenGL core profile shading language version string: 4.40 NVIDIA via Cg compiler
+OpenGL core profile context flags: (none)
+OpenGL core profile profile mask: core profile
+OpenGL core profile extensions:
+OpenGL version string: 4.5.0 NVIDIA 361.28
+OpenGL shading language version string: 4.50 NVIDIA
+</pre>}}
+
+As you can see, running the command without <code>primusrun</code> runs with the iGPU but with <code>primusrun</code> runs with the Nvidia GPU.
