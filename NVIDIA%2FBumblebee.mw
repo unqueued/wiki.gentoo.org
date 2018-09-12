@@ -15,30 +15,41 @@ This configuration prefers Primus over Optirun/VGL.
 == Pre Installation ==
 
 === NVIDIA Optimus Support ===
+
 This is pretty much straightforward. If you have an intel processor (2nd Gen +) and a NVIDIA gpu, then you probably have optimus on your laptop. To check for sure, run
+
 {{RootCmd|lspci -k}}
+
 and look for VGA or 3D controllers to see your present GPUs.
 If you don't have an optimus system, this guide will do nothing for you.
 
 == Installation ==
 
 === Nvidia Drivers ===
+
 First configure your system to use [[nvidia-drivers|Nvidia's proprietary drivers]] instead of the [[Nouveau|open source Nouveau Drivers]] and install the drivers. This is already detailed elsewhere on the wiki and is not repeated here.
+
 {{Note|It may be useful to set the <code>-kms</code> and <code>-uvm</code> USE Flags BEFORE installing the Nvidia Drivers}}
 
 === Intel Drivers ===
+
 Also configure and install the intel drivers according to [[Intel|the wiki]]. DDX or modesetting both ought to work.
 
 === Kernel ===
+
 Ensure that you system can load and unload modules:
+
 {{KernelBox|title=Linux kernel 4.3.3+|1=
 CONFIG_MODULES=y
 CONFIG_MODULE_UNLOAD=y
 }}
 
 === Configuring /etc/portage/make.conf ===
+
 ==== Video Cards ====
+
 Set your video card variables like so:
+
 {{FileBox|filename=/etc/portage/make.conf|1=
 ...
 VIDEO_CARDS="intel i965 nvidia"
@@ -48,36 +59,50 @@ VIDEO_CARDS="intel i965 nvidia"
 {{Note|People with older Intel cards may need to use <code>i915</code> instead of <code>i965</code>}}
 
 ==== USE Flags ====
+
 In order to allow easy enabling and disabling of the nvidia drivers, we need to disable the <code>kms</code> and <code>uvm</code> USE flags for the nvidia drivers:
+
 {{FileBox|filename=/etc/portage/package.use|1=
 x11-drivers/nvidia-drivers -kms -uvm
 }}
+
 {{Note|See links for USE flag descriptions: [https://packages.gentoo.org/packages/x11-drivers/nvidia-drivers nvidia-drivers], [https://packages.gentoo.org/packages/x11-misc/bumblebee bumblebee], [https://packages.gentoo.org/packages/x11-drivers/xf86-video-intel xf86-video-intel].
 Recommended USE flags by DotSlashLinux are:
 * nvidia-drivers: <code>+X</code>, <code>+acpi</code>, <code>+compat</code>, <code>driver</code>, <code>gtk3</code>, <code>+tools</code>, <code>-kms</code>, <code>-pax_kernel</code>, <code>-static-libs</code>, <code>-uvm</code>, <code>-wayland</code>
 * xf86-video-intel: <code>+dri</code>, <code>+dri3</code>, <code>+sna</code>, <code>+udev</code>, <code>+xvmc</code>, <code>-debug</code>, <code>-tools</code>, <code>-uxa</code>
 * bumblebee: <code>+bbswitch</code>, <code>+video_cards_nvidia</code>, <code>-video_cards_nouveau</code>
 }}
+
 {{Note|It is possible to use kms and uvm with Bumblebee, see the item in the [https://wiki.gentoo.org/wiki/NVIDIA/Bumblebee#Troubleshooting troubleshooting] section}}
 
 Now update your {{C|@world}} set:
+
 {{RootCmd|emerge --ask --update --deep --newuse @world}}
 
 Then reboot your system
+
 {{RootCmd|shutdown -r now}}
 
 === Installing Bumblebee, bbswitch, Primus ===
+
 Emerge the packages:
+
 {{RootCmd|emerge --ask sys-power/bbswitch x11-misc/bumblebee x11-misc/primus}}
 
 == Configuration ==
+
 === User access to Bumblebee ===
+
 Make sure to add your user to the {{C|video}} and {{C|bumblebee}} groups to allow use of bumblebee:
+
 {{RootCmd|usermod -a -G video,bumblebee USER}}
+
 (Replacing USER with your username)
 
 === Configuring /etc/init.d/bumblebee ===
+
 By default, the OpenRC bumblebee module is set to depend on VGL and XDM. We are using primus over VGL. The XDM dependancy can cause problems if this configuration is being setup prior to the x server. Remove the following lines (which should be near the start of the file):
+
 {{FileBox|filename=/etc/init.d/bumblebee|1=
 ...
 depend() {
@@ -88,7 +113,9 @@ depend() {
 }}
 
 Your final file should look something like this:
+
 {{FileBox|filename=/etc/init.d/bumblebee|1=
+
 PIDFILE="${PIDFILE:-/var/run/bumblebee.pid}"
 
 start() {
@@ -103,10 +130,13 @@ stop() {
     eend $?
 }
 }}
+
 The important part is that it no longer has any dependencies.
 
 === Configuring /etc/bumblebee/bumblebee.conf ===
+
 The following settings need to be present in the {{Path|/etc/bumblebee/bumblebee.conf}} file.
+
 {{FileBox|filename=/etc/bumblebee/bumblebee.conf|1=
 [bumblebeed]
 ...
@@ -133,24 +163,32 @@ PMMethod=bbswitch
 {{Note|The VGLTransport setting is only needed if the reader is attempting to configure bumblebee to work with VGL instead of Primus. It does no harm to set it anyway.}}
 
 === OpenRC ===
+
 Now enable bumblebe to load at runlevel <code>default</code>
+
 {{RootCmd|rc-update add bumblebee default}}
 
 And once again, reboot the system:
+
 {{RootCmd|shutdown -r now}}
 
 === Configuring /etc/modprobe.d/nvidia-rmmod.conf ===
+
 Earlier, we disabled the <code>kms</code> and <code>uvm</code> USE flags for the Nvidia drivers. This means we should only have the module <code>nvidia</code> present and not <code>nvidia-uvm</code>, <code>nvidia-drm</code>, or <code>nvidia-modeset</code>.
 In order that {{C|modprobe -r nvidia}} functions correctly, we need it to remove only <code>nvidia</code> and nothing else. Remove all other modules from {{Path|/etc/modprobe.d/nvidia-rmmod.conf}} so that it changes from looking like this:
+
 {{FileBox|filename=/etc/modprobe.d/nvidia-rmmod.conf|1=
 remove nvidia modprobe -r --ignore-remove nvidia-drm nvidia-modeset nvidia-uvm nvidia
 }}
+
 to this:
+
 {{FileBox|filename=/etc/modprobe.d/nvidia-rmmod.conf|1=
 remove nvidia modprobe -r --ignore-remove nvidia
 }}
 
 === OpenGL ===
+
 We need to ensure OpenGl is set to use xorg-x11 instead of nvidia:
 {{RootCmd|eselect opengl list|output=<pre>
 [1] nvidia
@@ -160,18 +198,24 @@ We need to ensure OpenGl is set to use xorg-x11 instead of nvidia:
 {{RootCmd|eselect opengl set 2}}
 
 == Post Installation ==
+
 === Check if Bumblebee is Working ===
+
 ==== Using glxgears ====
+
 Install the {{Package|x11-apps/mesa-progs}} package to access {{C|glxgears}}:
+
 {{RootCmd|emerge --ask x11-apps/mesa-progs}}
 
 Before we run our test, make sure the <code>nvidia</code> is NOT loaded:
+
 {{RootCmd|lsmod|output=<pre>
 Module    Size   Used by
 bbswitch  5461   0
 </pre>}}
 
 And check the status of bbswitch using:
+
 {{RootCmd|cat /proc/acpi/bbswitch|output=<pre>
 0000:01:00.0 OFF
 </pre>}}
@@ -183,11 +227,17 @@ As you can see:
 
 Now let’s check if the NVIDIA card will be switched ON and the nvidia module will be loaded once {{C|optirun}}/{{C|primusrun}} are executed, and if it’ll switch OFF and the nvidia module will be unloaded once {{C|optirun}}/{{C|primusrun}} finish executing.
 From within an Xorg Session:
+
 {{Cmd|optirun glxgears}}
+
 or (but not both at once):
+
 {{Cmd|primusrun glxgears}}
+
 {{Note|{{C|primusrun}} reputedly gives better performance than {{C|optirun}}}}
+
 A window showing glxgears should open. While it's running, check:
+
 {{RootCmd|lsmod|output=<pre>
 Module        Size   Used by
 nvidia    10652360   51
@@ -205,6 +255,7 @@ This shows that the Nvidia GPU is now on, its module loaded, and openGL is using
 }}
 
 ==== Using glxinfo ====
+
 Alternatively, {{C|glxinfo}} can be used to see if bumblebee is working:
 {{RootCmd|glxinfo {{!}} grep OpenGL|output=<pre>
 OpenGL vendor string: Intel Open Source Technology Center
@@ -233,67 +284,90 @@ OpenGL shading language version string: 4.50 NVIDIA
 As you can see, running the command without {{C|primusrun}} runs with the iGPU but with {{C|primusrun}} runs with the Nvidia GPU.
 
 == Using Bumblebee with Steam Games ==
+
 In order to run a [[Steam]] game with {{C|optirun}} or {{C|primusrun}}, you need to
 * right click on the game within steam
 * select "properties"
 * "Set Launch Options"
 * add either <code>optirun %command%</code> or <code>primusrun %command%</code> to the text field.
 
-==Troubleshooting==
-===bbswitch refuses to turn off card===
+== Troubleshooting ==
+
+=== bbswitch refuses to turn off card ===
+
 Try adding:
-{{RootCmd|"acpi_osi{{=}}!Windows\x202013" acpi_osi{{=}}Linux nogpumanager i915.enable_hd_vgaarb{{=}}1 enable_hd_vgaarb{{=}}1 
-}}
+
+{{RootCmd|"acpi_osi{{=}}!Windows\x202013" acpi_osi{{=}}Linux nogpumanager i915.enable_hd_vgaarb{{=}}1 enable_hd_vgaarb{{=}}1}}
+
 to your kernel command-line (this has worked for a couple of users, especially those with Thinkpads and Lenovo laptops).
 
 === Using the Layman Overlay ===
+
 Some users cannot get this configuration to work and it is suggested to use the [[Layman|Layman Overlay]] to emerge bumblebee and primus.
+
 {{Note|The last commit on the Bumblebee Overlay github was in 2016, while the last update of x11-misc/bumblebee was in 2018.}}
+
 {{Note|Alternatively, some users recommend the [https://gitweb.gentoo.org/user/seden.git/ Seden Overlay], see Yamakuzure's post on [https://forums.gentoo.org/viewtopic-t-1036754.html this thread]. This has support for <code>kms</code> and <code>uvm</code>.}}
 
 First install the Layman Overlay then add bumblebee:
+
 {{RootCmd|layman -a bumblebee}}
+
 Then unmask bumblebee and primus:
+
 {{RootCmd|echo "{{=}} x11-misc / bumblebee-9999 ~ amd64" >> /etc/portage/package.accept_keywords/bumblebee|echo "{{=}} x11-misc / primus-9999 ~ amd64" >> /etc/portage/package.accept_keywords/bumblebee 
 }}
+
 And mask the official Portage Tree:
+
 {{RootCmd|echo "x11-misc / bumblebee :: gentoo" >> /etc/portage/package.mask/bumblebee.gentoo}}
+
 Then emerge Primus:
+
 {{RootCmd| emerge --ask primus}}
 
 === Configuring Xorg ===
+
 Some systems require Xorg to be configured to use the Intel Drivers. Do this according to the [[Intel|Gentoo Intel Wiki Page]].
 
 === Building with KMS ===
+
 If users want to build their system using <code>+kms</code> and/or <code>+uvm</code> on their Nvidia driver, they must edit their {{Path|nvida-rmmod.conf}} to unload the relevant driver:
+
 {{FileBox|filename=/etc/modprobe.d/nvidia-rmmod.conf|1=
 remove nvidia modprobe -r --ignore-remove nvidia-drm nvidia-modeset nvidia-uvm nvidia-drm nvidia
 }}
+
 And they must use a patched version of bumblebee, an example of which can be found on the [https://gitweb.gentoo.org/user/seden.git/ Seden Overlay].
 
 === Manual Unloading ===
-If the nvidia drivers are buildt with <code>kms</code> and/or <code>uvm</code> and a patched version of bumblebee then the bumblebee module will not be able to unload the <code>nvidia</code> module as it will be in use by the <code>nvidia-modeset</code> module which is itself in use by the <code>nvidia-drm</code> module. However, the modules cat be unloaded manually (using {{C|modprobe -r}}) and the relevant changes to {{Path|/etc/modprobe.d/rmmod-nvidia.conf}}. The GPU can then be turned off using {{C|tee /proc/acpi/bbswitch<<<OFFF}}.
-Some users have these two commands in a script accessible through a key command in their WM.
+
+If the nvidia drivers are buildt with <code>kms</code> and/or <code>uvm</code> and a patched version of bumblebee then the bumblebee module will not be able to unload the <code>nvidia</code> module as it will be in use by the <code>nvidia-modeset</code> module which is itself in use by the <code>nvidia-drm</code> module. However, the modules cat be unloaded manually (using {{C|modprobe -r}}) and the relevant changes to {{Path|/etc/modprobe.d/rmmod-nvidia.conf}}. The GPU can then be turned off using {{C|tee /proc/acpi/bbswitch<<<OFFF}}. Some users have these two commands in a script accessible through a key command in their WM.
 
 === System Freezes when Starting Xorg Server ===
+
 On some systems, it may be necessary to start Xorg with the <code>nvidia</code> module loaded and the discrete GPU turned on or else the system will hang. The module can then be unloaded and the GPU switched off.
 In order to manually load the module, add <code>nvidia</code> to your modules configuration file:
+
 {{FileBox|filename=/etc/conf.d/modules|1=
 modules="nvidia"
 }}
+
 The <code>nvidia</code> module must not be blacklisted.
 
 === Bumblebee Daemon Doesn't Start On Boot ===
+
 First check that bumblebee is configured in OpenRC:
 Now enable bumblebe to load at runlevel <code>default</code>
+
 {{RootCmd|rc-update add bumblebee default}}
-If you still get errors indicating that the Bumblebee Daemon is not running when you attempt {{C|optirun}} and {{C|primusrun}} commands, it may be necessary to start the daemon manually on log-in.
-Put
-<code>exec bumblebee --daemon</code>
-into a suitable configuration file so that it will be automatically run when you start your X server. This might be in your {{Path|.xinitrc}} or window manager (such as i3) config file depending on your setup.
+
+If you still get errors indicating that the Bumblebee Daemon is not running when you attempt {{C|optirun}} and {{C|primusrun}} commands, it may be necessary to start the daemon manually on log-in. Put <code>exec bumblebee --daemon</code> into a suitable configuration file so that it will be automatically run when you start your X server. This might be in your {{Path|.xinitrc}} or window manager (such as i3) config file depending on your setup.
 
 === Blacklisting the Nvidia Modules ===
+
 On some systems it may be necessary to blacklist the <code>nvidia</code> modules. Edit your blacklist file as necessary:
+
 {{FileBox|filename=/etc/modprobe.d/blacklist.conf|1=
 blacklist nvidia
 blacklist nvidia-modeset
@@ -302,6 +376,7 @@ blacklist nvidia-uvm
 }}
 
 == Specific Use-Cases ==
+
 The following Wiki Pages make reference to Bumblebee and/or Bumblebee configurations:
 * [[Lenovo ThinkPad T440s]]
 * [[Clevo P650HS-G]]
@@ -310,6 +385,7 @@ The following Wiki Pages make reference to Bumblebee and/or Bumblebee configurat
 * [[Dell XPS 15 9560]]
 
 == See Also ==
+
 * [[x11-misc/bumblebee]], [https://bumblebee-project.org/ The Bumblebee Project], [https://github.com/Bumblebee-Project/Bumblebee The Bumblebee Github]
 * [[sys-power/bbswitch]], [https://github.com/Bumblebee-Project/bbswitch The bbswitch Github]
 * [[x11-drivers/nvidia-drivers]], [[NVidia/nvidia-drivers]], [[NVIDIA]], [[NVIDIA/Optimus]]
