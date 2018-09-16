@@ -1,0 +1,100 @@
+= Description =
+
+{{Package|dev-util/ccache}} is a compiler cache. {{c|ccache}} helps to avoid repeated recompilation for the same C and C++ files by fetching result from the cache directory.
+
+Compiler cache is typically useful for:
+* developers who rebuild the same/similar codebase multiple times and use {{Path|/etc/portage/patches}} to test patches
+* users who frequently play with USE-flag changes and end up rebuilding the same packages multiple times
+* users who use live ebuilds extensively
+
+= Basic setup (portage integration) =
+
+To get {{Package|dev-util/ccache}} running you need a few steps:
+* Install the package via usual means: {{Emerge|dev-util/ccache}}
+* Create cache directory: {{RootCmd|mkdir /gentoo/ccache|chown root:portage /gentoo/ccache|chmod 2775 /gentoo/ccache}}
+* Set initial config: {{FileBox|filename=/gentoo/ccache/ccache.conf|
+<nowiki># Maximum cache size to maintain
+max_size = 100.0G
+
+# Allow others to run 'ebuild' and share the cache.
+umask = 002
+
+# Preserve ccache cache across gcc rebuilds
+# and introspect gcc changes through gcc wrapper.
+compiler_check = %compiler% -v
+
+# I expect 1.5M files. 300 files per directory.
+cache_dir_levels = 3</nowiki>}}
+* Enable {{c|ccache}} support in {{Path|make.conf}}:
+{{FileBox|filename=/etc/portage/make.conf|lang=bash
+|<nowiki>FEATURES="${FEATURES} ccache"
+CCACHE_DIR="/gentoo/ccache"</nowiki>}}
+
+Done! From now on all builds will try to reuse object files from {{Path|/gentoo/ccache}} cache.
+
+= More details =
+Manual page for {{Package|dev-util/ccache}} (see {{c|man ccache}}) is a great source of various knobs to make caching more robust and aggressive.
+
+= General notes =
+
+{{c|ccache}} works by prepending {{Path|/usr/lib/ccache/bin}} to {{c|PATH}} variable:
+{{Cmd|ls -l /usr/lib/ccache/bin|output=<pre>
+...
+c++ -> /usr/bin/ccache
+c99 -> /usr/bin/ccache
+x86_64-pc-linux-gnu-c++ -> /usr/bin/ccache
+...
+</pre>}}
+
+<code>FEATURES=ccache</code> triggers the same behaviour in {{c|portage}}.
+
+You can also enable {{c|ccache}} for your current user and reuse the same cache directory:
+{{FileBox|filename=~/.bashrc|lang=bash
+|<nowiki>export PATH="/usr/lib/ccache/bin${PATH:+:}$PATH"
+export CCACHE_DIR="/gentoo/ccache"</nowiki>}}
+
+== Useful variables and commands ==
+
+Some variables:
+* Variable {{c|CCACHE_DIR}} points to cache root directory.
+* Variable {{c|CCACHE_RECACHE}} allows evicting old cache entries with new entries: {{RootCmd|CCACHE_RECACHE{{=}}yes emerge --oneshot cat/pkg}}
+
+See {{c|man ccache}} for many more variables.
+
+Some commands:
+
+* Command {{c|ccache -s}} shows cache hit statistics:
+{{Cmd|CCACHE_DIR{{=}}/gentoo/ccache ccache -s|output=<pre>
+cache directory                     /gentoo/ccache
+primary config                      /gentoo/ccache/ccache.conf
+secondary config      (readonly)    /etc/ccache.conf
+stats zero time                     Fri Sep  7 07:24:24 2018
+cache hit (direct)                114988
+cache hit (preprocessed)           38254
+cache miss                        246428
+cache hit rate                     38.34 %
+...
+files in cache                    603419
+cache size                          16.9 GB
+max cache size                     100.0 GB
+</pre>}}
+
+* Command {{c|ccache -C}} drops all caches: {{Cmd|CCACHE_DIR{{=}}/gentoo/ccache/ ccache -C}}
+
+See {{c|man ccache}} for many more commands.
+
+= Gentoo specifics/gotchas =
+
+== {{c|gcc}} is a wrapper ==
+
+For {{Package|sys-devel/gcc-config}} before {{c|2.0}} {{c|gcc}} used to be a wrapper binary. This means by default ccache is not safe to use and leads to errors like {{Bug|640958}}. {{Package|sys-devel/gcc-config-2.0}} will fix it.
+
+To pass through a binary I suggest using {{FileBox|filename=ccache.conf|<nowiki>compiler_check = %compiler% -v</nowiki>}} in all your {{Path|ccache.conf}} files. {{c|-v}} also has a nice side-effect of not invalidating your cache if compiler itself was rebuilt without version changes.
+
+= Caveats =
+
+Before using advanced {{c|ccache}} options make sure you understand what is being used as a cache key by {{c|ccache}}. By default these are:
+* timestamp and size of a compiler binary (beware of shell and binary wrappers)
+* compiler options used
+* contents of a source file
+* contents of all include files used for compilation
