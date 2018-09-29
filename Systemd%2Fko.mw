@@ -15,7 +15,15 @@
 
 == 설치 ==
 
-{{Note|<{{=}}sys-apps/systemd-203에서 업그레이드할 경우 [[Systemd/upgrade|업그레이드 하위 페이지]]를 참고하십시오.}}
+{{Note|If updating from <{{=}}sys-apps/systemd-203 check the [[Systemd/upgrade|upgrade sub-article]].}}
+
+The core around which all distributions are built is the Linux kernel. It is the layer between the user programs and the system hardware. Gentoo provides its users several possible kernel sources. A full listing with description is available at the [[Kernel/Overview|Kernel overview page]]. 
+
+For amd64-based systems, Gentoo recommends the [https://packages.gentoo.org/packages/sys-kernel/gentoo-sources sys-kernel/gentoo-sources] package.
+
+Choose an appropriate kernel source and install it using emerge: 
+
+{{RootCmd|emerge --ask sys-kernel/gentoo-sources}}
 
 === 커널 ===
 
@@ -207,13 +215,34 @@ GRUB2 설정 파일을 직접 작성할 경우(전문가에게만 해당),  <cod
 linux /vmlinuz-3.10.9 root=UUID=508868e4-54c6-4e6b-84b0-b3b28b1656b6 init=/usr/lib/systemd/systemd
 }}
 
-genkernel-next의 Initrd를 활용할 경우 <code>init</code> 대신 <code>real_init</code>를 사용하십시오.
 
-{{Note/ko|<code>real_init</code> 지시어는 오래되어 genkernel-next에서 필요하지 않습니다.}}
+==== YABOOT ==== 
+
+Yaboot is a boot loader for PowerPC-based hardware running Linux, particularly New World ROM Macintosh systems.
+
+The <code>init=/usr/lib/systemd/systemd</code> argument should be added directly after the kernel command-line. An example from {{Path|yaboot.conf}}:
+
+{{FileBox|filename=/etc/yaboot.conf|title=Example yaboot config for systemd|1=
+image=/vmlinux 
+   append="init=/usr/lib/systemd/systemd" 
+   label=Linux 
+   read-only 
+   initrd=/initramfs 
+   initrd-size=8192 
+}}
+
+You must run the <code>ybin</code> command each time you modify {{Path|yaboot.conf}} for the changes to take effect.
+
 
 ==== 커널 설정 ====
 
 init 설정은 커널 설정으로 하드코딩할 수 있습니다. "Processor type and features -> Built-in kernel command line" 부분을 참고하십시오. 이 기법은 GRUB 과 GRUB2에서 동작합니다.
+
+== Upgrades ==
+
+{{c|systemd}} has the ability to update in-place on a running system (no reboot necessary). After an upgrade to systemd has emerged, run the following command:
+
+{{RootCmd|systemctl daemon-reexec}}
 
 == 설정 ==
 
@@ -226,6 +255,8 @@ systemd에서는 대부분의 기본 시스템 세부 정보 설정할 몇가지
 저널링 동작을 위해 머신 ID를 만듭니다. 다음 명령으로 진행할 수 있습니다:
 
 {{RootCmd|systemd-machine-id-setup}}
+
+{{Note|The command <code>systemd-machine-id-setup</code> also has an impact on the <code>systemd-networkd</code> service. If you don't run this command, strange behavior like network interfaces not coming UP or network addresses not being applied will occur.}}
 
 === 호스트 이름 ===
 
@@ -266,6 +297,10 @@ systemd로 부팅 했다면 {{c|localectl}} 도구로 로캘, 콘솔, X11 키 �
 모델에서 필요하다면, 변수 및 옵션 값을 설정할 수 있습니다:
 
 {{RootCmd|localectl set-x11-keymap <LAYOUT> <MODEL> <VARIANT> <OPTIONS>}}
+
+
+After doing any of the above, update the environment so the changes will take effect:
+{{RootCmd|env-update && source /etc/profile}}
 
 === 날짜와 시간 ===
 
@@ -330,6 +365,16 @@ NetworkManager는 주로 네트워크를 설정할 때 사용합니다. 이 용�
 === 로그 파일 처리 ===
 
 systemd에는 ({{Package|app-admin/syslog-ng}} 나 {{Package|app-admin/rsyslog}} 같은) 외부 로그 시스템에 의존할 필요 없이 로그 파일을 자체적으로 처리하는 수단을 지니고 있습니다. 이제 메시지는 {{c|journalctl}}로 읽어볼 수 있습니다. 허나 로그를 처리하는데 적당한 외부 도구로도 설정할 수 있습니다. 개인적인 요구에 맞춘 journald 설정 방법을 알아보려면 {{c|man journald.conf}}를 입력하십시오.
+
+If desired, the logging service be configured to pass log messages to external logging utilities such as sysklog or syslog-ng. See {{c|man journald.conf}} to learn how to configure the systemd-journald service to suit situational needs.
+
+systemd's integrated logging service writes log messages in a secure, binary format. The logs are ''read'' by using the {{c|journalctl}} command, which is a separate executable from the systemd-journald logging service.
+
+{{Important|When using systemd's systemd-journald.service for logging, which is typically the default for systems running systemd, standard users running the {{c|journalctl}} command will be ''unable to view system logs''. To view system logs as a non-root account, users must be in one of the following three user groups in order to view system logs: '''systemd-journal''', '''adm''', or '''wheel'''. The simplest method to allow a standard user to view logs is to use the systemd-journal group. Add a user by running the following command where <code>larry</code> is the desired username:<br /><br />
+{{RootCmd|gpasswd --add larry systemd-journal}}
+
+System logs can now be read by running {{c|journalctl --system}} as the user(s) added in the previous command.
+}}
 
 {{c|journalctl}} 옵션의 일부는 다음과 같습니다:
 
