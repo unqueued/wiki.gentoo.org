@@ -50,14 +50,17 @@ Pour vous fournir un shell sécurisé, des clés de chiffrage sont utilisées po
 
 On the first start of the SSH service, system keys will be generated. Keys can be (re)generated using the {{c|ssh-keygen}} command.
 
-Pour générer les clés utilisées par la version 1 du protocole SSH (qui n'est normalement plus activé et a été rendu obsolète au profit de la version 2 du protocole), utilisez :
-
-{{RootCmd|/usr/bin/ssh-keygen -t rsa1 -b 1024 -f /etc/ssh/ssh_host_key -N "PassphraseSecrete"}}
-
 Pour générer les clés les clés pour la version 2 du protocole SSH (algorythmes DSA et RSA):
 
 {{RootCmd|/usr/bin/ssh-keygen -t dsa -f /etc/ssh/ssh_host_dsa_key -N "PassphraseSecrete"
 |/usr/bin/ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N "PassphraseSecrete"}}
+
+The article [https://stribika.github.io/2015/01/04/secure-secure-shell.html Secure Secure Shell] suggests using '''Ed25519''' and '''RSA''' public key algorithms with:
+
+{{RootCmd
+|/usr/bin/ssh-keygen -t ed25519 -a 100 -f /etc/ssh/ssh_host_dsa_key -N ""
+|/usr/bin/ssh-keygen -t rsa -b 4096 -o -a 100 -f /etc/ssh/ssh_host_rsa_key -N ""
+}}
 
 === Configuration du serveur ===
 
@@ -109,7 +112,24 @@ The key's randomart image is:
 
 ==== Serveur ====
 
-Make sure an account for the user exists on the server, and then place the clients' {{Path|id_rsa.pub}} file into the server's {{Path|~/.ssh/authorized_keys}} file in the user's home directory.
+Make sure an account for the user exists on the server, and then place the clients' {{Path|id_rsa.pub}} file into the server's {{Path|~/.ssh/authorized_keys}} file in the user's home directory. This can be done by running the following command '''on the client computer''' (here, the user's passphrase on the server needs to be entered):
+
+{{Cmd|ssh-copy-id <server>|collapse-output=true|output=<pre>/usr/bin/ssh-copy-id: INFO: Source of key(s) to be installed: "/home/larry/.ssh/id_rsa.pub"
+/usr/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/usr/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+larry@<server>'s password: 
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh '<server>'"
+and check to make sure that only the key(s) you wanted were added.
+</pre>}}
+
+Afterwards a passwordless login should be possible doing
+
+{{cmd|ssh <server>|output=<pre>larry@<server></pre>}}
+
+Then on the server, the file {{path|/etc/ssh/sshd_config}} should be set to <code>PasswordAuthentication no</code>.
 
 ==== Single machine testing ====
 
@@ -155,7 +175,7 @@ The OpenSSH server can be controlled like any other [[OpenRC]]-managed service:
 
 {{Note|Active SSH connections to the server remain unaffected when issuing {{c|rc-service sshd restart}}.}}
 
-==== Systemd ====
+==== systemd ====
 
 To have the OpenSSH daemon start when the system starts:
 
@@ -170,6 +190,12 @@ To start the OpenSSH daemon now:
 To check if the service has started:
 
 {{RootCmd|systemctl status sshd.service}}
+
+=== Escape sequences ===
+
+During an active SSH session, pressing the tilde ({{Key|~}}) key starts an escape sequence. Enter the following for a list of options:
+
+{{GenericCmd|prompt=ssh>|color=white|~?}}
 
 == Troubleshooting ==
 
@@ -202,7 +228,7 @@ Test for this scenario perform the following after logging in remotely:
 localhost:10.0
 </pre>}}
 
-The output should be something similar to <code>localhost:10.0</code> or <code>localhost2.local:10.0</code> using server side <code>X11UseLocalhost no</code> setting. If the usual <code>:0.0</code> is not displayed, check to make sure the <var>DISPLAY</var> variable within {{Path|~/.bash_profile}} is not being unset or re-initializing. If it is, remove or comment out any custom initialization of the <var>DISPLAY</var>variable to prevent the code in {{Path|~/.bash_profile}} from executing during a SSH login:
+The output should be something similar to <code>localhost:10.0</code> or <code>localhost2.local:10.0</code> using server side <code>X11UseLocalhost no</code> setting. If the usual <code>:0.0</code> is not displayed, check to make sure the <var>DISPLAY</var> variable within {{Path|~/.bash_profile}} is not being unset or re-initializing. If it is, remove or comment out any custom initialization of the <var>DISPLAY</var> variable to prevent the code in {{Path|~/.bash_profile}} from executing during a SSH login:
 
 {{Cmd|ssh -t larry@localhost2 bash --noprofile}}
 
@@ -212,18 +238,25 @@ A trick that works to complete this task would be to define an alias within the 
 
 == See also ==
 
-* [[Security_Handbook/Securing_services#ssh|Securing the SSH service]] in the Gentoo Security Handbook
-* [[Keychain|Gentoo Linux Keychain Guide]]
-* [[autossh]] - Detects when SSH connections drop and auto-reconnects.
-* [[SCP]] - A Secure Copy Program that comes with the SSH suite.
-* [[SFTP]] - Secure File Transfer Protocol client that comes with the SSH suite.
-* [[SSHFS]] - A FUSE based SSH powered mount client.
+* [[Security_Handbook/Securing_services#SSH|Securing the SSH service]] (Security Handbook)
+* {{See also|Keychain}}
+* {{See also|autossh}}
+* {{See also|SCP}}
+* {{See also|SFTP}}
+* {{See also|SSHFS}}
+* [[Handbook:AMD64/Installation/Media#Optional:_Starting_the_SSH_daemon|Gentoo Handbook — Installation — Starting the SSH daemon]]
+* [[Sakaki%27s_EFI_Install_Guide/Setting_Up_Networking_and_Connecting_via_ssh#Connecting_via_ssh_and_Using_screen]]
 
 == External resources ==
 
 * [https://dev.gentoo.org/~swift/docs/security_benchmarks/openssh.html Securing OpenSSH] - Gentoo developer documentation.
+* {{package|net-misc/connect}} — [https://bitbucket.org/gotoh/connect/wiki/Home SSH Proxy Command -- connect.c]
+* https://lonesysadmin.net/2011/11/08/ssh-escape-sequences-aka-kill-dead-ssh-sessions/amp/ - A blog entry on escape sequences.
+* https://hackaday.com/2017/10/18/practical-public-key-cryptography/ - Practical public key cryptography (Hackaday).
+* [https://wiki.archlinux.org/index.php/SSH SSH on wiki.archlinux.org]
 
 
 [[Category:SSH]]
 [[Category:Server]]
 [[Category:Daemons]]
+[[Category:Authentication]]
