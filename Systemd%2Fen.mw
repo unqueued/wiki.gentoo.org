@@ -18,6 +18,14 @@ The following configuration directories are both used by OpenRC and systemd:
 
 {{Note|If updating from <{{=}}sys-apps/systemd-203 check the [[Systemd/upgrade|upgrade sub-article]].}}
 
+The core around which all distributions are built is the Linux kernel. It is the layer between the user programs and the system hardware. Gentoo provides its users several possible kernel sources. A full listing with description is available at the [[Kernel/Overview|Kernel overview page]]. 
+
+For amd64-based systems, Gentoo recommends the [https://packages.gentoo.org/packages/sys-kernel/gentoo-sources sys-kernel/gentoo-sources] package.
+
+Choose an appropriate kernel source and install it using emerge: 
+
+{{RootCmd|emerge --ask sys-kernel/gentoo-sources}}
+
 === Kernel ===
 
 systemd makes use of many modern Linux kernel features. Right now, the lower bound on kernel version is set in the ebuild to 2.6.39. In recent versions of {{Package|sys-kernel/gentoo-sources}}, there is a convenient way of selecting the mandatory and optional kernel options for systemd (see [[Kernel/Configuration]] for further details):
@@ -208,13 +216,34 @@ When the GRUB2 configuration file is written by hand (experts only), append the 
 linux /vmlinuz-3.10.9 root=UUID=508868e4-54c6-4e6b-84b0-b3b28b1656b6 init=/usr/lib/systemd/systemd
 }}
 
-When using genkernel-next's initrd, use <code>real_init</code> instead of <code>init</code>.
 
-{{Note|This use of the deprecated <code>real_init</code> should not be needed for stable versions of genkernel-next.}}
+==== YABOOT ==== 
+
+Yaboot is a boot loader for PowerPC-based hardware running Linux, particularly New World ROM Macintosh systems.
+
+The <code>init=/usr/lib/systemd/systemd</code> argument should be added directly after the kernel command-line. An example from {{Path|yaboot.conf}}:
+
+{{FileBox|filename=/etc/yaboot.conf|title=Example yaboot config for systemd|1=
+image=/vmlinux 
+   append="init=/usr/lib/systemd/systemd" 
+   label=Linux 
+   read-only 
+   initrd=/initramfs 
+   initrd-size=8192 
+}}
+
+You must run the <code>ybin</code> command each time you modify {{Path|yaboot.conf}} for the changes to take effect.
+
 
 ==== In-kernel config ====
 
 The init configuration can also be hard-coded in the kernel configuration. See {{Path|Processor type and features -> Built-in kernel command line}}. Note that this technique works for both GRUB and GRUB2.
+
+== Upgrades ==
+
+{{c|systemd}} has the ability to update in-place on a running system (no reboot necessary). After an upgrade to systemd has emerged, run the following command:
+
+{{RootCmd|systemctl daemon-reexec}}
 
 == Configuration ==
 
@@ -227,6 +256,8 @@ systemd supports a few system configuration files to set the most basic system d
 Create a machine ID for journaling to work. This can be done through the following command:
 
 {{RootCmd|systemd-machine-id-setup}}
+
+{{Note|The command <code>systemd-machine-id-setup</code> also has an impact on the <code>systemd-networkd</code> service. If you don't run this command, strange behavior like network interfaces not coming UP or network addresses not being applied will occur.}}
 
 === Hostname ===
 
@@ -267,6 +298,10 @@ And finally, to set the X11 layout:
 If needed the model, variant and options can be specified as well:
 
 {{RootCmd|localectl set-x11-keymap <LAYOUT> <MODEL> <VARIANT> <OPTIONS>}}
+
+
+After doing any of the above, update the environment so the changes will take effect:
+{{RootCmd|env-update && source /etc/profile}}
 
 === Time and date ===
 
@@ -331,6 +366,16 @@ If that is not the case and the network needs to be configured from console, giv
 === Handling of log files ===
 
 systemd has its own way of handling log files without needing to rely on any external log system (like {{Package|app-admin/syslog-ng}} or {{Package|app-admin/rsyslog}}). Messages can now be read with {{c|journalctl}}. It can still be configured to use a preferred external tool for handling them. See {{c|man journald.conf}} to learn how to configure journald to suit personal needs.
+
+If desired, the logging service be configured to pass log messages to external logging utilities such as sysklog or syslog-ng. See {{c|man journald.conf}} to learn how to configure the systemd-journald service to suit situational needs.
+
+systemd's integrated logging service writes log messages in a secure, binary format. The logs are ''read'' by using the {{c|journalctl}} command, which is a separate executable from the systemd-journald logging service.
+
+{{Important|When using systemd's systemd-journald.service for logging, which is typically the default for systems running systemd, standard users running the {{c|journalctl}} command will be ''unable to view system logs''. To view system logs as a non-root account, users must be in one of the following three user groups in order to view system logs: '''systemd-journal''', '''adm''', or '''wheel'''. The simplest method to allow a standard user to view logs is to use the systemd-journal group. Add a user by running the following command where <code>larry</code> is the desired username:<br /><br />
+{{RootCmd|gpasswd --add larry systemd-journal}}
+
+System logs can now be read by running {{c|journalctl --system}} as the user(s) added in the previous command.
+}}
 
 Some common {{c|journalctl}} options:
 
@@ -482,7 +527,7 @@ Some of Gentoo packages already install systemd unit files. For these services, 
 The following table lists systemd services matching OpenRC ones:
 
 {| class="table table-striped table-condensed" style="text-align: left;"
-|+ Migration chart
+|+ Service migration chart
 |-
 ! scope="col" | Gentoo package
 ! scope="col" | OpenRC service
