@@ -10,19 +10,43 @@
 
 たとえば、nptlのみをサポートするglibc 2.4へアップグレードするときに、現在の<var>CHOST</var>がnptlを使用できないi386であることに気づいた場合のように、一定の<var>CHOST</var>の変更が避けられない状況があります。このケースではとりうる選択肢はあまり多くはなく、そして<var>CHOST</var>の変更はその1つです。 
 
-これらの手順に従った場合でさえ問題は起こり得ますから、手順はきわめて慎重に読み、かつ実行してください。この例では<var>CHOST</var>変数はi386からi686へと変更されます。コマンドはそれぞれの状況に合わせて変えてください。 
+これらの手順に従った場合でさえ問題は起こり得ますから、手順はきわめて慎重に読み、かつ実行してください。この例では<var>CHOST</var>変数はi386からi686へと変更されます。コマンドはそれぞれの状況に合わせて変えてください。
 
 == CHOST変数の変更 ==
 
+=== Updating make.conf ===
+
+To start out with the <var>CHOST</var> variable change, edit the {{Path|/etc/portage/make.conf}} file and add/change the <var>CHOST</var> value to suit the requirements.
+
+{{FileBox|filename=/etc/portage/make.conf|1=
+CHOST="i686-pc-linux-gnu"
+}}
+
+Please note that if you are planning to use another value of CHOST than the profile default, you may need to update the ''CHOST_${ABI}'' variable as well. You can query the current value of these variable via ''portageq'' tool:
+
+{{Cmd|1=portageq envvar ABI|output=x86}}
+{{Cmd|1=portageq envvar CHOST_x86|output=i686-pc-linux-gnu}}
+
+If this value is equal to your CHOST, you're good. Otherwise, you should override it as well, e.g.:
+
+{{FileBox|filename=/etc/portage/make.conf|1=
+CHOST_x86="i686-pc-linux-gnu"
+}}
+
 === パッケージの構築 ===
 
-<var>CHOST</var>変数の変更から開始するため、{{Path|/etc/portage/make.conf}}ファイルを編集し、<var>CHOST</var>の値を必要条件に合うように変更します。それから、以下のパッケージをこの順番で再構築してください: 
+{{Important|It is generally a good idea to rebuild the packages '''to the same versions''' as before the CHOST switch, i.e. avoiding combining upgrades with it. If you have multiple slots installed, either uninstall extraneous slots or rebuild all of them. If you can't do that, please upgrade the packages first (with old CHOST). While it may not be impossible to do so, it is hard to predict which potential problems may arise and almost impossible to document them in this guide.}}
 
-{{Emerge|binutils gcc glibc|params+=--oneshot}}
+{{Tip|On a system with <var>CHOST</var> set to an i386 value, mask glibc 2.4 (or newer) during the gcc upgrade as it cannot be used with i386. Unmask it once the change has been performed completely.}}
 
-{{Important|gccのメジャーアップグレードを<var>CHOST</var>変数の変更と同時に行う(たとえば、gcc 3.3、CHOST i386からgcc 4.1、CHOST i686への変更など)ことは、深刻な副作用を引き起こしうることに注意してください。それは実行不可能ではないかもしれませんが、どのような潜在的な問題点が発生するか予測困難ですし、それらをこのガイドに文書化することはほとんど不可能です。結果として、たとえばまず[[Upgrading_GCC|gcc upgrade guide]]にしたがってgccをアップグレードしてから<var>CHOST</var>を変更するなど、一度に一つのことをするようにしてください。<var>CHOST</var>がi386に設定されているシステムでは、glibc 2.4(またはそれ以降)はi386では利用できないため、gccのアップグレードの間はmaskしておきます。変更が完全に実行し終わったら、unmaskしてください。}}
+Rebuild the following packages in this order:
+
+{{Emerge|sys-devel/binutils|params+=--oneshot}}
 
 {{Note|gccをコンパイルする前に、{{c|binutils-config}}を実行する必要があるかもしれません。}}
+
+{{Emerge|sys-devel/gcc|params+=--oneshot}}
+{{Emerge|sys-libs/glibc|params+=--oneshot}}
 
 === うまくいっているか確認する ===
 
@@ -149,19 +173,13 @@ STDCXX_INCDIR="g++-v4"
 
 {{RootCmd|emerge -e world}}
 
-理論上はこれを行う必要はないはずですが、しかしそれが本当に実情であると100%保証することはできません。
+In theory, it should not be necessary to do so, but it cannot be 100% guaranteed that this is actually the case. Alternatively, you can manually rebuild all the known problematic packages:
+* multilib packages using CHOST prefixing or header wrapping,
+* Perl, Python and other tools that store configured compiler path.
 
-以下のパッケージ群については、実際に再構築する必要があります: 
+{{Emerge|params+=--oneshot|/usr/bin/i386-pc-linux-gnu-* /usr/include/i386-pc-linux-gnu /usr/lib/llvm/*/bin/i386-pc-linux-gnu-* dev-lang/perl dev-lang/python}}
 
-{{Emerge|python|params+=--oneshot}}
-
-perlを利用するすべてのパッケージは<var>CHOST</var>ディレクトリにインストールされるため、再構築が必要になります。{{c|qfile}}がまだシステムで利用可能でない場合は、まず{{Package|app-portage/portage-utils}}をインストールしてください。
-
-{{Emerge|portage-utils}}
-
-{{Path|/usr/lib/perl*}}のすべての位置にインストールされたファイルを有するすべてのパッケージを再構築します:
-
-{{RootCmd|emerge -av1 `qfile /usr/lib/perl* -Cq {{!}} sort -u`}}
+Note that you may need to remove paths that do not apply to your system from the above invocation.
 
 その他に再構築が必要なパッケージに遭遇したら、このガイドの[[Talk:Changing_the_CHOST_variable|discussion page]]を通じて私達にお知らせください。
 
