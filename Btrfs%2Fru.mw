@@ -130,6 +130,60 @@ Btrfs поддерживает прозрачное сжатие с помощь
 
 {{RootCmd|btrfs filesystem defragment -r -v -czlib /}}
 
+==== Compression level ====
+
+Since kernel version 4.15.0<ref>https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=f51d2b59120ff364a5e612a594ed358767e1cd09</ref>, zlib compression can now be set by levels 1-9. For example, to set zlib to maximum compression at mount time:
+
+{{RootCmd|mount -o compress{{=}}zlib:9 /dev/sdXY /path/to/btrfs/mountpoint}}
+
+Or to set minimal compression:
+
+{{RootCmd|mount -o compress{{=}}zlib:1 /dev/sdXY /path/to/btrfs/mountpoint}}
+
+Or adjust compression by remounting:
+
+{{RootCmd|mount -o remount,compress{{=}}zlib:3 /path/to/btrfs/mountpoint}}
+
+The compression level should be visible in {{Path|/proc/mounts}} or by checking the most recent output of <code>dmesg |grep -i btrfs</code>.
+
+{{RootCmd|dmesg {{!}}grep -i btrfs |output=<pre>
+[    0.495284] Btrfs loaded, crc32c=crc32c-intel
+[ 3010.727383] BTRFS: device label My Passport devid 1 transid 31 /dev/sdd1
+[ 3111.930960] BTRFS info (device sdd1): disk space caching is enabled
+[ 3111.930973] BTRFS info (device sdd1): has skinny extents
+[ 9428.918325] BTRFS info (device sdd1): use zlib compression, level 3
+</pre>
+}}
+
+
+==== Compression ratio and disk usage ====
+
+The usual userspace tools for determining used and free space like <code>du</code> and <code>df</code> may provide inaccurate results on a ''Btrfs'' partition due to inherent design differences in the way files are written compared to ,for example, ''ext2/3/4''<ref>https://btrfs.wiki.kernel.org/index.php/Compression#How_can_I_determine_compressed_size_of_a_file.3F</ref>.
+
+It is therefore advised to use the du/df alternatives provided by the btrfs userspace tool <code>btrfs filesystem</code>. In Addition to that, The <code>compsize</code> tool found from the [https://packages.gentoo.org/packages/sys-fs/compsize sys-fs/compsize] package can be helpful in providing additional information regarding compression ratios and the disk usage of compressed files. 
+The following are example uses of these tools for a btrfs partition mounted under {{Path|/media/drive}}.
+
+
+{{Cmd|btrfs filesystem du -s /media/drive |output=<pre>
+     Total   Exclusive  Set shared  Filename
+ 848.12GiB   848.12GiB       0.00B  /media/drive/
+</pre>
+}}
+{{Cmd|btrfs filesystem df /media/drive |output=<pre>
+Data, single: total=846.00GiB, used=845.61GiB
+System, DUP: total=8.00MiB, used=112.00KiB
+Metadata, DUP: total=2.00GiB, used=904.30MiB
+GlobalReserve, single: total=512.00MiB, used=0.00B
+</pre>}}
+{{Cmd|compsize /media/drive |output=<pre>
+Processed 2262 files, 112115 regular extents (112115 refs), 174 inline.
+Type       Perc     Disk Usage   Uncompressed Referenced  
+TOTAL       99%      845G         848G         848G       
+none       100%      844G         844G         844G       
+zlib        16%      532M         3.2G         3.2G 
+</pre>
+}}
+
 === RAID ===
 
 Создать RAID в Btrfs гораздо проще, чем создать RAID с помощью {{c|mdadm}}.
@@ -137,6 +191,12 @@ Btrfs поддерживает прозрачное сжатие с помощь
 Самый простой способ создать RAID, это использовать все устройства:
 
 {{RootCmd|mkfs.btrfs -m raid1 ''<device1>'' ''<device2>'' -d raid1 ''<device1>'' ''<device2>''}}
+
+Converting between RAID modes is possible with the balance sub-command. For example, say a multiple device RAID 1 is mounted at {{Path|/srv}}. It is possible to convert this RAID1 to RAID0 with using the following command:
+
+{{RootCmd|btrfs balance start -dconvert{{=}}raid0 -mconvert{{=}}raid0 --force /srv}}
+
+RAID mode conversion can be performed while the filesystem is online and in use. Possible RAID modes in btrfs include RAID0, RAID1, RAID5, RAID6, and RAID10. See the [https://btrfs.wiki.kernel.org/index.php/Using_Btrfs_with_Multiple_Devices upstream BTRFS wiki] for more information.
 
 {{Warning|В настоящее время не безопасно использовать уровни RAID 5 или 6<ref>[https://btrfs.wiki.kernel.org/index.php/RAID56 Article mentioning that parity RAID code has multiple serious data-loss bugs], [https://btrfs.wiki.kernel.org Btrfs wiki]. Retrieved on January 1st, 2017.</ref>. В уровнях RAID 5 и 6 были исправления<ref>Michael Larabel, [http://www.phoronix.com/scan.php?page=news_item&px=Linux-4.12-Btrfs-RAID-Mostly-OK Btrfs RAID56 "Mostly OK"], Phoronix. July 8, 2017.</ref> в Linux 4.12, но общее состояние по-прежнему помечено как '''нестабильное'''.<ref>[https://git.kernel.org/pub/scm/linux/kernel/git/mason/linux-btrfs.git/commit/?h{{=}}for-linus-4.12&id{{=}}28d70e237dac905cd8d1896af10216b7d2bced24 btrfs: scrub: Fix RAID56 recovery race condition], source commit, April 18th 2017.</ref><ref>[http://lkml.iu.edu/hypermail/linux/kernel/1705.1/01197.html GIT PULL Btrfs from Chris Mason], [http://lkml.iu.edu/hypermail/linux/kernel/index.html Linux kernel mailinglist], May 9th 2017.</ref>. Пользователям, которые хотят использовать функции btrfs RAID5 или RAID6, рекомендуется проверять [https://btrfs.wiki.kernel.org/index.php/Status страницу состояния btrfs] на предмет стабильности указанных уровней перед их использованием.}}
 
@@ -219,6 +279,12 @@ cd /
 <device>  <mountpoint>  btrfs  subvol=<rel-path>  0 2</pre>}}
 
 == Устранение проблем ==
+
+=== Using with VM disk images ===
+
+When using Btrfs with virtual machine disk images, it is best to disable copy-on-write on the disk images in order to speed up IO performance. This can only be performed on files that are newly created. It also possible to disable CoW on all files created within a certain directory. For example, using the {{c|chattr}} command: 
+
+{{RootCmd|chattr +C /var/lib/libvirt/images}}
 
 === Очистка кэша свободного места ===
 
