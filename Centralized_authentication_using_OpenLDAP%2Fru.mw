@@ -61,6 +61,8 @@ LDAP можно использовать для разнообразных ну�
 
 Это руководство использует домен genfic.org в качестве примера. Естественно, вам нужно будет изменить это название. Однако убедитесь, что верхний элемент является официальным доменом верхнего уровня (net, com, cc, be, ...).
 
+{{USEflag|package=net-nds/openldap}}
+
 Сначала установим OpenLDAP. Убедитесь в том, что USE-флаги ''berkdb, crypt, gnutls, ipv6, sasl, ssl, syslog, -minimal'' и ''tcpd'' установлены.
 
 {{Emerge|openldap}}
@@ -152,6 +154,8 @@ overlay syncprov
 syncprov-checkpoint 100 10
 }}
 
+{{Note|Don't forget, that on second node you must use different value of ''rid'' and proper address in provider ldapuri.}}
+
 Для более подробного анализа файла конфигурации рекомендуем изучить OpenLDAP Administrator's Guide, хотя {{Path|man 5 slapd.conf}} будет достаточно. 
 
 Если не запускается, первое, что вы ''должны'' сделать, это проверить файл конфигурации. Это можно сделать с помощью следующей команды.
@@ -203,9 +207,13 @@ OPTS="-F /etc/openldap/slapd.d -h 'ldaps:// ldap:// ldapi://%2fvar%2frun%2fopenl
 
 An initial configuration is shipped as a standard LDAP database dump, available as {{Path|slapd.ldif}} or {{Path|config.ldif}}.
 
+{{Warning|If you need to include additional schemas, you also should use not flat schema files, but converted into ldif format. If you use a custom scheme, you also will need to convert it into ldif format, see openldap.ldif for more detailed description.}}
+
 It can be loaded (and ''only'' loaded, unlike ordinary LDAP databases) by the <code>slapadd</code> utility:
 
 {{RootCmd|slapadd -d -1 -F /etc/openldap/slapd.d -n 0 -l /etc/openldap/config.ldif}}
+
+If you use root account to do it, you must correct ownership of created files, as described below in migrate section.
 
 {{Warning|The default configuration does not provide permissions to change the server's configuration to anybody.}}
 
@@ -244,7 +252,7 @@ When using OLC, never manually edit the configuration files. The directory files
 
 Теперь можно использовать сервер каталога для аутентификации пользователей в apache/proftpd/qmail/samba.
 
-The directory server can be managed with tools such as {{Package|net-nds/phpldapadmin}}, {{Package|app-admin/diradm}} and {{Package|net-nds/jxplorer}} from the Gentoo ebuild repository, or {{Package|app-misc/ldapexplorertool}} from the poly-c [[Overlay|overlay]] available through [[Layman]].
+The directory server can be managed with tools such as {{Package|net-nds/phpldapadmin}}, {{Package|app-admin/diradm}} and {{Package|net-nds/jxplorer}} from the Gentoo ebuild repository, or {{Package|app-misc/ldapexplorertool}} from the poly-c [[Overlay|overlay]] available through [[Layman]] or [[Eselect/Repository|eselect repository]].
 
 === Server management with OLC ===
 
@@ -273,36 +281,6 @@ replace: olcLogLevel
 olcLogLevel: stats stats2 sync
 }}
 
-To add the syncprov overlay:
-
-{{FileBox|filename=add-syncprov-overlay.ldif|1=
-# Add indexes for replica to the frontend db.
-dn: olcDatabase={1}mdb,cn=config
-changetype: modify
-add: olcDbIndex
-olcDbIndex: entryCSN eq
--
-add: olcDbIndex
-olcDbIndex: entryUUID eq
- 
-# Load the syncprov module.
-# Skip if included statically, see slapd -VVV output for details
-dn: cn=module{0},cn=config
-changetype: modify
-add: olcModuleLoad
-olcModuleLoad: syncprov
- 
-# syncrepl Provider for primary db
-dn: olcOverlay=syncprov,olcDatabase={1}mdb,cn=config
-changetype: add
-objectClass: olcOverlayConfig
-objectClass: olcSyncProvConfig
-olcOverlay: syncprov
-olcSpNoPresent: TRUE
-olcSpCheckpoint: 100 10
-olcSpSessionlog: 100
-}}
-
 Чтобы применить изменения, запустите следующую команду:
 
 {{RootCmd|ldapmodify -Y EXTERNAL -H ldapi:/// -f loglevel.ldif|output=<pre>
@@ -326,7 +304,7 @@ OpenLDAP produces numerous log events, which might not be obvious to interpret, 
 
 As OpenLDAP by default writes the log events into the system log, it is advisable to reconfigure the system logger to direct OpenLDAP log events into a dedicated log file.
 
-It is advisable to use the <code>stats stats2</code> log level in OpenLDAP, which results in session-related information such as the following:
+It is advisable to use the <code>stats stats2</code> log level in OpenLDAP standalone server and <code>stats stats2 sync</code> in OpenLDAP cluster. In such case query results logs session-related information such as the following:
 
 {{RootCmd|grep conn{{=}}1 /var/log/slapd.log|output=<pre>
 Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 fd=14 ACCEPT from IP=192.168.100.9:55655 (IP=192.168.1.1:389)
@@ -337,6 +315,22 @@ Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SRCH attr=uid userPassword uidNu
 Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 ENTRY dn="uid=larry,ou=People,dc=genfic,dc=org"
 Mar  9 12:26:47 ldap1 slapd[95182]: conn=1 op=1 SEARCH RESULT tag=101 err=0 nentries=1 text=
 </pre>}}
+
+Most common errors in server log are <code>err=49</code>:
+
+{{FileBox|filename=/var/log/slapd.log|1=
+Aug 10 12:47:27 ldap-2 slapd[32920]: conn=1004 op=0 RESULT tag=97 err=49 text=
+}}
+
+Which means «invalid credentials» (i.e. wrong password).
+
+And <code>err=32</code>:
+
+{{FileBox|filename=/var/log/slapd.log|1=
+Aug 10 14:15:35 ldap-2 slapd[32966]: conn=1085 op=1 SEARCH RESULT tag=101 err=32 nentries=0 text=
+}}
+
+Which means «No such object». Usually this error appears when binddn (''user'') has no permissions on requested object. So either you try to do something wrong, or there is a mistake in your ACLs set.
 
 === Управление доступом (ACL) ===
 
@@ -393,7 +387,7 @@ For details about the exact privilege settings, see the manual pages and officia
 
 ==== Конфигурационный файл ====
 
-ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. For more information, see [http://www.openldap.org/doc/admin24/access-control.html#Access%20Control%20Evaluation Access Control Evaluation].
+ACLs are parsed in the order they are set in the configuration, and are applied based on the specificity (meaning that, when an ACL rule is considered, the remainder of ACL rules is no longer checked). As such, more specific definitions should go first, before more generic ones are listed. For more information, see [https://www.openldap.org/doc/admin24/access-control.html#Access%20Control%20Evaluation Access Control Evaluation].
 
 Например:
 
@@ -453,6 +447,8 @@ Replication within OpenLDAP is, in this guide, set up using a specific replicati
 
 Далее эта настройка дублируется, что позволяет вспомогательному серверу LDAP выполнять роль основного. Благодаря внутренней структуре OpenLDAP, если изменения уже присутствуют в структуре LDAP, повторно они не применяются.
 
+{{Warning|For normal operation of OpenLDAP cluster upstream recommends to use the same version on all nodes.}}
+
 ==== Настройка дублирования ====
 
 Для того, чтобы настроить дублирование, сначала настройте второй сервер OpenLDAP подобно тому, как описано выше. Однако обратите внимание на то, что в файле конфигурации:
@@ -462,6 +458,8 @@ Replication within OpenLDAP is, in this guide, set up using a specific replicati
 * У каждой системы OpenLDAP свой ''serverID''
 
 {{Note|Using a mirrored installation means that the OpenLDAP service should be configured like a single server installation, so the ''serverID'' value on each of the nodes must be the same. Instances are identified by ''rid'' values, which must be unique.}}
+
+===== Synchronisation account =====
 
 Далее создайте синхронизационную учетную запись. Создадим файл LDIF (формат, используемый для ввода данных на серверах LDAP) и добавим его на каждом сервере LDAP: 
 
@@ -481,6 +479,238 @@ description: LDAP reader used for synchronization
 {{Cmd|ldapadd -x -W -D "cn{{=}}Manager,dc{{=}}genfic,dc{{=}}org" -f ldapreader.ldif|output=<pre>
 Password: ## enter the administrative password
 </pre>}}
+
+===== Enabling syncprov overlay =====
+
+Overlay can be linked statically and dynamically. When it is built dynamivally, you'll need to load module. For now in Gentoo it's usually built statically. To enshure type:
+
+{{RootCmd|/usr/lib64/openldap/slapd -VVV|output=<pre>
+@(#) $OpenLDAP: slapd 2.4.44 (Feb 28 2017 10:07:46) $
+	@larry:/var/tmp/portage/net-nds/openldap-2.4.44/work/openldap-2.4.44-abi_x86_64.amd64/servers/slapd
+
+Included static overlays:
+    syncprov
+Included static backends:
+    config
+    ldif
+    bdb
+    hdb
+</pre>}}
+
+===== Load syncprov module (optional) =====
+
+If you need to load syncprov module, you should use the following ldif file:
+
+{{FileBox|filename=syncprov-module-load.ldif |1=
+#Load the syncprov module.
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: syncprov
+}}
+
+===== Setting up replication for database =====
+
+Next step, mandatory for everybody, is to setup replication for database (must be done on both nodes):
+
+{{FileBox|filename=syncprov-add-overlay.ldif |1=
+# syncrepl Provider for primary db
+dn: olcOverlay=syncprov,olcDatabase={1}mdb,cn=config
+changetype: add
+objectClass: olcOverlayConfig
+objectClass: olcSyncProvConfig
+olcOverlay: syncprov
+olcSpNoPresent: TRUE
+olcSpCheckpoint: 100 10
+olcSpSessionlog: 100
+
+# Add indexes for replica to the frontend db.
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcDbIndex
+olcDbIndex: entryCSN eq
+-
+add: olcDbIndex
+olcDbIndex: entryUUID eq
+}}
+
+{{Warning|One of poorly-documented feature of <code>ldif</code>-backend is that it doesn't permit file deletion. So, you can add overlay, but cannot remove it.}}
+
+===== Final configuration =====
+
+Finally, you need to add replication's definition. 
+
+On node 1:
+
+{{FileBox|filename=add-replication-node1.ldif |1=
+dn: cn=config
+changetype: modify
+add: olcServerID
+olcServerID: 1
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcSyncrepl
+olcSyncrepl: 
+  rid=001 
+  provider=ldap://ldap-2.genfic.org 
+  binddn="cn=ldapreader,dc=genfic,dc=org" 
+  bindmethod=simple 
+  credentials="secret" 
+  searchbase="dc=genfic,dc=org" 
+  type=refreshAndPersist 
+  timeout=0 
+  network-timeout=0 
+  retry="60 +"
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcMirrorMode
+olcMirrorMode: TRUE
+}}
+
+<code>secret</code> traditionally means the password string.
+
+On node 2:
+
+{{FileBox|filename=add-replication-node2.ldif |1=
+add-replication-node2.ldif 
+dn: cn=config
+changetype: modify
+add: olcServerID
+olcServerID: 1
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcSyncrepl
+olcSyncrepl:
+  rid=002
+  provider=ldap://ldap-1.genfic.org
+  binddn="cn=ldapreader,dc=genfic,dc=org"
+  bindmethod=simple
+  credentials="secret"
+  searchbase="dc=genfic,dc=org"
+  type=refreshAndPersist
+  timeout=0
+  network-timeout=0
+  retry="60 +"
+
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcMirrorMode
+olcMirrorMode: TRUE
+}}
+
+The only difference is in server's ident (rid) and provider uri.
+
+{{Note|You need to load ldap database only on one node of cluster and should not load on another. The database will be replicated automatically after adding quoted definition.}}
+
+If LDAP master (mirror node with initially loaded database) is unavailable (''slapd'' daemon not started, or 389/tcp port is blocked by a packet filter) ''slapd'' daemon on secondary node fails to start with the following error message:
+
+{{RootCmd|tail -f /var/log/slapd.log|output=<pre>
+May 14 15:39:29 ldap2 slapd[1749]: olcMirrorMode: value #0: <olcMirrorMode> database is not a shadow
+May 14 15:39:29 ldap2 slapd[1749]: config error processing olcDatabase={1}mdb,cn=config: <olcMirrorMode> database is not a shadow
+May 14 15:39:29 ldap2 slapd[1749]: slapd stopped.
+May 14 15:39:29 ldap2 slapd[1749]: connections_destroy: nothing to destroy.
+</pre>}}
+
+Almost certainly your database will not fit into default limits. So, you will need to encrease <code>ldapreader</code>'s limits. For example:
+
+{{FileBox|filename=add_replicator-limits.ldif|1=
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcLimits
+olcLimits: dn.exact="cn=ldapreader,dc=genfic,dc=org" time.soft=unlimited time.hard=unlimited size.soft=unlimited size.hard=unlimited
+}}
+
+{{Warning|Database file note: replicated database size may be significantly different with origin. In my case about 300 megabytes ''ldif''-dump is loaded into almost 900 megabytes ''mdb''-data file and replicated in 1.5 gigabyte ''mdb''-data file.}}
+
+=== Performance tuning ===
+
+Default daemon settings significantly limitates LDAP server performance.
+
+==== Sympthoms ====
+
+When server load fits system limit client applications fails with different kind of timeout errors.
+
+In server log this produces error messages like following:
+
+{{FileBox|filename=/var/log/slapd.log|1=
+May 17 15:56:11 ldap2 slapd[13834]: fd=76 DENIED from unknown (192.168.210.101)
+May 17 15:56:11 ldap2 slapd[13834]: warning: cannot open /etc/hosts.allow: Too many open files
+May 17 15:56:11 ldap2 slapd[13834]: warning: cannot open /etc/hosts.deny: Too many open files
+May 17 15:56:11 ldap2 slapd[13834]: fd=237 DENIED from unknown (192.168.77.130)
+May 17 15:56:11 ldap2 slapd[13834]: warning: cannot open /etc/hosts.allow: Too many open files
+May 17 15:56:11 ldap2 slapd[13834]: daemon: accept(8) failed errno=24 (Too many open files)
+}}
+
+==== Encreasing OS limits ====
+
+First, you should read <code>ldap</code> system user limits:
+
+{{RootCmd|su ldap -c 'ulimit -aHS' -s '/bin/bash'|output=<pre>
+core file size          (blocks, -c) unlimited
+data seg size           (kbytes, -d) unlimited
+scheduling priority             (-e) 0
+file size               (blocks, -f) unlimited
+pending signals                 (-i) 6981
+max locked memory       (kbytes, -l) 64
+max memory size         (kbytes, -m) unlimited
+open files                      (-n) 1024
+pipe size            (512 bytes, -p) 8
+POSIX message queues     (bytes, -q) 819200
+real-time priority              (-r) 0
+stack size              (kbytes, -s) 8192
+cpu time               (seconds, -t) unlimited
+max user processes              (-u) 6981
+virtual memory          (kbytes, -v) unlimited
+file locks                      (-x) unlimited
+</pre>}}
+
+The first parameter, you need to encrease, is the ''open files'' limit.
+
+Maximum available value is described in Documentation/sysctl/fs.txt file of kernel documentation:
+
+{{FileBox|filename=/usr/src/linux-4.9.95-gentoo/Documentation/sysctl/fs.txt|1=
+==============================================================
+
+nr_open:
+
+This denotes the maximum number of file-handles a process can 
+allocate. Default value is 1024*1024 (1048576) which should be
+enough for most machines. Actual limit depends on RLIMIT_NOFILE
+resource limit.
+
+==============================================================
+}}
+
+PAM system limits are stored in /etc/security/limits.conf file or, optionally, in /etc/security/limits.d/ directory. Daemons, started with {{Package|sys-apps/openrc}} init system use these parameters (see {{Bug|365149|text=sys-apps/openrc: start-stop-daemon should use system-services PAM stack}} for details), so you need just to put in the file:
+
+{{FileBox|filename=/etc/security/limits.conf|1=
+ldap           soft    nofile          4096
+ldap           hard    nofile          8192
+}}
+
+And restart daemon.
+
+{{Warning|For some unknown reasons, upstart init system together with systemd by design ignores system PAM settings i.e. /etc/security/limits.conf file. Users of systemd init in Gentoo please contact me to verify the solution.}}
+
+The next limitation is <code>sysctl</code> <code>net.core.somaxconn</code> parameter.
+In runtime you could update it by:
+
+{{RootCmd|sysctl -w net.core.somaxconn{{=}}256|output=<pre>
+net.core.somaxconn = 256
+</pre>
+}}
+
+After verifying new value do not forget to fix it:
+
+{{FileBox|filename=/etc/sysctl.conf|1=
+## For LDAP:
+net.core.somaxconn = 256
+}}
+
+And, possibly, some other application-specific parameters.
 
 == Настройка клиентских утилит OpenLDAP == 
 
@@ -581,6 +811,8 @@ session     optional      pam_sss.so                                            
 }}
 
 Теперь попробуйте войти в систему с другого компьютера.
+
+{{Note|SSSD method could be used not only for LDAP-authentication, but also to use AD-authentication.}}
 
 === Настройка клиента PAM метод модуль pam_ldap ===
 
@@ -706,4 +938,4 @@ shadow:         files ldap
 
 Мы хотели бы поблагодарить Matt Heler за то, что он одолжил нам свой компьютер в целях написания данного руководства. Также спасибо замечательным ребятам на канале {{IRC|ldap|mode=webchat}} в сети Freenode.net 
 
-[[Category:Server and Security]] {{Migrated|originalauthors=Benjamin Coles, {{Dev|SwifT}}, Brandon Hale, Benny Chuang, jokey, {{Dev|nightmorph}}}}
+[[Category:Server and Security]] [[Category:Authentication]]{{Migrated|originalauthors=Benjamin Coles, {{Dev|SwifT}}, Brandon Hale, Benny Chuang, jokey, {{Dev|nightmorph}}}}
