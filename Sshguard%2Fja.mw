@@ -33,7 +33,7 @@ iptables の利用と設定に関しての詳細は、 [[Iptables|iptables の�
 
 === ファイアーウォールの準備 ===
 
-<tt>sshguard</tt>チェーンを使用して、sshguardが任意の悪意のあるユーザーをブロック（IPアドレスを遮断することによって）
+When {{c|sshguard}} blocks any malicious users (by blocking their IP addresses), it will use the {{c|sshguard}} chain.
 
 チェーンを用意し、新しい着信接続が検出された場合、それはまたトリガされるのを確認してください:
 
@@ -44,17 +44,29 @@ iptables の利用と設定に関しての詳細は、 [[Iptables|iptables の�
 
 ネイティブsshguard構成ファイルが存在しない - sshguardの基本的な考え方は、管理者がアプリケーションのオプションとして見るためにログファイル（複数可）に渡すことです。
 
-On Gentoo, the options can be best configured in the {{Path|/etc/conf.d/sshguard}} file:
+On Gentoo, the options can be best configured in the {{Path|/etc/sshguard.conf}} file:
 
-{{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to read /var/log/messages|lang=bash|1=
-PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
-WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
-THRESHOLD="10"    # How many problematic attempts trigger a block
-  
-LOGFILES="-l /var/log/messages"                      # Watch this file...
-LOGFILES="${LOGFILES} -l /var/log/auth.log"          # And this one
-  
-SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
+{{FileBox|filename=/etc/sshguard.conf|title=Configuring sshguard to read /var/log/messages and /var/log/auth.log|lang=bash|1=
+# Full path to backend executable (required, no default)
+BACKEND="/usr/libexec/sshg-fw-iptables" 
+
+# Space-separated list of log files to monitor. (optional, no default)
+FILES="/var/log/messages /var/log/auth.log" 
+
+# How many problematic attempts trigger a block
+THRESHOLD=10
+# Blocks last at least 24 hours (60480 seconds)
+BLOCKTIME=60480
+# Track IP addresses for 24 hours (60480 seconds)
+DETECTION_TIME=60480
+
+# IPv6 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 128)
+IPV6_SUBNET=64
+# IPv4 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 32)
+IPV4_SUBNET=24
+
+# Full path to PID file (optional, no default)
+PID_FILE=/run/sshguard.pid
 }}
 
 sshguardランタイムユーザーが、使用するログファイルにアクセス可能であることを確認してください。
@@ -72,31 +84,54 @@ sshguardをデフォルトのランレベルに追加することでデフォル
 
 === Blacklisting hosts ===
 
-With the blacklisting option after a number of abuses the IP address of the attacker will be blocked permanently. The blacklist will be loaded at each startup and extended with new entries during operation. {{c|sshguard}} inserts a new address after it exceeded a threshold of abuses.
+With the blacklisting option after a number of abuses the IP address of the attacker or a IP subnet will be blocked permanently. The blacklist will be loaded at each startup and extended with new entries during operation. {{c|sshguard}} inserts a new address after it exceeded a threshold of abuses.
 
 Blacklisted addresses are never scheduled to be released (allowed) again.
-
-The <code>-b</code> command line option enables blacklisting and requires a filename to use for permanent storage of the blacklist. An optional threshold is configurable within the same option. This threshold is then first, after which the filename is mentioned separated by <code>:</code>.
 
 To enable blacklisting, create an appropriate directory and file:
 
 {{RootCmd
-|mkdir -p /var/db/sshguard
-|touch /var/db/sshguard/blacklist.db
+|mkdir -p /var/lib/sshguard
+|touch /var/lib/sshguard/blacklist.db
 }}
 
-Add the blacklist file to the configuration and alter the <var>SSHGUARD_OPTS</var> variable:
+While defining a blacklist it is important to exclude trusted IP networks and hosts in a whitelist.
+
+To enable whitelisting, create an appropriate directory and file:
+
+{{RootCmd
+|mkdir -p /etc/sshguard
+|touch /etc/sshguard/whitelist
+}}
+
+The whitelist has to include the loopback interface, and should have at least 1 IP trusted network f.e. 192.0.2.0/24. 
+
+{{FileBox|filename=/etc/sshguard/whitelist|title=Whitelisting trusted networks|lang=bash|1=
+127.0.0.0/8
+::1/128
+192.0.2.0/24
+}}
+
+{{Note|The 192.0.2.0/24 entry has to be adjusted to fit the own needs.}}
+
+Add the <var>BLACKLIST_FILE</var> and <var>WHITELIST_FILE</var> file to the configuration:
 
 {{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to blacklist abusers|lang=bash|1=
-PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
-WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
-THRESHOLD="10"    # How many problematic attempts trigger a block
-  
-BLACKLIST="/var/db/sshguard/blacklist.db"            # Blacklisted addresses are in this file
-LOGFILES="-l /var/log/messages"                      # Watch this file...
-LOGFILES="${LOGFILES} -l /var/log/auth.log"          # And this one
-  
-SSHGUARD_OPTS="-b 50:${BLACKLIST} -p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
+BACKEND="/usr/libexec/sshg-fw-iptables"
+FILES="/var/log/auth.log"
+
+THRESHOLD=10
+BLOCK_TIME=43200
+DETECTION_TIME=604800
+
+IPV4_SUBNET=24
+IPV6_SUBNET=64
+
+PID_FILE=/run/sshguard.pid
+
+# Add following lines
+BLACKLIST_FILE=10:/var/lib/sshguard/blacklist.db
+WHITELIST_FILE=/etc/sshguard/whitelist
 }}
 
 Restart the {{c|sshguard}} daemon to have the changes take effect:
@@ -135,7 +170,7 @@ log { source(src);  filter(f_authpriv);  destination(authlog);  };
 
 == 参考 ==
 
-* [[Iptables]], for installing and configuring {{c|iptables}} on Gentoo
+* [[Iptables]] - An article on installing and configuring the {{c|iptables}} firewall on Gentoo.
 
 == 外部の情報 ==
 
