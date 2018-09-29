@@ -33,7 +33,7 @@ sshguard 是一个持续跟踪一个或多个日志文件的守护进程。它�
 
 === 准备防火墙 ===
 
-sshguard 会使用 <tt>sshguard</tt> 链阻止恶意用户（通过阻止他们的 IP 地址）。
+When {{c|sshguard}} blocks any malicious users (by blocking their IP addresses), it will use the {{c|sshguard}} chain.
 
 准备 iptable 链，并确保当检测到新的进入的连接会被触发：
 
@@ -55,6 +55,25 @@ LOGFILES="-l /var/log/messages"                      # Watch this file...
 LOGFILES="${LOGFILES} -l /var/log/auth.log"          # And this one
   
 SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
+}} 
+
+# Space-separated list of log files to monitor. (optional, no default)
+FILES="/var/log/messages /var/log/auth.log" 
+
+# How many problematic attempts trigger a block
+THRESHOLD=10
+# Blocks last at least 24 hours (60480 seconds)
+BLOCKTIME=60480
+# Track IP addresses for 24 hours (60480 seconds)
+DETECTION_TIME=60480
+
+# IPv6 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 128)
+IPV6_SUBNET=64
+# IPv4 subnet size to block. Defaults to a single address, CIDR notation. (optional, default to 32)
+IPV4_SUBNET=24
+
+# Full path to PID file (optional, no default)
+PID_FILE=/run/sshguard.pid
 }}
 
 确保日志文件对于运行 sshguard 的用户是可读的。
@@ -72,31 +91,54 @@ SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
 
 === Blacklisting hosts ===
 
-With the blacklisting option after a number of abuses the IP address of the attacker will be blocked permanently. The blacklist will be loaded at each startup and extended with new entries during operation. {{c|sshguard}} inserts a new address after it exceeded a threshold of abuses.
+With the blacklisting option after a number of abuses the IP address of the attacker or a IP subnet will be blocked permanently. The blacklist will be loaded at each startup and extended with new entries during operation. {{c|sshguard}} inserts a new address after it exceeded a threshold of abuses.
 
 Blacklisted addresses are never scheduled to be released (allowed) again.
-
-The <code>-b</code> command line option enables blacklisting and requires a filename to use for permanent storage of the blacklist. An optional threshold is configurable within the same option. This threshold is then first, after which the filename is mentioned separated by <code>:</code>.
 
 To enable blacklisting, create an appropriate directory and file:
 
 {{RootCmd
-|mkdir -p /var/db/sshguard
-|touch /var/db/sshguard/blacklist.db
+|mkdir -p /var/lib/sshguard
+|touch /var/lib/sshguard/blacklist.db
 }}
 
-Add the blacklist file to the configuration and alter the <var>SSHGUARD_OPTS</var> variable:
+While defining a blacklist it is important to exclude trusted IP networks and hosts in a whitelist.
+
+To enable whitelisting, create an appropriate directory and file:
+
+{{RootCmd
+|mkdir -p /etc/sshguard
+|touch /etc/sshguard/whitelist
+}}
+
+The whitelist has to include the loopback interface, and should have at least 1 IP trusted network f.e. 192.0.2.0/24. 
+
+{{FileBox|filename=/etc/sshguard/whitelist|title=Whitelisting trusted networks|lang=bash|1=
+127.0.0.0/8
+::1/128
+192.0.2.0/24
+}}
+
+{{Note|The 192.0.2.0/24 entry has to be adjusted to fit the own needs.}}
+
+Add the <var>BLACKLIST_FILE</var> and <var>WHITELIST_FILE</var> file to the configuration:
 
 {{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to blacklist abusers|lang=bash|1=
-PARDONTIME="3600" # Blocks last at least 1 hour (3600 seconds)
-WATCHTIME="360"   # Track IP addresses for 5 minutes (360 seconds)
-THRESHOLD="10"    # How many problematic attempts trigger a block
-  
-BLACKLIST="/var/db/sshguard/blacklist.db"            # Blacklisted addresses are in this file
-LOGFILES="-l /var/log/messages"                      # Watch this file...
-LOGFILES="${LOGFILES} -l /var/log/auth.log"          # And this one
-  
-SSHGUARD_OPTS="-b 50:${BLACKLIST} -p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
+BACKEND="/usr/libexec/sshg-fw-iptables"
+FILES="/var/log/auth.log"
+
+THRESHOLD=10
+BLOCK_TIME=43200
+DETECTION_TIME=604800
+
+IPV4_SUBNET=24
+IPV6_SUBNET=64
+
+PID_FILE=/run/sshguard.pid
+
+# Add following lines
+BLACKLIST_FILE=10:/var/lib/sshguard/blacklist.db
+WHITELIST_FILE=/etc/sshguard/whitelist
 }}
 
 Restart the {{c|sshguard}} daemon to have the changes take effect:
@@ -135,7 +177,7 @@ Reload the configuration for the changes to take effect:
 
 == 参考 ==
 
-* [[Iptables]], 在 Gentoo 上安装和配置 <tt>iptables</tt>
+* [[Iptables]] - An article on installing and configuring the {{c|iptables}} firewall on Gentoo.
 
 == 外部资源 ==
 
