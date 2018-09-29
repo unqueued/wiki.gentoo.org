@@ -2,11 +2,13 @@
 {{Lowercase title}}
 {{InfoBox stack
 |{{InfoBox homepage|https://freedesktop.org/wiki/Software/systemd|header=true}}
+|{{InfoBox project|systemd}}
 |{{InfoBox wikipedia}}
+|{{InfoBox package|sys-apps/systemd}}
 |{{InfoBox github|https://github.com/systemd/systemd/|raw=true}}
 }}
 
-{{c|systemd}} is a modern SysV-style init and {{c|rc}} (run command)<ref>Eric S. Raymond. http://www.catb.org/jargon/html/R/rc-file.html Retrieved on June 27th, 2015</ref> replacement for Linux systems. It is supported in Gentoo as an alternative init system.
+{{c|systemd}} is [[Article description::a modern SysV-style init and {{c|[[rc]]}} replacement for Linux systems.]] It is supported in Gentoo as an alternative [[init system]].
 <!--
 The following configuration directories are both used by OpenRC and systemd:
 * {{Path|/etc/modules-load.d}},
@@ -17,6 +19,14 @@ The following configuration directories are both used by OpenRC and systemd:
 == Installation ==
 
 {{Note|If updating from <{{=}}sys-apps/systemd-203 check the [[Systemd/upgrade|upgrade sub-article]].}}
+
+The core around which all distributions are built is the Linux kernel. It is the layer between the user programs and the system hardware. Gentoo provides its users several possible kernel sources. A full listing with description is available at the [[Kernel/Overview|Kernel overview page]]. 
+
+For amd64-based systems, Gentoo recommends the [https://packages.gentoo.org/packages/sys-kernel/gentoo-sources sys-kernel/gentoo-sources] package.
+
+Choose an appropriate kernel source and install it using emerge: 
+
+{{RootCmd|emerge --ask sys-kernel/gentoo-sources}}
 
 === Kernel ===
 
@@ -31,12 +41,13 @@ Gentoo Linux --->
 Para configurar essas opções manualmente (que é a unica solução quando não estiver utilizando {{Package|sys-kernel/gentoo-sources}}), as seguintes configurações do kernel são necessarias e recomendadas:
 
 <!-- See https://cgit.freedesktop.org/systemd/systemd/plain/README -->
-{{KernelBox|title=Mandatory options|<pre>
+{{KernelBox|title=Mandatory options|1=
 General setup  --->
-	[*] open by fhandle syscalls
 	[*] Control Group support --->
+		[*]   Support for eBPF programs attached to cgroup
 	[ ] Enable deprecated sysfs features to support old userspace tools
 	[*] Configure standard kernel features (expert users)  --->
+		[*] open by fhandle syscalls
 		[*] Enable eventpoll support
 		[*] Enable signalfd() system call
 		[*] Enable timerfd() system call
@@ -49,11 +60,12 @@ File systems  --->
 	Pseudo filesystems  --->
 		[*] /proc file system support
 		[*] sysfs file system support
-</pre>}}
+}}
 
-{{KernelBox|title=Recommended options|<pre>
+{{KernelBox|title=Recommended options|1=
 General setup  --->
-        [*] Checkpoint/restore support
+	[*] Configure standard kernel features (expert users)  --->
+		[*] Checkpoint/restore support
 	[*] Namespaces support  --->
 		[*] Network namespace
 [*] Enable the block layer  --->
@@ -75,7 +87,7 @@ File systems --->
 		[*] Tmpfs virtual memory file system support (former shm fs)
 		[*]   Tmpfs POSIX Access Control Lists
 		[*]   Tmpfs extended attributes
-</pre>}}
+}}
 
 Para um sistema UEFI também habilite as seguintes configurações:
 
@@ -95,7 +107,7 @@ Se o sistema estiver utilizando o scheduler de I/O BFQ, é recomendado habilitar
 
 For an up-to-date list, see section "REQUIREMENTS" in the upstream [https://cgit.freedesktop.org/systemd/systemd/tree/README README] file.
 
-==={{Path|/etc/mtab}}===
+=== /etc/mtab ===
 
 Upstream only supports the {{Path|/etc/mtab}} file being a symlink to {{Path|/proc/self/mounts}}. Not creating this symlink will also cause problems with {{c|mount}} ({{bug|434090}}) and {{c|df}} ({{bug|477240}}). In the past some utilities wrote information (like mount options) into {{Path|/etc/mtab}} and thus it was supposed to be a regular file. Nowadays all software is supposed to avoid this problem. Still, before switching the file to become a symbolic link, please check {{bug|477498}} to be sure that the system is not affected by any reported regressions.
 
@@ -113,7 +125,7 @@ For a split {{Path|/usr}} configuration, use an [[initramfs]] to mount {{Path|/u
 
 When using dracut, enable the usrmount module if it is not automatically enabled to mount {{Path|/usr}} automatically.
 
-{{FileBox|filename=/etc/dracut/dracut.conf|lang=bash|1=
+{{FileBox|filename=/etc/dracut.conf|lang=bash|1=
 # Dracut modules to add to the default
 add_dracutmodules+="usrmount"
 }}
@@ -134,7 +146,7 @@ See the [[Initramfs/Guide|Initramfs guide]] for more alternatives.
 
 When [[LVM|sys-fs/lvm2]] is used and the system is booted using an initramfs, the initramfs will have to be created using {{Package|sys-kernel/genkernel-next}} by running:
 
-{{RootCmd|genkernel --udev --lvm <target>}}
+{{RootCmd|genkernel --lvm <target>}}
 
 <code><target></code> is either <code>initramfs</code> or one of the other genkernel targets which imply the creation of an initramfs. For more information, look at the output of {{c|genkernel --help}}:
 
@@ -153,7 +165,7 @@ use_lvmetad {{=}} 1
 
 {{USEflag|package=sys-apps/systemd}}
 
-=== Installation ===
+=== Profile ===
 
 Enable the <code>systemd</code> USE flag globally (in {{Path|make.conf}}). The <code>consolekit</code> USE flag should also be disabled to prevent conflicts with the {{c|systemd-logind}} service. It is also possible to switch to a systemd subprofile to use saner USE flags defaults in which case it is not necessary to change {{Path|make.conf}}:
 
@@ -181,12 +193,12 @@ The following subsections document how to switch the {{c|init}} in one of the bo
 
 ==== GRUB Legacy (0.x) ====
 
-The <code>init=/usr/lib/systemd/systemd</code> argument should be added to the kernel command-line. An example excerpt from {{Path|grub.conf}} would look like so:
+The <code>init=/lib/systemd/systemd</code> argument should be added to the kernel command-line. An example excerpt from {{Path|grub.conf}} would look like so:
 
 {{FileBox|filename=/boot/grub/grub.conf|title=Example GRUB config for systemd|1=
 title=Gentoo with systemd
 root (hd0,0)
-kernel /vmlinuz root=/dev/sda2 init=/usr/lib/systemd/systemd
+kernel /vmlinuz root=/dev/sda2 init=/lib/systemd/systemd
 }}
 
 Should the system boot using OpenRC, try using <code>real_init</code> instead of <code>init</code>.
@@ -199,22 +211,43 @@ When {{c|grub-mkconfig}} is used, add the init option to <var>GRUB_CMDLINE_LINUX
 
 {{FileBox|filename=/etc/default/grub|title=Configure GRUB2 for systemd|lang=bash|1=
 # Append parameters to the linux kernel command line
-GRUB_CMDLINE_LINUX="init=/usr/lib/systemd/systemd"
+GRUB_CMDLINE_LINUX="init=/lib/systemd/systemd"
 }}
 
 When the GRUB2 configuration file is written by hand (experts only), append the <code>init=</code> parameter to the <code>linux</code> or <code>linux16</code> command.
 
 {{FileBox|filename=/boot/grub/grub.cfg|title=Example GRUB2 configuration fragment|1=
-linux /vmlinuz-3.10.9 root=UUID=508868e4-54c6-4e6b-84b0-b3b28b1656b6 init=/usr/lib/systemd/systemd
+linux /vmlinuz-3.10.9 root=UUID=508868e4-54c6-4e6b-84b0-b3b28b1656b6 init=/lib/systemd/systemd
 }}
 
-When using genkernel-next's initrd, use <code>real_init</code> instead of <code>init</code>.
 
-{{Note|This use of the deprecated <code>real_init</code> should not be needed for stable versions of genkernel-next.}}
+==== YABOOT ==== 
+
+Yaboot is a boot loader for PowerPC-based hardware running Linux, particularly New World ROM Macintosh systems.
+
+The <code>init=/usr/lib/systemd/systemd</code> argument should be added directly after the kernel command-line. An example from {{Path|yaboot.conf}}:
+
+{{FileBox|filename=/etc/yaboot.conf|title=Example yaboot config for systemd|1=
+image=/vmlinux 
+   append="init=/usr/lib/systemd/systemd" 
+   label=Linux 
+   read-only 
+   initrd=/initramfs 
+   initrd-size=8192 
+}}
+
+You must run the <code>ybin</code> command each time you modify {{Path|yaboot.conf}} for the changes to take effect.
+
 
 ==== In-kernel config ====
 
 The init configuration can also be hard-coded in the kernel configuration. See {{Path|Processor type and features -> Built-in kernel command line}}. Note that this technique works for both GRUB and GRUB2.
+
+== Upgrades ==
+
+{{c|systemd}} has the ability to update in-place on a running system (no reboot necessary). After an upgrade to systemd has emerged, run the following command:
+
+{{RootCmd|systemctl daemon-reexec}}
 
 == Configuration ==
 
@@ -227,6 +260,8 @@ systemd supports a few system configuration files to set the most basic system d
 Create a machine ID for journaling to work. This can be done through the following command:
 
 {{RootCmd|systemd-machine-id-setup}}
+
+{{Note|The command <code>systemd-machine-id-setup</code> also has an impact on the <code>systemd-networkd</code> service. If you don't run this command, strange behavior like network interfaces not coming UP or network addresses not being applied will occur.}}
 
 === Hostname ===
 
@@ -268,9 +303,13 @@ If needed the model, variant and options can be specified as well:
 
 {{RootCmd|localectl set-x11-keymap <LAYOUT> <MODEL> <VARIANT> <OPTIONS>}}
 
+
+After doing any of the above, update the environment so the changes will take effect:
+{{RootCmd|env-update && source /etc/profile}}
+
 === Time and date ===
 
-Time and date can be set using the {{c|timedatectl}} utility. That will also allow users to set up synchronization without needing to rely on {{Package|net-misc/ntp}} or other providers than systemd's own implementation.
+Time, date, and timezone can be set using the {{c|timedatectl}} utility. That will also allow users to set up synchronization without needing to rely on {{Package|net-misc/ntp}} or other providers than systemd's own implementation.
 
 To learn how to use {{c|timedatectl}} simply run:
 
@@ -318,7 +357,7 @@ Note that systemd-networkd does not update {{Path|resolv.conf}} by default. To h
 
 ==== NetworkManager ====
 
-Often NetworkManager is used to configure network settings. For that purpose, simply run the following command when using an X11-powered desktop:
+Often NetworkManager is used to configure network settings. For that purpose, simply run the following command when using a graphical desktop:
 
 {{RootCmd|nm-connection-editor}}
 
@@ -330,21 +369,31 @@ If that is not the case and the network needs to be configured from console, giv
 
 === Handling of log files ===
 
-systemd has its own way of handling log files without needing to rely on any external log system (like {{Package|app-admin/syslog-ng}} or {{Package|app-admin/rsyslog}}). Messages can now be read with {{c|journalctl}}. It can still be configured to use a preferred external tool for handling them. See {{c|man journald.conf}} to learn how to configure journald to suit personal needs.
+systemd has its own way of handling log files without needing to rely on an external log system (such as {{Package|app-admin/syslog-ng}} or {{Package|app-admin/rsyslog}}).
+
+If desired, the logging service be configured to pass log messages to external logging utilities such as sysklog or syslog-ng. See {{c|man journald.conf}} to learn how to configure the systemd-journald service to suit situational needs.
+
+systemd's integrated logging service writes log messages in a secure, binary format. The logs are ''read'' by using the {{c|journalctl}} command, which is a separate executable from the systemd-journald logging service.
+
+{{Important|When using systemd's systemd-journald.service for logging, which is typically the default for systems running systemd, standard users running the {{c|journalctl}} command will be ''unable to view system logs''. To view system logs as a non-root account, users must be in one of the following three user groups in order to view system logs: '''systemd-journal''', '''adm''', or '''wheel'''. The simplest method to allow a standard user to view logs is to use the systemd-journal group. Add a user by running the following command where <code>larry</code> is the desired username:<br /><br />
+{{RootCmd|gpasswd --add larry systemd-journal}}
+
+System logs can now be read by running {{c|journalctl --system}} as the user(s) added in the previous command.
+}}
 
 Some common {{c|journalctl}} options:
 
 {| class="table table-striped table-condensed"
 |-
-! Command line options for {{c|journalctl}} !! Result
+! Command-line options for {{c|journalctl}} !! Result
 |-
 | {{c|journalctl}} without options || Show all log entries, starting with earliest.
 |-
-| <code>-b</code>, <code>--boot</code> || Show all log entries from this boot.
+| <code>-b</code>, <code>--boot</code> || Show all log entries from the current boot.
 |-
-| <code>-r</code>, <code>--reverse</code> || Newest entries first.
+| <code>-r</code>, <code>--reverse</code> || Show the ''newest'' log entries first (reverse chronological order).
 |-
-| <code>-f</code>, <code>--follow</code> || Show the last few entries and display new log entries as they're being produced.
+| <code>-f</code>, <code>--follow</code> || Show the last few entries and display new log entries as they're being produced. This is similar to running {{c|tail -f}} in text logging utilities.
 |-
 | <code>-p</code>, <code>--priority=</code> || Specify (minimum) priority to display messages, with a choice from: "emerg" (0), "alert" (1), "crit" (2), "err" (3), "warning" (4), "notice" (5), "info" (6), "debug" (7).
 |-
@@ -354,7 +403,9 @@ Some common {{c|journalctl}} options:
 |-
 | <code>-k</code>, <code>--dmesg</code> || Restrict to kernel messages.
 |-
-| <code>-u</code>, <code>--unit=</code> || Restrict to a certain Systemd unit.
+| <code>-u</code>, <code>--unit=</code> || Restrict to a certain systemd unit.
+|-
+| <code>--system</code> || View system service and kernel logs. By default, this is only possible as the root user. See {{c|man journalctl}} for how to grant standard users the ability to read the system journal.
 |}
 
 For more information and many more options, look at {{c|man journalctl}}.
@@ -367,9 +418,9 @@ Unless some other filesystem is explicitly mounted to {{Path|/tmp}} in {{Path|/e
 
 When migrating to systemd users usually notice differences regarding verbosity of boot process:
 
-* The boot option <code>quiet</code> not only influences the kernel output, but also that of systemd itself. Then, while setting up systemd for the machine, drop the option to see any errors could arise more easily. After that, add it back to get a quiet (and faster) boot.
-* Even passing the <code>quiet</code> boot option, systemd can still be configured to show its status by also passing <code>systemd.show_status=1</code>.
-* When not using the <code>quiet</code> boot option, some messages might be overwriting consoles. That is caused by the kernel configuration (see {{c|man 5 proc}} and look for {{Path|/proc/sys/kernel/printk}}). To tweak it pass the <code>loglevel=5</code> boot parameter to the kernel (and update the value according to preference, for instance set a lower value like 1).
+* The kernel command-line option <code>quiet</code> not only influences the kernel output, but also that of systemd itself. Then, while setting up systemd for the machine, drop the option to see any errors could arise more easily. After that, add it back to get a quiet (and faster) boot.
+* Even passing the <code>quiet</code> kernel command-line option, systemd can still be configured to show its status by also passing <code>systemd.show_status=1</code>.
+* When not using the <code>quiet</code> kernel command-line option, some messages might be overwriting consoles. This could be caused by the kernel configuration (see {{c|man 5 proc}} and look for {{Path|/proc/sys/kernel/printk}}). To tweak it pass the <code>loglevel=5</code> kernel command-line parameter (and update the value according to preference, for instance set a lower value like 1).
 
 == Services ==
 
@@ -397,13 +448,13 @@ The following file suffixes are of interest:
 ! Description
 |-
 | {{Path|.service}}
-| plain service files (e.g. ones just running a daemon directly),
+| Plain service files (e.g. ones just running a daemon directly).
 |-
 | {{Path|.socket}}
-| socket listeners (much like ''inetd''),
+| Socket listeners (much like ''inetd'').
 |-
 | {{Path|.path}}
-| filesystem triggers for services (running services when files change etc.).
+| Filesystem triggers for services (running services when files change, etc.).
 |}
 
 Alternatively the {{c|systemctl}} tool can be used to list all services (including implicit ones):
@@ -426,7 +477,7 @@ Services can be disabled likewise:
 
 These commands enable services using their default name in default target (both specified in "Install" section of the service file). However, sometimes services either don't provide that information or users prefer to have another name/target.
 
-Note that these commands only enable or disable the system to be started on a next boot; to start the service right now, use:
+Note that these commands only enable or disable the service to be started on a next boot; to start the service right now, use:
 
 {{RootCmd|systemctl start foo.service}}
 
@@ -440,7 +491,7 @@ Custom unit files can be placed in {{Path|/etc/systemd/system}}, where they will
 
 {{RootCmd|systemctl daemon-reload}}
 
-{{Path|/usr/lib/systemd/system}} is reserved for service files installed by the package manager.
+{{Path|/lib/systemd/system}} is reserved for service files installed by the package manager.
 
 === Customizing unit files ===
 
@@ -469,11 +520,11 @@ When the name provided by "Alias" in the unit's "[Install]" section does not mee
 
 For example, to install {{Path|mysqld.service}} as {{Path|db.service}} in the {{Path|multi-user.target}}:
 
-{{RootCmd|ln -s /usr/lib/systemd/system/mysqld.service /etc/systemd/system/multi-user.target.wants/db.service}}
+{{RootCmd|ln -s /lib/systemd/system/mysqld.service /etc/systemd/system/multi-user.target.wants/db.service}}
 
 To disable the service, just remove the symlink:
 
-{{RootCmd|rm /etc/systemd/system/multi-user.target.wants/db.service}}
+{{RootCmd|unlink /etc/systemd/system/multi-user.target.wants/db.service}}
 
 === Native services ===
 
@@ -482,7 +533,7 @@ Some of Gentoo packages already install systemd unit files. For these services, 
 The following table lists systemd services matching OpenRC ones:
 
 {| class="table table-striped table-condensed" style="text-align: left;"
-|+ Migration chart
+|+ Service migration chart
 |-
 ! scope="col" | Gentoo package
 ! scope="col" | OpenRC service
@@ -712,7 +763,7 @@ This requires to have the service {{Path|failure-email@.service}} installed, whi
 
 ==== Replacing cron ====
 
-The above timer and service files can also be added to {{Path|/usr/lib/systemd/system}} to make them available system-wide. The install section should then say <code>WantedBy=multi-user.target</code> to enable the service at system start.
+The above timer and service files can also be added to {{Path|/lib/systemd/system}} to make them available system-wide. The install section should then say <code>WantedBy=multi-user.target</code> to enable the service at system start.
 
 However, cron also runs the scripts in {{Path|/etc/cron.daily}} and other locations. Several packages place scripts there that they expect to be run daily. This behavior can be emulated with systemd by installing {{Package|sys-process/systemd-cron}}. Then activate the new cron replacement with the following commands:
 
@@ -791,7 +842,7 @@ systemd does not seem to respect {{Path|/etc/conf.d/dmcrypt}} (see {{bug|429966}
 crypt-home UUID=c25dd0f3-ecdd-420e-99a8-0ff2eaf3f391 -
 }}
 
-Make sure to enable the <code>cryptsetup</code> USE flag for {{Package|sys-apps/systemd}}. It will install {{Path|/usr/lib/systemd/system-generators/systemd-cryptsetup-generator}} that will automatically create a service (<code>cryptsetup@crypt-home.service</code> for above example) for each entry on boot.
+Make sure to enable the <code>cryptsetup</code> USE flag for {{Package|sys-apps/systemd}}. It will install {{Path|/lib/systemd/system-generators/systemd-cryptsetup-generator}} that will automatically create a service (<code>cryptsetup@crypt-home.service</code> for above example) for each entry on boot.
 
 === Check for units that failed to start ===
 
@@ -799,7 +850,7 @@ Check for units that failed to start with:
 
 {{RootCmd|systemctl --failed}}
 
-=== Enable Debug Mode ===
+=== Enable debug mode ===
 
 To get more informations set the following in {{Path|/etc/systemd/system.conf}}:
 
@@ -813,7 +864,7 @@ Or enable the debug-shell, that opens a terminal at tty9. This helps to debug se
 
 === e4rat usage ===
 
-Please remember to edit {{Path|/etc/e4rat.conf}} setting 'init' to {{Path|/usr/lib/systemd/systemd}}, otherwise it will keep booting OpenRC.
+Please remember to edit {{Path|/etc/e4rat.conf}} setting 'init' to {{Path|/lib/systemd/systemd}}, otherwise it will keep booting OpenRC.
 
 === GRSecurity hardening ===
 
@@ -846,9 +897,10 @@ The {{c|systemd-fsck}} service is responsible of running {{c|fsck}} when needed.
 
 == See also ==
 
-* [[Comparison of init systems]] - An article comparing and contrasting the differences in Gentoo init systems.
+* {{See also|Comparison of init systems}}
 * [[Sakaki's_EFI_Install_Guide|Sakaki's EFI Install Guide]] - Particularly look at the chapter entitled [[Sakaki's_EFI_Install_Guide/Configuring_systemd_and_Installing_Necessary_Tools|Configuring systemd and installing necessary tools]]
-* [[OpenRC to Systemd Cheatsheet]]
+* [[Hard_dependencies_on_systemd|Packages that hard depend on systemd]]
+* {{See also|OpenRC to systemd Cheatsheet}}
 
 == External resources ==
 
