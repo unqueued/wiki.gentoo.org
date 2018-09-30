@@ -119,9 +119,6 @@ RESUME=/dev/vg/swap
 # needed to make parsing outputs more reliable
 export LC_ALL=C
 
-# we can never know what aliases may be set, so remove them all
-unalias -a
-
 echo_debug() {
 	# remove the next line to enable debug output
 	return
@@ -224,7 +221,10 @@ copy() {
 		echo_debug "Following symlink to $link_target"
 		copy "${link_target}"
 	elif [ -f "${src}" ]; then
-		if [ "$(file --brief --mime-type -- "${src}")" = "application/x-sharedlib" ]; then
+		mime_type="$(file --brief --mime-type -- "${src}")"
+		if [ "${mime_type}" = "application/x-sharedlib" ] || \
+		   [ "${mime_type}" = "application/x-executable" ] || \
+		   [ "${mime_type}" = "application/x-pie-executable" ]; then
 			# $src may be dynamically linked, copy the dependencies
 			# lddtree -l prints $src as the first line, skip it
 			lddtree -l "${src}" {{!}} tail -n +2 {{!}} while read file; do
@@ -250,7 +250,7 @@ copy /dev/null /dev/
 
 copy /bin/busybox /bin/
 # add symlinks
-for applet in $(/bin/busybox --list); do
+for applet in $(/bin/busybox --list | grep -Fxv busybox); do
 	if [ -e "/sbin/${applet}" ]; then
 		ln -s /bin/busybox "${INITRAMFS_DIR}/sbin/${applet}"
 	else
