@@ -1,38 +1,38 @@
 <languages />
 
-{{Metadata|abstract=Данный документ проведет пользователя через процесс обновления GCC.}}
+{{Metadata|abstract=This document guides users through the process of upgrading GCC.}}
 
-Данный документ проведет пользователя через процесс обновления GCC.
+This document [[Article description::guides users through the process of upgrading to modern versions of GCC.]]
 
 Please note that ''downgrading'' GCC might have unwanted side effects. Refer to the [[#Troubleshooting|troubleshooting section]] for some commonly reported issues.
 
-=== Вкратце ===
+== Вкратце ==
 
-Следующий раздел быстро введет вас в процесс обновления GCC (и того, как просто его сделать). Если вы хотите прочитать длинное объяснение причин, стоящих за обновлением GCC, продолжайте читать [[#.D0.9E.D0.B1.D1.8A.D1.8F.D1.81.D0.BD.D0.B5.D0.BD.D0.B8.D0.B5_.D0.BE.D0.B1.D0.BD.D0.BE.D0.B2.D0.BB.D0.B5.D0.BD.D0.B8.D1.8F_GCC|Объяснение обновления GCC]].
+This section is a quick primer on GCC upgrades (and how easy they are). More details are given in the next section, [[#GCC upgrading explained|GCC upgrading explained]].
 
-Если вы обновляете GCC, то вам вообще не нужно ничего делать, кроме смены версии компилятора и пересборки libtool:
+Most GCC upgrades are as simple as switching the compiler version (here from 5.4.0 to 6.4.0) and rebuilding {{c|libtool}}:
 
 {{Emerge|sys-devel/gcc|params+=--oneshot}}
 
-{{RootCmd|emerge -u sys-devel/gcc
-|gcc-config -l|output=<pre>
-[1] i686-pc-linux-gnu-4.4.5 *
-[2] i686-pc-linux-gnu-4.5.3
+{{RootCmd|gcc-config --list-profiles|output=<pre>
+[1] x86_64-pc-linux-gnu-5.4.0 *
+[2] x86_64-pc-linux-gnu-6.4.0
 </pre>}}
 
 {{RootCmd
 |gcc-config 2
-|env-update && source /etc/profile}}
+|source /etc/profile
+}}
 
-{{Emerge|sys-devel/libtool|params+=--oneshot}}
+{{Emerge|sys-devel/libtool|params+=--oneshot --usepkg=n}}
 
 {{Note|If you are upgrading from gcc 4.x to gcc 5.x or later, additional instructions apply; please see then the separate page [[Upgrading from gcc-4.x to gcc-5.x]].}}
 
-Проверьте текущую версию и удалите старую версию:
+Check the current version number and then uninstall the old version:
 
 {{RootCmd|gcc --version}}
 
-{{Emerge|{{=}}sys-devel/gcc-4.4.5|params+=--depclean}}
+{{Emerge|{{=}}sys-devel/gcc-5.4.0|params+=--depclean}}
 
 After that, verify system integrity running revdep-rebuild:
 {{RootCmd|revdep-rebuild}}
@@ -41,21 +41,21 @@ Enjoy the new compiler!
 
 == Объяснение обновления GCC ==
 
-Обновление GCC всегда было какой-то мистикой, с предположениями от "Вам ничего не нужно знать" до "Вам нужно дважды пересобрать всю свою систему". Большинство страха, неуверенности и сомнений проистекает из проблем, связанных с несовместимостью ABI. Но, сначала кратко о {{c|libtool}}.
+GCC upgrading has always been mystified, with suggestions ranging from "users do not need to do anything" to "users will need to rebuild the entire system twice". Most of this fear, uncertainty and doubt comes from the confusion surrounding ABI incompatibility, something that nowadays rarely happens (and when it does, it will be announced). But first a quick pointer towards {{c|libtool}}.
 
-=== libtool и fix_libtool_files.sh ===
+=== libtool ===
 
-Причина, по которой нужно пересобирать libtool после обновления версий {{c|gcc}} это потому, что главной функцией ''libtool'' является объединение кода, зависящего от платформы в общем интерфейсе, что позволяет приложениям использовать разделяемые библиотеки без нужды иметь дело с вещами, зависящими от платформы для разделяемых библиотек. Чтобы реализовать эту функцию, скрипт {{c|libtool}} использует различные пути до библиотек, в которых есть жестко заданная информация о версии {{c|gcc}}.
+The reason we need to rebuild libtool after the upgrade of {{c|gcc}} versions is because of its main purpose: ''libtool'' is a toolset that aggregates platform-specific code in a generic interface, allowing applications to build against shared libraries without needing to deal with the platform-specific aspects of shared libraries. To fulfill its function properly, the {{c|libtool}} script uses various library locations that have hard-coded {{c|gcc}} version information in them.
 
 === Изменения ABI ===
 
-ABI, или [https://en.wikipedia.org/wiki/Application_binary_interface ''Двоичный интерфейс приложений''], это набор соглашений, используемых всеми инструментами, работающими с бинарным видом программ, например, компиляторы, ассемблеры, линкеры и поддержка рантайма для языков (источник: [https://gcc.gnu.org/onlinedocs/gcc/Compatibility.html Бинарная совместимость GCC]). Когда ABI, используемый для бинарных приложений и библиотек меняется, появляется риск получить ошибку компоновщика, либо неработающие программы, если только вы не пересоберете все программы, использующие код C++. 
+An ABI, or ''[[wikipedia:Application_binary_interface|Application Binary Interface]]'', is a set of conventions used by all tools that deal with binary representation of programs, including compilers, assemblers, linkers, and language runtime support (source: [https://gcc.gnu.org/onlinedocs/gcc/Compatibility.html GCC Binary Compatibility]). When the ABI used for binary applications and libraries is changed, you will risk getting linker errors or malfunctioning programs unless you rebuild all libraries that use C++ code. 
 
-Да, C++, поскольку в большинстве случаев несоответствия обнаруживаются на уровне двоичного интерфейса приложений C++. Если вы обновляетесь до GCC 4.1, или GCC 5.1, вы, вероятно, столкнетесь с проблемами в двоичном интерфейсе. Это так же объясняет почему мы снова использовали команду {{c|revdep-rebuild}} для {{Path|libstdc++.so.5}} (от GCC 3 до GCC 4.1), или {{Path|libstdc++.so.6}} (от GCC 4 до GCC 5.1).
+Yes, C++, since most incompatibilities occur within the C++ ABI. If you are upgrading to GCC 4.1, or GCC 5.1, you would probably encounter ABI issues. To prevent this, the {{c|revdep-rebuild}} command should be run against the {{Path|libstdc++.so.5}} library when moving from GCC 3 to GCC 4.1, or {{Path|libstdc++.so.6}} when moving from GCC 4 to GCC 5.1.
 
-{{RootCmd|revdep-rebuild --library 'libstdc\+\+.so.6' -- --exclude gcc}}
+{{RootCmd|revdep-rebuild --library 'libstdc++.so.6' -- --exclude gcc}}
 
-Так почему же это нужно только до GCC 3.4.0/4.1/5? Это потому что с этой версии GCC использует обратно-совместимое ABI, и пересборка приложений и библиотек больше не требуется. Конечно, мы не можем дать вам гарантию, что так будет вечно, но если снова возникнет несоответствие, мы явно опишем этот случай здесь. В этом случае, скорее всего, будет увеличена версия библиотеки {{Path|libstdc++.so}}.
+So why is this only needed up to GCC 4.1/5.1? That's because from that version onward, GCC uses a forward-compatible ABI, which removes the need for rebuilding applications and libraries. Of course, guarantees can never be given indefinitely, but when an incompatibility occurs again, we'll definitely document it here and release a news item. In that case, the version of the {{Path|libstdc++.so}} library will probably be increased.
 
 ==== Особый случай C++11 (и C++14) ====
 
@@ -89,11 +89,12 @@ ABI, или [https://en.wikipedia.org/wiki/Application_binary_interface ''Дво
 
 {{Emerge|sys-devel/libtool sys-devel/llvm sys-devel/clang|params+=--oneshot --usepkg=n --verbose}}
 
-Также известны случаи, когда пакеты должны быть собраны одной и той же версией компилятора. Хотя эти пакеты чаще всего обновляются сопровождающими пакета одновременно (поэтому они всегда будут собираться одной и той же версией GCC), но обновления по отдельности могут быть источником проблем. Некоторые пакеты {{Path|qt-*}} являются прекрасным примером такого поведения.
+Some collections of packages need to be built with the same compiler (for example, the various {{Path|qt-*}} packages). Such packages are usually bumped by package maintainers simultaneously, so they will always be built with the same GCC version. Cherry-picking re-installs on these packages might prove to be troublesome.
 
-Некоторые люди клянутся, что нужно пересобрать все пакеты на их системе при выходе новой версии GCC. Конечно, в этом нет смысла, так как многие приложения не используют GCC для процесса сборки и установки, и на них вообще не распространяется это изменение. 
+=== Rebuilding everything ===
+Some people swear that they need to rebuild every single package on their system when a new GCC version is made available. Of course, that doesn't make sense, since there are many applications that are not using GCC for their build and install process anyhow, so they would never be affected by such changes. 
 
-Это, однако, не означает, что они полностью неправы: новые версии GCC часто предлагают более хорошую поддержку набора инструкций процессора, а это может повлиять на производительность приложений в лучшую сторону. Хотя, чаще всего, данное улучшение очень незначительное, в некоторых случаях (особенно для приложений, сильно использующих процессор) это может привести к существенному улучшению.
+That, however, doesn't mean they are completely incorrect: newer GCC versions often include better support for the processors' instruction set, which might influence the performance of some applications in a positive way.
 
 Apart from such "benign" benefits, rebuilding everything from scratch may be necessary in some cases to fix problems that don't seem to have any obvious cause.
 
@@ -132,9 +133,9 @@ cmake_bootstrap_28021_test: /usr/lib/gcc/i486-pc-linux-gnu/4.1.2/libstdc++.so.6:
 version `GLIBCXX_3.4.11' not found
 }}
 
-Это означает, что вы пытаетесь собрать пакет ''более старой'' версией GCC, чем собирались библиотеки, от которых зависит пакет. Помните, мы говорили, что C++ ABI обратно совместим? Это так, но означает только, что для сборки приложений и линковки библиотек могут использоваться ''более новые'' (или те же самые) версии GCC (по сравнению с версией GCC, использованной для сборки этих библиотек).
+This means that you are trying to build a package with an ''older'' GCC version than that with which some depending libraries were built. Remember when we told that the C++ ABI is forward-compatible? That is true, but it ensures only that ''higher'' (or same) GCC versions can be used when building applications and linking libraries (compared to the GCC version used to build those libraries).
 
-Для пересоборки всех зависящих от libstdc++ смотрите пример команды revdep-rebuild в предыдущем разделе.
+To rebuild all the packages depending on libstdc++, see the {{c|revdep-rebuild}} instructions [[#Short version|above]].
 
 == Смотрите также ==
 
