@@ -1,95 +1,178 @@
 This article [[Article description::describes updating the [[microcode]] for [[AMD]] processors.]]
 
-{{Note|For AMD GPU firmware see the corresponding GPU driver article instead.}}
+{{Note|For AMD GPU firmware see the corresponding [[AMDGPU#Firmware|GPU driver article]] instead.}}
 
 == Installation ==
 
-=== Firmware ===
+=== Emerge ===
 
-Install {{Package|sys-kernel/linux-firmware}}:
+Microcode updates for AMD processors are provided by {{Package|sys-kernel/linux-firmware}} package. Install the package via:
 
 {{Emerge|sys-kernel/linux-firmware}}
 
 === Kernel ===
 
-The following kernel options should be enabled:
+In order to load the CPU microcode the following kernel options should be enabled:
 
-{{KernelBox|1=
+{{KernelBox|title=Generic AMD microcode support enablement|1=
 Processor type and features  --->
-    [*] /dev/cpu/microcode - microcode support
+    [*] CPU microcode loading support
     [ ]   Intel microcode patch loading support
     [*]   AMD microcode patch loading support
+}}
+
+{{Warning|Modules do not work for early microcode, so make sure microcode loading is built-in not a module.}}
+
+== Configuration ==
+
+There are multiple ways how to update the microcode.
+
+=== Built-in firmware ===
+
+This way the firmware files will be built directly into the kernel.
+
+==== Firmware blob files selection ====
+
+You can either include all the available AMD firmware files to the kernel or select just the one specific for your CPU.
+
+===== All firmware files =====
+
+This setup simply builds all the firmware blobs into the kernel. This can be achieved by the following kernel optionsː
+
+{{KernelBox|title=All AMD firmware blobs|1=
 Device Drivers  --->
     Generic Driver Options 
         (amd-ucode/microcode_amd.bin amd-ucode/microcode_amd_fam15h.bin amd-ucode/microcode_amd_fam16h.bin amd-ucode/microcode_amd_fam17h.bin) External firmware blobs to build into the kernel binary
         (/lib/firmware) Firmware blobs root directory
 }}
 
-Now reboot the computer with the new kernel.
+{{Warning|Every option ''must'' be set as built into the kernel, not as a kernel module.}}
 
-You may want to only include the firmware suitable to your CPU family. To find it you can look at <code>/proc/cpuinfo</code>, which gives the decimal number:
-<pre>grep -F -m 1 "cpu family" /proc/cpuinfo
-cpu family      : 23
-</pre>
+{{Note|The <var>CONFIG_EXTRA_FIRMWARE</var> option allows specifying multiple firmware files by listing them space-separated.}}
 
-Now include only the one firmware blob for the given cpu family number:
+===== Specific firmware only =====
+
+This way you only include the firmware suitable to your current CPU family. The CPU family identification can be obtained from {{Path|/proc/cpuinfo}}:
+
+{{Cmd|grep -F -m 1 "cpu family" /proc/cpuinfo|output=<pre>cpu family      : 23</pre>}}
+
+In this example the CPU belongs to the AMD CPU family '''23'''.
+
+{{Important|The CPU family identificator listed in {{Path|/proc/cpuinfo}} uses the ''decimal numeral system''.}} 
+
+The following table helps to identify the right firmware blob file for given CPU family identificator:
 
 {| class="table table-condensed table-striped" style="width: auto;"
-! scope="col" | Firmware
+! scope="col" | Firmware blob file
 ! scope="col" | Decimal
 ! scope="col" | Hexadecimal
-! scope="col" | Family
+! scope="col" | Family name
 ! scope="col" | Year
 ! scope="col" | Examples
 |-
 | rowspan="4" style="vertical-align:middle;" | {{Path|amd-ucode/microcode_amd.bin}}
-| 16
+| '''16'''
 | <code>10h</code>
 | K10
 | 2007
 | Phenom, Phenom&nbsp;II, Athlon&nbsp;II
 |-
-| 17
+| '''17'''
 | <code>11h</code>
 | K11
 | 2008
 | Athlon&nbsp;X2, Sempron&nbsp;X2, Turion&nbsp;X2
 |-
-| 18
+| '''18'''
 | <code>12h</code>
-| K12, Fusion
+| Llano, Fusion
 | 2009
 | A- and E2-Series APU with Radeon&nbsp;HD graphics, Athlon&nbsp;II, Sempron&nbsp;X2
 |-
-| 20
+| '''20'''
 | <code>14h</code>
 | Bobcat
-|
-|
+| 2011
+| C- and E-Series APU with Radeon&nbsp;HD graphics
 |-
 | {{Path|amd-ucode/microcode_amd_fam15h.bin}}
-| 21
+| '''21'''
 | <code>15h</code>
 | Bulldozer, Piledriver, Steamroller, Excavator
-|
-|
+| 2011
+| FX&nbsp;series, A-Series APU with Radeon&nbsp;HD graphics, Opteron&nbsp;6200/6300
 |-
 | {{Path|amd-ucode/microcode_amd_fam16h.bin}}
-| 22
+| '''22'''
 | <code>16h</code>
 | Jaguar, Puma
-|
-|
+| 2013
+| A-series and E-Series APU with Radeon&nbsp;HD graphics
 |-
 | style="white-space: nowrap;" | {{Path|amd-ucode/microcode_amd_fam17h.bin}}
-| 23
+| '''23'''
 | <code>17h</code>
-| Zen
+| [[wikipedia:Zen_(microarchitecture)|Zen]]
 | 2017
-| Ryzen <nowiki>3|5|7</nowiki>, Threadripper
+| [[Ryzen]]&nbsp;<nowiki>3|5|7</nowiki>, Threadripper, EPYC
 |}
 
-=== Verification ===
+The previously identified CPU specific firmware blob file (in this example CPU family 23) needs to be built into the kernelː
+
+{{KernelBox|title=Single AMD firmware blob|1=
+Device Drivers  --->
+    Generic Driver Options 
+        (amd-ucode/microcode_amd_fam17h.bin) External firmware blobs to build into the kernel binary
+        (/lib/firmware) Firmware blobs root directory
+}}
+
+{{Warning|Every option ''must'' be set as built into the kernel, not as a kernel module.}}
+
+=== Initrd ===
+
+You can load the microcode with the [[wikipedia:Initial ramdisk|initrd]].
+
+==== Kernel ====
+
+In order to use the initrd, you have to enable it in the kernel:
+
+{{KernelBox|title=Initrd support enablement|1=
+General setup  --->
+    [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
+}}
+
+==== Firmware files preparation ====
+
+First create the specified directory and cd into it. It doesn't have to be in {{Path|/tmp}} but the {{Path|kernel/x86/microcode}} part
+is necessary.
+
+{{Cmd|mkdir -p /tmp/amd-ucode/kernel/x86/microcode|cd /tmp/amd-ucode}}
+
+Then we concatenate all the AMD firmware files into a single file. As before the path and filename of the output file must
+not be altered.
+
+{{Cmd|cat /lib64/firmware/amd-ucode/microcode_amd*.bin > kernel/x86/microcode/AuthenticAMD.bin}}
+
+Then we will create a cpio archive in {{Path|/boot/amd-uc.img}} using {{C|bsdcpio}} from {{Package|app-arch/libarchive}}:
+
+{{RootCmd|echo kernel/x86/microcode/AuthenticAMD.bin &#x7C; bsdcpio -o -H newc -R 0:0 > /boot/amd-uc.img}}
+
+==== GRUB2 configuration ====
+
+Since the image file {{Path|/boot/amd-uc.img}} is one of the [[Microcode#Early microcode loading|recognized ones]] by GRUB2 we just need to regenerate grub config.
+
+{{RootCmd|1=grub-mkconfig -o /boot/grub/grub.cfg|output=<pre>
+Found linux image: /boot/vmlinuz-4.18.12
+Found initrd image: /boot/amd-uc.img /boot/initramfs-4.18.12.img</pre>}}
+
+It should show that it found the {{Path|/boot/amd-uc.img}} file.
+
+== Building the kernel ==
+
+[[Kernel/Configuration#Build|Rebuild and install]] the kernel as usual.
+
+== Verification ==
+After the next reboot with the new kernel, you should see a similar output:
 
 {{Cmd|dmesg {{!}} grep microcode|output=<pre>
 [    0.584603] microcode: microcode: updated early to new patch_level=0x06000832
@@ -104,28 +187,8 @@ Now include only the one firmware blob for the given cpu family number:
 [    0.868718] microcode: Microcode Update Driver: v2.01 <tigran@aivazian.fsnet.co.uk>, Peter Oruba
 </pre>}}
 
-=== Initrd ===
+The first line contains the <code>microcode: updated early</code> log message in case a microcode update was performed during the boot.
 
-You can load the microcode with the initrd. To do this you need {{Package|sys-kernel/linux-firmware}}.
-First create the specified directory and cd into it. It doesn't have to be in {{Path|/tmp}} but the {{Path|kernel/x86/microcode}} part
-is necessary.
-
-{{Cmd|mkdir -p /tmp/amd-ucode/kernel/x86/microcode|cd /tmp/amd-ucode}}
-
-Then we concatenate the AMD microcode files into a single file. As before the path and filename of the output file must
-not be altered.
-
-{{Cmd|cat /lib64/firmware/amd-ucode/microcode_amd*.bin > kernel/x86/microcode/AuthenticAMD.bin}}
-
-Then we will create a cpio archive in {{Path|/boot/amd-uc.img}}
-
-{{RootCmd|echo kernel/x86/microcode/AuthenticAMD.bin &#x7C; bsdcpio -o -H newc -R 0:0 > /boot/amd-uc.img}}
-
-You then need to regenerate your grub config.
-
-{{RootCmd|1=grub-mkconfig -o /boot/grub/grub.cfg|output=<pre>
-Found linux image: /boot/vmlinuz-4.18.12
-Found initrd image: /boot/amd-uc.img /boot/initramfs-4.18.12.img</pre>}}
-
-It should show that it found {{Path|/boot/amd-uc.img}}.
 [[Category:Processors]]
+[[Category:AMD]]
+[[Category:Firmware]]
