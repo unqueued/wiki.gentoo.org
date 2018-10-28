@@ -4,17 +4,21 @@
 }}
 {{Stub}}
 
-This article [[Article description::describes how to set up SSDs (Solid State Drives) on Linux.]] It presumes the user has obtained knowledge of setting up, partitioning, and formatting [[HDD|mechanical hard drives]].
+This article [[Article description::describes how to set up SSDs ([[Wikipedia:Solid-state drive|Solid State Drives]]) on Linux.]]
+
+It presumes the user has obtained knowledge of setting up, partitioning, and formatting [[HDD|mechanical hard drives]].
 
 == Considerations ==
 
 === Rootfs ===
 
-The <code>-o discard</code> option on a rootfs mount should ''not'' be used. <code>discard</code> is the "TRIM" command that tells the SSD to do its magic. Having discard running constantly could potentially cause performance degradation on older SSDs. Modern SSDs use discard by default. Rather the following command can be used manually or be setup as a cron job (see below) to run twice a day, which should suffice for the rootfs:
+The {{C|mount}} <code>-o discard</code> option on a rootfs mount should ''not'' be used.
+
+<code>discard</code> is the ''TRIM'' command that tells the SSD to do its magic. Having discard running constantly could potentially cause performance degradation on older SSDs. Modern SSDs use discard by default. Rather the following command can be used manually or be setup as a cron job (see below) to run twice a day, which should suffice for the rootfs:
 
 {{RootCmd|fstrim -v /}}
 
-On a [[btrfs]] system, running the {{c|fstrim}} command on any mounted subvolume will perform the TRIM command on the device.
+{{Note|On a [[btrfs]] system, running the {{C|fstrim}} command on any mounted subvolume will perform the ''TRIM'' command on the device.}}
 
 === Mount point ===
 
@@ -141,11 +145,15 @@ Once the swap has been configured in fstab, run the following command to make sw
 
 {{RootCmd|swapon -a}}
 
-== Notes ==
+== Misc ==
 
-=== cron ===
+=== Periodic fstrim jobs ===
 
-Run {{c|fstrim -v /}} from cron twice a day to automatically do "discard":
+There are multiple ways how to setup a periodic unused block discarding process.
+
+==== cron ====
+
+Run {{c|fstrim -v /}} from cron twice a day to automatically perform "discard":
 
    #Mins  Hours  Days   Months  Day of the week   command
    15     1,13   *      *       *                 /sbin/fstrim -v /
@@ -164,13 +172,18 @@ Future version should implement:
 * Overgive options to fstrim (e.g. '-m 1M')
 * support for encrypted filesystem (LUKS)
 
-=== fstrim systemd timer ===
+==== fstrimDaemon ====
 
-When running systemd, a timer can be created that will run fstrim every 12 hours.
+If your computer turned off when cron scheduled its job, {{C|fstrim}} would not be called at all. You can install [https://github.com/dobek/fstrimDaemon fstrimDaemon] to solve this problem.
 
-Two files need to be created in the {{Path|/etc/systemd/system}} directory:
+==== systemd timer ====
 
-{{FileBox|filename=/etc/systemd/system/fstrim.service|lang=ini|1=
+When running a system with [[systemd]] version 212 or newer, a persistent [[systemd#Timer services|systemd timer]] can be created that will run {{C|fstrim}} every 12 hours.
+
+Two systemd unit files need to be created in the {{Path|/etc/systemd/system}} directory:
+
+Service called <code>fstrim</code> which actually executes the {{C|fstrim}}:
+{{FileBox|filename=/etc/systemd/system/fstrim.service|lang=ini|title=Service executing fstrim|1=
 [Unit]
 Description=Runs fstrim on all mounted devices that support TRIM
 
@@ -179,7 +192,8 @@ Type=oneshot
 ExecStart=/bin/sh -c '/sbin/fstrim -a'
 }}
 
-{{FileBox|filename=/etc/systemd/system/fstrim.timer|lang=ini|1=
+Timer which wakes up the <code>fstrim</code> service every 12 hours:
+{{FileBox|filename=/etc/systemd/system/fstrim.timer|lang=ini|title=Timer starting the fstrim service|1=
 [Unit]
 Description=Run fstrim.service every 12 hours
 
@@ -212,69 +226,73 @@ Sun 2017-01-15 19:16:26 PST  23h left Sat 2017-01-14 19:16:26 PST  12min ago sys
 
 This will run fstrim twice a day, and also run it if it was missed. The {{c|journalctl}} command can be used to make sure the timer runs successfully.
 
-=== fstrimDaemon ===
+=== Reducing amount of writes ===
 
-If your computer turned off when cron scheduled its job, fstrim would not be called at all. You can install [https://github.com/dobek/fstrimDaemon fstrimDaemon] to solve this problem.
+The flash-based SSDs have a limited write lifetime - the number of writes performed<ref>[https://www.dell.com/support/article/cz/cs/czdhs1/sln156899/hard-drive-why-do-solid-state-devices-ssd-wear-out?lang=en Hard Drive - Why Do Solid State Devices (SSD) Wear Out], Dell. Retrieved on October 28, 2018</ref>. Thus when using a SSD, administrators generally want to reduce the amount of writes.
 
-=== Temporal files to tmpfs ===
+==== Portage <var>TMPDIR</var> on tmpfs ====
 
-When using an SSD, administrators generally want to reduce the amount of writes performed. You can mount your desired mountpoints into a [[Tmpfs|tmpfs]] for reduce the I/O to the disk (and improve performance)
+When building packages via [[Portage]] it is possible to perform the operations on [[Tmpfs|tmpfs]] and get the tmpfs' benefits. See [[Portage TMPDIR on tmpfs|Portage <var>TMPDIR</var> on tmpfs]] guide.
 
-this is an example of {{Path|/tmp}} and {{Path|/var/tmp}} on tmpfs but you must study all your actions and your convenience
+==== Temporal files on tmpfs ====
+
+{{Warning|Remember that all data in [[Tmpfs|tmpfs]] reside in volatile memory. So data on tmpfs will be lost after system reboot, shutdown or crash!}}
+
+It is possible to mount desired mount points as [[Tmpfs|tmpfs]]. Since tmpfs stores files in volatile memory all the I/O operations directed to the given mount points are not performed on the solid state disk. This reduces the amount of writes and also improves performance.
+
+This is an example of both {{Path|/tmp}} and {{Path|/var/tmp}} being mounted as tmpfs:
+
 {{FileBox|filename=[[fstab|/etc/fstab]]|1=# temporal mountpoints on tmpfs
 tmpfs           /tmp            tmpfs           size=16G,noatime        0 0
 tmpfs           /var/tmp        tmpfs           size=1G,noatime         0 0}}
 
-Remember that all data in tmpfs will be loss after reboot or shutdown
 
-==== Portage TMPDIR on tmpfs ====
+==== XDG cache on tmpfs ====
 
-See {{See also|Portage_TMPDIR_on_tmpfs}}.
+When running a Gentoo desktop, many programs, using [[X]] Window System ([[Chromium]], [[Firefox]], [[Skype]], etc.) are making frequent disk I/O every few seconds to cache<ref>[https://www.servethehome.com/firefox-is-eating-your-ssd-here-is-how-to-fix-it/ Firefox is eating your SSD - here is how to fix it], Loyolan Ventures. Retrieved on October 28, 2018</ref>.
 
-=== XDG cache ===
+The cache directory location usually complies to ''XDG Base Directory Specification''<ref>[https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html XDG Base Directory Specification], freedesktop.org. Retrieved on October 28, 2018</ref>, namely to the <var>XDG_CACHE_HOME</var> environment variable. The default cache location is {{Path|~/.cache}}, which is usually mounted on a hard drive and could be moved to [[tmpfs]].
 
-When running Gentoo on desktop, many programs, using X windows systems (Chromium, Firefox, Skype, etc.) are making frequent disk I/O every few seconds to cache. Default cache directory is {{Path|~/.cache}}, which is on hard drive and should be moved to [[tmpfs]].
-
-Create the file {{Path|/etc/profile.d/xdg_cache_home.sh}} and add the following lines to it:
+To remap the cache directory location create file {{Path|/etc/profile.d/xdg_cache_home.sh}}:
 
 {{FileBox|filename=/etc/profile.d/xdg_cache_home.sh|lang=bash|1=
 export XDG_CACHE_HOME="/tmp/${USER}/.cache"
 }}
 
 {{Warning|
-With above change, auto unlocking the gnome keyring didn't work anymore.
+With the above change, auto unlocking the gnome keyring didn't work anymore.
 /var/log/messages said the following:
 
    May  5 10:02:52 localhost gnome-keyring-daemon[5561]: couldn't bind to control socket: /home/david/.cache/keyring-hRt5QC/control: No such file or directory
 }}
 
-=== Browser profile/s and cache to RAM or HDD ===
+==== Web browser profile/s and cache on tmpfs ====
 
-Since the profile/s, browser cache*, etc. are relocated into [[Tmpfs|tmpfs]] (RAM) or another mount point into an HDD, the corresponding I/O associated with using the browser is also redirected from the physical drive to RAM, thus reducing wear to the physical drive and also greatly improving browser speed and responsiveness.
+The web browser profile/s, cache, etc. can be relocated to [[Tmpfs|tmpfs]]. The corresponding I/O associated with using the browser gets redirected from the SSD drive to tmpfs' volatile memory, resulting in reduced wear to the physical drive and also improving browser speed and responsiveness.
 
-You can move them with the utility {{Package|www-misc/profile-sync-daemon}}
+You can relocate the browser components mentioned above with the utility {{Package|www-misc/profile-sync-daemon}}:
 
 {{RootCmd|emerge --ask www-misc/profile-sync-daemon}}
 
-{{Note|{{Package|www-misc/profile-sync-daemon}} version 6 or greater requires systemd}}
+{{Note|Note {{Package|www-misc/profile-sync-daemon}} version 6 or greater requires [[Systemd|systemd]].}}
 
-Add that users whose browser/s profile/s will get symlinked to a tmpfs or another mountpoint in the value USERS=  
+Next add the users whose browser/s profile/s will get symlinked to a tmpfs or another mountpoint in the variable <code>USERS</code>:
 
 {{FileBox|filename=/etc/psd.conf|1= USERS="user user2 root"}}
 
-close all the browsers, start the daemon and enable it
+Finally, close all the browsers, start and enable the daemon.
 
-systemd:
+On systemd:
 {{RootCmd|systemctl enable psd && systemctl start psd}}
 
-openrc:
+On [[OpenRC]]:
 {{RootCmd|rc-update add psd default && rc-service psd start}}
 
-you can view all symlinks  viewing the status of the daemon since started
+Now it is possible to view all symlinks by printing the status of the started daemon:
 
 {{RootCmd|psd p}}
 
-More info about Profile Sync Daemon on https://wiki.archlinux.org/index.php/profile-sync-daemon
+More info about Profile-Sync-Daemon can be found on [https://wiki.archlinux.org/index.php/profile-sync-daemon Arch's wiki].
 
 == See also ==
 
