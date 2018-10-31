@@ -53,13 +53,29 @@ A device supporting discard has non-zero values of <code>DISC-GRAN</code> (disca
 
 === Partitioning ===
 
-See [[Handbook:AMD64/Blocks/Disks|Handbook]].
+Sizes of SSD internal data structures (blocks and pages) varies across different devices. Filesystems operates on data structures of different sizes. For optimal performance filesystem data structures should aim not to cross boundaries of underlying SSD internal data structures. Thus effectively minimizing the number of required internal SSD operations. This can be achieved by aligning start of each partition — the common alignment is to 1 MiB. 
+
+Both {{C|parted}} and {{C|fdisk}} partitioning utilities support partition alignment. For {{C|parted}}, there is <code>-a optimal</code> option. Recent versions of {{C|fdisk}} should use optimal alignment by default<ref>[http://man7.org/linux/man-pages/man8/fdisk.8.html fdisk(8) - Linux manual page], man7.org. Retrieved on October 31, 2018</ref>.
+
+It is possible to easily check the alignment for given partition using {{C|parted}}:
+{{RootCmd|parted /dev/sda|output=<pre>
+(parted) align-check optimal 1
+1 aligned
+</pre>}}
+
+For further details about the partitioning, follow dedicated [[Handbook:AMD64/Blocks/Disks|handbook chapter]].
+
+==== blkdiscard ====
+
+{{C|blkdiscard}} utility from {{Package|1=sys-apps/util-linux-2.23}} (or later) discards all data blocks on given device.
+
+{{Warning|All data on the discarded device will be lost!}}
 
 ==== LVM ====
 
-[[LVM]] aligns to MiB boundaries and allows discards by default. No special configuration is required.
+[[LVM]] aligns to MiB boundaries and passes discards to underlying devices by default. No additional configuration is required.
 
-In order to TRIM all unused space in the VG use the {{c|blkdiscard}} utility:
+In order to discard all unused space in a [[LVM#VG (Volume Group)|Volume Group]] ([[LVM#VG (Volume Group)|VG]]) use the [[SSD#blkdiscard|{{C|blkdiscard}}]] utility:
 
 {{RootCmd
 |lvcreate -l100%FREE -n trim yourvg
@@ -67,7 +83,9 @@ In order to TRIM all unused space in the VG use the {{c|blkdiscard}} utility:
 |lvremove yourvg/trim
 }}
 
-Alternatively, there is a discard option in {{Path|lvm.conf}} which makes LVM discard entire LV on lvremove, lvreduce, pvmove and other actions that free physical extents (PE) in a VG. However, enabling it will immediately render the system unable to undo any changes to the LV layout.
+Alternatively, there is a discard option in {{Path|lvm.conf}} which makes LVM discard entire [[LVM#LV (Logical Volume)|Logical Volume]] ([[LVM#LV (Logical Volume)|LV]]) on {{C|lvremove}}, {{C|lvreduce}}, {{C|pvmove}} and other actions that free Physical Extents (PE) in a VG. 
+
+{{Warning|Enabling it will immediately render the system unable to undo any changes to the LV layout.}}
 
 {{FileBox|filename=/etc/lvm/lvm.conf|1=
 devices {
@@ -75,13 +93,13 @@ devices {
 } 
 }}
 
-==== LUKS ====
+==== dm-crypt/LUKS ====
 
-For TRIM to work on encrypted [[DM-Crypt_LUKS|LUKS]] devices, they have to be opened with the <code>--allow-discards</code> option.
+For discards to pass through encrypted [[DM-Crypt LUKS|LUKS]] devices, they have to be opened with the <code>--allow-discards</code> option.
 
 {{RootCmd|cryptsetup luksOpen --allow-discards /dev/thing luks}}
 
-When root-device exists on [[DM-Crypt_LUKS|LUKS]], enabling TRIM depends on the [[Initramfs]] implementation.
+When root-device exists on [[DM-Crypt_LUKS|LUKS]], enabling discards depends on the [[Initramfs]] implementation.
 When using [[genkernel]] for creating your initramfs, pass the following kernel option:
 
 {{FileBox|filename=/etc/default/grub|1=
@@ -94,8 +112,8 @@ When using [[dracut]] for creating the initramfs, pass the following kernel opti
 GRUB_CMDLINE_LINUX_DEFAULT="rd.luks.allow-discards"
 }}
 
+To evaluate if discard is enabled on a [[DM-Crypt LUKS|LUKS]] device, you can check if the output of the following command contains the string <code>allow_discards</code>:
 
-To evaluate if TRIM is enabled on a [[DM-Crypt_LUKS|LUKS]] device, you can check if the output of the following command contains the string <code>allow_discards</code>:
 {{RootCmd|dmsetup table /dev/mapper/crypt_dev --showkeys}}
 
 === Formatting ===
@@ -134,10 +152,6 @@ https://wiki.archlinux.org/index.php/SSD
 {{Note|1=Page size is 16KB, there are 512 pages per Block.<ref>http://www.anandtech.com/show/6884/crucial-micron-m500-review-960gb-480gb-240gb-120gb</ref> 16KB * 512 = 8192KB for block size. Block erase size = block size. 8192KB / 4 = 2048KB for stride and stripe width size.}}
 * SanDisk z400s; stride an stripe width is 4096KB
 {{Note|1=According to Dutch customer care service from SanDisk the block erase size = 16MB.}}
-
-==== blkdiscard ====
-
-If you are formatting a previously used device and your preferred {{c|mkfs}} does not support bulk discards when creating the filesystem, you can use {{c|blkdiscard}} (from {{Package|1=sys-apps/util-linux-2.23}} or later) before creating the filesystem.
 
 === Mounting ===
 
