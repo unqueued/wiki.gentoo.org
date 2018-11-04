@@ -323,7 +323,7 @@ Run blkid and see partition IDs:
 Edit /etc/fstab and setup correct filesystem:
 
 {{RootCmd|prompt=(chroot) root@localhost:/#
-|nano -w /etc/fstab
+|vim /etc/fstab
 }}
 
  # <fs>                                          <mountpoint>    <type>          <opts>          <dump/pass>
@@ -487,7 +487,97 @@ Now encrypted device ready for final mount into system
 === Mount encrypted luks device === 
 
 And mount of this device into system
-{{RootCmd|prompt=(chroot) root@localhost:/#
+{{RootCmd|prompt=root@localhost:/#
 |mkdir -p /mnt/myname 
 |mount /dev/mapper/myname /mnt/myname
+}}
+
+== Automatic mount of encrypted disk at boot == 
+Automatic mount is working in such way: dmcrypt service reads /etc/conf.d/dmcrypt and add luks mapping device. After that, from fstab mapped device will be binded to something at file system.
+
+First, create directrory, that will contain all encrypted keys
+{{RootCmd|prompt=root@localhost:/#
+|mkdir /etc/keyfiles
+|chmod 0400 /etc/keyfiles/main
+}}
+
+Them, create some super random keyfile
+{{RootCmd|prompt=root@localhost:/#
+|dd if=/dev/urandom of=/etc/keyfiles/main bs=1024 count=4
+|chmod 0400 /etc/keyfiles/main
+}}
+
+And then add this keyfile to disk LUKS slot
+{{RootCmd|prompt=root@localhost:/#
+|cryptsetup luksAddKey /dev/sdX /etc/keyfiles/main
+}}
+
+Now, find UUID of encrypted disk with **blkid** command. For example:
+    /dev/sda1: UUID="91d7fd8f-fa64-42f3-8491-ba9464c0c064" TYPE="crypto_LUKS" PARTLABEL="media" PARTUUID="2e1aa997-7295-4e00-b03d-de0317c25342"
+    /dev/sda5: UUID="281c3e94-f195-47fc-b604-7b3d8c38a513" TYPE="crypto_LUKS" PARTLABEL="data" PARTUUID="7c41cc1a-b68b-4eae-97a9-9a28be10c6c3"
+    /dev/sdb1: UUID="4F20-B9DB" TYPE="vfat" PARTLABEL="grub" PARTUUID="70b1627b-57e7-4559-877a-355184f0ab9d"
+    /dev/sdb2: UUID="DB1D-89C5" TYPE="vfat" PARTLABEL="boot" PARTUUID="b2a61809-4c19-4685-8875-e7fdf645eec5"
+    /dev/sdb3: UUID="6a7a642a-3262-4f87-9540-bcd53969343b" TYPE="crypto_LUKS" PARTLABEL="lvm" PARTUUID="be8e6694-b39c-4d2f-9f42-7ca455fdd64f"
+    /dev/mapper/root: UUID="HL32bg-ZjrZ-RBo9-PcFM-DmaQ-QbrC-9HkNMk" TYPE="LVM2_member"
+    /dev/mapper/vg0-root: UUID="6bedbbd8-cea9-4734-9c49-8e985c61c120" TYPE="ext4"
+    /dev/mapper/vg0-var: UUID="61e4cc83-a1ee-4190-914b-4b62b49ac77f" TYPE="ext4"
+    /dev/mapper/vg0-home: UUID="5d6ff087-50ce-400f-91c4-e3378be23c00" TYPE="ext4"
+    /dev/mapper/data: UUID="4be7f323-3f7e-47c7-91a3-b37d04e951aa" TYPE="ext4"
+    /dev/mapper/media: UUID="943629b6-391d-441a-adf1-13fcb0471fd3" TYPE="ext4"
+
+Note: See filesystem with type **crypto_LUKS**
+
+In prev. example, disk /dev/sda1 are encrypted disks (note, this disks are encrypted by same key). 
+
+Next stage, configure service dmcrypt, that will automatically map this disk for decryption/ecryption with /etc/keyfiles/main .
+Open file /etc/conf.d/dmcrypt
+
+    target='data'
+    source=UUID='91d7fd8f-fa64-42f3-8491-ba9464c0c064'
+    key='/etc/keyfiles/main'
+
+    target='media'
+    source=UUID='281c3e94-f195-47fc-b604-7b3d8c38a513'
+    key='/etc/keyfiles/main'
+
+Where: target are name of decrypted mapped disk. This name will be created at: /dev/mapper directory
+
+After this step, add dmcrypt to be started at boot
+{{RootCmd|prompt=root@localhost:/#
+|rc-update add dmcrypt boot
+}}
+
+And start this service immediately
+{{RootCmd|prompt=root@localhost:/#
+| /etc/init.d/dmcrypt start
+}}
+
+If everything is fine, at /dev/mapper will be mapped decrypted devices. 
+
+Then last step is to mount mapped device at boot to some location. Execute again blkid command and find UUID of DECRYPTED mapped device. For example:
+    /dev/sda1: UUID="91d7fd8f-fa64-42f3-8491-ba9464c0c064" TYPE="crypto_LUKS" PARTLABEL="media" PARTUUID="2e1aa997-7295-4e00-b03d-de0317c25342"
+    /dev/sda5: UUID="281c3e94-f195-47fc-b604-7b3d8c38a513" TYPE="crypto_LUKS" PARTLABEL="data" PARTUUID="7c41cc1a-b68b-4eae-97a9-9a28be10c6c3"
+    /dev/sdb1: UUID="4F20-B9DB" TYPE="vfat" PARTLABEL="grub" PARTUUID="70b1627b-57e7-4559-877a-355184f0ab9d"
+    /dev/sdb2: UUID="DB1D-89C5" TYPE="vfat" PARTLABEL="boot" PARTUUID="b2a61809-4c19-4685-8875-e7fdf645eec5"
+    /dev/sdb3: UUID="6a7a642a-3262-4f87-9540-bcd53969343b" TYPE="crypto_LUKS" PARTLABEL="lvm" PARTUUID="be8e6694-b39c-4d2f-9f42-7ca455fdd64f"
+    /dev/mapper/root: UUID="HL32bg-ZjrZ-RBo9-PcFM-DmaQ-QbrC-9HkNMk" TYPE="LVM2_member"
+    /dev/mapper/vg0-root: UUID="6bedbbd8-cea9-4734-9c49-8e985c61c120" TYPE="ext4"
+    /dev/mapper/vg0-var: UUID="61e4cc83-a1ee-4190-914b-4b62b49ac77f" TYPE="ext4"
+    /dev/mapper/vg0-home: UUID="5d6ff087-50ce-400f-91c4-e3378be23c00" TYPE="ext4"
+    /dev/mapper/data: UUID="4be7f323-3f7e-47c7-91a3-b37d04e951aa" TYPE="ext4"
+    /dev/mapper/media: UUID="943629b6-391d-441a-adf1-13fcb0471fd3" TYPE="ext4"
+
+In this example, we are interesting in mapped devices /dev/mapper/* . In our case, this is devices /dev/mappper/data and /dev/mapper/media
+
+Last step, add to /etc/fstab this mapped devices. It should look like:
+
+    # encrypted devices
+    UUID=943629b6-391d-441a-adf1-13fcb0471fd3       /mnt/media    ext4      defaults        0 2
+    UUID=4be7f323-3f7e-47c7-91a3-b37d04e951aa       /mnt/data     ext4      defaults        0 2
+
+Where UUID are ID of mapped device, /mnt/media or /mnt/data are directories where this mapped devices should mount, ext4 are filesystem on ecrypted devices
+
+== See encrypted device keys in SLOT == 
+{{RootCmd|prompt=root@localhost:/#
+|cryptsetup luksDump /dev/sda5
 }}
