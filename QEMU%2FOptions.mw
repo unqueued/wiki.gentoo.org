@@ -129,64 +129,130 @@ And bind it to guest:
 
 == Networking ==
 
-Default - without any <code>-net</code> option - is '''Pass-through'''.
+Default - without any <code>-netdev</code> option - is '''Pass-through'''.
 
-{{Important|For pass-through methods, {{c|ping}} is not a suitable tool to test networking connectivity, due to that method's lack of ICMP support. Test using a text-mode browser like {{c|links}} or other UDP or TCP/IP software.}}
+{{Important|Pass-through method only works for TCP and UDP connections.
+Thus, {{c|ping}} is not a suitable tool to test networking connectivity because it uses ICMP.
+Try using {{c|curl}} or other UDP or TCP/IP software for testing.}}
 
 === Pass-through ===
 
-* <code>-net user</code> - Pass-through of the host network connection. However, the virtual machine is no member of the LAN and so can't use any local network service and can't communicate to any other virtual machine.
+* <code>-netdev user</code> - The QEMU process will create TCP and UDP connections for each connection in the VM. The virtual machine does not have an address reachable from the outside.
 
-* <code>-net nic,model=virtio -net user</code> - (''Legacy Syntax'') Pass-through with VirtIO support.
+* <code>-device virtio-net,netdev=vmnic -netdev user,id=vmnic</code> - (Recommended) Pass-through with VirtIO support.
 
-* <code>-netdev user,id=vmnic -device virtio-net,netdev=vmnic</code> - (Recommended) Pass-through with VirtIO support.
+* <code>-netdev user,id=vmnic,hostfwd=tcp:127.0.0.1:9001-:22</code> - Let QEMU listen on port 9001. Connections to that port will be relayed to the VM on port 22. <code>ssh -p 9001 localhost</code> will thus log into the VM.
 
-=== Virtual network switch ===
 
-* <code>-netdev tap,id=t0,ifname=vnet0,script=no,downscript=no -device e1000,netdev=t0</code> - Private network between host and guest(s). Adds a virtual nic ''vnet0'' to host and emulates an intel e1000 on guest (NOTE: after setting up the guest it is recommended to emulate a virtio-net device, which is 10 times as fast). 
+=== Virtual network cable (TAP) ===
+
+* <code>-device virtio-net,netdev=vmnic -netdev tap,id=vmnic,ifname=vnet0,script=no,downscript=no</code> - A new device (<code>vnet0</code>) is created by QEMU on the host, the other end of the "cable" is at the VM. 
+
 
 === Network bridge ===
 
-We needed {{Package|sys-apps/usermode-utilities}} for TUN/TAP interface and {{Package|net-misc/bridge-utils}} for bridge. If it's not installed:
-
-{{Emerge|sys-apps/usermode-utilities net-misc/bridge-utils}}
+With this setup, we create a TAP interface (see above) and connect it to a virtual switch (the bridge).
 
 Please first read about [[Network_bridge|network bridging]] and [[QEMU|QEMU]] about configuring kernel to support bridging.
 
-Reconfigure our network:
-
-{{FileBox|filename=/etc/conf.d/net|lang=bash|1=
-#Configure TUN/TAP interface
-tuntap_tap0="tap"
-
-# tap0 defined empty to avoid DHCP being run for their configuration
-config_tap0=null
-
-# same for eth0
-config_eth0=null
-
-# Configure network bridge
-config_br0="dhcp" # if we obtain IP from DHCP, guest network interface also can obtain IP from DHCP
-config_br0="192.168.1.1/24" # OR manually, guest network interface need configure manually.
-mac_br0="aa:bb:cc:dd:ee:ff"  # You can specify mac address to correctly get IP from DHCP
-bridge_br0="eth0 tap0" # add all interfaces to bridge, usually use one TUN/TAP interface for one Vritual Machine. In this example we have one VM.
-rc_net_br0_need="net.eth0 net.tap0" # we need run eth0 and tap0 before create bridge!
+Create the bridge:
+{{FileBox|filename=/etc/systemd/network/vmbridge.netdev|lang=systemd|1=
+[NetDev]
+Name=vmbridge
+Kind=bridge
 }}
 
-Create interfaces if needed and run them:
+Configure the bridge's address:
+{{FileBox|filename=/etc/systemd/network/10-vmbridge.network|lang=systemd|1=
+[Match]
+Name=vmbridge
 
-{{RootCmd
-|ln -s /etc/init.d/net.lo /etc/init.d/net.br0
-|ln -s /etc/init.d/net.lo /etc/init.d/net.tap0
-|/etc/init.d/net.br0 start
+[Network]
+Description=Your awesome VM bridge
+Address=10.0.42.1/24
 }}
 
-Now we can run VM with option:
+{{FileBox|filename=/your/path/to/qemu/stuff/addtobridge.sh|lang=bash|1=
+#!/usr/bin/env bash
+# Bring the QEMU TAP device up and add it to the bridge
+ip link set "$1" master vmbridge
+ip link set "$1" up
+}}
 
-* <code>-net tap,ifname=tap0,script=no,downscript=no -net nic,model=virtio</code> - ifname is TUN/TAP network interface on host system, it's usually tap0.
-* <code>-net tap,ifname=tap0,script=no,downscript=no -net nic,model=virtio,macaddr=00:12:34:56:78:9a</code> - you can specify mac address of the network interface in guest system.
+Now we can run VM with the TAP networking option:
+
+<code>-device virtio-net-pci,netdev=n0,mac=13:37:yourchoice:42 -netdev tap,id=n0,ifname=vmtap,script=/your/path/to/qemu/stuff/addtobridge.sh,downscript=no</code>
+
+When the VM boots, the script will add the newly created device to the bridge. When you start another VM, both devices are in the bridge and the VMs can communicate with each other.
 
 {{Note|To successfully run VM you need permission for configure /dev/net/tun}}
+
+
+
+A more advanced networking concept is outlined below, which enables guest access to an external network and also works with both wired and wireless adapters on the host.  If desired, a DHCP server can also be setup on the host to allow for dynamic guest IP configurations.  There are many different tutorials available online to further understand these concepts.[https://blog.san-ss.com.ar/2016/04/setup-nat-network-for-qemu-macosx][https://shanetomlinson.com/2009/bridging-a-wireless-card-in-kvmqemu/][https://forums.gentoo.org/viewtopic-t-987790-start-0.html][https://superuser.com/questions/694929/wireless-bridge-on-kvm-virtual-machine][http://www.dedoimedo.com/computers/kvm-bridged.html]
+[[File:Qemu_network_diag.png|center]]
+
+==== Required packages ====
+
+This example networking configuration needs some extra software installed:
+
+{{Emerge|net-firewall/iptables}}
+
+==== Host configuration ====
+
+===== Creating TUN/TAP device =====
+
+This allows the guest to communicate with the bridge. QEMU's default group is <code>kvm</code>, ensure that the correct group is given permissions to control the TAP. Enabling promiscuous mode (<code>promisc</code>) for the adapter might be unnecessary.
+
+{{RootCmd
+|ip tuntap add dev tap0 mode tap group kvm
+|ip link set dev tap0 up promisc on
+|ip addr add 0.0.0.0 dev tap0
+}}
+
+===== Create network bridge =====
+
+Creating a network bridge seems necessary, even if only 1 guest is configured. Create the bridge and add each TAP to it. Spanning tree protocol (<code>stp</code>) is disabled because there is only 1 bridge.[https://en.wikibooks.org/wiki/QEMU/Networking#TAP_interfaces]
+
+{{RootCmd
+|ip link add br0 type bridge
+|ip link set br0 up
+|ip link set tap0 master br0
+|echo 0 > /sys/class/net/br0/bridge/stp_state
+|ip addr add 10.0.1.1/24 dev br0
+}}
+
+===== Packet forwarding and NAT =====
+
+Allows for proper packet routing (be sure to replace <code>eth1</code> with an appropriate network interface name):
+
+{{RootCmd
+|sysctl net.ipv4.conf.tap0.proxy_arp{{=}}1
+|sysctl net.ipv4.conf.eth1.proxy_arp{{=}}1
+|sysctl net.ipv4.ip_forward{{=}}1
+}}
+
+{{RootCmd
+|iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE
+|iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+|iptables -A FORWARD -i br0 -o eth1 -j ACCEPT
+}}
+
+==== Guest configuration ====
+
+The following should be added to the configuration:
+
+{{CodeBox
+|-device virtio-net,netdev{{=}}network0 -netdev tap,id{{=}}network0,ifname{{=}}tap0,script{{=}}no,downscript{{=}}no
+}}
+
+or, with QEMU 2.12.0 or newer:
+
+{{CodeBox
+|-nic tap,ifname{{=}}tap0,script{{=}}no,downscript{{=}}no
+}}
+
+After starting the guest, the IP should be configured to be on the vlan and the gateway should be the IP given to the bridge.  The exact process will vary based on OS.
 
 == QEMU's built-in SMB server ==
 
