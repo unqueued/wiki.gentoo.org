@@ -6,13 +6,17 @@ Select the machine that is going to serve the local distfiles cache and set it u
 
 There are a number of ways in which the cache can be implemented. This page describes a simple setup using {{Package|net-misc/apt-cacher-ng}}.
 
-=== Installing software ===
+An alternative is to configure {{Package|www-servers/nginx}} to act as a proxy server for any available mirror, a configuration example can be found below.
+
+=== Using {{Package|net-misc/apt-cacher-ng}} ===
+
+==== Installing software ====
 
 Install net-misc/apt-cacher-ng:
 
 {{Emerge|net-misc/apt-cacher-ng}}
 
-=== Configuring for Gentoo ===
+==== Configuring for Gentoo ====
 
 Apt-cacher-ng includes support for the Gentoo source mirrors, but some configuration is still needed. Since it is designed primarily for use with the Debian package management system, there are some types of files used in Gentoo distfiles which by default it refuses to download. To change this behavior, create the file {{Path|/etc/apt-cacher-ng/gentoo.conf}}:
 
@@ -22,7 +26,7 @@ PfilePattern: .*
 
 {{Warning|This will most likely cause bad behavior for other distributions. Using the same apt-cacher-ng installation to cache files for Gentoo as well as another distribution is not recommended.}}
 
-=== Configuring mirrors ===
+==== Configuring mirrors ====
 
 Configure the list of public Gentoo mirrors from which apt-cacher-ng will download source packages:
 
@@ -31,7 +35,7 @@ http://mirror1...
 http://mirror2...
 }}
 
-=== Starting the service ===
+==== Starting the service ====
 
 Now start the cache service:
 
@@ -40,6 +44,67 @@ Now start the cache service:
 To start the service at boot:
 
 {{RootCmd|rc-update add apt-cacher-ng default}}
+
+=== Using {{Package|www-servers/nginx}} ===
+
+Instead of using {{Package|net-misc/apt-cacher-ng}} and in case {{Package|www-servers/nginx}} is already available, the latter can be used as a caching proxy for LAN clients.<br />
+A major disadvantage of this setup is that the proxy server, if it uses itself, stores all packages twice, once in the nginx proxy cache and once in {{Path|${DISTFILES}}}.
+
+==== Setting up nginx VHost ====
+
+Add the following to {{Path|/etc/nginx/nginx.con}} or some other file included into nginx server configuration:
+
+{{FileBox|filename=/etc/nginx/nginx.conf|1=
+server {
+    listen 192.168.0.1:3142;
+    listen [2001:db8::1]:3142;
+
+    server_name distfiles.example.com;
+
+    access_log  /var/log/nginx/distfiles.access_log main;
+    error_log   /var/log/nginx/distfiles.error_log info;
+
+    location / {
+        proxy_cache distfiles;
+        proxy_cache_key     "$request_filename";
+        proxy_cache_lock        on;
+        proxy_cache_lock_age    1m;
+        proxy_cache_valid   200 302     7d;
+        proxy_cache_valid   404         1h;
+        proxy_pass  http://distfiles;
+    }
+}
+
+proxy_cache_path    /path/to/distfiles/cache levels=1:2
+        keys_zone=distfiles:5m
+        max_size=10g
+        inactive=7d
+        use_temp_path=off;
+
+upstream distfiles {
+    server  mirror1...;
+    server  mirror2...;
+}
+}}
+
+{{Note|Make sure to replace all IP addresses and hostnames with valid ones. If IPv6 is not yet deployed, just remove the line <code>listen [2001:db8::1]:3142;</code> completely. Also decide upon which port to use for the cache, for simplicity this example uses the same port as  Apt-cacher-ng.}}
+
+{{Note|Replace <code>mirror1</code> and <code>mirror2</code> with mirrors used by the machine, at best selected by running {{Package|app-portage/mirrorselect}}.}}
+
+{{Note|Upon start nginx will create the directory specified in <code>proxy_cache_path</code> directive with 0755 and the nginx user and group, which are safe defaults but can be changed if needed.}}
+
+This configuration retains downloaded packages for at most 7 days until they would be redownloaded by nginx. Also, the maximum disk space used by the cache is up to 10GB and nginx will pause all subsequent requests for the same file until either one request has been completed by downloading from the mirror server or the one-minute-timeout has been reached. These values could and should be modified to local necessities, especially so, if downstream is slower to deliver large package files.
+
+==== Restart nginx server ====
+
+{{RootCmd|nginx -t}}
+
+If everything is reported ok, nginx can be forced to be restarted or to reload its configuration:
+
+{{RootCmd|nginx -s restart}}
+{{RootCmd|nginx -s reload}}
+
+After this, clients can use nginx as a caching proxy as outlined below.
 
 == Setting up clients ==
 
