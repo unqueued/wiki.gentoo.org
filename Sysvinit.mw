@@ -1,0 +1,332 @@
+{{lowercase title}}
+{{InfoBox stack
+|{{InfoBox homepage|https://savannah.nongnu.org/projects/sysvinit|header=true}}
+|{{InfoBox gitweb|raw=yes|text=Git repository browser|https://git.savannah.nongnu.org/cgit/sysvinit.git}}
+|{{InfoBox package|sys-apps/sysvinit}}
+|{{InfoBox wikipedia|Init#SysV-style}}
+}}
+
+sysvinit is [[Article description::a collection of System V-style init programs originally written by Miquel van Smoorenburg]]. They include {{C|init}}, which is run by the kernel as process 1, and is the parent of all other processes. On Gentoo, it is a component of one of its two supported init systems, with the [[OpenRC]] service manager on top of it to implement the [[rc|rc subsystem]].
+
+== Installation ==
+
+=== USE flags ===
+
+{{USEflag|package=sys-apps/sysvinit}}
+
+=== Emerge ===
+
+{{Emerge|sys-apps/sysvinit}}
+
+== Configuration ==
+
+=== Environment variables ===
+
+* <var>CONSOLE</var> - Pathname {{C|init}} will use as that of machine console's device node.
+
+=== Files ===
+
+* {{Path|/etc/inittab}} - {{C|init}}'s configuration file.
+* {{Path|/etc/initscript}} - If present, used by {{C|init}} to spawn processes specified in its configuration file.
+* {{Path|/etc/shutdown.allow}} - List of account names used by {{C|shutdown}} when invoked with an <code>-a</code> option, to decide whether the machine shutdown request should be allowed to proceed or not.
+* {{Path|/var/run/powerstatus}} (formerly {{Path|/etc/powerstatus}}) - Used by {{C|init}} for its power failure and restoration routines.
+
+== Usage ==
+
+The sysvinit package provides:
+* {{C|init}} and its control program, {{C|telinit}}.
+* The {{C|shutdown}}, {{C|halt}}, {{C|poweroff}} and {{C|reboot}} programs, that shut the machine down if {{C|init}} is running as process 1.
+* The {{C|bootlogd}} daemon.
+* The {{C|killall5}}, {{C|runlevel}} and {{C|fstab-decode}} utilities.
+
+The upstream package provides additional programs, but Gentoo does not install them, in favor of their counterparts from other packages.
+
+=== init and telinit ===
+
+{{C|init}} is executed by the kernel as process 1. No special administrator intervention is required for this; during the machine's boot sequence, the kernel automatically looks for a program named 'init' in directories {{Path|/sbin}}, {{Path|/etc}} and {{Path|/bin}}, in that order, unless the <code>init=</code> parameter has been specified in its command line (e.g. using the [[bootloader]]'s available mechanisms).
+
+{{C|init}} runs for the entire machine's uptime and performs these tasks:
+
+* Spawns a set of child processes, as specified in its configuration file, {{Path|/etc/inittab}}. A subset of these processes carry out the machine's initialization tasks, needed to bring it to its stable, normal 'up and running' state, usually by relying on the [[rc|rc subsystem]]'s mechanisms.
+* Reaps zombie child processes using the POSIX <code>waitpid()</code> call. Zombie processes are those that have exited or have been killed by a signal, which causes the kernel to send a <code>SIGCHLD</code> signal to their parent. The children of {{C|init}} include orphaned processes that were reparented to it by the kernel.
+* ''Supervises'' child processes that have a corresponding {{Path|inittab}} entry with a <code>respawn</code> or <code>ondemand</code> action (see [[#inittab|here]]).
+* Reacts to [[#signals|received signals]].
+* Reacts to commands received via its control FIFO, {{Path|/run/initctl}}. {{C|init}} creates this FIFO if it doesn't already exist, with permissions '''0600''' (i.e. the <kbd>ls -l</kbd> command would show <code>prw-------</code>). For sysvinit version 2.88, the control FIFO is {{Path|/dev/initctl}}.
+
+{{C|init}} prints its messages on the machine's console, and also sends messages to a syslog server using the libc's implementation (i.e. that of the POSIX <code>openlog()</code>, <code>syslog()</code> and <code>closelog()</code> calls). Each time {{C|init}} needs to use the console, it opens the corresponding device node, and closes it after use. If the <var>CONSOLE</var> environment variable is set, {{C|init}} uses its value as the pathname of the console's device node, instead of {{Path|/dev/console}}. {{C|init}}'s syslog messages specify facility <code>LOG_DAEMON</code> and severity <code>LOG_INFO</code>.
+
+{{Path|inittab}} specifies processes to be started by {{C|init}} both during the boot sequence, and during normal operation. Processes started during normal operation are assigned to groups named ''runlevels''. sysvinit runlevels are identified by a number in the range from 0 to 9. Runlevels '''0''', '''1''' and '''6''' have [[#shutdown|assigned meaning]] and are given special treatment by {{C|init}}. Runlevels 7 to 9, although existent, have inconsistent treatment in {{C|init}}'s code compared to the others, and are usually avoided. Additionally, sysvinit supports ''ondemand procedures'', and special modes of operation called ''emergency mode'' and ''single user mode''.
+
+[[OpenRC]] also uses the term 'runlevel' to refer to service sets, but these are identified by names instead, like ''sysinit'', ''default'', ''shutdown'', etc. OpenRC's named runlevels are independent of sysvinit numeric runlevels, but [[#gentoo|correlated on Gentoo]].
+
+{{C|telinit}} is {{C|init}}'s control program. It can be invoked in two ways: with a single-character argument, and optionally a <code>-t</code> option (e.g. <kbd>telinit 2</kbd>, <kbd>telinit -t 7 a</kbd>, <kbd>telinit q</kbd>, etc.), or with a sequence of <code>-e</code> options followed by environment variable settings (e.g. <kbd>telinit -e VAR1 -e VAR2=value</kbd>).
+
+For the full description of {{C|init}} and {{C|telinit}}, please consult their respective man page. A summary of their functionality follows.
+{{anchor|inittab}}
+==== The inittab file ====
+
+{{Path|inittab}} is a text file that must contain a sequence of single-line entries. Each entry is composed by four fields separated by colons (':'), optionally preceded by a sequence of whitespace characters (space and TAB):
+
+* The first one is the ''identifier field'', a sequence of characters that uniquely identifies the entry. This identifier gets written to user accounting database login records (see <kbd>man utmp</kbd>), so its maximum length is the size of the <code>ut_id</code> field of the libc's <code>struct utmp</code> type (4 characters in the case of GNU libc). Identifier '~~' is reserved.
+* The second one is the ''runlevels field'', a sequence of characters that generally represents a set of [[#runlevels|runlevels]].
+* The third one is the ''action field'', it specifies when the program named in the next field must be executed, and how it must be executed.
+* The fourth and last one is the ''process field'', it specifies a program name or its pathname, and the program's arguments.
+
+If the first non-whitespace charater in a line is '#', the line is treated as a comment and ignored. The possible values of the action field are:
+
+* <code>respawn</code>, <code>wait</code> and <code>once</code>. Entries with these action fields associate programs with runlevels, and specify how the program specified in the process field must be executed. An empty runlevels field in these kinds of entries is the same as one containing <code>0123456789</code>.
+* <code>sysinit</code>, <code>boot</code>, <code>bootwait</code> and <code>initdefault</code>. Entries with these action fields are used during [[#boot|the machine's boot sequence]]. The process field of <code>initdefault</code> entries is ingored, and so is the runlevels field of <code>sysinit</code>, <code>boot</code> and <code>bootwait</code>entries.
+* <code>ondemand</code>. Entries with these action types can be used for [[#ondemand|ondemand procedures]].
+* <code>powerfail</code>, <code>powerfailnow</code>, <code>powerwait</code>, <code>powerokwait</code>, <code>ctrlaltdel</code> and <code>kbrequest</code>. Entries with these action fields specify [[#signals|the handling of signals]] received by {{C|init}}. An empty runlevels field in a <code>kbrequest</code> entry is the same as one containing <code>0123456789</code>, and an empty runlevels field in any of the other kinds of entries is the same as one containing <code>S0123456789</code>.
+* <code>off</code>. Entries with this action type are ignored.
+
+{{Path|inittab}} is read and processed by {{C|init}} during the boot sequence, immediately before a runlevel change, starting ondemand procedures or [[#singleuser|entering single user mode]], if explicitly requested with a <kbd>telinit q</kbd> or <kbd>telinit Q</kbd> command, and if {{C|init}} receives a <code>SIGHUP</code> signal. When {{Path|inittab}} is read, if analysis of identifier fields reveals that an entry has been removed or has changed its action field, {{C|init}} kills the corresponding process if it is still running, with the same algorithm used for runlevel changes.
+
+If an <kbd>init.autocon=1</kbd> argument is specified in the kernel command line, each time {{Path|inittab}} is processed, for each <code>console=</code> kernel parameter it finds, {{C|init}} behaves as if {{Path|inittab}} additionally contained the line:
+
+{{FileBox|filename=/etc/inittab|
+1=${ID}:2345:respawn:/sbin/agetty -L -s 115200,38400,9600 ${TERM} vt102}}
+
+With ''${TERM}'' replaced by the value of the <code>console=</code> parameter, and ''${ID}'' replaced by a string generated from that value. If {{Path|/proc/cmdline}} can't be read to parse the kernel command line, or the value generated for ''${ID}'' matches that of a previous entry (either generated in this way or actually specified in {{Path|inittab}}), this entry is discarded.
+
+The contents of the process field are used by {{C|init}} to construct arguments for a POSIX <code>execvp()</code> call in a child process, just as if they were typed in an interactive shell, unless:
+* There is an {{Path|/etc/initscript}} file and {{C|init}} is not in single user mode. In this case, {{C|init}} spawns a shell child process using the equivalent of a <kbd>/bin/sh /etc/initscript ${ID} ${RUNLEVEL} ${ACT} '${PROC}'</kbd> command, with ''${ID}'', ''${RUNLEVEL}'' and ''${ACT}'' replaced by the contents of the {{Path|inittab}} entry's identifier, runlevels and action field, respectively, and ''${PROC}'' replaced by the contents of the entry's process field, which is passed as a single argument to the shell. This script can be used to agument {{C|init}}'s process handling, e.g. controlling the resources available to them with the {{C|ulimit}} utiliy, etc.
+* The process field contains characters that are have special meaning to the shell, like '$', '*', '&', etc., or the initial <code>execvp()</code> call failed because the program's executable file has an unrecognized format. In this case, {{C|init}} spawns a shell child process using the equivalent of a <kbd>/bin/sh -c 'exec ${PROC}'</kbd> command, with ''${PROC}'' replaced by the contents of the {{Path|inittab}} entry's process field, which is passed to the shell as part of a single argument after the <code>-c</code> option.
+{{Note|Gentoo's sys-apps/sysvinit package does not install an {{Path|/etc/initscript}} file.}}
+
+{{C|init}} starts processes specified in {{Path|inittab}} in line order, creating a new session for each of them with a POSIX <code>setsid()</code> call, and redirects their standard input, output and error to the machine' console. Processes specified by <code>sysinit</code> and <code>bootwait</code> entries, as well as processes specified by <code>wait</code>, <code>powerwait</code>, <code>powerokwait</code>, <code>powerfailnow</code> and <code>ctrlaltdel</code> entries while {{C|init}} is in single user mode, run in the foreground process group with the console as their session's controlling terminal. Processes specified by other entries run as the session leader with no controlling terminal. The environment set up by {{C|init}} for its child processes is described [[#runlevels|here]].
+
+For further information please consult {{Path|inittab}}'s man page.
+{{anchor|boot}}
+==== The boot sequence ====
+
+Thess are {{C|init}}'s actions at program startup:
+
+# It sets the the write permission for group and others bits in the file mode creation mask using a POSIX <code>umask()</code> call, leaving all other file mode bits unmodified.
+# It uses a Linux <code>reboot()</code> system call with an <code>RB_DISABLE_CAD</code> command, to ask the kernel to send a <code>SIGINT</code> signal to process 1 when the {{Key|Ctrl}}+{{Key|Alt}}+{{Key|Del}} key combination is pressed (see [[#signals|here]]).
+# It uses a Linux <code>ioctl()</code> system call with a <code>KDSIGACCEPT</code> request, to ask the kernel to send a <code>SIGWINCH</code> signal to process 1 whenever an appropriate key combination is pressed. This key combination, the ''keyboard signal'', is usually configured to be {{Key|Alt}}+{{Key|Up Arrow}}.
+# It closes its standard input, output and error.
+# It makes itself a session leader using the POSIX <code>setsid()</code> call.
+# It sets the <var>PATH</var> enviroment variable to <code>/sbin:/usr/sbin:/bin:/usr/bin</code>.
+# If the file that corresponds to the libc's user accounting database exists (<code>UTMP_FILE</code>, {{Path|/var/run/utmp}} for GNU libc), it truncates the file to length 0, otherwise it creates the file with permissions '''0644''' (i.e. the <kbd>ls -l</kbd> command would show <code>-rw-r--r--</code>).
+# If emergency mode was requested, it spawns an emergency shell by invoking the {{C|sulogin}} program. Emergency mode is requested by passing a <code>-b</code> option, or an <code>emergency</code> argument, to {{C|init}} (see later). The shell process runs in the foreground process group of a new session with the console as the controlling terminal, and if it exits, the boot sequence resumes.
+# It reads and processes {{Path|inittab}}.
+# It starts all processes that have an {{Path|inittab}} entry with a <code>sysinit</code> action field. {{C|init}} handles them as if the action field was <code>wait</code> (see [[#runlevels|here]]). This means that {{C|init}} starts processes in the order their corresponding entries appear in {{Path|inittab}}, and waits for each of them to finish before starting the next one, so execution of programs specified in <code>sysinit</code> entries must result in a short-lived processes.
+# A ''boot record'' (i.e. a <code>struct utmp</code> object with <code>ut_type == BOOT_TIME</code>) is written to the user accounting database, and to the user accounting log file ({{Path|/var/log/wtmp}} for GNU libc, which is not truncated on each reboot). The boot record has <code>ut_user</code> set to "reboot", <code>ut_id</code> set to "~~", <code>ut_pid</code> set to 0 and <code>ut_line</code> set to "~". The record written to the log file also has <code>ut_host</code> set to the operating system's release, as contained in the <code>release</code> field of a <code>struct utsname</code> object filled by a POSIX <code>uname()</code> call.
+# If an <code>-s</code> option or an <code>S</code>, <code>s</code> or <code>single</code> argument was passed to {{C|init}}, it enters [[#singleuser|single user mode]]. If the mode is later left, the boot sequence resumes.
+# It determines a ''default runlevel''. If {{Path|inittab}} contains entries with <code>initdefault</code> action fields, then the runlevels field of the first one in the file specifies the default runlevel. The field must contain a number from 0 to 9 representing a runlevel, or the letters '''S''' or '''s''', representing single user mode. If the entry's runlevels field is invalid or if there is no <code>initdefault</code> entry in the file, {{C|init}} asks the user to enter a runlevel on the machine's console. If this fails for any reason, then the default runlevel is single user mode.
+# If the default runlevel is single user mode, {{C|init}} enters it. If single user mode is later left, the boot sequence resumes.
+# It starts all processes that have an {{Path|inittab}} entry with a <code>boot</code> or <code>bootwait</code> action field. {{C|init}} handles processes specified by <code>bootwait</code> entries as if the action field was <code>wait</code>, and processes specified by <code>boot</code> entries as if the action field was <code>once</code>. This means that {{C|init}} starts processes in the order their corresponding entries appear in {{Path|inittab}}, and, in the case of those specified by <code>bootwait</code> entries, waits for each of them to finish before starting the next one, so execution of programs specified in those entries must result in short-lived processes.
+# If a single character argument representing a number from '''0''' to '''9''' was passed as an argument to {{C|init}}, it [[#runlevels|enters the requested runlevel]]. Otherwise, {{C|init}} enters the default runlevel.
+
+Arguments can be passed to {{C|init}} by specifying them in the kernel command line (e.g. using the [[bootloader]]'s available mechanisms): every argument in the command line after a "--" (double hyphen) marker is passed to process 1, as is every argument before the marker, if present, that does not contain an equals sign ('=') or dot ('.'), and that is not recognized as a kernel parameter.
+
+If {{Path|inittab}} does not exist, is empty or cannot be read, {{C|init}} behaves as if there was an {{Path|inittab}} file containing the single line:
+{{FileBox|filename=/etc/inittab|
+1=~~:S:wait:/sbin/sulogin}}
+{{anchor|runlevels}}
+==== Runlevels ====
+
+Process assignment to runlevels is specified in the runlevels field of {{Path|inittab}} entries with a <code>respawn</code>, <code>wait</code> or <code>once</code> action field. Runlevel membership does not need to be one-to-one, a process can be a member of more than one runlevel. Processes specified by entries with a <code>sysinit</code>, <code>boot</code> or <code>bootwait</code> action field are not members of any runlevel.
+
+Processes in a runlevel are started when {{C|init}} ''enters the runlevel''. This happens at the end of [[#boot|the boot sequence]] for a requested or default runlevel, and when the {{C|telinit}} program is invoked with a single character argument specifying a runlevel. For example, runlevel '''4''' is entered after following command:
+{{RootCmd|telinit 4}}
+
+Or at the end of the boot sequence if {{Path|inittab}} contains the following line:
+{{FileBox|filename=/etc/inittab|
+1=id:4:initdefault:}}
+
+When a runlevel is entered, {{C|init}} writes a ''runlevel record'' (i.e. a <code>struct utmp</code> object with <code>ut_type == RUN_LVL</code>) to the user accounting database ({{Path|/var/run/utmp}} for GNU libc) and log file ({{Path|/var/log/wtmp}} for GNU libc). The runlevel record has <code>ut_user</code> set to "runlevel", <code>ut_id</code> set to "~~", and <code>ut_line</code> set to "~". The <code>ut_pid</code> field encodes the values {{C|init}} sets environment variables <var>RUNLEVEL</var> and <var>PREVLEVEL</var> to for processes that belong to the entered runlevel (see later). As of sysvinit-2.91, {{C|init}} also saves the value of <var>RUNLEVEL</var> to file {{Path|/var/run/runlevel}}.
+
+Handling of runlevel processes is done according to the action field of their respective {{Path|inittab}} entry:
+* If the action field is set to <code>respawn</code>, the process is respawned it each time it terminates (just like [[daemontools]]-style process supervision suites do). The behaviour of {{C|init}} for such processes is therefore similar to the way daemontools behaves for supervised processes started by an <kbd>svc -u</kbd> command, or the way [[systemd]] behaves for service units that have <code>Type=simple</code> and <code>Restart=always</code> directives in their corresponding unit file.
+* If the action field is set to <code>once</code>, the process is spawned only once, upon entering the runlevel. The behaviour of {{C|init}} for such processes is therefore similar to the way daemontools behaves for supervised processes started by an <kbd>svc -o</kbd> command, or the way systemd behaves for service units that have <code>Type=simple</code> and <code>RemainAfterExit=yes</code> directives in their corresponding unit file.
+* If the action field is set to <code>wait</code>, the process is spawned only once, upon entering the runlevel, and {{C|init}} waits for it to finish execution, before starting the next process. The behaviour of {{C|init}} for such processes is therefore similar to the way systemd behaves for service units that have <code>Type=oneshot</code> and <code>RemainAfterExit=yes</code> directives in their corresponding unit file.
+
+If execution of a process specified by a <code>respawn</code> entry is restarted 10 times in less than 2 minutes, it is considerd to be failing, and is not respawned again until 5 minutes have elapsed. Because {{C|init}} waits for processes specified by <code>wait</code> entries to finish their execution, only programs that result in short-lived processes when executed are suitable for such entries.
+
+The environment set up by {{C|init}} for each child process contains:
+* Environment variables set by the kernel for process 1.
+* Variables <var>PATH</var> set to <code>/sbin:/usr/sbin:/bin:/usr/bin</code> and <var>SHELL</var> set to {{Path|/bin/sh}}.
+* Variables <var>INIT_VERSION</var> set to <code>sysvinit-${version}</code>, with ''${version}'' replaced by the package's version, <var>CONSOLE</var> set to the pathname of console device node used by {{C|init}}, <var>RUNLEVEL</var> set to the current runlevel, or to '''S''' if in [[#singleuser|single user mode]], and <var>PREVLEVEL</var> set to the previous runlevel (left when entering the current one), or to "S" if the current runlevel was entered after leaving single user mode, or to "N" if the current runlevel was entered after the boot sequence.
+* Environment variables that have been added by use of the {{C|telinit}} program with <code>-e</code> options. A <kbd>telinit -e VAR=newvalue</kbd> command adds a variable named <var>VAR</var> to the environment and sets its value to ''newvalue'', removing the variable first if it already existed. A <kbd>telinit -e VAR</kbd> command removes a variable named <var>VAR</var> previously added with a <kbd>telinit -e</kbd> command from the environment . Requests to add variables with names that do not begin with <var>INIT_</var> are ignored. A maximum of 16 environment variables can be added this way.
+
+Changing the runlevel makes {{C|init}} reread {{Path|inittab}}, determine all previously spawned processes that are still running and do not belong to the new runlevel, according to the runlevels field of their corresponding (possibly updated) entry, and then kill all processes in their process group with a signal. {{C|init}} first sends a <code>SIGTERM</code> signal, then waits for a grace period, and finally sends a <code>SIGKILL</code> signal if any of the process group leaders is still alive. {{C|init}} sets the duration of the grace period to 5 seconds at program startup (3 seconds as of version 2.92), but it can be changed to a different value each time {{C|telinit}} is invoked, by passing it a <code>-t</code> option followed by a new time value in seconds. This value is used until the next command received by {{C|init}} on its control FIFO updates it. For example, to change to runlevel 2, and also set a grace period of 10 seconds between <code>SIGTERM</code> and <code>SIGKILL</code>, the following command can be used:
+{{RootCmd|telinit -t 10 2}}
+
+Processes that belong to both the previous and current runlevels are left alone. When performing a runlevel change, {{C|init}} does not kill processes specified by <code>boot</code> entries that are still running. Each time {{C|init}} spawns a child process, it writes an ''init process record'' (i.e. a <code>struct utmp</code> object with <code>ut_type == INIT_PROCESS</code>) to the user accounting database and log file, and each time a child process that {{C|init}} spawned terminates, {{C|init}} writes an ''terminated process record'' (i.e. a <code>struct utmp</code> object with <code>ut_type == DEAD_PROCESS</code>) to the user accounting database and log file.  These records have empty <code>ut_user</code> and <code>ut_line</code> fields, <code>ut_id</code> set to the contents of the corresponding {{Path|inittab}} entry's identifier field, and <code>ut_pid</code> set to the process' process ID (PID). No init process and terminated process records are written to the user accounting database and log file if the process field of the entry starts with a plus sign ('+').
+
+Runlevel, init process and terminated process records written to the log file also have the <code>ut_host</code> field set to the operating system's release, as contained in the <code>release</code> field of a <code>struct utsname</code> object filled by a POSIX <code>uname()</code> call. The contents of the user accounting database and log file can be seen with the {{C|utmpdump}} program, see <kbd>man utmpdump</kbd>.
+{{anchor|ondemand}}
+==== Ondemand procedures ====
+
+{{C|init}} supports the definition of sets of processes that can be launched by explicit use of the {{C|telinit}} program. These sets of processes are called ''ondemand procedures''. Up to three sets of processes can be defined, identified by letters '''A''', '''B''' and '''C'''. Their member processes are specified in {{Path|inittab}} entries that contain an '''A''', '''B''' or '''C''' character, or its lowercase form, in the runlevels field. A <kbd>telinit a</kbd>, <kbd>telinit b</kbd> or <kbd>telinit c</kbd> command, respectively, or a <kbd>telinit A</kbd>, <kbd>telinit B</kbd> or <kbd>telinit C</kbd> command, respectively, starts (or restarts) all processes in the set that are not currently running. {{C|init}} rereads {{Path|inittab}} whenever {{C|telinit}} is invoked in this way, so that it can pick up updated entries.
+
+Processes configured to be in the A, B or C set can have {{Path|inittab}} entries with a <code>respawn</code>, <code>wait</code> or <code>once</code> action field. They can also have an <code>ondemand</code> action field, which {{C|init}} treats it as if it was a <code>respawn</code> action. After a {{C|telinit}} invocation that specifies their ondemand procedures set, these processes are not killed by {{C|init}} when performing a runlevel change, but are if [[#singleuser|single user mode]] is entered, unless their {{Path|inittab}} entry also marks them as valid for that mode.
+
+Ondemand procedures can not be started in single user mode or during the boot sequence.
+{{anchor|singleuser}}
+==== Single user mode ====
+
+Single user mode is an execution mode supported by {{C|init}}, that is similar to a runlevel: upon entering this mode {{C|init}} starts a set of processes that are configured in {{Path|inittab}} to be ''valid'' for it and not currently running, and kills all other configured processes that are still running, except those specified by <code>boot</code> entries, with the same algorithm used for [[#runlevels|runlevel changes]].
+
+Processes valid for single user mode are those with an {{Path|inittab}} entry that contains an '''S''' or '''s''' character in its runlevels field. If {{Path|inittab}} does not contain entries marked as valid for single user mode, {{C|init}} behaves as if the file contained the following additional entry:
+{{FileBox|filename=/etc/inittab|
+1=~~:S:wait:/sbin/sulogin}}
+
+This entry makes init spawn an emergency shell by invoking the {{C|sulogin}} program when entering single user mode.
+
+{{C|init}} enters single user mode:
+* During [[#boot|the machine's boot sequence]], if requested to do so in the kernel command line, after starting all processes specified by <code>sysinit</code> entries,
+* If the default runlevel determined during the boot sequence is single user mode, after starting all processes specified by <code>sysinit</code> entries but before starting all processes specified by <code>boot</code> and <code>bootwait</code> entries.
+* If a <kbd>telinit s</kbd> or <kbd>telinit S</kbd> command is used.
+
+Single user mode is left when either a runlevel change is requested using {{C|telinit}}, or when all processes marked as valid for single user mode exit and are not configured to be restarted (e.g. all their entries have <code>wait</code> and <code>once</code> action fields). In the latter case, either the boot sequence continues with the processing of {{Path|inittab}}'s <code>boot</code> and <code>bootwait</code> entries, or the default runlevel is determined again with the same algorithm that is used during the boot sequence, and {{C|init}} enters it.
+{{anchor|signals}}
+==== Signal processing ====
+
+{{C|init}} responds to received signals in the following ways:
+* <code>SIGHUP</code>: forces {{C|init}} to reexamine its configuration file, {{Path|/etc/inittab}}.
+* <code>SIGINT</code>: makes {{C|init}} start the process specified by the first active {{Path|inittab}} entry with a <code>ctrlaltdel</code> action field. This signal is sent by the kernel when the {{Key|Ctrl}}+{{Key|Alt}}+{{Key|Del}} key combination is pressed. {{C|init}} handles the specified process as if the entry's action field was <code>wait</code>.
+* <code>SIGWINCH</code>: makes {{C|init}} start the process specified by the first active {{Path|inittab}} entry with a <code>kbrequest</code> action field. This signal is sent by the kernel when the key combination that corresponds to ''keyboard signal'' is pressed (usually configured to be {{Key|Alt}}+{{Key|Up Arrow}}). {{C|init}} handles the specified process as if the entry's action field was <code>once</code>.
+* <code>SIGUSR1</code>: makes {{C|init}} close and reopen its control FIFO, {{Path|/run/initctl}} ({{Path|/dev/initctl}} for sysvinit version 2.88).
+* <code>SIGUSR2</code>: makes {{C|init}} close its control FIFO. This may be used to make sure {{C|init}} is not holding open any files, but also prevents it from receiving commands from {{C|telinit}}. The FIFO can be reopened by sending {{C|init}} the <code>SIGUSR1</code> signal.
+* <code>SIGPWR</code>: used by {{C|init}} for its power failure and restoration routines.
+
+{{C|init}} supports communication with programs that are able to monitor the machine's power supply status (e.g. an uninterruptible power supply management program). If such a program can be configured to write to file {{Path|/var/run/powerstatus}} (formerly {{Path|/etc/powerstatus}}) and send process 1 a <code>SIGPWR</code> signal, {{C|init}} can take actions depending on the reported status. When {{C|init}} receives a <code>SIGPWR</code> signal, it reads the first character of file {{Path|/var/run/powerstatus}}:
+* If it is a character other that '''O''' or '''L''' (conventionally '''F''' for "fail"), it considers the power to be failing and that there might be a need to shut down soon, and starts all processes specified by active {{Path|inittab}} entries with <code>powerfail</code> and <code>powerwait</code> action fields.
+* If it is an '''L''' character (for "low"), it considers the power supply to be in low battery state and that inminent shutdown is needed, and starts all processes specified by active {{Path|inittab}} entries with a <code>powerfailnow</code> action field.
+* If it is an '''O''' character (for "OK"), it considers the power supply to be restored to normal status and that there is no longer an need to shut down, and starts all processes specified by active {{Path|inittab}} entries with a <code>powerokwait</code> action field.
+
+{{C|init}} handles processes specified by <code>powerwait</code>, <code>powerfailnow</code> and <code>powerokwait</code> entries as if the action field was <code>wait</code>, and processes specified by <code>powerfail</code> entries as if the action field was <code>once</code>. {{C|init}} removes {{Path|/var/run/powerstatus}} after reading it. Usage of this file and the <code>SIGPWR</code> signal is discouraged in favor of sending <code>INIT_CMD_POWERFAIL</code>, <code>INIT_CMD_POWERFAILNOW</code> and <code>INIT_CMD_POWEROK</code> commands on {{C|init}}'s control FIFO (as defined in {{Path|/usr/include/initreq.h}}, see <kbd>man initctl</kbd>).
+
+A <code>ctrlaltdel</code>, <code>kbrequest</code>, <code>powerfail</code>, <code>powerfailnow</code>, <code>powerwait</code> or <code>powerokwait</code> entry is considered active if its runlevels field includes the current runlevel, or contains either '''S'''  or '''s''' and {{C|init}} is in [[#singleuser|single user mode]].
+{{anchor|reexec}}
+==== init re-execution ====
+
+{{C|init}} is capable of re-executing itself. This is similar to [[systemd]]'s <kbd>systemctl daemon-reexec</kbd> command, and mostly useful after a package upgrade, to have a new version of {{C|init}} execute as process 1 without a complete machine reboot, provided the new version is sufficiently compatible with the mechanism used by the running version for re-execution.
+
+Re-execution is triggered with a <kbd>telinit u</kbd> or <kbd>telinit U</kbd> command. When asked to do this, {{C|init}} spawns a child process with a pipe connected to it, the ''state pipe'', that the child uses to transmit back an encoding of {{C|init}}'s execution state, as well as of the configuration and state of all processes configured in {{C|inittab}}. Process 1 {{C|init}} then uses a POSIX <code>execle()</code> call to perform the re-execution, including in the enviroment passed to the call all variables set by <kbd>telinit -e</kbd> commands. At program startup, the new process image detects whether it has an open file description that corresponds to the reading end of the state pipe or not, and if it does, it reads the encoded state of the previous process image from the pipe, adjusts its own state, and arranges to appear, from the perspective of its externally observable behaviour, as if it resumed execution from the point the previous process image was at before the <code>execle()</code> call (e.g. the boot sequence is not performed again, no runlevel change happens, single user mode is not left, etc.).
+{{anchor|shutdown}}
+=== Shutdown and reboot ===
+
+The {{C|halt}}, {{C|poweroff}} and {{C|reboot}} programs halt the machine, power it off and reboot it, respectively. The {{C|halt}} program also behaves as {{C|poweroff}} if invoked with a <code>-p</code> option.
+
+Unless they are invoked with an <code>-f</code> option, these programs check the current runlevel. If the <var>INIT_VERSION</var> and <var>RUNLEVEL</var> variables are set in the environment (which would happen if they are executed because they are configured in {{Path|inittab}}), the current runlevel is taken to be the value of <var>RUNLEVEL</var>. Otherwise, they search the user accounting database ({{Path|/var/run/utmp}} for GNU libc) for the most recent runlevel record (i.e. a <code>struct utmp</code> object with <code>ut_type == RUN_LVL</code>) and decode the current runlevel from its <code>ut_pid</code> field. If searching the user accounting database fails or returns nothing, the runlevel is read from {{Path|/var/run/runlevel}}. If the runlevel is neither '''0''' nor '''6''', they replace themselves with the {{C|shutdown}} program (see later), using a POSIX <code>execv()</code> call. {{C|halt}} and {{C|poweroff}} perform the equivalent of a <kbd>shutdown -h now</kbd> action, and {{C|reboot}}, the equivalent of a <kbd>shutdown -r now</kbd> action. If they are invoked with a <code>-t</code> option followed by a time value in seconds, they pass them unmodified to the {{C|shutdown}} program.
+
+If {{C|halt}}, {{C|poweroff}} and {{C|reboot}} are invoked with an <code>-f</code> ("force") option, or they are invoked in runlevels 0 or 6, they write a ''shutdown record'' to the user accounting log file ({{Path|/var/log/wtmp}} for GNU libc). The shutdown record is a runlevel record (<code>ut_type == RUN_LVL</code>) that has <code>ut_user</code> set to "shutdown", <code>ut_id</code> and <code>ut_line</code> set to "~~", <code>ut_pid</code> set to 0, and <code>ut_host</code> set to the operating system's release, as contained in the <code>release</code> field of a <code>struct utsname</code> object filled by a POSIX <code>uname()</code> call. Then, unless they have been invoked with an <code>-n</code> ("no sync") option, they sync all disks, flushing all the dirty system buffers, using the POSIX <code>sync()</code> call. And finally, they flush the cache of all hard disks using a Linux <code>ioctl()</code> system call with a <code>HDIO_DRIVE_CMD</code> request (specifying <code>WIN_FLUSH_CACHE</code> or <code>WIN_FLUSH_CACHE_EXT</code>), and perform their respective shutdown action using the Linux <code>reboot()</code> system call.
+
+Gentoo's patched {{C|reboot}} program also accepts a <code>-k</code> ("kexec") option, which makes it reboot the machine using a kernel kexec boot instead of a standard system boot. This works if the kernel is configured with kexec support:
+
+{{KernelBox|title=kexec support|
+1=<pre>Processor type and features --->
+   [*] kexec system call</pre>}}
+
+If the kexec boot fails, {{C|reboot}} falls back to a standard system boot. A <kbd>reboot -k</kbd> command can only be used if invoked in runlevel 6, or if <code>-f</code> is also specified.
+
+If {{C|halt}}, {{C|poweroff}} and {{C|reboot}} are invoked with an <code>-i</code> ("ifdown") option, they also shut network interfaces down using a Linux <code>ioctl()</code> system call with a <code>SIOCSIFFLAGS</code> request to clear each interface's <code>IFF_UP</code> flag (see <kbd>man netdevice</kbd>). If they are invoked with an <code>-h</code> ("hddown") option, they put all hard disks in standby mode after flushing their cache, using using a Linux <code>ioctl()</code> system call with a <code>HDIO_DRIVE_CMD</code> request (specifying <code>WIN_STANDBYNOW1</code> and <code>WIN_STANDBYNOW2</code>). If they are invoked with a <code>-w</code> option, they only write the shutdown record to the user accounting log file, without actually shutting the machine down. This option can be combined with <code>-i</code> and <code>-h</code>. If they are invoked with a <code>-d</code> option, no shutdown record is written to the user accounting log file (<code>-n</code> implies <code>-d</code>).
+
+For more information on {{C|halt}}, {{C|poweroff}} and {{C|reboot}}, please consult their respective man pages.
+
+The {{C|shutdown}} program is a generic program for shutting the machine down. It accepts options, a time specification, and an optional message to be shown to logged in users. The time specification is used to delay actual shutdown, it can be a nonzero time value in minutes, optionally preceded by a plus sign ('+'), it can have the form <kbd>h:mm</kbd> or <kbd>hh:mm</kbd> to specify clock time (in 24-hour form and local time, e.g. <kbd>shutdown -r 4:30</kbd> or <kbd>shutdown -r 22:13</kbd>), or it can be the word '''now'''. In the first case, machine shutdown is initiated after the specified time has elapsed, in the second case, it is initiated at the specified clock time, and in the latter case, it is initiated immediately. <kbd>shutdown 0</kbd> is valid and equivalent to <kbd>shutdown now</kbd>.
+
+{{C|shutdown}} does not exit, it writes a PID file with its process ID and waits the requested amount of time, displaying the specified message, if any, to logged in users in the same way that the {{C|wall}} program (from package util-linux, {{Package|sys-apps/util-linux}}) does, with an increasing frecuency as the scheduled shutdown approaches. The PID file is {{Path|/var/run/shutdown.pid}}. Whithin the last 5 minutes until the scheduled shutdown, the program also writes a message in file {{Path|/etc/nologin}}, warning that the system is going down. This file instructs the {{C|login}} program to prevent non-root users from logging in. If {{C|shutdown}} is invoked and it finds {{Path|/var/run/shutdown.pid}} exists and contains a valid process ID (probed using a POSIX <code>kill()</code> call with a null signal, 0), it exits with a ''"shutdown: already running"'' error. If {{C|shutdown}} is invoked with a <code>-c</code> option ("cancel"), no time specification, and an optional message, it cancels a pending shutdown request by sending a <code>SIGINT</code> signal to the process with the PID read from {{Path|/var/run/shutdown.pid}}, and displays the specified message, if any, to logged in users.
+
+{{C|shutdown}} changes the working directory to {{Path|/}}, waits the requested amount of time and, unless it was invoked with the <code>-k</code> option, sends a message to a syslog server, if available, announcing that the system is shutting down, using the libc's implementation (i.e. that of the POSIX <code>openlog()</code>, <code>syslog()</code> and <code>closelog()</code> calls), and initiates shutdown. {{C|shutdown}}'s message specify facility <code>LOG_USER</code> and severity <code>LOG_NOTICE</code>. If {{C|shutdown}} was invoked without the <code>-n</code> option, it removes the {{Path|/var/run/shutdown.pid}} and {{Path|/etc/nologin}} files, syncs all disks, flushing all the dirty system buffers, using the POSIX <code>sync()</code> call, and finally replaces itself with the {{C|telinit}} program to [[#runlevels|change the runlevel]], using a POSIX <code>execv()</code> call. The {{C|shutdown}} program from upstream's package performs the equivalent of a <kbd>telinit 0</kbd> action if it is invoked with an <code>-h</code> option, the equivalent of a <kbd>telinit 6</kbd> action if it is invoked with an <code>-r</code> option, and the equivalent of a <kbd>telinit 1</kbd> action if it is invoked with neither of these options, which means that {{C|shutdown}} will do whatever {{C|/etc/inittab}} specifies for those runlevels. Therefore, entering runlevel 0 is customarily expected to either halt or power the machine off, entering runlevel 6 is customarily expected to reboot the machine, and runlevel 1 is customarily expected to be some kind of 'maintenance mode'. If an <code>-H</code> option is passed together with <code>-h</code>, {{C|shutdown}} additionally performs the equivalent of a <kbd>telinit -e INIT_HALT=HALT</kbd> action before the <code>execv()</code> call, and if a <code>-P</code> option is passed together with <code>-h</code>, {{C|shutdown}} additionally performs the equivalent of a <kbd>telinit -e INIT_HALT=POWERDOWN</kbd> action before the <code>execv()</code> call (corrected to POWEROFF in version 2.92 to match the man page). This allows runlevel 0 processes to use the value of the <var>INIT_HALT</var> environment variable to determine whether a halt or poweroff operation was requested. {{C|shutdown}} can also be invoked with a <code>-i</code> option, followed by a single character that is passed as {{C|telinit}}'s argument, and with a <code>-t</code> option followed by a time value in seconds, that are passed unmodified to {{C|telinit}}. Only 0, 1, 5, 6, A, B, C, S, a, b, c, and s are valid after <code>-i</code>.
+
+Gentoo's patched {{C|shutdown}} program simplifies usage according to the following table:
+{| style="border:solid medium"
+! style="border:solid thin;text-align:center" | Gentoo
+! style="border:solid thin;text-align:center" | Upstream
+! style="border:solid thin;text-align:center" | Results in
+|-
+| <code>shutdown -H</code> || style="border-left:solid thin" | <code>shutdown -h -H</code>
+| style="border-left:solid thin" | Entering runlevel 0 with <var>INIT_HALT</var> set to <code>HALT</code>
+|-
+| <code>shutdown -P</code> || style="border-left:solid thin" | <code>shutdown -h -P</code>
+| style="border-left:solid thin" | Entering runlevel 0 with <var>INIT_HALT</var> set to <code>POWERDOWN</code>
+|-
+| <code>shutdown -h</code> || style="border-left:solid thin" | <code>shutdown -h -P</code>
+| style="border-left:solid thin" | Entering runlevel 0 with <var>INIT_HALT</var> set to <code>POWERDOWN</code>
+|-
+| {{C|shutdown}} with no <code>-h</code>, <code>-H</code> or <code>-P</code>
+| style="border-left:solid thin" | <code>shutdown -i s</code>
+| style="border-left:solid thin" | Entering single user mode
+|}
+
+If {{C|shutdown}} is invoked with a <code>-k</code> option, it only displays the specified message, if any, to logged in users while waiting the requested amount of time, but doesn´t actually shut the machine down. If it is invoked with a <code>-f</code> option, it creates file {{Path|/fastboot}}, a convention for asking the [[rc|rc subsystem]] to skip checking filesystems with {{C|fsck}} after next boot, and if it is invoked with a <code>-F</code> option, it creates file {{Path|/forcefsck}}, a convention for asking the rc subsystem to make {{C|fsck}} check filesystems after next boot, even if they are marked clean, by passing it a special 'force' option. [[OpenRC]]'s {{Path|fsck}} service, for instance, follows this convention. Cancelling a pending shutdown with the <code>-c</code> option removes files {{Path|/var/run/shutdown.pid}}, {{Path|/fastboot}}, {{Path|/forcefsck}} and {{Path|/etc/nologin}}.
+
+If {{C|shutdown}} is invoked with an <code>-a</code> option, it looks up all logged in users in a list contained in file {{Path|/etc/shutdown.allow}}. If there is a match, or if root is logged in, shutdown is allowed to proceed. Otherwise, a ''"shutdown: no authorized users logged in"'' error is displayed. The list of logged in users is obtained by reading login records from the user accounting database. {{Path|/etc/shutdown.allow}} is a text file that contains one account name per line. Lines that start with a '#' character are treated as comments and ignored. The {{Path|/etc/shutdown.allow}} mechanism can be used as a way of limiting the ability of logged in users to trigger a machine reboot by pressing the {{Key|Ctrl}}+{{Key|Alt}}+{{Key|Del}} key combination, if {{C|shutdown}} is executed as a result because it is specified in an {{C|/etc/inittab}} <code>ctrlaltdel</code> entry (see [[#signals|here]]).
+
+Finally, if {{C|shutdown}} is invoked with a <code>-n</code> option, it performs the machine shutdown itself instead of delegating it to runlevel processes. This option can only be used in combination with options <code>-h</code>, <code>-H</code>, <code>-P</code> and <code>-r</code>, or option <code>-i</code> if it names runlevels 0 or 6, and its use is discouraged. In this case:
+# It kills all processes, first by sending a <code>SIGTERM</code> signal using a <code>kill(-1, SIGTERM)</code> call, then waiting for a grace period, and finally sending a <code>SIGKILL</code> signal. The duration of the grace period is the time value passed with the <code>-t</code> option, if any (which in this case is interpreted by {{C|shutdown}} instead of being passed to {{C|telinit}}), or 3 seconds if there is no <code>-t</code> option.
+# It writes a shutdown record to the user accounting log file, just like {{C|halt}}, {{C|poweroff}} or {{C|reboot}}.
+# It disables process accounting by invoking the {{C|accton}} program (ignoring failures if it is not present).
+# It turns filesystem quotas off using a <kbd>quotaoff -a</kbd> command (ignoring failures if the {{C|quotaoff}} program is not present).
+# It syncs all disks, flushing all the dirty system buffers, using the POSIX <code>sync()</code> call, 
+# It disables devices and files for paging and swapping using a <kbd>swapoff -a</kbd> command,
+# It unmounts all filesystems named in {{Path|/proc/self/mountinfo}} using a <kbd>umount -a</kbd> command,
+# It reboots the machine if it was invoked with <code>-r</code> or <code>-i 6</code>, or halts the machine otherwise, using the Linux <code>reboot()</code> system call.
+
+For more information please consult the {{C|shutdown}} man page.
+
+=== bootlogd ===
+
+{{C|bootlogd}} is a daemon that logs output sent by processes to {{Path|/dev/console}}, to a log file in the filesystem, and can be used as a boot sequence logger. It does so by opening a pseudo-terminal master and slave device pair using the libc's <code>openpty()</code> function (and falling back to trying to open legacy BSD-like device pairs {{Path|/dev/ptyp0}} and {{Path|/dev/ttyp0}}, {{Path|/dev/ptyp1}} and {{Path|/dev/ttyp1}}, etc. if <code>openpty()</code> fails), using a Linux <code>ioctl()</code> system call with a <code>TIOCCONS</code> request to perform console redirection to the pseudo-terminal slave, and then reading from the pseudo-terminal master and logging read messages to the log file, prepended with a timestamp. The pathname of the log file can be specified after an <code>-i</code> option, otherwise it defaults to {{Path|/var/log/boot}}. If the logfile is not accessible, the messages will be buffered in memory until it is (possibly after mounting some filesystem, which prevents {{C|bootlogd}} from creating the file under a mount point). If a <code>-c</code> option ("create") is passed to {{C|bootlogd}}, the logfile is created if it does not exist. {{C|bootlogd}} opens the log file for appending; if it is passed a <code>-r</code> option ("rotate"), it will rename the current logfile, adding a tilde ('~') after the name (e.g. {{Path|/var/log/boot~}}), and create a new one instead.
+
+{{C|bootlogd}} also tries to display read messages on the actual machine console, using the POSIX <code>write()</code> call with a file descriptor obtained by opening a suitable device node. It parses the kernel command line, and if a <code>console=</code> kernel parameter was specified, {{C|bootlogd}} tries to use its value as the device node's pathname. If that fails or there is no <code>console=</code> parameter, it tries a sequence of default device node pathnames ({{Path|/dev/tty1}}, {{Path|/dev/ttyS0}} and others).
+
+{{C|bootlogd}} forks a child process and exits, optionally writing a PID file with the child's process ID if a <code>-p</code> option is passed followed by the file's pathname. The child process is the long-lived one that does the actual logging, for compatibility with [[rc|rc subsystems]] that expect that behaviour from daemons (like [[OpenRC]]'s {{C|start-stop-daemon}} program). The forking can be prevented by passing a <code>-d</code> option (e.g. for use with [[daemontools]]-style process supervision suites, OpenRC's {{C|supervise-daemon}} program, or configuring it in {{Path|/etc/inittab}} so that it is launched directly by {{C|init}}).
+
+{{C|bootlogd}} uses the POSIX <code>fflush()</code> call after writing every newline-terminated line to the log file; if it is passed an <code>-s</code> option, it also follows this with a POSIX <code>fdatasync()</code> call, to ensure that the data is written to the file.
+
+For more information please consult the {{C|bootlogd}} man page.
+
+=== Other utilities ===
+
+The {{C|killall5}} program sends a signal to all processes except itself, process 1, and all processes in its session, so that if it is called from a shell script, it won't kill the shell process that is running the script. It does so by reading all process subdirectories of {{Path|/proc}} (i.e. subdirectories that have names that correspond to process IDs) to get a list of processes, mounting the <code>proc</code> filesystem if necessary with a <kbd>mount -t proc proc /proc</kbd> command, and then sends each of them the specified signal one by one. {{C|killall5}} takes a signal number as an argument, optionally preceded by a hyphen ('-'); if invoked with no argument, it sends a <code>SIGKILL</code> signal.
+
+{{C|killall5}} determines each process' session ID, and whether it is a zombie or kernel thread (so that it can be skipped), by reading the corresponding {{Path|/proc/*/stat}} file. It prints error messages on its standard error if its standard input is a terminal, and to a syslog server otherwise, using facility <code>LOG_DAEMON</code> (and falling back to the machine's console by using a POSIX <code>openlog()</code> call with the <code>LOG_CONS</code> flag). If it is invoked with a sequence of one or more <code>-o</code> ("omit") options followed by a comma-separated list of process IDs, corresponding processes are not sent the specified signal.
+
+{{C|killall5}} used to be called by OpenRC's {{Path|killprocs}} service until version 0.27, when it was replaced by internal program {{Path|/lib/rc/bin/kill_all}}.
+
+The {{C|runlevel}} program prints [[#runlevels|the previous and current runlevels]] on its standard output. It does so by decoding them from the <code>ut_pid</code> field of the most recent runlevel record (i.e. a <code>struct utmp</code> object with <code>ut_type == RUN_LVL</code>) in the user accounting database. The pathname of the file that corresponds to the database can optionally be specified as an argument, otherwise, {{C|runlevel}} uses the libc's default one ({{Path|/var/run/utmp}} for GNU libc). If searching the user accounting database fails or returns nothing, the current runlevel is read from {{Path|/var/run/runlevel}}, and the previous runlevel is displayed as "N". If that fails as well, {{C|runlevel}} prints "unknown".
+
+The {{C|fstab-decode}} program can be used to invoke another program with arguments that might have character escape sequences that use the {{Path|/etc/fstab}} file's encoding convention, i.e. '\011' representing a TAB character, '\040' representing a space character, '\\' or '\134' representing a backslash ('\'), etc. (see <kbd>man fstab</kbd>). It accepts a program name or its pathname, followed by the program's arguments. {{C|fstab-decode}} replaces replaces itself with the specified program using a POSIX <code>execvp()</code> call, passing the supplied arguments to it with any escape sequence replaced by its corresponding character. Generally, this is only useful if {{C|fstab-decode}}'s arguments are generated from the contents of {{Path|/etc/fstab}} (e.g. by using the {{C|awk}} utility).
+
+For more information on {{C|killall5}}, {{C|runlevel}} or {{C|fstab-decode}}, please consult their respective man page.
+{{anchor|gentoo}}
+=== Gentoo's sysvinit setup ===
+
+Gentoo's sysvinit setup, as specified in its standard {{Path|/etc/inittab}} file, is as follows:
+* The default runlevel is '''3'''. This is specified in an <code>initdefault</code> entry.
+* {{C|init}} executes an <kbd>openrc sysinit</kbd> command during the [[#boot|boot sequence]] and waits for it to finish. This is specified in a <code>sysinit</code> entry, and makes [[OpenRC]] start services in its <code>sysinit</code> runlevel.
+* {{C|init}} then executes an <kbd>openrc boot</kbd> command and waits for it to finish. This is specified in a <code>bootwait</code> entry, and makes OpenRC start services in its <code>boot</code> runlevel.
+* Entering runlevel 1 makes {{C|init}} execute an <kbd>openrc single</kbd> command and wait for it to finish, then spawn an {{C|agetty}} process for terminal {{Path|/dev/tty1}}. The {{C|openrc}} invocation makes OpenRC stop all its managed services except those in its <code>sysinit</code> runlevel.
+* Entering runlevel 2 makes {{C|init}} execute an <kbd>openrc nonetwork</kbd> command and wait for it to finish, then spawn {{C|agetty}} processes for terminals {{Path|/dev/tty1}} to {{Path|/dev/tty6}}. The {{C|openrc}} invocation makes OpenRC start services in its <code>nonetwork</code> runlevel.
+* Entering runlevel 3 makes {{C|init}} execute an <kbd>openrc default</kbd> command and wait for it to finish, then spawn {{C|agetty}} processes for terminals {{Path|/dev/tty1}} to {{Path|/dev/tty6}}. The {{C|openrc}} invocation makes OpenRC start services in its <code>default</code> runlevel.
+* Runlevels 4 and 5 are identical to runlevel 3.
+* Entering runlevel 0 makes {{C|init}} [[#reexec|re-execute itself]], then execute an <kbd>openrc shutdown</kbd> command and wait for it to finish, then [[#shutdown|power the machine off]] with a <kbd>halt -dhnp</kbd> command. The {{C|openrc}} invocation makes OpenRC start services in its <code>shutdown</code> runlevel.
+* Entering runlevel 6 makes {{C|init}} [[#reexec|re-execute itself]], then execute an <kbd>openrc reboot</kbd> command and wait for it to finish, then reboot the machine with a <kbd>reboot -dkn</kbd> command. The {{C|openrc}} invocation makes OpenRC start services in its <code>shutdown</code> runlevel, and set variable <var>RC_REBOOT</var> to "YES" in the environment of executed service scripts. This allows services to use <var>RC_REBOOT</var> to determine whether a reboot operation was requested or not.
+* Entering single user mode makes {{C|init}} execute an <kbd>openrc single</kbd> command and wait for it to finish, then spawn an emergency shell by invoking the {{C|sulogin}} program.
+* Using a <kbd>telinit a</kbd> command makes {{C|init}} execute the {{Path|/etc/X11/startDM.sh}} script. This is specified in a <code>once</code> entry, and used by OpenRC service script {{Path|/etc/init.d/xdm}} from package {{Package|x11-base/xorg-server}} to launch a [[display manager]]. Script {{Path|/etc/X11/startDM.sh}} is provided by package {{Package|x11-apps/xinit}}.
+* Pressing the {{Key|Ctrl}}+{{Key|Alt}}+{{Key|Del}} key combination makes {{C|init}} reboot the machine with a <kbd>shutdown -r now</kbd> command. This is specified in a <code>ctrlaltdel</code> entry.
+
+{{C|agetty}} process are specified in <code>respawn</code> entries, so that when a user's interactive shell exits, it is possible to log in again on the terminal the shell used. The Gentoo ebuild might also add architecture-specific entries to {{Path|/etc/inittab}}, to make {{C|init}} spawn additional {{C|agetty}} processes for special character device nodes.
+
+== Removal ==
+
+{{Warning|sysvinit can only be removed safely if the operating system has been configured with an init system that requires neither it nor package {{Package|sys-apps/openrc}}, and the machine has been rebooted to use it. Currently, this is officially supported by Gentoo only if that init system is [[systemd]].}}
+
+=== Unmerge ===
+
+{{Unmerge|sys-apps/sysvinit}}
+
+== See also ==
+
+* {{See also|Runit}}
+* {{See also|s6 and s6-rc-based init system}}
+* {{See also|systemd}}
+* {{See also|Comparison of init systems}}
+
+[[Category:Init systems]]
