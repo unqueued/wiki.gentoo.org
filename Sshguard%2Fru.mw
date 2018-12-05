@@ -1,19 +1,20 @@
 <languages />
 
 {{InfoBox stack
-|{{InfoBox homepage|http://www.sshguard.net/|header=true}}
+|{{InfoBox homepage|https://www.sshguard.net/|header=true}}
+|{{InfoBox gitweb|https://bitbucket.org/sshguard/sshguard/|raw=true}}
 |{{InfoBox ohloh}}
 }}
 
 {{Metadata|abstract=sshguard — это система предотвращения вторжений, которая разбирает логи сервера, определяет подозрительную активность и затем использует системный межсетевой экран, чтобы блокировать IP-адреса злонамеренных подключений.}}
 
-sshguard — это система предотвращения вторжений, которая разбирает логи сервера, определяет подозрительную активность и затем использует системный межсетевой экран, чтобы блокировать IP-адреса злонамеренных подключений. sshguard написан на C, поэтому он не нагружает систему.
+{{c|sshguard}} is [[Article description::an intrusion prevention system that parses server logs, determines malicious activity, and uses the system firewall to block the IP addresses of malicious connections.]] sshguard is written in C so it does not tax an interpreter.
 
 == Как это работает ==
 
 sshguard является простой службой, которая постоянно отслеживает изменения в одном или нескольких файлах лога. Она разбирает события, которые демоны посылают в случае неудавшихся попыток входа в систему, а затем, с помощью обновлений правил межсетевого экрана, блокирует любые дальнейшие попытки от данных подключений.
 
-Несмотря на название, sshguard разбирает не только логи SSH. Он также поддерживает многие почтовые системы, а также некоторые системы FTP. Полный список поддерживаемых устройств можно найти на [http://www.sshguard.net сайте программы].
+Unlike what the name implies, sshguard does not only parse SSH logs. It also supports many mail systems as well as a few FTP ones. A full listing of supported services can be found on the [https://www.sshguard.net sshguard.net website].
 
 == Установка ==
 
@@ -33,29 +34,24 @@ sshguard является простой службой, которая пост
 
 === Подготовка межсетевого экрана ===
 
-Когда sshguard блокирует какого-либо злонамеренного пользователя (блокируя его IP-адрес), он будет использовать цепочку {{c|sshguard}}.
+When {{c|sshguard}} blocks any malicious users (by blocking their IP addresses), it will use the {{c|sshguard}} chain.
 
 Подготовьте цепочку и удостоверьтесь, что она вызывается при обнаружении новых входящих соединений:
 
-{{RootCmd|iptables -N sshguard
-|iptables -A INPUT -j sshguard}}
+{{RootCmd
+|iptables -N sshguard
+|iptables -A INPUT -j sshguard
+}}
 
 === Просмотр лог-файлов ===
 
 Основная идея sshguard в том, что администратор указывает приложению отслеживаемые файлы логов через параметры командной строки. Как такового файла конфигурации для sshguard не существует.
 
-В Gentoo параметры лучше всего определять в файле {{Path|/etc/conf.d/sshguard}}:
+On Gentoo, the options can be best configured in the {{Path|/etc/sshguard.conf}} file:
 
-{{FileBox|filename=/etc/conf.d/sshguard|title=Настраиваем sshguard на чтение /var/log/messages|lang=bash|1=
-PARDONTIME="3600" # Блокировать на 1 час (3600 секунд)
-WATCHTIME="360"   # Отслеживать IP-адрес в течение 5 минут (360 секунд)
-THRESHOLD="10"    # Сколько нужно неудачных попыток для срабатывания блокировки
-  
-LOGFILES="-l /var/log/messages"                      # Следить за этим файлом...
-LOGFILES="${LOGFILES} -l /var/log/auth.log"          # И за этим тоже
-  
-SSHGUARD_OPTS="-p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
-}} 
+{{FileBox|filename=/etc/sshguard.conf|title=Configuring sshguard to read /var/log/messages and /var/log/auth.log|lang=bash|1=
+# Full path to backend executable (required, no default)
+BACKEND="/usr/libexec/sshg-fw-iptables" 
 
 # Space-separated list of log files to monitor. (optional, no default)
 FILES="/var/log/messages /var/log/auth.log" 
@@ -91,15 +87,15 @@ PID_FILE=/run/sshguard.pid
 
 === Занесение хостов в черный список (blacklist) ===
 
-Когда используется черный список, после серии неудачных попыток IP-адрес атакующего будет заблокирован перманентно. Черный список подгружается после каждой загрузки, а также будет расширятся новыми записями в процессе работы. {{c|sshguard}} добавляет туда новые адреса, после превышения порога "злоупотребления".
+With the blacklisting option after a number of abuses the IP address of the attacker or a IP subnet will be blocked permanently. The blacklist will be loaded at each startup and extended with new entries during operation. {{c|sshguard}} inserts a new address after it exceeded a threshold of abuses.
 
 Адреса из черного списка никогда не выходят из него (не разрешаются) снова.
 
 Чтобы задействовать черный список, создайте соответствующий каталог и файл:
 
 {{RootCmd
-|mkdir -p /var/db/sshguard
-|touch /var/db/sshguard/blacklist.db
+|mkdir -p /var/lib/sshguard
+|touch /var/lib/sshguard/blacklist.db
 }}
 
 While defining a blacklist it is important to exclude trusted IP networks and hosts in a whitelist.
@@ -121,19 +117,11 @@ The whitelist has to include the loopback interface, and should have at least 1 
 
 {{Note|The 192.0.2.0/24 entry has to be adjusted to fit the own needs.}}
 
-Добавьте файл blacklist в конфигурацию и измените переменную <var>SSHGUARD_OPTS</var>:
+Add the <var>BLACKLIST_FILE</var> and <var>WHITELIST_FILE</var> file to the configuration:
 
-{{FileBox|filename=/etc/conf.d/sshguard|title=Настраиваем sshguard для использования blacklist|lang=bash|1=
-PARDONTIME="3600" # Блокировать на 1 час (3600 секунд)
-WATCHTIME="360"   # Отслеживать IP-адрес в течение 5 минут (360 секунд)
-THRESHOLD="10"    # Сколько нужно неудачных попыток для срабатывания блокировки
-
-BLACKLIST="/var/db/sshguard/blacklist.db"            # Заблокированные адреса попадают в этот файл  
-LOGFILES="-l /var/log/messages"                      # Следить за этим файлом...
-LOGFILES="${LOGFILES} -l /var/log/auth.log"          # И за этим тоже
-  
-SSHGUARD_OPTS="-b 50:${BLACKLIST} -p ${PARDONTIME} -s ${WATCHTIME} -a ${THRESHOLD} ${LOGFILES}"
-}}
+{{FileBox|filename=/etc/conf.d/sshguard|title=Configuring sshguard to blacklist abusers|lang=bash|1=
+BACKEND="/usr/libexec/sshg-fw-iptables"
+FILES="/var/log/auth.log"
 
 THRESHOLD=10
 BLOCK_TIME=43200
@@ -185,7 +173,7 @@ log { source(src);  filter(f_authpriv);  destination(authlog);  };
 
 == Смотрите также ==
 
-* [[Iptables]], информация по установке и настройке {{c|iptables}} в Gentoo
+* [[Iptables]] - An article on installing and configuring the {{c|iptables}} firewall on Gentoo.
 
 == Внешние ресурсы ==
 
