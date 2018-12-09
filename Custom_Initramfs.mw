@@ -171,7 +171,9 @@ done
 
 ==== External file list ==== 
 
-An external file list, or cpio list, describes files to be included into the ''initramfs''. This file list is processed by an utility that comes with the Linux kernel, {{c|usr/gen_init_cpio}}. It can be used for both embedded and standalone ''initramfs'', either by using it as INITRAMFS_SOURCE directly or by running the utility from a shell. This lets you build the ''initramfs'' dynamically, always using the latest files from your system, but compared to populating a real directory {{Path|/usr/src/initramfs}}, it's less intuitive and requires more knowledge in regards to device nodes and such.
+An external file list, or cpio list, describes files to be included into the ''initramfs''. This file list is processed by an utility that comes with the Linux kernel, {{c|usr/gen_init_cpio}}. It can be used for both embedded and standalone ''initramfs'', either by using it as {{c|INITRAMFS_SOURCE}} directly or by running the utility from a shell. This lets you build the ''initramfs'' dynamically, always using the latest files from your system, but compared to populating a real directory {{Path|/usr/src/initramfs}}, it is less intuitive and requires more knowledge in regards to ''device nodes'' and such. The command {{c|file}} will prove as very useful to get information from special ''block'' or ''character'' devices.
+
+A minimalistic list may look like so:
 
 {{FileBox|filename=initramfs.list|title=cpio list example|1=
 # Custom Initramfs minimal example
@@ -179,9 +181,115 @@ dir /dev 0755 0 0
 file /init /usr/src/initramfs/init 0755 0 0
 }}
 
-{{RootCmd|/usr/src/linux/usr/gen_init_cpio initramfs.list > initramfs.cpio}}
+Create the cpio archive, compress it and move it to {{Path|/boot}}:
 
-{{Note|This method is for advanced users. Run {{c|gen_init_cpio}} without arguments for cpio list syntax and a more detailed example.}}
+{{RootCmd
+| cd /usr/src/linux
+| usr/gen_init_cpio ../initramfs.list > ../initramfs.cpio
+| gzip --best ../initramfs.cpio
+| mv ../initramfs.cpio.gz /boot
+}}
+
+{{Warning|This method is for advanced users. You may skip this section, if you feel uncomfortable with the next steps.}}
+
+Instead of creating the list manually, there is the possibility to let the cpio list and archive be generated and compressed by a shell script, which is provided by the kernel source files.
+
+{{RootInvocation|/usr/src/linux/scripts/gen_initramfs_list.sh -h|output=<pre>
+Usage:
+scripts/gen_initramfs_list.sh [-o <file>] [-u <uid>] [-g <gid>] {-d | <cpio_source>} ...
+        -o <file>      Create compressed initramfs file named <file> using
+                       gen_init_cpio and compressor depending on the extension
+        -u <uid>       User ID to map to user ID 0 (root).
+                       <uid> is only meaningful if <cpio_source> is a
+                       directory.  "squash" forces all files to uid 0.
+        -g <gid>       Group ID to map to group ID 0 (root).
+                       <gid> is only meaningful if <cpio_source> is a
+                       directory.  "squash" forces all files to gid 0.
+        <cpio_source>  File list or directory for cpio archive.
+                       If <cpio_source> is a .cpio file it will be used
+                       as direct input to initramfs.
+        -d             Output the default cpio list.
+
+All options except -o and -l may be repeated and are interpreted
+sequentially and immediately.  -u and -g states are preserved across
+<cpio_source> options so an explicit "-u 0 -g 0" is required
+to reset the root/group mapping.
+</pre>}}
+
+Using the before created directory structure in {{Path|/usr/src/initramfs}} it may be executed like the following:
+
+{{RootCmd
+|cd /usr/src/linux
+|scripts/gen_initramfs_list.sh -o ../custom-initramfs.cpio.gz /usr/src/initramfs
+|ls -l ..
+|collapse-output=true
+|output=<pre>
+total 1656
+-rw-r--r--  1 root root 1675784 Dec  9 03:12 custom-initramfs.cpio.gz
+drwxr-xr-x 12 root root    4096 Dec  9 00:16 initramfs
+lrwxrwxrwx  1 root root      20 Nov 23 19:12 linux -> linux-4.14.83-gentoo
+drwxr-xr-x 26 root root    4096 Dec  9 00:58 linux-4.14.83-gentoo
+-rw-r--r--  1 root root    4830 Dec  9 01:07 README
+</pre>}}
+
+The script creates a cpio list by analyzing all directories and files within {{Path|/usr/src/initramfs}}. It then executes {{Path|usr/gen_init_cpio}} to generate the cpio archive file and finally compresses it using {{c|gzip}}; according to the filename suffix.
+
+In order to comprehend, all steps can be done manually:
+
+{{RootCmd
+|cd /usr/src/linux
+|scripts/gen_initramfs_list.sh /usr/src/initramfs {{!}} tee ../initramfs.list
+|collapse-output=true
+|output=<pre>
+
+#####################
+# /usr/src/initramfs
+# Last modified: 1544312413.9519881540
+
+dir /bin 755 0 0
+file /bin/busybox /usr/src/initramfs/bin/busybox 755 0 0
+dir /dev 755 0 0
+nod /dev/console 600 0 0 c 5 1
+nod /dev/null 666 0 0 c 1 3
+nod /dev/random 666 0 0 c 1 8
+nod /dev/tty 666 0 5 c 5 0
+nod /dev/urandom 666 0 0 c 1 9
+dir /etc 755 0 0
+file /init /usr/src/initramfs/init 744 0 0
+dir /lib64 755 0 0
+dir /lib 755 0 0
+dir /mnt 755 0 0
+dir /mnt/root 755 0 0
+dir /proc 755 0 0
+dir /root 700 0 0
+dir /sbin 755 0 0
+dir /sys 755 0 0
+</pre>}}
+
+{{RootCmd
+|cd /usr/src/linux
+|usr/gen_init_cpio ../initramfs.list > ../initramfs.cpio
+|gzip --best ../initramfs.cpio
+|ls -l ..
+|collapse-output=true
+|output=<pre>
+total 1660
+drwxr-xr-x 12 root root    4096 Dec  9 00:16 initramfs
+-rw-r--r--  1 root root 1675800 Dec  9 03:44 initramfs.cpio.gz
+-rw-r--r--  1 root root     593 Dec  9 03:31 initramfs.list
+lrwxrwxrwx  1 root root      20 Nov 23 19:12 linux -> linux-4.14.83-gentoo
+drwxr-xr-x 26 root root    4096 Dec  9 00:58 linux-4.14.83-gentoo
+-rw-r--r--  1 root root    4830 Dec  9 01:07 README
+</pre>}}
+
+The file {{Path|initramfs.cpio.gz}} can now be moved to {{Path|/boot}}.
+
+{{RootCmd|mv ../initramfs.cpio.gz /boot}}
+
+{{Warning|Do not forget to update the bootloader entries afterwards!}}
+
+{{Note|In order to always have the latest binaries in the initramfs, you might want to use hardlinks in {{Path|/usr/src/initramfs}}. Symbolic links do not work, as they will be recognised as ''slink'' and not as ''file'' when using {{Path|gen_initramfs_list.sh}}; this will render the initramfs '''unusable'''. <br/>
+Remember: Be '''absolutely''' sure that the binaries on your system are compiled statically!}}
 
 === Finalizing ===
 
