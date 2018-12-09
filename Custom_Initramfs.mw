@@ -28,13 +28,13 @@ In this section you will learn the ''easy and straightforward way to initramfs c
 
 Create a basic ''initramfs'' directory structure that will later become your ''initramfs'' root. For consistency, we'll work in {{Path|/usr/src/initramfs}}, but any location would do. If you choose another location, please adapt accordingly.
 
-{{RootCmd|<nowiki>mkdir -p /usr/src/initramfs/{bin,dev,etc,lib,lib64,mnt/root,proc,root,sbin,sys}</nowiki>}}
+{{RootCmd|<nowiki>mkdir --parents /usr/src/initramfs/{bin,dev,etc,lib,lib64,mnt/root,proc,root,sbin,sys}</nowiki>}}
 
 ==== Device nodes ====
 
 Most things the ''initramfs'' does will require a couple of device nodes to be present, especially the device for the root partition. Throughout this document, {{Path|/dev/sda1}} will be used as example device. Copy basic device nodes from the root filesystem to the ''initramfs'' example location:
 
-{{RootCmd|cp -a /dev/{null,console,tty,sda1} /usr/src/initramfs/dev/}}
+{{RootCmd|cp --archive /dev/{null,console,tty,sda1} /usr/src/initramfs/dev/}}
 
 Which devices you need exactly depends entirely on what you are going to use ''initramfs'' for. Please adapt to your own needs.
 
@@ -58,8 +58,8 @@ Some applications might depend on other files and libraries to work. For example
 Instead of collecting countless utilities and libraries (and never seeing the end of it), you can just use {{Package|sys-apps/busybox}}. It's a set of utilities for rescue and embedded systems, it contains a shell, utilities like {{c|ls}}, {{c|mkdir}}, {{c|cp}}, {{c|mount}}, {{c|insmod}}, and many more - all in a single binary called {{Path|/bin/busybox}}. For {{c|busybox}} to work properly in a ''initramfs'', you need to emerge it with the <code>static</code> USE flag enabled, then copy the {{Path|/bin/busybox}} binary into your ''initramfs'' layout as {{Path|/usr/src/initramfs/bin/busybox}}:
 
 {{RootCmd
-|USE{{=}}"static" emerge -av busybox
-|cp -a /bin/busybox /usr/src/initramfs/bin/busybox}}
+|USE{{=}}"static" emerge --ask --verbose busybox
+|cp --archive /bin/busybox /usr/src/initramfs/bin/busybox}}
 
 {{Note|Use {{c|ldd}} to verify that the binary is static.}}
 
@@ -216,7 +216,7 @@ Device Drivers  --->
 
 For mdev to work, you have to make {{Path|/sbin/mdev}} a symlink to {{Path|/bin/busybox}} in your ''initramfs''.
 
-{{RootCmd|ln -s ../bin/busybox /usr/src/initramfs/sbin/mdev}}
+{{RootCmd|ln --symbolic ../bin/busybox /usr/src/initramfs/sbin/mdev}}
 
 Then add the following snippet to your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}, after mounting {{Path|/proc}} and {{Path|/sys}}:
 
@@ -265,7 +265,7 @@ If your root partition is located on a logical volume, you need to include the L
 
 {{Note|The static LVM binary may also be called {{Path|/sbin/lvm.static}}. Use {{c|ldd}} to verify that the binary is static.}}
 
-{{RootCmd|cp -a /sbin/lvm /usr/src/initramfs/sbin/lvm}}
+{{RootCmd|cp --archive /sbin/lvm /usr/src/initramfs/sbin/lvm}}
 
 Now you can enable your LVM root partition in {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}. This example assumes that your volume group is called '''VG''', and your root volume is called '''root'''. Replace them with the names you chose when creating the volume.
 
@@ -311,8 +311,8 @@ Without "Linux raid autodetect" partitions, or if you need an advanced RAID setu
 Copy the binary {{Path|/sbin/mdadm}} and your {{Path|/etc/mdadm.conf}} into your ''initramfs'':
 
 {{RootCmd
-|cp -a /sbin/mdadm /usr/src/initramfs/sbin
-|cp -a /etc/mdadm.conf /usr/src/initramfs/etc
+|cp --archive /sbin/mdadm /usr/src/initramfs/sbin
+|cp --archive /etc/mdadm.conf /usr/src/initramfs/etc
 }}
 
 {{Note|Use {{c|mdadm --detail --scan}} if you do not yet have a {{Path|mdadm.conf}}.}}
@@ -343,13 +343,13 @@ If your root partition is LUKS encrypted, you need to include the cryptsetup bin
 {{Note|If you have problems getting a static cryptsetup binary, try <code>nettle</code> or <code>kernel</code> instead of the default <code>gcrypt</code> USE flag.}}
 
 {{RootCmd
-|cp -a /dev/{urandom,random} /usr/src/initramfs/dev
-|cp -a /sbin/cryptsetup /usr/src/initramfs/sbin/cryptsetup}}
+|cp --archive /dev/{urandom,random} /usr/src/initramfs/dev
+|cp --archive /sbin/cryptsetup /usr/src/initramfs/sbin/cryptsetup}}
 
 Now you can unlock your encrypted root partition in {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}:
 
 {{FileBox|filename=/usr/src/initramfs/init|title=Setting up LUKS encryption in /init|lang=bash|1=
-cryptsetup -T 5 luksOpen /dev/sda1 luksroot
+cryptsetup --tries 5 luksOpen /dev/sda1 luksroot
 }}
 
 Once you entered your passphrase, your root partition will be available as {{Path|/dev/mapper/luksroot}}.
@@ -367,7 +367,7 @@ The following example creates a random 512 byte key, encrypted with LUKS, and ad
 {{RootCmd
 |dd if{{=}}/dev/zero of{{=}}/usr/src/initramfs/root/key.luks count{{=}}2057
 |cryptsetup --align-payload{{=}}1 luksFormat /usr/src/initramfs/root/key.luks
-|cryptsetup luksOpen /usr/src/initramfs/root/key.luks lukskey
+|cryptsetup open --type luks /usr/src/initramfs/root/key.luks lukskey
 |dd if{{=}}/dev/urandom of{{=}}/dev/mapper/lukskey
 |cryptsetup luksAddKey /dev/sda1 /dev/mapper/lukskey
 }}
@@ -376,13 +376,13 @@ Unlocking the root device using this key in your {{Path|{{Highlight|color=darkgr
 
 {{FileBox|filename=/usr/src/initramfs/init|title=LUKS encryption with keyfiles|lang=bash|1=
 # Obtain the key
-cryptsetup -T 5 luksOpen /root/key.luks lukskey
+cryptsetup --tries 5 luksOpen /root/key.luks lukskey
 
 # Unlock the root partition
-cryptsetup --key-file /dev/mapper/lukskey luksOpen /dev/sda1 luksroot
+cryptsetup --key-file /dev/mapper/lukskey open --type luks /dev/sda1 luksroot
 
 # Clean up the key
-cryptsetup luksClose lukskey
+cryptsetup close lukskey
 }}
 
 As before, your root partition should then be available as {{Path|/dev/mapper/luksroot}}.
@@ -412,7 +412,7 @@ Copy the script to your ''initramfs'' and make it executable.
 
 Edit the script's first line to read {{Highlight|color=darkred|#!/bin/busybox sh}} or create a symlink for {{Path|/bin/sh}}:
 
-{{RootCmd|ln -s busybox /usr/src/initramfs/bin/sh}}
+{{RootCmd|ln --symbolic busybox /usr/src/initramfs/bin/sh}}
 
 Now, you can obtain a dynamic IP address for eth0 using DHCP:
 
@@ -547,7 +547,7 @@ DECIMAL     HEX         DESCRIPTION
 
 A less sophisticated method would be to use {{c|grep}} to search for signatures. For bzip2, this is '''BZh'''. For gzip, use '''<nowiki>$'\x1f'$'\x8b'</nowiki>'''.
 
-{{Cmd|grep -a -b --only-matching BZh bzImage|output=<pre>
+{{Cmd|grep --text --byte-offset --only-matching BZh bzImage|output=<pre>
 15949:BZh
 3946909:BZh
 </pre>}}
@@ -560,7 +560,7 @@ Now, you have the uncompressed kernel image. Somewhere within this image resides
 
 {{Cmd
 |binwalk Image
-|grep -a -b --only-matching BZh Image}}
+|grep --text --byte-offset --only-matching BZh Image}}
 
 Suppose the offset is 171424 bytes this time. Now you can extract the ''initramfs'' cpio archive:
 
@@ -582,7 +582,7 @@ To extract the uncompressed {{Path|initramfs.cpio}}, you can do so with the foll
 
 {{Warning|This will overwrite files in your current directory. Do it in {{Path|/tmp/initramfs/}} or similar.}}
 
-{{Cmd|cpio -i -d -H newc --no-absolute-filenames < initramfs.cpio}}
+{{Cmd|cpio --extract --make-directories --format=newc --no-absolute-filenames < initramfs.cpio}}
 
 With this, you should have successfully recovered your ''initramfs'' structure.
 
