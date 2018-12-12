@@ -1,0 +1,787 @@
+<languages/>
+{{InfoBox stack
+|{{InfoBox homepage|http://www.alsa-project.org/|header=true}}
+|{{InfoBox project|ALSA}}
+|{{InfoBox package|media-libs/alsa-lib}}
+|{{InfoBox wikipedia|Advanced Linux Sound Architecture}}
+}}
+
+
+This article [[Article description::describes the setup of a sound card with ''ALSA'' ('''A'''dvanced '''L'''inux '''S'''ound '''A'''rchitecture).]]
+
+== Installation ==
+
+=== Hardware detection ===
+
+To choose the right driver, first detect the used audio controller. Use {{c|[[Hardware detection|lspci]]}} for this task:
+
+{{Cmd|lspci {{!}} grep -i audio}}
+
+With the controller name determined, the needed driver can be found in the [http://www.alsa-project.org/main/index.php/Matrix:Main ALSA SoundCard Matrix].
+
+=== Kernel ===
+
+Activate the following kernel options:
+
+{{KernelBox|
+Device Drivers --->
+    <*> Sound card support
+        <*> Advanced Linux Sound Architecture --->
+            [*] PCI sound devices  --->
+                Select the driver for your audio controller.
+            HD-Audio  --->
+                Select a codec or enable all and let the generic parse choose the right one:
+                [*] Build Realtek HD-audio codec support
+                [*] ...
+                [*] Build Silicon Labs 3054 HD-modem codec support
+                [*] Enable generic HD-audio codec parser
+General setup --->
+    [*] System V IPC
+}}
+
+The {{c|lsmod}} command can be helpful.
+
+If the system has more than 8 sound outputs (Each HDMI output on a GPU will count as one), the max number of sound cards will need to be increased:
+
+{{KernelBox|
+Device Drivers --->
+    <*> Sound card support
+        <*> Advanced Linux Sound Architecture --->
+            [*] Dynamic device file minor numbers
+            (32) Max number of sound cards
+}}
+
+=== Software ===
+
+Portage knows the global USE flag <code>alsa</code> for enabling support for ALSA in other packages. Enabling this USE flag will pull in {{Package|media-libs/alsa-lib}} automatically (default in {{Keyword|x86}} and {{Keyword|amd64}} desktop profiles):
+
+{{RootCmd|euse -E alsa}}
+
+The {{c|euse}} command is part of {{Package|app-portage/gentoolkit}}.
+
+{{USEflag|package=media-libs/alsa-lib}}
+
+After setting this be sure to update the system so the changes take effect:
+
+{{Emerge|params+=--changed-use --deep|@world}}
+
+The {{Package|media-sound/alsa-utils}} package provides some tools for troubleshooting and testing the sound system. It is a good idea to merge the package if it is not already installed:
+
+{{Emerge|media-sound/alsa-utils}}
+
+== Configuration ==
+
+=== Files ===
+
+* {{Path|/etc/asound.conf}} - Global (system wide) configuration file.
+* {{Path|[[#~/.asoundrc|~/.asoundrc]]}} - Local (per user) configuration file.
+
+==== ~/.asoundrc ====
+
+This file can be optionally used so that on a per-user basis, ALSA defaults can be overridden. If the system has special hardware it is likely the card 0 and device 0 (the defaults) are not going to work.
+
+One of the simplest changes is card and device. This is the case for me with an HDMI coming from an Nvidia card connected to an onboard Realtek ALC88* audio device.
+
+{{FileBox|filename=~/.asoundrc|
+defaults.pcm.!card 1
+defaults.pcm.!device 7
+}}
+
+If you can't seem to find the card number assigned to the device that is the sound card you intend to use, don't panic — the card number is internally a name, which you can use. If your card is listed like this...
+
+{{Cmd|aplay -L|output=<pre>
+front:CARD=Generic,DEV=0
+HD-Audio Generic, ALC282 Analog
+Front speakers</pre>}} 
+
+... then it means the {{Path|~/.asoundrc}} file should be like this:
+
+{{FileBox|filename=~/.asoundrc|
+defaults.pcm.!card Generic
+defaults.pcm.!device 0
+defaults.pcm.!ctl Generic
+}}
+
+{{Warning|This settings disables all software mixing. To output everything at 96kHz, add <code>defaults.pcm.dmix.rate 96000</code> to the {{Path|~/.asoundrc}} file.}}
+
+When multiple sound cards are in use, the device numbers could be reordered across boots, such that using a name is advantageous.
+
+If the correct name is unclear, a list of valid names can be easily obtained with:
+
+{{Cmd|cat /sys/class/sound/card*/id}}
+
+Here is output from a developer's system that has multiple sound cards:
+
+{{Cmd|cat /sys/class/sound/card*/id|output=<pre>
+Q1U
+HDMI
+PCH
+C930e</pre>}}
+
+Here we have the Q1U microphone as Q1U, the builtin HDMI as HDMI, the analog audio jacks as PCH and a webcam's builtin microphone as C930e. Any of these are valid names for the card.
+
+{{Warning|Specifying numbers instead of names when multiple sound cards are used can result in device reordering across boots, which will prevent sound from working properly until the configuration file is edited to use the new number.}}
+
+=== S/PDIF or HDMI .asoundrc ===
+
+==== Background ====
+
+Most sound cards allow passing through audio to an external consumer receiver or DAC using S/PDIF digital coaxial or optical cables.  Doing so, preserves sound quality and compressed Dolby/DTS encoded material.  Uncompressed Dolby/DTS or Bluray material, require HDMI connections.  The more common mono or analog stereo cables cannot carry Dolby/DTS signals.
+
+You may find your S/PDIF or HDMI connection with default installed ALSA works with no {{Path|.asoundrc}} file alterations.  While only some applications, such as the Web browser Flash plugin will fail playing sound.  As such, the below {{Path|.asoundrc}} is usually required for most S/PDIF and HDMI connections.  Also, any media applications open will need to be restarted for the {{Path|.asoundrc}} files to take affect.  (i.e. Web browser with Flash plugin)
+
+==== Preference for connections versus media types ====
+
+===== Basic analog =====
+
+Basic Analog (ie. RCA) Connections - Basic user.  Quality depends on sound card DAC.  Look for a sound card with a high SNR db level.
+
+===== S/PDIF =====
+
+S/PDIF provides good quality audio for music, videos and DVD quality movies containing Dobly/DTS compressed signals.  Most sound cards and motherboards, these days, provide some sort of S/PDIF port.  Nowadays, it's more common to see S/PDIF Toslink ports on motherboards.  Many computer games provide compressed Dolby/DTS signals.
+
+====== S/PDIF Digital Coaxial ======
+
+S/PDIF Digital Coaxial may have problems with voltage cross talk, but is more common as it only requires a simple mini jack or RCA coaxial cable.
+
+====== S/PDIF optical (Toslink) ======
+
+S/PDIF Optical (Toslink) Cable completely avoids possible electrical cross talk or interference amongst cables as it's fiber optic, but is susceptible to signal degradation if the cable is bent too much.  You'll find audiophiles tend to favor Optical/Toslink.
+
+===== HDMI =====
+
+HDMI can carry compressed Dolby/DTS and uncompressed (i.e. Blu-ray) Dolby/DTS signals.  The audio market has favored this connection, but still preserves S/PDIF connections.  One concern being, HDMI cables are copper wire, still susceptible to electrical cross talk or interference, similar to S/PDIF Digital Coaxial connections.  There are HDMI Optical cables, but too expensive for the consumer market.  If audiophiles have S/PDIF Optical ports, they will use the S/PDIF connections for other media such as music and DVD movies, while only using HDMI when needed for processing uncompressed Dolby/DTS encoded material such as Blu-ray media.  Again, the basic user will likely just use HDMI, avoiding the fuss of changing configuration files around.
+
+==== Configuration ====
+
+Find the digital output device:
+
+{{Cmd|aplay --list-devices}}
+
+Adjust the below file to use the card/device number.
+
+{{FileBox|filename=~/.asoundrc|1=
+pcm.!spdif {
+     type hw
+     card 0
+     device 1
+}
+
+pcm.!default {
+     type plug
+     slave {
+           pcm "spdif"
+     }
+}
+
+# Share a single card with multiple applications 
+#pcm.!default {
+#    type plug
+#    slave.pcm "dmix:CARD=0,DEVICE=1,RATE=48000"
+#}
+}}
+
+{{Note|The above will not allow sound to be played from more than one sound application, or more than two sounds played at once through one sound card.  In order to perform this task, the sounds are remixed with a slight degradation with sound quality.  Most people listening to music, prefer not to allow this due to interruptions and decreased sound quality.  However, for those that desire this, the above commented section of code will achieve this.}}
+
+{{Note|When playing sound files using {{c|aplay}}, the beginning of the playback will be clipped because the digital S/PDIF or HDMI connection is not held open and needs to be started each time a sound file is played.  Notice Microsoft Windows both, holds open the receiver or DAC and remixes media on playback.}}
+
+=== A/52, AC3, Dolby, DTS ===
+
+Soundcards providing S/PDIF output can pass through lossy compressed multichannel audio.  To my ears, the high bitrate compressed media has little loss in comparison to two channel CD or DVD audio.  I surmise this is because we now have multichannels feeding multiple speakers.  Hence, the more hardware, the equivelant or better sounding?
+
+If a soundcard states it has S/PDIF, it will likely pass through Dolby or DTS even though it does not specifically show a Dolby or DTS icon or listed within it's features.  This is because, when they do list Dolby or DTS, it's because they're providing software for upmixing, or providing the decoded signal through analog output.
+
+HDMI will pass through uncompressed multichannel audio, but a video feed is interleaved as required by the HDMI specification.  In comparison to DVD video and audio, I see and hear very little quality difference, if any!  About the only thing I noticed between S/PDIF Toslink and HDMI, HDMI seems to amplify the signal by a few watts or 5db.  (I conclude this is because of the higher bitrate?)
+
+As such, S/PDIF is still quite popular, even today.
+
+{{Note|A S/PDIF or HDMI connection is required for passing through advanced encodings.  Analog connections (ie RCA and minijacks) do not support any advanced encodings.}}
+
+Decoding or encoding to Dolby or DTS requires a license.  If you have already purchased a sound card with this multichannel support, then you likely already have a license. See [http://www.alsa-project.org/main/index.php/A52_plugin this article] for more informations.
+
+ALSA {{Package|media-plugins/alsa-plugins}} package requires recompilation to include the ffmpeg USE Flag with the A/52 (pcm.a52encode) plugin.
+
+{{RootCmd|<nowiki>USE="ffmpeg" emerge -q media-plugins/alsa-plugins</nowiki>}}
+
+==== Decode or playback ====
+
+Recompile {{c|mplayer}} or another other favorite software player to include the ALSA libraries.
+
+{{RootCmd|<nowiki>USE="a52 dts" emerge -q  media-video/mplayer</nowiki>}}
+
+Add the multichannel codecs to {{Path|mplayer.conf}}, so media attempting to be played has first been provided the option of hardware passthrough rather then down mixing.
+
+{{FileBox|filename=/etc/mplayer/mplayer.conf|<nowiki>
+ac=hwac3,hwdts,hwmpa,spdifac3,spdifeac3,spdifaac,spdifdts,spdifmpa,spdifthd,dts,ffaac,</nowiki>}}
+
+You should now be able to pass through (and enjoy) almost any Dolby or DTS signal through S/PDIF to the receiver.
+
+==== Encode to A/52 ====
+
+===== Upmix two channel audio to a A/52 multi-channel audio stream =====
+
+To simulate A/52 encoded audio from normal one or two channel audio streams or files, ALSA can upmix using its A/52 plugin.  (A/52 is also known as AC-3 or Dolby Digital encoding.)
+
+A/52 upmixing preferred when playing computer games or watching video without Dolby/DTS encoded material, such as older Movies.  Many sound card manufacturers provide their applications with a feature for software upmixing to Dolby Digital, and recommend enabling this upmixing when listening to such media, except for Music.
+
+Upmixing to A/52 is frowned upon by audiophiles.  As such, it's user preference if you want to upmix all the sounds to A/52 before sending the stream to the consumer stereo receiver or DAC.  Matter of fact, audiophiles prefer simple stereo, and further state stereo is still better quality than Dolby/DTS material or other audio encoded with gimmicks.  Also, the consumer stereo or DAC likely possibly includes a feature for upmixing audio into five channel audio.
+
+{{FileBox|filename=~/.asoundrc|
+pcm.!default {
+    type plug:surroundaudio
+}
+
+ctl.!default {
+    type plug:surroundaudio
+}
+
+pcm.a52encode {
+    type a52
+    format S16_LE
+    channels 6
+    rate 48000
+    bitrate 448
+}
+
+pcm.surroundaudio a52encode
+
+ctl.surroundaudio {
+    type hw
+    card 0
+    device 1
+}
+}}
+
+{{Cmd|speaker-test -Dsurroundaudio -c 6}}
+
+===== Encode PCM 5.1 24-bit audio into a A/52 16-bit audio stream (for streaming via S/PDIF) =====
+
+Also known as, encoding PCM 5.1 audio stream into a compressed Dolby Digital stream for playing over S/PDIF.  No real need to use this if you're using HDMI, as HDMI can handle the bandwith of a PCM 5.1 audio stream.  S/PDIF Toslink has also supposedly been upgrade to do so also, but most hardware has yet to be upgraded to the new specifications, and some doubt it will ever happen.  (Personally, I think HDMI is evil and only gives me problems, with little benefit.) 
+
+For some reason, the previous {{Path|.asoundrc}} section previously mentioned doesn't work with PCM 5.1 streams.  Another issue I run into with 24 bit PCM 5.1 audio streams, they require downmixing from S24_LE to S16_LE bit format.  Reason being, 24 bit is a common format for most media, however receivers can sometimes only decode 16 or 32 bit audio.  Also, the S/PDIF can only handle 16 bit audio when encoding to multi-channel formats such as A/52, for the time being until S/PDIF TosLink hardware specifications are upgraded.
+
+The following {{Path|.asoundrc}} excerpt will encode a PCM 5.1 24 bit stream into a 16 bit A/52 stream, for streaming over S/PDIF.
+
+{{FileBox|filename=~/.asoundrc|<nowiki>
+#####
+# Description: This will make it possible to use a52 with PulseAudio out of 
+#          the box. It may be useful for other use cases. Just include 
+#          this in the ~/.asoundrc file.
+
+pcm.a52 {
+    @args [ CARD ]
+    @args.CARD {
+               type string
+               default 0
+    }
+    type plug
+    slave {
+           pcm {
+               type a52
+               card $CARD
+               bitrate 640 # default 448
+           }
+    # Convert to S16 bit format, per SPDIF spec
+    format S16_LE # Required for current S/PDIF spec
+    }
+}
+</nowiki>}}
+
+{{Cmd|aplay -D pcm.a52 /home/me/Music/Led_Zeppelin/Celegration_Day/PCM51-24bit/*.wav}}
+
+=== Clone audio for 2 or more devices ===
+
+Sometimes you need to clone audio (example using 2 cloned screens with diferent inputs (first screen HDMI and second screen DVI + Analog audio)).
+This is a simple script that you can use as global or local configuration for clone 2 (or more) channels.
+You must adjust to your system the lines below comented lines.
+More information of the autor of the script and forum discussion [https://forums.gentoo.org/viewtopic-t-902670-start-0.html here.]
+
+{{FileBox|filename=/etc/asound.conf|<nowiki>
+ctl.!default {
+   type hw
+   #set Your default card
+   card 0
+}
+
+pcm.!default both
+
+pcm.both {
+   type softvol
+   slave {
+      pcm {
+         type plug
+         slave {
+            pcm {
+               type route
+               slave {
+                  pcm {
+                     type multi;
+                     slaves.a.pcm{
+                        type dmix
+                        ipc_key 2589455
+                        ipc_perm 0666
+                        slave {
+                           pcm {
+                              # add the default card - change to suit your sound card #1
+                              type hw
+                              card 0
+                              device 0
+                           }
+                        buffer_size 4096
+                        channels 2
+                        }
+                     }
+                     slaves.b.pcm{
+                        type dmix
+                        ipc_key 4855689
+                        ipc_perm 0666
+                        slave {
+                              pcm {
+                                 #add the slave sound card - change to suit your sound card #2
+                                 type hw
+                                 card 1
+                                 device 7
+                              }
+                        buffer_size 4096
+                        channels 2
+                        }
+                     }
+                     slaves.a.channels 2;
+                     slaves.b.channels 2;
+                     bindings.0.slave a;
+                     bindings.0.channel 0;
+                     bindings.1.slave a;
+                     bindings.1.channel 1;
+                     bindings.2.slave b;
+                     bindings.2.channel 0;
+                     bindings.3.slave b;
+                     bindings.3.channel 1;
+                     }
+                  }
+               ttable.0.0 1;
+               ttable.1.1 1;
+               ttable.0.2 1;
+               ttable.1.3 1;
+            }
+         }
+      }
+   }
+   control{
+      # define volume control name
+      name PCM
+      # Set to the Default card
+      card 0
+   }
+}
+</nowiki>}}
+
+=== JACK audio connection kit ===
+
+Jack provides an additional layer, to the already low latency ALSA drivers and applications, and further it guarantees a constant sound latency and synchronous operation of all its clients. Jack can only use one sound card at a time, and will provide separated outputs and inputs for each audio channel of the sound card. Jack further provides the ability to view, manipulate or pipe audio streams, both hardware and software streams, in a similar manner we use cables to interface different audio equipments. As example, [http://jamin.sourceforge.net JAMin] can intercept an audio stream before exporting the stream to another audio application and/or through analog or S/PDIF outputs.  The Jack user owned daemon, is usually started using [http://qjackctl.sourceforge.net/ qjackctl].  The qjackctl utility provides many other functions including audio stream connections.
+
+What Jack does not do, is handle A/52 encoded (ie. AC-3 or Dolby/DTS) material on input; it is just a sound server that deal with separated channels of audio streams. And it has the capability to connect simultaneously and synchronously any output stream on any input, and any input to any output stream, that on any hardware and software audio component, and with a constant latency. This make JACK an outstanding tool for audio production and creation. The [http://essej.net/ac3jack/ ac3jack] tool can be used for encoding multiple separated audio channels to AC-3 streams.
+
+When playing an A/52 encoded media, the player will request as many outputs from JACK than audio channels in the media. This will fail if your sound card doesn't have the requested amount of audio outputs, but will be fine otherwise. As example, you can use smplayer as usual, and configure it to output a 5.1 stream on a 7.1 output configuration, or a 7.1 stream on a 2 channels stereo output.
+
+One solution is to configure your kernel and ALSA according to Jack installation instructions for providing low latency audio. Since ALSA is said to be already very efficient and low latency, providing very good quality playback with no additional mixing when stated within its {{Path|.asoundrc}} file, unlike MS Windows, Jack probably isn't needed for most. The main audience of JACK is audio producers and musicians (in studio, live performances, DJ, ...). (The ac3jack package is currently hosted by the pro-audio overlay available with layman.)
+
+It is possible to interconnect JACK and ALSA. At that time of writing, the best solution is via the snd-loopback module and zita-*2* bridge. For that, see [http://proaudio.tuxfamily.org/wiki/index.php?title=DAW_Digital_Audio_Workstation#Using_an_ALSA_Loopback_device_and_zita-ajbridge Using an ALSA Loopback device and zita-ajbridge] on the ProAudio Gentoo overlay wiki. 
+
+Using zita-ajbridge, it is also possible to add additional real sound cards into JACK. (Example needed)
+
+Those who want to try JACK must know one thing: if you are happy with pulseaudio, you don't need to setup a realtime kernel for JACK. You will need rt operations only if you want to make a Digital Audio Workstation (DAW) with your computer, which necessitate something pulseaudio is not able to achieve: constant sound latencies as low or lower than 20 msec (pulseaudio is not able to provide constant sound latency at all), and synchronous operations. But if you want to make a DAW, JACK is definitely the way to go, and you will never look back.
+
+Hopefully this small brief section about Jack will give some quick insight about Jack's features, while reserving the details of Jack to a Wiki page specifically focused on Jack.
+
+In the meantime, you can take a look at the [http://proaudio.tuxfamily.org/wiki/index.php?title=Main_Page Pro-Audio Gentoo Overlay Wiki].
+
+=== Permissions ===
+
+If the <code>acl</code> USE flag enabled globally and [[ConsoleKit]] is being used (i.e the system is using a ''desktop'' [[Profile (Portage)|profile]]) permissions to sound cards will be handled automatically. Permissions can be checked using {{c|getfacl}}:
+
+{{Cmd|getfacl /dev/snd/controlC0 {{!}} grep larry|output=
+ user:'''larry''':rw-
+}}
+
+A broader solution is to add the user you want to be able to access the sound card to the ''audio'' group:
+
+{{RootCmd|gpasswd -a larry audio}}
+{{Cmd|grep audio /etc/group|output=                                                                                                         
+audio::18:larry
+}}
+
+{{Warning|You should logout and login again to make {{c|alsamixer}} work, otherwise running the {{c|alsamixer}} command will give you the error "cannot open mixer: No such file or directory"}}
+
+=== Service ===
+
+==== OpenRC ====
+
+If using OpenRC start ALSA now using the {{c|service}} command:
+
+{{RootCmd|rc-service alsasound start}}
+
+To have start ALSA at boot time, add it the boot runlevel using {{c|rc-update}}:
+
+{{RootCmd|rc-update add alsasound boot}}
+
+==== systemd ====
+
+If using systemd, ALSA state will be preserved and restored automatically across system restarts.
+
+The status of ALSA can be checked using the {{c|systemctl}} command:
+
+{{RootCmd|systemctl status alsa-restore}}
+
+=== Mixer ===
+
+If you can't hear anything, the output channels may be muted. Unmute the channels with the desktop environment's mixer or with {{c|alsamixer}} by selecting the appropriate channels and pressing the {{Key|M}} key to mute or unmute:
+
+{{Cmd|alsamixer}}
+
+== Usage ==
+
+=== Test speakers ===
+
+If everything above is perfect, it should now be able to test the sound card and the speakers. The {{c|speaker-test}} command-line tool from package {{Package|media-sound/alsa-utils}} (this should already be installed as per the previous recommendation).
+
+{{Cmd|speaker-test -t wav -c 2}}
+ 
+For configurations using a 5.1 surround sound system:
+
+{{Cmd|speaker-test -t wav -c 6 -D surround51}}
+
+Press {{Key|Ctrl}}+{{Key|C}} to interrupt the test.
+
+=== Test microphone ===
+
+If needed, select the audio device if no default one is provided and add the <code>--device=hw:0,0</code> to the incantation of {{c|arecord}}, substituting the CardNumber,DeviceNumber in the integer fields.
+
+The following will list possible devices.
+
+{{Cmd|arecord --list-devices}}
+
+{{Note|You may also need to unmute the Line or Microphone channel. Go into alsamixer and first select the soundcard (i.e. {{Key|F6}}), then press {{Key|F4}} to show the Capture Channels, "left/right cursor keys" to select the "Mic" channel and press {{Key|Space}} to toggle CAPTURE the channel.}}
+
+The following will record indefinitely until {{Key|CTRL}}+{{Key|C}} is depressed and provide a default 8000 Hz mono quality recording:
+
+{{Cmd|arecord /tmp/test.wav}}
+
+The following will provide will record for two seconds (--duration=2) using DAT 48000 Hz quality (<code>--format=dat</code>) and display the curses vumeter in stereo (<code>--vumeter=stereo</code>) and save to {{Path|/tmp/test.wav}}. 
+
+{{Cmd|<nowiki>arecord --channels=1 --duration=2 --format=dat --vumeter=stereo /tmp/test.wav</nowiki>}}
+
+Or optionally:
+
+{{FileBox|filename=~/.bashrc|lang=bash|1=
+# Simple convenience wrapper to record then play back a temporary sound file.
+# Usage: arecord-mic duration
+function arecord-mic {
+    [[ $1 == *[![:digit:]]* ]] || return
+    typeset tmpFile
+    tmpFile=$(mktemp --suffix .wav) || return
+
+    typeset -a arecordOpts=(
+        -c 1          # number of channels
+        -D plughw:0,0 # device name
+        -d "$1"       # duration
+        -f S32_LE     # format
+        -r 48000      # sample rate
+        -V mono       # VU meter type
+    )
+
+    arecord "${arecordOpts[@]}" -- "$tmpFile" && aplay -- "$tmpFile"
+    rm -f -- "$tmpFile"
+}
+}}
+
+Notice, {{c|arecord}} cannot record in S24_LE, and is only capable of recording using S16_LE or S32_LE formats.  For the human ear, any audio resolutions greater than 24 bit (S24_LE) or 48000Hz are said to be indistinguishable to differentiate using the human ear.  Reference Sampling (signal processing) Wikipedia, Audio sampling.  Users should also specify channels=1, as all recordings are performed in mono/monaural when typically using the Microphone Input unless recordings are using the stereo Line Input. In order to further encourage {{c|arecord}} to record monaural or only one channel, using the device=plughw:0,0 is further specified.  (Alleviates a common problem, microphone/mic playback only occurs on the right or left channels.)
+
+Use {{c|mplayer}} or {{c|aplay}} to playback the saved file. I usually record in "dat" or atleast "cd" quality formats.  DAT is best when benchmarking.
+
+== Tips ==
+
+Try one of the many configuration options in [http://dl.dropbox.com/u/18371907/asoundrc PaulBredbury's asoundrc file].
+
+== Troubleshooting ==
+
+=== Firefox and YouTube have no audio with custom .asoundrc but other apps do ===
+
+Browsers are sometimes picky about {{Path|~/.asoundrc}} settings. If you're specifying the default audio device (likely given that most computers nowadays have an HDMI A/V output and the analog and HDMI audio outputs are viewed as two separate sound cards), try doing this specifically as follows:
+
+{{FileBox|filename=~/.asoundrc|defaults.pcm.card <number of your default sound card>
+defaults.ctl.card <default sound card>}}
+
+{{Note|Since version 52, Firefox has made PulseAudio a hard requirement and dropped support for direct output to ALSA. To enable sound in these versions of Firefox enable the <code>pulseaudio</code> USE flag. See [https://bugzilla.mozilla.org/show_bug.cgi?id{{=}}1345661 PulseAudio requirement breaks Firefox on ALSA-only systems]. This limitation does not affect Firefox (version 52 only) built from sources ({{Package|www-client/firefox}}).}}
+
+=== Soundcard only available for one application ===
+
+Sometimes one app essentially takes over all sound devices. This might even be for performance reasons.
+
+Force the use of dmix instead of direct audio output (which is what most things use by default, such as Adobe Flash [which really means the browser] and Wine).
+
+If the device is card 1 and device 7 (which is the case for Nvidia HDMI for me):
+
+{{FileBox|filename=~/.asoundrc|
+pcm.dmixed {
+        type asym
+        playback.pcm {
+                type dmix
+                ipc_key 5678293
+                ipc_perm 0660
+                ipc_gid audio
+
+                slave {
+                        channels 2 # make 6 or 5.1 channel
+                        pcm {
+                                format S16_LE # S32_LE
+                                rate 48000 # can also be 44100
+                                type hw
+                                card 1 # your card
+                                device 7 # your device
+                                subdevice 0 #important?
+                        }
+
+                        period_size 1024
+                        buffer_size 8192
+                }
+
+                bindings {
+                        0 0
+                        1 1
+# Uncomment below if using 6 channel
+#                       2 2
+#                       3 3
+#                       4 4
+#                       5 5
+                }
+        }
+        capture.pcm "hw:0"
+}
+
+pcm.!default {
+        type plug
+        slave.pcm "dmixed"
+}
+}}
+
+Use of {{Path|~/.asoundrc}} is immediate and as long as you are not forcing the use of specific devices in any applications, they either will require a restart or will begin working immediately. One of the best tests is to run Chrome, go to YouTube, open a terminal, run mplayer with an audio or video file and see that you do not get an error about audio (such an error might be 'Device or resource busy').
+
+=== Missing dialogue (sounds) with 4.0 speakers ===
+
+If you're using a 4.0 sound card (like an old SB Live!) or 4.0 speakers in general, you may notice that in some games or movies the dialogues are very quiet or even missing. This is because most of those applications/movies support only either 2.0 (stereo) or 5.1 output. In order to achieve surround sound, the 5.1 audio track is used but the two excessive channels are discarded — the center channel (which usually carries dialogues) and subwoofer channel.
+
+The above issue can be circumvented through creating a virtual device which will downmix 5.1 to 4.0, mixing the center and subwoofer channels with other audio channels.
+
+{{FileBox|filename=~/.asoundrc|1=
+pcm.downmix {
+    type route
+
+    slave {
+        # the sound card output to be used
+        pcm         surround40
+        # real number of output channels
+        channels    4
+    }
+
+    # ttable.A.B G
+    # where A - input channel
+    #       B - output channel
+    #       G - volume gain (1.0 = original)
+
+    # copy channels 0-3
+    ttable.0.0 1
+    ttable.1.1 1
+    ttable.2.2 1
+    ttable.3.3 1
+
+    # mix channel 4 (center) into front speakers, and a bit (0.3) into rear ones
+    ttable.4.0 1.0
+    ttable.4.1 1.0
+    ttable.4.2 0.3
+    ttable.4.3 0.3
+
+    # mix channel 5 (subwoofer) mostly (0.6) into rear speakers, and a bit (0.3) into front ones
+    ttable.5.0 0.3
+    ttable.5.1 0.3
+    ttable.5.2 0.6
+    ttable.5.3 0.6
+}
+
+ctl.downmix {
+    type hw
+    card 0
+}
+}}
+
+=== HDMI/SPDIF 5.1 and 7.1 speaker testing ===
+
+It's stated ALSA's speaker-test utility will not test more then two channel audio over HDMI or SPDIF.  For this, you need to use mplayer, as quoted from ALSA's documentation.
+
+Get the [http://download.microsoft.com/download/6/b/1/6b17045c-6ce8-4dc4-a3b5-2717b8711fc8/8Channel.exe Microsoft's 8 Channel Speaker Test] and unzip the file.  (The file creates a sub directory named "8 Channel/", with files named "8_Channel_ID.wav" and "8_Channel_ID.wma".)
+
+{{Cmd|unzip 8Channel.exe}}
+
+Play the provided sound file; specifying your HDMI or SPDIF device, PCM file, and number of channels which will likely be either 6 or 8.
+
+{{Cmd|<nowiki>mplayer -ao alsa:device=hw=0.7 -channels 6 "${HOME}/tmp/8 Channel/8_Channel_ID.wav" -channels 6</nowiki>}}
+
+=== APlay SPDIF/HDMI output has incorrect speaker channels ===
+
+Now that you know how to use MPlayer to play a speaker test PCM WAV file per "HDMI/SPDIF 5.1 and 7.1 Speaker Testing" above, you now find APlay doesn't output to the speaker channels properly when using SPDIF/HDMI.  With HDMI, this is likely caused by the snd_hda_intel HDMI audio module/driver which is used by other manufacturers such as NVidia HDMI aside from just Intel's HDMI hardware. As to why MPlayer does use the correct channels, MPlayer is usually under constant development and manually corrects this issue?
+
+Another problem this solution pertains to, trying to play a 24 bit PCM 2.0 or PCM5.1 WAV files and finding APlay constantly refuses to play the stream, due to incorrect bit rate, etc.
+
+To correct this for ALSA (APlay) with minimal alterations to the PCM streams, we'll need to remap the speaker channels within a {{Path|${HOME}/.asoundrc}} file.  Add the following to the bottom of your {{Path|${HOME}/.asoundrc}} file.  Also note, the below configuration is for both 5.1 and 7.1 audio, or you could further map/copy the two extra channels to your 5.1 channels incase you do not want to omit the audio from a 7.1 stream.
+
+{{FileBox|filename=.asoundrc|<nowiki>
+pcm.myHDMI {
+        type plug slave {
+            pcm "hw:1,7"
+            format S32_LE
+            channels 6 }
+        ttable {
+            0.0= 1
+            1.1= 1
+            2.4= 1
+            3.5= 1
+            4.2= 1
+            5.3= 1
+            6.6= 1
+            7.7= 1
+        }
+}
+</nowiki>}}
+
+It seems that most HDMI to Stereo Receiver connections only stream 16 and 32 bit formats, skipping 24 bit.  The above configuration up-mixes any PCM stream to 32 bit when using the pcm.myHDMI profile, as it's quite common to see PCM 2.0 and 5.1 24 bit audio files.  It just doesn't seem right to down-mix everything to 16 bit, or use Float as the latter uses more processing power.  (Users can also set an alias within their bashrc file for 16 bit or 24 bit incantations as well.)
+
+Test the speaker routing using a surround test PCM file.  (See the above previously mentioned "8 Channel Speaker Test".)
+{{Cmd|aplay -D my.HDMI 8Channel.wav}}
+
+=== Weak center channel on PCM 5.1 live music ===
+
+If you have a multi-channel sound track or music with an apparently weak center channel, and the sound track is a live recording; it is possible to map the center channel to the rear channels.  Note, the rear channels on live recordings usually contain only the audiance screaming with very little music.
+
+The following incantation of mplayer specifies; your HDMI device of hw:1.7, your PCM 5.1 file, number of channels, the format (not needed if your receiver can natively handle 24 bit and in my case I need to upmix as my Yamaha HDMI receiver can only natively handle 16 or 32 bit audio), and then the mapping.  Mapping as follows; specify this is a 6 channel audio stream, with 6 mappings immediately following, copy left front channel to left speaker, copy right channel to right speaker, copy center channel to left rear speaker, copy center channel to right rear speaker, copy center channel to center speaker, and finally copy the subwoofer channel to the subwoofer speaker.
+
+{{Cmd|<nowiki>mplayer -ao alsa:device=hw=1.7  Music/MyAlbum/PCM51-24bit/01.MyMusic.wav -channels 6 -format s32le -af channels=6:6:0:0:1:1:4:2:4:3:4:4:5:5</nowiki>}}
+
+See MPlayer's Channel manipulation.
+
+=== Need to view more detailed information per ALSA stream? ===
+
+If you need to look at an in-depth illustration of how your program is connecting to ALSA, use the {{Path|/proc}} interface. You will need to substitute your relevant card/device details into the command below.
+
+{{Cmd|<nowiki>cat /proc/asound/card2/pcm0p/sub0/*
+</nowiki>}}
+You should see a dump of information regarding the program and useful things like its sample rate(rate) and PID(owner_pid). 
+<pre>
+access: RW_INTERLEAVED
+format: S16_LE
+subformat: STD
+channels: 2
+rate: 44100 (44100/1)
+period_size: 5513
+buffer_size: 22050
+card: 2
+device: 0
+subdevice: 0
+stream: PLAYBACK
+id: USB Audio
+name: USB Audio
+subname: subdevice #0
+class: 0
+subclass: 0
+subdevices_count: 1
+subdevices_avail: 0
+state: RUNNING
+owner_pid   : 934
+trigger_time: 86393.193574796
+tstamp      : 86540.250594985
+delay       : 17714
+avail       : 4602
+avail_max   : 7379
+-----
+hw_ptr      : 6485052
+appl_ptr    : 6502500
+tstamp_mode: NONE
+period_step: 1
+avail_min: 5513
+start_threshold: 2147483647
+stop_threshold: 22050
+silence_threshold: 0
+silence_size: 0
+boundary: 6206523236469964800
+</pre>
+
+=== HTML5 does not play in a browser ===
+
+If there is no sound in any browser used (Firefox, SeaMonkey, Otter Browser, etc.) and ALSA generally works, there is a workaround that might solve this particular issue: try removing the {{Path|/etc/asound.conf}} file.
+
+{{RootCmd|mv /etc/asound.conf /etc/asound.conf.old}}
+
+Restart the browser and test the sound output for HTML5. It might just work now after applying this workaround.
+
+==== HTML5 does not play in the Firefox browser ====
+
+Some system motherboards (i.e. Asus Z87-EXPERT) cause Card 0 to be a MID device instead of a PCM device. The same driver module snd_hda_intel is used for both the MID and PCM cards on this motherboard. For some reason Firefox HTML 5 requires Card 0 of the snd_hda_intel no matter how you change it with asoundrc.  You can make flash work using the asoundrc file, but HTML 5 audio is silent.  
+
+You must remap the PCM device in Linux as card 0 and remove the changes to asoundrc that were added to make Flash work.  This wiki page indicates that you should compile the snd_hda_intel driver into the kernel.  Using this configuration you must remap the card 0 and card 1 devices using boot parameters instead of a {{Path|/etc/modprobe.d/alsa.conf}} file. For example the following kernel command line option will swap the MID and PCM card indicies so that the default card 0 is the PCM card:
+
+<code>snd-hda-intel.index=1,0</code>
+
+{{Note|The module is named snd_hda_intel, but the boot parameter name is snd-hda-intel.}}
+
+=== Laptops with HDMI audio output ===
+
+Some laptops with an HDMI audio output will map /proc/asound/card0 as HDMI and therefore makes it default output device for applications as stated above in the Firefox section. Another way to remap is to add these two lines to {{Path|/etc/modprobe.d/alsa.conf}}
+
+<pre>
+# Set this to the correct number of cards.
+options snd cards_limit=2
+
+options snd-hda-intel id=PCH index=0
+options snd-hda-intel id=HDMI index=1</pre>
+
+Verify the order change by checking this command
+
+{{Cmd|<nowiki>cat /proc/asound/cards
+</nowiki>}}
+ 
+<pre>
+ 0 [PCH            ]: HDA-Intel - HDA Intel PCH
+                      HDA Intel PCH at 0xf2534000 irq 45
+ 1 [HDMI           ]: HDA-Intel - HDA Intel HDMI
+                      HDA Intel HDMI at 0xf2530000 irq 46</pre>
+
+This method only works if snd-hda-intel is compiled as a module not built-in
+
+=== IPC semaphore - function not implemented ===
+
+If you try to run the test procedure, and speaker-test returns an error about a function IPC semphore not implemented, that is the option to activate in your Kernel :
+
+{{KernelBox|
+General setup --->
+    [*] System V IPC
+}}
+
+=== Headphones jack not working ===
+
+Sometimes to get headset jack working, additional model information is needed for audio driver. For example, in case of Dell Latitude E7470 laptop with snd-hda-intel driver, this needs to be added to {{Path|/etc/modprobe.d/alsa.conf}}:
+
+<pre>
+options snd-hda-intel model=headset-mic
+</pre>
+
+More setup information can be found in Linux kernel documentation {{Path|Documentation/sound/hd-audio/models.rst}}.
+
+== See also ==
+
+* [[Power management/Soundcard|Power management]]
+* [[PulseAudio]] - A sound server that provides a number of features on top of ALSA.
+
+== External resources ==
+
+* http://www.alsa-project.org/alsa-doc/alsa-lib/pcm_plugins.html - Official ALSA PCM (digital audio) plugin descriptions and configuration file examples.
+
+
+[[Category:Sound devices]]
