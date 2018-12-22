@@ -43,28 +43,62 @@ That is where PCI Access Control Services (ACS) are called to the rescue. ACS is
 
 Unfortunately the implementation of ACS varies greatly between different CPU or chip-set models.
 
-==== Determine IOMMU capabilities ====
+==== IOMMU kernel configuration ====
 
-To check the ACS capabilities and IOMMU, both of which are required for VGA pass-through, run:
+To enable IOMMU support in kernel:
+  Device Drivers -> IOMMU Hardware Support
+    Generic IOMMU Pagetable Support  ----                               
+        [*]   AMD IOMMU support                                         
+        [*]   AMD IOMMU Version 2 driver                                      
+        [*]   Support for Intel IOMMU using DMA Remapping Devices           
+        [*]   Support for Shared Virtual Memory with Intel IOMMU          
+        [*]   Enable Intel DMA Remapping Devices by default               
+        [*]   Support for Interrupt Remapping                               
 
-{{Cmd|lspci -vv {{!}} grep -i 'Access Control Services'}}
+Re-emerge kernel
+
+Turn on IOMMU in grub. Edit file /etc/default/grub and add parameters to kernel
+
+    GRUB_CMDLINE_LINUX="... intel_iommu=on pcie_acs_override=downstream,multifunction ..."
+
+
+Check, that IOMMU turned on and works
 
 {{Cmd|1=dmesg {{!}} grep 'IOMMU enabled'|output=
 [    0.000000] DMAR: IOMMU enabled
 }}
 
+{{Note|For CPU on XEN architecture you may run: {{Cmd|lspci -vv {{!}} grep -i 'Access Control Services'}} }}
+
+==== IOMMU groups ====
+
+Passing through PCI or VGA devices requires you to pass through all devices within an IOMMU group. The exception to this rule are PCI root devices that reside in the same IOMMU group with the device(s) we want to pass through. These root devices cannot be passed through as they often perform important tasks for the host. A number of (Intel) CPUs, usually consumer-grade CPUs with integrated graphics (IGD), share a root device in the same IOMMU group as the first PCIe 16x slot.
+
+{{Cmd|1=
+for d in /sys/kernel/iommu_groups/*/devices/*; do n=${d#*/iommu_groups/*}; n=${n%%/*}; printf 'IOMMU Group %s ' "$n"; lspci -nns "${d##*/}"; done;|output=
+...
+IOMMU Group 13 01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP104 [GeForce GTX 1080] [10de:1b80] (rev a1)
+IOMMU Group 15 02:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Ellesmere [Radeon Pro WX 7100] [1002:67c4]
+IOMMU Group 16 02:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Ellesmere [Radeon RX 580] [1002:aaf0]
+...
+}}
+
+Nvidia in IOMMU Group 13 and AMD Video Card in IOMMU group 15 and 16. Everything looks fine. But if you have buggy IOMMU support and all devices within one IOMMU group, hardware can't guarantee good device isolation. Unfortunately, it is not possible to fix that. The only workaround - use ACS override patch witch ignore IOMMU hardware check. See ACS override patch
+
 === ACS override patch ===
 
-ACS patch
+{{Cmd|1=git clone ghttps://github.com/feniksa/gentoo_ACS_override_patch.git /etc/portage/patches}}
 
+Next re-emerge kernel
+
+{{Cmd|1=emerge gentoo-sources|output=
  * Applying 4400_alpha-sysctl-uac.patch (-p1) ...                                       [ ok ]
  * Applying 4567_distro-Gentoo-Kconfig.patch (-p1) ...                                  [ ok ]
 >>> Source unpacked in /var/tmp/portage/sys-kernel/gentoo-sources-4.14.52/work
 >>> Preparing source in /var/tmp/portage/sys-kernel/gentoo-sources-4.14.52/work/linux-4.14.52-gentoo ...
  * Applying override_for_missing_acs_capabilities.patch ...                             [ ok ]
  * User patches applied.
-
-IOMMU
+}}
 
 Software installation
 
@@ -72,6 +106,20 @@ Emerge
 Grub configuration
 
 Libvirt configuration
+
+VFIO kernel drivers
+
+Device Drivers 
+   [M] VFIO Non-Privileged userpsace driver framework
+    [*]   VFIO No-IOMMU support  ----                                          
+        <M>   VFIO support for PCI devices                                        
+        [*]     VFIO PCI support for VGA devices                                  
+        < >   Mediated device driver framework
+
+Add VGA pci ids to vfio
+
+cat /etc/modprobe.d/vfio.conf 
+options vfio-pci ids=1002:67c4,1002:aaf0
 
 Windows guest configuration
 * Workaround for AMD graphic card (turn on/off amd vcard)
