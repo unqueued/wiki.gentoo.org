@@ -72,6 +72,9 @@ If you are using systemd issue the following command instead :
 
 {{RootCmd|systemctl restart mysqld.service}}
 
+With >={{Package|dev-db/mariadb}}-10.1.18, use:
+{{RootCmd|systemctl restart mariadb.service}}
+
 After that set the root password:
 
 {{RootCmd|/usr/bin/mysqladmin -u root -h localhost password 'new-password'}}
@@ -161,13 +164,13 @@ CREATE TABLE [table_name] ([field_name] [field_data_type]([size]));
 
 '''table_name''' is the name of the table we wish to create. In this case, let's make a table named <code>developers</code>. This table will contain the developer's name, email and job.
 
-'''field_name''' will contain the name of the field. We have 3 required names in this case: name, email, and job.
+'''field_name''' will contain the name of the field. We have 3 required names in this case: name, email, and job. Also, a <code>PRIMARY KEY</code> field is defined for easy relation with other tables and will auto-increment with each insert.  The <code>PRIMARY KEY</code> is recommended, but not required as MySQL will keep one internally. Indexes, of which the <code>PRIMARY KEY</code> belongs to, allow for faster data access as the tables grow.
 
-The '''field_data_type''' is what type of information will be stored. The different formats available can be found at the [http://dev.mysql.com/doc/mysql/en/column-types.html MySQL Column Types Page] . For our purposes, we'll use the <code>VARCHAR</code> data type for all of our fields. <code>VARCHAR</code> is one of the simplest of data types when it comes to working with strings. 
+The '''field_data_type''' is what type of information will be stored. The different formats available can be found at the [http://dev.mysql.com/doc/mysql/en/data-types.html MySQL Data Types Page] . For our purposes, we'll use the <code>VARCHAR</code> data type for all of our data fields and <code>INTEGER</code> for the key field. <code>VARCHAR</code> is one of the simplest of data types when it comes to working with strings. 
 
 '''size''' is how much of data a single field will store. In this case, we'll use 128. This means that the field can have <code>VARCHAR</code> data that is 128 bytes. You can safely think of this as 128 characters for the time being, though there is a somewhat more technical explanation that the above site will provide you with. Now that we know how we are going to create the table, let's do it. 
 
-{{Cmd|CREATE TABLE developers ( name VARCHAR(128), email VARCHAR(128), job VARCHAR(128));|prompt=mysql&gt; |output=<pre>
+{{Cmd|CREATE TABLE developers ( id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(128), email VARCHAR(128), job VARCHAR(128));|prompt=mysql&gt; |output=<pre>
 Query OK, 0 rows affected (0.11 sec)
 </pre>
 }}
@@ -187,18 +190,19 @@ Looks like our table was created ok. Let's check it with the <code>SHOW TABLES</
 Yes, there's our table. However, it doesn't seem to have any information on the types of fields we setup. For that, we use the <code>DESCRIBE</code> command (or <code>DESC</code> for short), which takes the name of the table as its argument. Let's see what that gives us for our developers table. 
 
 {{Cmd|DESCRIBE developers;|prompt=mysql&gt; |output=<pre>
-+-------+--------------+------+-----+---------+-------+
-| Field | Type         | Null | Key | Default | Extra |
-+-------+--------------+------+-----+---------+-------+
-| name  | varchar(128) | YES  |     | NULL    |       |
-| email | varchar(128) | YES  |     | NULL    |       |
-| job   | varchar(128) | YES  |     | NULL    |       |
-+-------+--------------+------+-----+---------+-------+
++-------+--------------+------+-----+---------+----------------+
+| Field | Type         | Null | Key | Default | Extra          |
++-------+--------------+------+-----+---------+----------------+
+| id    | int(11)      | NO   | PRI | NULL    | auto_increment |
+| name  | varchar(128) | YES  |     | NULL    |                |
+| email | varchar(128) | YES  |     | NULL    |                |
+| job   | varchar(128) | YES  |     | NULL    |                |
++-------+--------------+------+-----+---------+----------------+
 3 rows in set (0.00 sec)
 </pre>
 }}
 
-This shows the different fields and their types. It also shows a few extra attributes that are beyond the scope of this howto. Feel free to refer to the [http://dev.mysql.com/doc/mysql/en/ MySQL Reference Manual] for more information. We now have a table to work with. Now let's go ahead and populate it.
+This shows the different fields and their types. It also shows a few extra attributes that are beyond the scope of this how-to. Feel free to refer to the [http://dev.mysql.com/doc/mysql/en/ MySQL Reference Manual] for more information. We now have a table to work with. Now let's go ahead and populate it.
 
 === Populating Our MySQL Database ===
 
@@ -208,9 +212,9 @@ We populate a table (or add data) using the <code>INSERT</code> command. Like th
 INSERT INTO table (col1, col2, ...) VALUES('value1', 'value2', ...);
 }}
 
-This command is used to insert a record into table. table contains the MySQL table we wish to enter the information into. The table name may be followed by the list of columns to insert data into and <code>VALUES()</code> contains the values you wish to insert into the table. You may omit the list of columns if you insert a value into each one and if you write the values in the same order the columns have been defined. In this case, we want to insert data into the developers table. Let's insert sample records: 
+This command is used to insert a record into table. table contains the MySQL table we wish to enter the information into. The table name may be followed by the list of columns to insert data into and <code>VALUES()</code> contains the values you wish to insert into the table. You may omit the list of columns if you insert a value into each one and if you write the values in the same order the columns have been defined. For the auto-increment column, a NULL value will use the next available value. In this case, we want to insert data into the developers table. Let's insert sample records: 
 
-{{Cmd|INSERT INTO developers VALUES('Joe Smith', 'joesmith@gentoo.org', 'toolchain');|prompt=mysql&gt; |output=<pre>
+{{Cmd|INSERT INTO developers VALUES(NULL, 'Joe Smith', 'joesmith@gentoo.org', 'toolchain');|prompt=mysql&gt; |output=<pre>
 Query OK, 1 row affected (0.06 sec)
 ## (If you don't know the order of the columns in the table or want to insert an incomplete record)
 mysql> INSERT INTO developers (job, name) VALUES('outsourced', 'Jane Doe');
@@ -221,9 +225,9 @@ Query OK, 1 row affected (0.01 sec)
 According to our return result, it appears that the record was inserted correctly. What if we want to input more information than just one record? That's where the <code>LOAD DATA</code> command comes into play. This loads records from a tab separated file. Let's try that by editing a file in our home directory with the records. We'll call this file {{Path|records.txt}} . Here's a sample: 
 
 {{CodeBox|title=~/records.txt|1=
-John Doe	johndoe@gentoo.org	portage
-Chris White	chriswhite@gentoo.org	documentation
-Sam Smith	samsmith@gentoo.org	amd64
+3	John Doe	johndoe@gentoo.org	portage
+4	Chris White	chriswhite@gentoo.org	documentation
+5	Sam Smith	samsmith@gentoo.org	amd64
 }}
 
 {{Important|Be sure you know what data you're dealing with. It's very unsafe to use <code>LOAD DATA</code> when you are uncertain of the file's contents!}}
@@ -270,15 +274,15 @@ SELECT field1,field2,field3 FROM table [WHERE field=value];
 Let's take a quick look at the first form. It's relatively simple and gives you an overall look of your table. We'll go ahead and run it to see what data we have so far. 
 
 {{Cmd|SELECT * FROM developers;|prompt=mysql&gt; |output=<pre>
-+-------------+-----------------------+----------------+
-| name        | email                 | job            |
-+-------------+-----------------------+----------------+
-| Joe Smith   | joesmith@gentoo.org   | toolchain      |
-| John Doe    | johndoe@gentoo.org    | portage        |
-| Chris White | chriswhite@gentoo.org | documentation  |
-| Sam Smith   | samsmith@gentoo.org   | amd64          |
-| Jane Doe    | NULL                  | Outsourced job |
-+-------------+-----------------------+----------------+
++----+-------------+-----------------------+----------------+
+| id | name        | email                 | job            |
++----+-------------+-----------------------+----------------+
+|  1 | Joe Smith   | joesmith@gentoo.org   | toolchain      |
+|  2 | Jane Doe    | NULL                  | Outsourced job |
+|  3 | John Doe    | johndoe@gentoo.org    | portage        |
+|  4 | Chris White | chriswhite@gentoo.org | documentation  |
+|  5 | Sam Smith   | samsmith@gentoo.org   | amd64          |
++----+-------------+-----------------------+----------------+
 5 rows in set (0.00 sec)
 </pre>
 }}
@@ -286,11 +290,11 @@ Let's take a quick look at the first form. It's relatively simple and gives you 
 We see both the data we inserted through <code>INSERT</code> and those inserted by <code>LOAD DATA</code> present. Now, let's say that we just want to see the record for Chris White. We can do so with the second form of select as shown below. 
 
 {{Cmd|SELECT * FROM developers WHERE name {{=}} 'Chris White';|prompt=mysql&gt; |output=<pre>
-+-------------+-----------------------+---------------+
-| name        | email                 | job           |
-+-------------+-----------------------+---------------+
-| Chris White | chriswhite@gentoo.org | documentation |
-+-------------+-----------------------+---------------+
++----+-------------+-----------------------+---------------+
+| id | name        | email                 | job           |
++----+-------------+-----------------------+---------------+
+|  3 | Chris White | chriswhite@gentoo.org | documentation |
++----+-------------+-----------------------+---------------+
 1 row in set (0.08 sec)
 </pre>
 }}
@@ -307,19 +311,44 @@ As expected, the specific entry that we were looking for has been selected. Now,
 </pre>
 }}
 
-This method of selection is a lot easier to manage, expecially with larger amounts of information, as we'll see later on. Right now, being the root mysql user, we have unlimited permissions to do what we wish with the MySQL database. In a server environment, a user with such privileges can be quite problematic. In order to control who does what with the databases, we setup privileges. 
+This method of selection is a lot easier to manage, especially with larger amounts of information, as we'll see later on. Right now, being the root mysql user, we have unlimited permissions to do what we wish with the MySQL database. In a server environment, a user with such privileges can be quite problematic. In order to control who does what with the databases, we setup privileges. 
 
 == MySQL Privileges ==
 
-=== Granting Privileges with GRANT ===
+Privileges are what kind of access users have to databases, tables, pretty much anything. Right now in the gentoo database, the MySQL root account is the only account that can access it, given its permissions. Now, let's create two somewhat generic users, guest and admin, who will access the gentoo database and work with the information in it. The guest account will be a restricted one. All it will be able to do is get information from the database, and that's it. admin will have the same control as root, but only for the gentoo database (not the main mysql databases).
 
-Privileges are what kind of access users have to databases, tables, pretty much anything. Right now in the gentoo database, the MySQL root account is the only account that can access it, given its permissions. Now, let's create two somewhat generic users, guest and admin, who will access the gentoo database and work with the information in it. The guest account will be a restricted one. All it will be able to do is get information from the database, and that's it. admin will have the same control as root, but only for the gentoo database (not the main mysql databases). Before we start on that, let's have a closer look at this somewhat simplified format of the <code>GRANT</code> command. 
+=== Creating Users ===
 
-{{CodeBox|title=GRANT Syntax|lang=sql|1=
-GRANT [privileges] ON database.* TO '[user]'@'[host]' IDENTIFIED BY '[password]';
+The CREATE USER SQL statement will define users and set the authentication method, commonly by password but other plugins may be available.
+
+An example CREATE USER command is:
+
+{{CodeBox|title=CREATE USER Syntax|lang=sql|1=
+CREATE USER '[user]'@'[host]' IDENTIFIED BY '[password]';
 }}
 
-{{Note|<code>GRANT</code> is considered to be the way to create a user. Later versions of MySQL, however, do contain a<code>CREATE_USER</code> function, though<code>GRANT</code> is still preferred.}}
+'''user''' is the name of the user and '''host''' is the hostname the user will be accessing from. In most cases, this will be localhost. To create our users for this example:
+
+(admin)
+{{Cmd
+|CREATE USER 'admin'@'localhost' IDENTIFIED BY 'password';
+|prompt=mysql>
+}}
+
+(guest)
+{{Cmd
+|CREATE USER 'guest'@'localhost' IDENTIFIED BY 'password';
+|prompt=mysql>
+}}
+{{Important|A host of 'localhost' does not mean DNS localhost (127.0.0.1) to MySQL.  Instead, it refers to the UNIX socket connection and not TCP/IP.}}
+
+=== Granting Privileges with GRANT ===
+
+Let's have a closer look at this somewhat simplified format of the GRANT command.
+
+{{CodeBox|title=GRANT Syntax|lang=sql|1=
+GRANT [privileges] ON database.* TO '[user]'@'[host]';
+}}
 
 First we have the privileges we wish to assign. With what we've learned so far, here are some of the privileges you can set: 
 
@@ -331,13 +360,13 @@ First we have the privileges we wish to assign. With what we've learned so far, 
 * <code>USAGE</code> - User has no privileges
 * <code>GRANT OPTION</code> - Allows users to grant privileges
 
-{{Note|If you're running MySQL to communicate data to a web application, <code>CREATE</code> , <code>SELECT</code> , <code>INSERT</code> (discussed here), <code>DELETE</code> and <code>UPDATE</code> (for further infomation look up the [http://dev.mysql.com/doc/mysql/en/grant.html MySQL Reference Manual - GRANT and REVOKE Syntax] section) are the only permissions you will most likely need. A lot of people make the mistake of granting all permissions when it's not really necessary. Check with the application developers to see if such permissions will cause issues with general operation.}}
+{{Note|If you're running MySQL to communicate data to a web application, <code>CREATE</code> , <code>SELECT</code> , <code>INSERT</code> (discussed here), <code>DELETE</code> and <code>UPDATE</code> (for further information look up the [http://dev.mysql.com/doc/mysql/en/grant.html MySQL Reference Manual - GRANT and REVOKE Syntax] section) are the only permissions you will most likely need. A lot of people make the mistake of granting all permissions when it's not really necessary. Check with the application developers to see if such permissions will cause issues with general operation.}}
 
-For our admin user, ALL will do. For the guest user, <code>SELECT</code> will be sufficient for read only access. '''database''' is the database we wish the user to have these permissions on. In this example, gentoo is the database. The .* means all tables. If you wanted to, you could apply per table access. '''user''' is the name of the user and '''host''' is the hostname the user will be accessing from. In most cases, this will be localhost. Finally, '''password''' is the user's password. Given the information, let's go ahead and create our users. 
+For our admin user, ALL will do. For the guest user, <code>SELECT</code> will be sufficient for read only access. '''database''' is the database we wish the user to have these permissions on. In this example, gentoo is the database. The .* means all tables. If you wanted to, you could apply per table access.
 
-{{Cmd|GRANT ALL ON gentoo.* TO 'admin'@'localhost' IDENTIFIED BY 'password';|prompt=mysql&gt; }}
+{{Cmd|GRANT ALL ON gentoo.* TO 'admin'@'localhost';|prompt=mysql&gt; }}
 
-{{Cmd|GRANT SELECT ON gentoo.* TO 'guest'@'localhost' IDENTIFIED BY 'password';|prompt=mysql&gt; }}
+{{Cmd|GRANT SELECT ON gentoo.* TO 'guest'@'localhost';|prompt=mysql&gt; }}
 
 Now that we have the users setup, let's test them out. First we quit mysql by typing <code>quit</code> at the command prompt: 
 
@@ -467,68 +496,19 @@ ERROR 1044: Access denied for user: 'guest@localhost' to database 'gentoo'
 </pre>
 }}
 
-And our problematic user is no longer able to access the gentoo database. Please note that the user was still able to login. That is because they remain in the main MySQL database. Let's take a look at how to completely remove an account with <code>DELETE</code> and the MySQL user table. 
+And our problematic user is no longer able to access the gentoo database. Please note that the user was still able to login. That is because they remain in the main MySQL database. Let's take a look at how to completely remove an account with <code>DROP USER</code>.
 
-=== Removing Accounts Using DELETE ===
+=== Removing Accounts ===
 
-The MySQL user table is a listing of all users and information about them. Make sure you're logged in as root. Then go ahead and use the main MySQL database. 
+Make sure you're logged in as root.
 
-{{Cmd|USE mysql;|prompt=mysql&gt; |output=<pre>
-Reading table information for completion of table and column names
-You can turn off this feature to get a quicker startup with -A
- 
-Database changed
-mysql>
-</pre>
-}}
+DROP USER will delete the record in the user table and all privilege tables. Let's go ahead and do that: 
 
-Now let's see what tables the mysql database has: 
-
-{{Cmd|SHOW TABLES;|prompt=mysql&gt; |output=<pre>
-+-----------------+
-| Tables_in_mysql |
-+-----------------+
-| columns_priv    |
-| db              |
-| func            |
-| host            |
-| tables_priv     |
-| user            |
-+-----------------+
-6 rows in set (0.00 sec)
-</pre>
-}}
-
-The user table is the table we're after. However, the user table contains 30 different fields, making it very hard to read. In order to make things easier to read, we'll go ahead and use the third version of the <code>SELECT</code> statement. The fields we're after are Host and User. 
-
-{{Cmd|SELECT Host,User FROM user WHERE User {{=}} 'guest';|prompt=mysql&gt; |output=<pre>
-+-----------+-------+
-| Host      | User  |
-+-----------+-------+
-| localhost | guest |
-+-----------+-------+
-1 row in set (0.00 sec)
-</pre>
-}}
-
-Now that we have our information, we can get rid of the guest user. This is done with the <code>DELETE</code> command and the syntax is shown below. 
-
-{{CodeBox|title=DELETE Syntax|lang=sql|1=
-DELETE FROM table WHERE field='value';
-}}
-
-You may notice that <code>DELETE</code> is somewhat similiar to the <code>SELECT</code> statement in its format. In this case, the field will be User, and the value guest. This will delete the record in the user table where the user is guest, successfully deleting our guest user account. Let's go ahead and do that: 
-
-{{Cmd|DELETE FROM user WHERE User{{=}}'guest';|prompt=mysql&gt; |output=<pre>
+{{Cmd|DROP USER 'guest'@'localhost';|prompt=mysql&gt; |output=<pre>
 Query OK, 1 row affected (0.07 sec)
 </pre>}}
 
-{{Cmd|FLUSH PRIVILEGES;|prompt=mysql&gt; |output=<pre>
-Query OK, 0 rows affected (0.00 sec)
-</pre>
-}}
-
-It seems to have worked ok. Let's test by logging out and attempting to login as our guest user. 
+It seems to have worked OK. Let's test by logging out and attempting to login as our guest user. 
 
 {{Cmd|quit|prompt=mysql&gt; |output=<pre>
 Bye</pre>}}
@@ -546,10 +526,8 @@ Our user is now successfully deleted!
 While this guide focuses mainly on setting up MySQL on the command line, a few alternatives are available in GUI form: 
 
 * [http://www.phpmyadmin.net/home_page/ phpMyAdmin] - Popular php based MySQL administration tool.
-* [http://sourceforge.net/projects/mysqlnavigator/ mysqlnavigator] - QT frontend to MySQL.
-* [http://gmyclient.sourceforge.net/ gmyclient] - A GNOME based MySQL client.
-* [http://www.knoda.org/ knoda] - A KDE MySQL client.
 
 This ends the MySQL introductory tutorial. I hope this gives you a better understanding of the basics behind MySQL and getting a database set up.
 
-[[Category:Database]]  {{Migrated|originalauthors=Chris White, Shyam Mani, Xavier Neys}}
+[[Category:Database]]
+{{Migrated|originalauthors=Chris White, Shyam Mani, Xavier Neys}}
