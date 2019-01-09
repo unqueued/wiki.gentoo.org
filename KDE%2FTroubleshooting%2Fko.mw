@@ -6,16 +6,22 @@
 
 KMenu에 어떤 프로그램이나 전체 프로그램 목록이 빠졌다면 KDE 프로그램 데이터베이스를 다시 구성해야 할 지도 모릅니다. 아이콘이 빠진 문제와 같은 KMenu 관련 문제를 수정하려면 이 방법으로도 처리됩니다.
 
+<div class="mw-translate-fuzzy">
 {{Cmd|kbuildsycoca4 --noincremental}}
+</div>
 
 == Akonadi에서 MySQL 설정이 잘못됐다고 징징댐 ==
 
+<div class="mw-translate-fuzzy">
 {{Path|/usr/share/config}} 와 {{Path|/usr/share/kde4}}의 권한 점검부터 시작하십시오. 700으로 되어 있으면, 재귀적으로 755로 바꾸십시오.
+</div>
 
+<div class="mw-translate-fuzzy">
 {{RootCmd
 |chmod -R 755 /usr/share/config
 |chmod -R 755 /usr/share/kde4
 }}
+</div>
 
 오류를 해결하지 못했다면, akonadi 설정을 열고 MySQL 기본 설정으로 바꾸십시오. 시스템 표시줄 아이콘이 동작하지 않으면 {{c|akonaditray}}를 시작하고, "Akonadi 서버 설정"을 선택한 후, "내부 MySQL 서버 사용"을 활성화하고 시험 단추를 누르십시오. MySQL 서버를 사용하고 자체 실행 프로그램을 사용하지 않으려면 MySQL이 동작중인지 확인하십시오.
 
@@ -57,9 +63,14 @@ Remove <code>gles2</code> USE flag and rebuild affected packages, most important
 
 == Missing shutdown/reboot/suspend/hibernate buttons (with consolekit) ==
 
-Make sure that {{package|kde-plasma/powerdevil}} and {{package|sys-power/upower}} are installed. Also check that the user is in the {{c|users}} group.
+Ensure dbus is added to the default runlevel so that it is started before logging in with sddm:
+{{RootCmd
+|rc-update add dbus default
+}}
 
-If {{package|x11-misc/sddm}} is used, run the following command and make sure it matches the output including <code>nox11</code>:
+Make sure that {{Package|kde-plasma/powerdevil}} and {{Package|sys-power/upower}} are installed. Also check that the user is in the {{c|users}} group.
+
+If {{Package|x11-misc/sddm}} is used, run the following command and make sure it matches the output including <code>nox11</code>:
 
 {{Cmd
 |grep pam_ck_connector /etc/pam.d/system-login|output=<pre>
@@ -76,12 +87,86 @@ polkit.addRule(function(action, subject) {
 });
 }}
 
-Also ensure dbus is added to the default runlevel so that it is started before logging in with sddm:
-{{RootCmd
-|rc-update add dbus default
+If all else fails, try {{Package|x11-misc/lightdm}} instead.
+
+== Recover KWallet passwords after failed migration ==
+
+{{Note|This assumes {{Package|kde-apps/kwalletd}} and {{Package|kde-apps/kwalletmanager}} - both slot <code>4</code> - are still installed. If they had been removed already, those packages will need to be temporarily re-emerged. As those package versions have been removed from tree long ago, this will involve recovering the ebuilds from <code>git</code> or adding the <code>kde-sunset</code> ebuild repository.}}
+
+On many systems, prior to the upgrade to KDE Frameworks <code>5.34.0</code> there had to be a second KWallet service present - {{Package|kde-apps/kwalletd}} served to provide the same password storage functions to kdelibs4-based applications, such as <code>kde-apps/kmail:4</code>. With the upgrade to <code>5.34.0</code>, this is obsolete as one single {{Package|kde-frameworks/kwallet}} can take over requests from these old applications.
+
+If applications are asking for passwords again that KWallet should have stored already long ago, this indicates that automatic migration from {{Package|kde-apps/kwalletd}} to {{Package|kde-frameworks/kwallet}} has failed.
+
+{{FileBox|filename=~/.config/kwalletrc|title=Remove these lines to re-enable password migration|lang=bash|1=
+[Migration]
+alreadyMigrated=true
 }}
 
-If all else fails, try {{package|x11-misc/lightdm}} instead.
+After editing and saving this file, leaving the session and re-entering should trigger the migration assistant, visible through the usual KWallet password prompt.
+
+Unfortunately in some configurations, automatic migration has never worked properly. For those cases, there is a manual workaround - temporarily remove the new KWallet version:
+
+{{RootCmd|emerge -C kde-frameworks/kwallet}}
+
+After leaving the session and re-entering, executing <code>kwalletmanager</code> (important: this is NOT the same as <code>kwalletmanager5</code>) via <code>krunner</code> will add a new system tray application <code>Wallet Manager</code> through which old KWallets can be manually exported into XML files via <code>File -> Export as XML</code>. Make sure to keep these files only for the length of this process.
+
+{{RootCmd|emerge -1 kde-frameworks/kwallet && emerge kde-apps/kwalletmanager}}
+
+After once again entering a new Plasma session, now the previously created XML files can be imported into the new KWallet by executing <code>kwalletmanager5</code>, raising it from system tray and navigating to <code>File -> Import XML</code>.
+
+At this point, the temporary XML files should be deleted again (skip the trash), and legacy packages can be removed:
+
+{{RootCmd|emerge -C kde-apps/kwalletmanager:4 kde-apps/kwalletd}}
+
+== kde-*/* related blockers prevent upgrade of neglected system ==
+
+Package removals are usually announced at least 30 days in advance and put into <code>package.mask</code> so affected users are notified of the fact, find an alternative for their needs and clean up their systems. Long periods of not updating a system, or usage of update scripts, or simply ignoring those Portage messages in plain sight will inevitably lead to blockers at some point going forward. For that purpose, the following unmerge command contains a list of last-rited packages in recent times.
+
+{{Emerge|--unmerge media-sound/kstreamripper kde-misc/kcollectd media-sound/kmid sci-calculators/keurocalc net-misc/knutclient media-sound/konvertible kde-misc/kdesudo kde-misc/kbiff kde-misc/kfax kde-misc/kover media-sound/k4guitune media-sound/kenvy24 media-sound/kmidimon media-sound/kradio media-sound/waheela media-video/loopy net-p2p/kmldonkey kde-misc/konstruktor kde-misc/kookie kde-misc/kfilebox media-video/kplayer kde-misc/akonadi-git-resource media-gfx/kgrab kde-misc/colibri kde-misc/kio-mtp kde-misc/kio-slp kde-plasma/libkworkspace pykde4 kcmshell kde-l10n kdepim-l10n kdebase-runtime-meta kdontchangethehostname keditfiletype kfile kmimetypefinder kde-apps/knewstuff kreadconfig ksaneplugin ktraderclient kwalletd kommander kdepim-common-libs ktnef app-office/calligra-l10n kde-misc/krecipes kde-misc/semantik www-plugins/kpartsplugin x11-misc/lightdm-kde plasma-runtime pim-storage-service-manager kde-apps/attica kde-apps/drkonqi kcontrol kdebase-desktoptheme kdebase-menu kdebase-menu-icons kdebugdialog kde-apps/kdesu kde-apps/kglobalaccel kiconfinder kimgio knetattach kpasswdserver kquitapp kstart kuiserver kurifilter-plugins plasma-apps renamedlg-plugins solid-runtime sys-auth/polkit-kde-agent kdepasswd kfmclient konq-plugins libkonq nsplugins plasma-apps dev-util/kdevelop-php-docs dev-util/kdevelop-qmake dev-util/kdevelop-qmljs kde-misc/kim4 kde-misc/kio-ftps kde-misc/quadkonsole ksnapshot kdeartwork-meta kdeartwork-colorschemes kdeartwork-desktopthemes kdeartwork-emoticons kdeartwork-iconthemes kdeartwork-kscreensaver kdeartwork-wallpapers kdeartwork-weatherwallpapers kdeartwork-styles}}
+
+=== KDE PIM ===
+
+An upgrade from very old KDE PIM to KF5-based KDE PIM may be causing blockers. The following commands will deselect any packages from world that may still depend on old conflicting packages:
+
+{{RootCmd|equery -q d kde-apps/kdepim-common-libs &#124; sed -e "s/-[0-9].*//" &#124; xargs emerge --deselect
+|equery -q d kde-apps/kdepimlibs &#124; sed -e "s/-[0-9].*//" &#124; xargs emerge --deselect
+|emerge --deselect kdepim-l10n kde-l10n}}
+
+{{Note|This requires {{Package|app-portage/gentoolkit}} to be installed. The [[Gentoolkit]] article provides more information about this useful utility.}}
+
+Having done that, emerge blockers should be gone.
+
+== KDE Plasma High CPU usage ==
+
+If you are noticing relatively high CPU usage (normally the dbus-daemon or kwin_x11 processes)  when running KDE plasma make sure to check your syslog for errors that look like the following. Normally just tailing the log will enable you to see this right away since the error is thrown at such a high rate.
+
+{{FileBox|filename=/var/log/syslog|lang=bash|1=
+...
+Oct 17 00:30:26 localhost obexd[32399]: obex_server_init failed 
+Oct 17 00:30:26 localhost obexd[32401]: OBEX daemon 5.39 
+Oct 17 00:30:26 localhost obexd[32401]: obex_server_init failed 
+Oct 17 00:30:26 localhost obexd[32403]: OBEX daemon 5.39 
+}}
+
+
+This occurs due to being unable to connect to the bluetooth service you can ensure this is started by running <code>/etc/init.d/bluetooth start</code>. To ensure this doesn't happen on any other start run the following.
+
+{{RootCmd|rc-update add bluetooth}}
+
+Alternatively you can turn off bluetooth setting via the GUI.
+
+{{CodeBox|title=Modifying Bluetooth settings|1=
+System Settings --> Bluetooth --> Advanced Settings --> Enable Bluetooth integration
+}}
+
+== Compilation failure ==
+
+{{Package|dev-qt/qtwebkit}} is one of the few packages known to consistently fail when the <code>j</code> value on <var>MAKEOPTS</var> is set too high.
+If you see mysterious build failure, try lowering your <code>j</code> value. The safe value would be the number of processor times thread ('''not''' that plus one).
+
+Similar case has been found when compiling with {{c|j}} option while KDE is running (observed with {{Package|dev-qt/qtwebkit}} and {{Package|dev-qt/qtwebengine}}). The build failure would be accompanied with desktop program lagging (or crashing). If this happen, you might want to consider compiling under TTY.
+
+In other case when you see out-of-memory failure, you may want to get rid of {{c|pipe}} on <var>CFLAGS</var>.
 
 == 추가 참조 ==
 
