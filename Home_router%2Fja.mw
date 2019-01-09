@@ -28,8 +28,9 @@ The conventions used in this guide include:
 
 == Kernel setup (know thyself first) ==
 
-The kernel needs to have the drivers installed for both NICs present on the system. To see if the cards are already setup use the {{c|ifconfig}} command. The output may differ slightly from the following example. What matters is that the interface shows up. 
+The kernel needs to have the drivers installed for both NICs present on the system. To see if the cards are already setup use the {{c|ip link}} command. The output may differ slightly from the following example. What matters is that the interfaces exist.
 
+<div class="mw-translate-fuzzy">
 {{RootCmd|ifconfig -a|output=<pre>
 eth0      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B8
           BROADCAST MULTICAST  MTU:1500  Metric:1
@@ -48,6 +49,7 @@ eth1      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B9
           Interrupt:10 Base address:0x9400
 </pre>
 }}
+</div>
 
 If only one (or none) of the two cards show up try running {{c|lspci {{!}} grep Ethernet}}.
 {{Note|The {{c|lspci}} utility is part of the {{Package|sys-apps/pciutils}} package and can be installed by running {{c|emerge sys-apps/pciutils}}.}}
@@ -67,6 +69,9 @@ The next thing needed is support for iptables and NAT (and packet shaping if des
                <*> IPv6 connection tracking support
                <*> IP6 tables support (required for filtering)
 }}
+
+Those who would rather search for these features directly in menuconfig can find them under the following names:
+<var>CONFIG_INET</var>, <var>CONFIG_IP_ADVANCED_ROUTER</var>, and <var>CONFIG_NETFILTER</var>, <var>CONFIG_NETFILTER_ADVANCED</var>, <var>CONFIG_NF_CONNTRACK_IPV6</var>, and <var>CONFIG_IP6_NF_IPTABLES</var>.
 
 When using a 2.4.x kernel, the following must be enabled for DHCP:
 
@@ -114,7 +119,7 @@ There are ''many'' ways to connect to the Internet, however there are generally 
 
 === ADSL と PPPoE ===
 
-All the fancy PPPoE software that used to be provided by rp-pppoe ([http://www.roaringpenguin.com/ Roaring Penguin]) has been integrated into the [http://samba.org/ppp/ standard PPP package]. Simply {{c|emerge ppp}} to install PPPoE. Remember how username and password information was a requirement listed above? Load up {{Path|/etc/conf.d/net}} in a favorite text editor and configure it accordingly. 
+All the fancy PPPoE software that used to be provided by rp-pppoe ([https://www.roaringpenguin.com/ Roaring Penguin]) has been integrated into the [https://samba.org/ppp/ standard PPP package]. Simply {{c|emerge ppp}} to install PPPoE. Remember how username and password information was a requirement listed above? Load up {{Path|/etc/conf.d/net}} in a favorite text editor and configure it accordingly. 
 
 Replace <code><username></code> and <code><user_password></code> in the following example with the required username with the password:
 
@@ -155,7 +160,7 @@ config_eth1="dhcp"
 Static IP Users:
 
 {{FileBox|filename=/etc/conf.d/net|title=Static IP address configuration|lang=bash|1=
-config_eth1="66.92.78.102/24 brd 66.92.78.255"
+config_eth1="66.92.78.102/24"
 routes_eth1="default via 66.92.78.1"
 }}
 
@@ -180,7 +185,7 @@ If a network bridge will be necessary, follow [[Network bridge|the instructions 
 When creating a Wi-Fi access point make sure the Wi-Fi card supports master mode and set up [[Hostapd]].
 
 {{FileBox|filename=/etc/conf.d/net|lang=bash|1=
-config_eth0="192.168.0.1/24 brd 192.168.0.255"
+config_eth0="192.168.0.1/24"
 }}
 
 {{RootCmd|rc-update add net.eth0 default
@@ -199,7 +204,7 @@ This section will use the {{Package|net-dns/dnsmasq}} package which will provide
 {{Emerge|net-dns/dnsmasq}}
 
 {{FileBox|filename=/etc/dnsmasq.conf|1=
-dhcp-range=eth0,192.168.0.100,192.168.0.250,72h
+dhcp-range=192.168.0.100,192.168.0.250,72h
 interface=eth0
 }}
 
@@ -260,10 +265,12 @@ Drop TCP / UDP packets to privileged ports:
 
 Finally add the rules for NAT:
 
+<div class="mw-translate-fuzzy">
 {{RootCmd|iptables -I FORWARD -i ${LAN} -d 192.168.0.0/255.255.0.0 -j DROP
 |iptables -A FORWARD -i ${LAN} -s 192.168.0.0/255.255.0.0 -j ACCEPT
 |iptables -A FORWARD -i ${WAN} -d 192.168.0.0/255.255.0.0 -j ACCEPT
 |iptables -t nat -A POSTROUTING -o ${WAN} -j MASQUERADE}}
+</div>
 
 Inform the kernel that IP forwarding is OK:
 
@@ -385,10 +392,9 @@ restrict 192.168.0.0 mask 255.255.255.0 notrust nomodify notrap
 
 These will allow only NTP clients with an IP address in the 192.168.0.xxx range to use the NTP server.
 
-{{RootCmd
-|rc-update add ntpd default
-|service ntpd start
-}}
+{{RootCmd|rc-update add ntpd default
+|/etc/init.d/ntp-client start
+|/etc/init.d/ntpd start}}
 
 {{Note|Make sure to allow inbound and outbound communication on the NTP port (123/udp) when setting up the server. The client just needs outbound access on port 123 over UDP.}}
 
@@ -399,7 +405,7 @@ In {{Path|/etc/conf.d/ntp-client}}, change the <code>pool.ntp.org</code> server 
 {{RootCmd|rc-update add ntp-client default
 |/etc/init.d/ntp-client start}}
 
-=== Rsync server ===
+=== rsync サーバー ===
 
 For those who run multiple Gentoo boxes on the same LAN, it is wise to prevent every machine running {{c|emerge --sync}} with remote servers. By setting up a ''local'' rsync, both personal bandwidth and the Gentoo rsync servers' bandwidth is saved. The process is relatively simple.
 
@@ -441,7 +447,7 @@ auto-sync = yes
 
 Sometimes it is nice to run a Simple Mail Transfer Protocol (SMTP) server on the router. Each user may have their own reason for wanting to do so, however one advantage to running SMTP on the router is the users see mail as being sent instantly and the work of retrying/routing is left up to the mail server. Some ISPs do not allow for mail relaying for accounts that are not part of their network (like Verizon). Also, throttling the delivery of mail may be needed so that large attachments will not seriously lag the Internet connection. 
 
-{{Emerge|mail-mta/netqmail}}
+{{Emerge|netqmail}}
 
 Make sure the output of the {{c|hostname}} command is correct:
 
@@ -466,9 +472,9 @@ When e-mail is setup on the hosts in the network, tell them the SMTP server is 1
 
 === Full DHCP server ===
 
-Earlier dnsmasq was used to provide DHCP service to all DHCP clients. For most people with a simple small LAN, this is perfect, however there may needs something with more features. Thus a full-featured DHCP server is provided by the [http://www.isc.org/products/DHCP ISC] folks for users who crave the maximum.
+Earlier dnsmasq was used to provide DHCP service to all DHCP clients. For most people with a simple small LAN, this is perfect, however there may needs something with more features. Thus a full-featured DHCP server is provided by the [https://www.isc.org/products/DHCP ISC] folks for users who crave the maximum.
 
-{{Emerge|net-misc/dhcp}}
+{{Emerge|dhcp}}
 
 {{FileBox|filename=/etc/dhcp/dhcpd.conf|title=Here is a simple configuration file|1=
 authoritative;
@@ -497,7 +503,7 @@ This is the minimal setup required to replace the dnsmasq DHCP functionality use
 
 Sometimes the router must be connected to another LAN. This can be done to hook up a group of friends temporarily or to section off different groups of computers. Whatever the reason, extending the router to other LAN networks should is straightforward. In the following examples, This article presumes that the ''new'' network is connected via a third ethernet card, namely <code>eth2</code>. 
 
-First configure the interface. Take the instructions in [[#Hug_the_LAN_.28bring_along_some_friends.29|this section]] and replace <code>config_eth0="192.168.0.1/24 brd 192.168.0.255"</code> with <code>config_eth2="192.168.1.1/24 brd 192.168.1.255"</code>.
+First configure the interface. Take the instructions in [[#Hug_the_LAN_.28bring_along_some_friends.29|this section]] and replace <code>config_eth0="192.168.0.1/24"</code> with <code>config_eth2="192.168.1.1/24"</code>.
 
 Tweak dnsmasq to service the new interface. Edit the {{Path|/etc/conf.d/dnsmasq}} file again and append <code>-i eth2</code> to <code>DNSMASQ_OPTS</code>; using -i multiple times is OK. Then edit {{Path|/etc/dnsmasq.conf}} and add another line like the dhcp-range line in [[#LAN_Services_.28because_we.27re_nice_people.29|this section]], replacing <code>dhcp-range=eth0,192.168.0.100,192.168.0.250,72h</code> with <code>dhcp-range=eth2,192.168.1.100,192.168.1.250,72h</code> and replace <code>interface=eth0</code> with <code>interface=eth2</code>. Having multiple dhcp-range and interface lines is OK too.
 
