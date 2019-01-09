@@ -28,24 +28,15 @@ The conventions used in this guide include:
 
 == Kernel setup (know thyself first) ==
 
-The kernel needs to have the drivers installed for both NICs present on the system. To see if the cards are already setup use the {{c|ifconfig}} command. The output may differ slightly from the following example. What matters is that the interface shows up. 
+The kernel needs to have the drivers installed for both NICs present on the system. To see if the cards are already setup use the {{c|ip link}} command. The output may differ slightly from the following example. What matters is that the interfaces exist.
 
-{{RootCmd|ifconfig -a|output=
-eth0      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B8
-          BROADCAST MULTICAST  MTU:1500  Metric:1
-          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
-          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:1000
-          RX bytes:0 (0.0 b)  TX bytes:0 (0.0 b)
-          Interrupt:11 Base address:0x9800
-  
-eth1      Link encap:Ethernet  HWaddr 00:60:F5:07:07:B9
-          BROADCAST MULTICAST  MTU:1500  Metric:1
-          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
-          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
-          collisions:0 txqueuelen:1000
-          RX bytes:0 (0.0 b)  TX bytes:0 (0.0 b)
-          Interrupt:10 Base address:0x9400
+{{RootCmd|ip link|output=<pre>
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 00:60:F5:07:07:B8 brd ff:ff:ff:ff:ff:ff
+3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 00:60:F5:07:07:B9 brd ff:ff:ff:ff:ff:ff</pre>
 }}
 
 If only one (or none) of the two cards show up try running {{c|lspci {{!}} grep Ethernet}}.
@@ -66,6 +57,9 @@ The next thing needed is support for iptables and NAT (and packet shaping if des
                <*> IPv6 connection tracking support
                <*> IP6 tables support (required for filtering)
 }}
+
+Those who would rather search for these features directly in menuconfig can find them under the following names:
+<var>CONFIG_INET</var>, <var>CONFIG_IP_ADVANCED_ROUTER</var>, and <var>CONFIG_NETFILTER</var>, <var>CONFIG_NETFILTER_ADVANCED</var>, <var>CONFIG_NF_CONNTRACK_IPV6</var>, and <var>CONFIG_IP6_NF_IPTABLES</var>.
 
 When using a 2.4.x kernel, the following must be enabled for DHCP:
 
@@ -113,7 +107,7 @@ There are ''many'' ways to connect to the Internet, however there are generally 
 
 === ADSL and PPPoE ===
 
-All the fancy PPPoE software that used to be provided by rp-pppoe ([http://www.roaringpenguin.com/ Roaring Penguin]) has been integrated into the [http://samba.org/ppp/ standard PPP package]. Simply {{c|emerge ppp}} to install PPPoE. Remember how username and password information was a requirement listed above? Load up {{Path|/etc/conf.d/net}} in a favorite text editor and configure it accordingly. 
+All the fancy PPPoE software that used to be provided by rp-pppoe ([https://www.roaringpenguin.com/ Roaring Penguin]) has been integrated into the [https://samba.org/ppp/ standard PPP package]. Simply {{c|emerge ppp}} to install PPPoE. Remember how username and password information was a requirement listed above? Load up {{Path|/etc/conf.d/net}} in a favorite text editor and configure it accordingly. 
 
 Replace <code><username></code> and <code><user_password></code> in the following example with the required username with the password:
 
@@ -156,7 +150,7 @@ config_eth1="dhcp"
 Static IP Users:
 
 {{FileBox|filename=/etc/conf.d/net|title=Static IP address configuration|lang=bash|1=
-config_eth1="66.92.78.102/24 brd 66.92.78.255"
+config_eth1="66.92.78.102/24"
 routes_eth1="default via 66.92.78.1"
 }}
 
@@ -183,7 +177,7 @@ If a network bridge will be necessary, follow [[Network bridge|the instructions 
 When creating a Wi-Fi access point make sure the Wi-Fi card supports master mode and set up [[Hostapd]].
 
 {{FileBox|filename=/etc/conf.d/net|lang=bash|1=
-config_eth0="192.168.0.1/24 brd 192.168.0.255"
+config_eth0="192.168.0.1/24"
 }}
 
 {{RootCmd
@@ -267,9 +261,9 @@ Drop TCP / UDP packets to privileged ports:
 
 Finally add the rules for NAT:
 
-{{RootCmd|iptables -I FORWARD -i ${LAN} -d 192.168.0.0/255.255.0.0 -j DROP
-|iptables -A FORWARD -i ${LAN} -s 192.168.0.0/255.255.0.0 -j ACCEPT
-|iptables -A FORWARD -i ${WAN} -d 192.168.0.0/255.255.0.0 -j ACCEPT
+{{RootCmd|iptables -I FORWARD -i ${LAN} -d 192.168.0.0/16 -j DROP
+|iptables -A FORWARD -i ${LAN} -s 192.168.0.0/16 -j ACCEPT
+|iptables -A FORWARD -i ${WAN} -d 192.168.0.0/16 -j ACCEPT
 |iptables -t nat -A POSTROUTING -o ${WAN} -j MASQUERADE}}
 
 Inform the kernel that IP forwarding is OK:
@@ -480,7 +474,7 @@ When e-mail is setup on the hosts in the network, tell them the SMTP server is 1
 
 === Full DHCP server ===
 
-Earlier dnsmasq was used to provide DHCP service to all DHCP clients. For most people with a simple small LAN, this is perfect, however there may needs something with more features. Thus a full-featured DHCP server is provided by the [http://www.isc.org/products/DHCP ISC] folks for users who crave the maximum.
+Earlier dnsmasq was used to provide DHCP service to all DHCP clients. For most people with a simple small LAN, this is perfect, however there may needs something with more features. Thus a full-featured DHCP server is provided by the [https://www.isc.org/products/DHCP ISC] folks for users who crave the maximum.
 
 {{Emerge|net-misc/dhcp}}
 
@@ -513,7 +507,7 @@ This is the minimal setup required to replace the dnsmasq DHCP functionality use
 
 Sometimes the router must be connected to another LAN. This can be done to hook up a group of friends temporarily or to section off different groups of computers. Whatever the reason, extending the router to other LAN networks should is straightforward. In the following examples, This article presumes that the ''new'' network is connected via a third ethernet card, namely <code>eth2</code>. 
 
-First configure the interface. Take the instructions in [[#Hug_the_LAN_.28bring_along_some_friends.29|this section]] and replace <code>config_eth0="192.168.0.1/24 brd 192.168.0.255"</code> with <code>config_eth2="192.168.1.1/24 brd 192.168.1.255"</code>.
+First configure the interface. Take the instructions in [[#Hug_the_LAN_.28bring_along_some_friends.29|this section]] and replace <code>config_eth0="192.168.0.1/24"</code> with <code>config_eth2="192.168.1.1/24"</code>.
 
 Tweak dnsmasq to service the new interface. Edit the {{Path|/etc/conf.d/dnsmasq}} file again and append <code>-i eth2</code> to <code>DNSMASQ_OPTS</code>; using -i multiple times is OK. Then edit {{Path|/etc/dnsmasq.conf}} and add another line like the dhcp-range line in [[#LAN_Services_.28because_we.27re_nice_people.29|this section]], replacing <code>dhcp-range=eth0,192.168.0.100,192.168.0.250,72h</code> with <code>dhcp-range=eth2,192.168.1.100,192.168.1.250,72h</code> and replace <code>interface=eth0</code> with <code>interface=eth2</code>. Having multiple dhcp-range and interface lines is OK too.
 
