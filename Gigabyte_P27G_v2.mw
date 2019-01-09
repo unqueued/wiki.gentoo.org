@@ -5,15 +5,13 @@ This page describes how to install Gentoo Linux with Gnome 3 on a Gigabyte P27G 
 
 {{Warning| As it is somewhat difficult to remember what you have exactly done and in which order during install, this page may include some mistakes. Please, if you are sure, feel free to correct or complete it based on your own experience. }}
 
-
-
-
 == Preliminary assumptions ==
 
 * In this page, we assume we are using rEFInd as a bootmanager. rEFInd is able to detect kernels with EFI stub support. Please refer to the [http://www.rodsbooks.com/efi-bootloaders/refind.html  Managing EFI Boot Loaders for Linux:Using rEFInd] page, to learn more about how to install rEFInd on your laptop,
 * The installation is done from a terminal into the OpenSuse distribution (easy to install with EFI) or from a live CD of any distribution EFI bootable(e.g. Ubuntu),
 * The necessary partitions have already been created with a tool like ''gparted'' (in our case /dev/sda8 for /, /dev/sda9 for /home, /dev/sda12 for swap),
 * The ESP partition is already existing on the disk (/dev/sda2 ) and is FAT32.
+
 == Disable Secure Boot ==
 
 Press F2 to enter the  BIOS. Go to the  ''Security'' tab.
@@ -22,8 +20,11 @@ It is not possible to act upon the '''SecureBoot''' line  [ENABLED]. Go to the
 Then go to the ''Exit'' tab → Saves Changes and reset
 
 ==Base System -  First boot ==
+
 === Hardware ===
+
 Here is the output of lspci:
+
 {{RootCmd|lspci|output=<pre>
 00:00.0 Host bridge: Intel Corporation Xeon E3-1200 v3/4th Gen Core Processor DRAM Controller (rev 06)
 	Subsystem: CLEVO/KAPOK Computer Device 3501
@@ -83,8 +84,11 @@ Here is the output of lspci:
 	Kernel modules: r8169
 </pre>
 }}
+
 First of all open a terminal and switch user to root with the 'su' command.
+
 === Installation files ===
+
 {{RootCmd|swapon /dev/sda12}}
 {{RootCmd|mount /dev/sda8 /mnt/gentoo}}
 {{RootCmd|mkdir /mnt/gentoo/home}}
@@ -99,6 +103,7 @@ Follow the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Stage Insta
 {{CodeBox|title= MAKEOPTS declaration in make.conf|lang=bash|1=MAKEOPTS="-j9"}}
 
 === Installing the Gentoo Base System ===
+
 Follow the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Base Installing the Gentoo base system] page. The only exception is to not run ''mirrorselect'' as it is specific to Gentoo.
 
 At the time of choosing the profile, please choose the ''default/linux/amd64/13.0/desktop/gnome/systemd'' profile, then update the system
@@ -106,29 +111,37 @@ At the time of choosing the profile, please choose the ''default/linux/amd64/13.
 {{Emerge| --update --deep --newuse @world}}
 
 === Kernel and initramfs ===
+
 ==== Preparation ====
+
 Do not emerge genkernel here but genkernel-next instead.
+
 {{Emerge|genkernel-next}}
 Then emerge ''lvm''
 {{Emerge|lvm2}}
 
 Don't forget to set the MAKEOPTS variable in {{Path|/etc/genkernel.conf}} as ''genkernel'' ignore the value in {{Path|/etc/portage/make.conf}}
+
 {{CodeBox|title=Example MAKEOPTS declaration in /etc/genkernel.conf|lang=bash|1=MAKEOPTS="-j9"}}
 
 Next, edit the {{Path|/etc/fstab}} file so that the line containing {{Path|/boot/}} as second field has the first field pointing to the right device. . This would make the entry in the file look like so:
 
 {{RootCmd|nano -w /etc/fstab}}
 
-{{FileBox|filename=/etc/fstab|title=Configuring the /boot mountpoint|{{#tag:pre|
+{{FileBox|filename=/etc/fstab|title=Configuring the /boot mountpoint|1=
 /dev/sda2	/boot	fat	defaults	0 2
-}}}}
+}}
 
 ==== Creating an initramfs ====
-We create an initramfs with ''genkernel'' to be embedded into the EFI stub.
-To do so run
+
+We create an initramfs with ''genkernel'' to be embedded into the EFI stub. To do so run:
+
 {{RootCmd|genkernel --lvm --no-compress-initramfs --menuconfig  initramfs}}
+
 {{Note|The --no-compress-initramfs option may not be necessary but as we want an uncompressed initramfs it doesn't harm.}}
+
 In order to boot directly from UEFI, the kernel needs to have CONFIG_EFI_STUB support enabled.
+
 {{KernelBox|title=Enable EFI stub support|1=
 Processor type and features  --->
     [*] EFI runtime service support 
@@ -136,53 +149,67 @@ Processor type and features  --->
 }}
 
 UEFI does not pass kernel parameters to the kernel during normal boot, so you need to hardcode them via CONFIG_CMDLINE. Example for the root partition on {{Path|/dev/sda2}}:
+
 {{KernelBox|title=Enable built-in kernel parameters|1=
 Processor type and features  --->
     [*] Built-in kernel command line
     (rootroot=/dev/sda8 rootfstype=ext4 real_init=/usr/lib/systemd/systemd dolvm)
 }}
+
 {{KernelBox|title=Enable EFI sysfs controls|1=
 Firmware Drivers  --->
     <*> EFI Variable Support via sysfs
 }}
 
 ==== Renaming the initramfs file ====
+
 {{RootCmd| mv /boot/initramfs-genkernel-x86-64-3.18.7-gentoo /boot/initramfs-genkernel-x86-64-3.18.7-gentoo.cpio}}
 
 ==== Compiling the kernel ====
+
 {{RootCmd|genkernel --lvm  --menuconfig  kernel}}
+
 To embed the initramfs in the kernel stub set it up in the General setup menu:
+
 {{KernelBox|title=Build in the initramfs CPIO archive|1=
 General setup  --->
     [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
     (/boot/initramfs-genkernel-x86-64-3.18.7-gentoo.cpio) Initramfs source file(s)
 }}
+
 {{Note| In the commands above, change the name of the ''initramfs'' and ''kernel'' according to your actual version.}}
+
 ==== Installing the EFI stub into the ESP ====
+
 {{RootCmd| mkdir /boot/EFI/gentoo}}
 {{RootCmd| cp /boot/kernel-genkernel-x86-64-3.18.7-gentoo /boot/EFI/gentoo/bootX64-GK-A.efi}}
 
 {{Note|You can choose the name you prefer for the .efi stub. Only the .efi extension is required. Change the letter A into B for the next compilation of the kernel and so on but don't forget to remove old kernels to prevent the ESP partition from overflowing.}}
 
 === Completing the fstab File ===
+
 Now complete the /etc/fstab file 
-{{FileBox|filename=/etc/fstab|title=My fstab|{{#tag:pre|
-/dev/sda2   /boot        fat   defaults,noatime     0 2|}}
+
+{{FileBox|filename=/etc/fstab|title=My fstab|1=
+/dev/sda2   /boot        fat   defaults,noatime     0 2
 /dev/sda12   none         swap    sw                0 0
 /dev/sda8   /            ext4    noatime            0 1
 /dev/sda9   /home        ext4    defaults           0 2
   
 /dev/cdrom  /mnt/cdrom   auto    noauto,user        0 0
-}}}}
+}}
 
 Continue with the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/System Configuring the System] page.
-Then the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Tools Installing System Tools] page contains optional tools to be installed. 
+Then the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Tools Installing System Tools] page contains optional tools to be installed.
+
 {{Note| As access to the ESP  fat partition is required, don't forget to install the necessary tools for this filesystem type:
 
-{{Emerge|sys-fs/dosfstools}}}}
+{{Emerge|sys-fs/dosfstools}}
+
 You can skip the '''Configuring the bootloader''' page as there is no need of it.
 
 === Rebooting the system ===
+
 Exit the chrooted environment and unmount all mounted partitions. Then type in that one magical command that initiates the final, true test: <code>reboot</code>.
 {{RootCmd|exit}}
 {{RootCmd|prompt=any ~# |cd
@@ -191,19 +218,22 @@ Exit the chrooted environment and unmount all mounted partitions. Then type in t
 |reboot}}
 
 ===Finalizing ===
+
 Continue with the [https://wiki.gentoo.org/wiki/Handbook:AMD64/Installation/Finalizing Finalizing] page.
 
 == Installing the X server ==
+
 At first we install Gentoo using only the Integrated GPU.
 
 === Kernel configuration ===
-{{KernelBox|title=Enabling evdev in the kernel|<pre>
+
+{{KernelBox|title=Enabling evdev in the kernel|1=
 Device Drivers --->
   Input device support --->
   <*>  Event interface
-</pre>}}
+}}
 
-{{KernelBox|title=Configuring framebuffers|<pre>
+{{KernelBox|title=Configuring framebuffers|1=
 Device Drivers --->
   Graphics support --->
     Support for frame buffer devices --->
@@ -212,9 +242,9 @@ Device Drivers --->
     ## (Further down, enable basic console support. KMS uses this.)
     Console display driver support --->
       <*>  Framebuffer Console Support
-</pre>
 }}
-{{KernelBox|title=Intel settings|<pre>
+
+{{KernelBox|title=Intel settings|1=
 Device Drivers --->
   Graphics support --->
     /dev/agpgart (AGP Support) --->
@@ -222,16 +252,14 @@ Device Drivers --->
     Direct Rendering Manager (XFree86 4.1.0 and higher DRI support) --->
     <*>  Intel 8xx/9xx/G3x/G4x/HD Graphics
     [*]    Enable modesetting on intel by default
-</pre>
 }}
-
-
 
 {{CodeBox|title=to add in make.conf |lang=bash|1=
 ## (For mouse, keyboard, and Synaptics touchpad support)
 INPUT_DEVICES="evdev synaptics"
 VIDEO_CARDS="intel"
 }}
+
 {{Emerge|  xorg-drivers}}
 
 {{Emerge| xorg-server}}
@@ -255,7 +283,8 @@ To launch gdm at startup enter this command:
 ===Wifi adapter ===
 ==== Kernel ====
 The laptop is provided with a Realteck RTL8732BE PCIe Wireless Network Adapter.
-{{KernelBox|<pre>
+
+{{KernelBox|1=
 -*- Networking support  --->
   ---Networking support
     [*] Wireless  --->
@@ -272,9 +301,9 @@ The laptop is provided with a Realteck RTL8732BE PCIe Wireless Network Adapter.
         -*-   Enable LED triggers
         [ ]   Trace all mac80211 debug messages
         [ ]   Select mac80211 debugging features  ----       
-</pre>}}
+}}
 
-{{KernelBox|<pre>
+{{KernelBox|1=
     Device Drivers  --->
     [*] Network device support  --->
         [*] Wireless LAN  --->
@@ -283,26 +312,28 @@ The laptop is provided with a Realteck RTL8732BE PCIe Wireless Network Adapter.
             <M> Realteck rtlwifi family of devices --->
                <M> Realteck RTL8723BE PCIe Wireless Network Adapter
                [*] Debugging output for rtlwifi driver family
-
-</pre>}}
+}}
 
 Don't forget to emerge the firmware.
 {{Emerge| linux-firmware}}
 
 ==== Detection and Connection ====
+
 In order to detect wireless networks and connect to them you can use ''wpa_supplicant'':
 
 {{Emerge|  wpa_supplicant}}
 
 Add this in the {{Path|/etc/conf.d/net}} file:
-{{FileBox|filename=/etc/conf.d/net|title=Set up for net scripts|{{#tag:pre|
+
+{{FileBox|filename=/etc/conf.d/net|title=Set up for net scripts|1=
 modules_wlan0="wpa_supplicant"
 wpa_supplicant_wlan0="-Dnl80211"
 config_wlan0="dhcp"
-}}}}
+}}
 
 and this in the {{Path|/etc/wpa_supplicant/wpa_supplicant.conf}} file:
-{{FileBox|filename=/etc/wpa_supplicant/wpa_supplicant.conf|title=Configuring wpa_supplicant|{{#tag:pre|
+
+{{FileBox|filename=/etc/wpa_supplicant/wpa_supplicant.conf|title=Configuring wpa_supplicant|1=
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=wheel
 #ap_scan=0
 #update_config=1
@@ -312,18 +343,21 @@ network={
         psk="your-secret-key"
         scan_ssid=1
 }
-}}}}
+}}
+
 ==== Alternative for Detection and Connection ====
+
 If, like me, you experience some trouble using ''wpa_supplicant'' you can use ''wicd'' which offer a nice and efficient way to detect and to connect to wlan.
 
 {{Emerge|  wicd}}
 
 Here is my {{Path|/etc/conf.d/net}} file:
-{{FileBox|filename=/etc/conf.d/net|title=Set up for net scripts|{{#tag:pre|
+
+{{FileBox|filename=/etc/conf.d/net|title=Set up for net scripts|1=
 config_enp4s0f1=dhcp
 routes_enp4s0f1="default via 192.168.1.1"
 config_wlan0="dhcp"
-}}}}
+}}
 
 Be sure to disable the "dhcpcd" service at startup
 {{RootCmd| systemctl disable dhcpcd.service}}
