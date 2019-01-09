@@ -6,7 +6,7 @@
 |{{InfoBox package|sys-kernel/genkernel}}
 |{{InfoBox wikipedia}}
 |{{InfoBox gitweb|genkernel.git}}
-|{{InfoBox github|gentoo/genkernel}}
+|{{InfoBox github|robbat2/genkernel}}
 }}
 
 {{c|genkernel}} is [[Article description::a tool created by Gentoo used to automate the build process of the [[kernel]] and [[initramfs]].]] Some of the general features include:
@@ -19,7 +19,7 @@
 * Compressing the initramfs.
 * Configuring the [[bootloader]] to boot the newly created kernel and initramfs.
 
-{{Note|It is a common misconception to believe {{c|genkernel}} will 'automatically' generate a custom kernel configuration. {{c|genkernel}} automates the kernel build process and assembles the initramfs, but does ''not'' generate a custom kernel configuration file. It uses a generic kernel configuration file that provides support for commonly used subsystems on an architecture-specific basis. Details on the architecture defaults can be seen in the [https://gitweb.gentoo.org/proj/genkernel.git/tree/arch upstream repository]. Select the architecture and then choose the kernel config file.}}
+{{Note|It is a common misconception that {{c|genkernel}} will "automatically" generate a custom kernel configuration. {{c|genkernel}} automates the kernel build process and assembles the initramfs, but does ''not'' generate a custom kernel configuration file. It uses a generic kernel configuration file that provides support for commonly used subsystems on an architecture-specific basis. Details on the architecture defaults can be seen in the [https://gitweb.gentoo.org/proj/genkernel.git/tree/arch upstream repository]. Select the architecture and then choose the kernel config file.}}
 
 == Installation ==
 
@@ -77,6 +77,9 @@ The configuration options listed here defines which features will or will not be
 : This option allows to select which splash screen resolutions will be supported in the initrd during the start-up of the system. This is useful for two reasons. First, to be able to select only the splash screen resolution(s) relevant to the system. Second, to avoid the unnecessary increase in the disk space required by initrd (since the initrd does not have to support resolutions that are irrelevant for the system's configuration.) However, the option is best omitted if the kernel is being compiled for an Installation CD; this allows splash support for all possible resolutions.
 ; <code>--do-keymap-auto</code>
 : Force keymap selection during the boot sequence.
+; <code>--keymap</code>
+: Enables keymap selection at boot (e.g. for LUKS container password input). The desired keymap can be passed in boot options as the value of <code>keymap</code> (name of the keymap file without .map). Available keymap files can be found in {{Path|/usr/share/genkernel/defaults/keymaps/}}.
+: If the keymap you need is not available in genkernel you can convert one of the existing {{Package|sys-apps/kbd}} keymaps (available in {{Path|/usr/share/genkernel/defaults/keymaps/}}) using <code>loadkeys --bkeymap</code>. See {{c|loadkeys}} man page for details.
 ; <code>--lvm</code>
 : Includes support for storage using via [http://sources.redhat.com/lvm2/ Logical Volume Management] (LVM2) from static binaries, if available to the system. Relevant (static) LVM2 binaries are compiled if they are unavailable. Be sure to install the {{Package|sys-fs/lvm2}} package on the system ({{c|emerge sys-fs/lvm2}}) before enabling this option, then review the [[LVM|LVM article]] on the Gentoo wiki.
 ; <code>--dmraid</code>
@@ -99,6 +102,8 @@ The configuration options listed here defines which features will or will not be
 : Includes support for the [http://www.fsl.cs.sunysb.edu/project-unionfs.html Unification File System] in the initrd image.
 ; <code>--mountboot</code>
 : Detects whether or not the {{Path|/boot}} directory needs to be mounted on a separate partition. It will check {{Path|/etc/fstab}} script for instructions on how to mount the boot partition on a file system (if needed).
+; <code>--microcode</code>
+: Creates an early cpio filled with microcode for Intel/AMD processors for Xen and Linux early microcode support
 
 ==== Options acting on the choice of the tools used for building ====
 
@@ -194,7 +199,7 @@ The above operation causes genkernel to create a framebuffer splash-enabled kern
 
 Replacing <code>--no-install</code> with the <code>--install</code> option allows genkernel to automatically install the new kernel in the {{Path|/boot}} directory, and will create symlinks if <code>--symlink</code> is specified. Using the <code>--mountboot</code> option allows genkernel to mount the {{Path|/boot}} partition automatically, if necessary.
 
-{{Note|Don't forget that the {{Path|/etc/genkernel.conf}} file is sourced by the '''genkernel''' command at startup, and that any option defined there, will be applied, except where a command line option takes precedence over it.}}
+{{Note|Don't forget that the {{Path|/etc/genkernel.conf}} file is sourced by the '''genkernel''' command at startup, and that any option defined there will be applied, except where a command line option takes precedence over it.}}
 
 === Changing the kernel  ===
 
@@ -351,6 +356,19 @@ MENUCONFIG="yes"
 
 {{Note|There is no need to run {{c|make oldconfig}} when using {{c|genkernel}}, even if the sources are changed from {{Path|kernel-genkernel-ARCH-version-gentoo-rx}} to {{Path|kernel-genkernel-ARCH-version-gentoo-r(x+1)}} or from {{Path|kernel-genkernel-ARCH-version-gentoo}} to {{Path|kernel-genkernel-ARCH-(version+1)-gentoo}}. This is because {{c|make menuconfig}} will try to load the previous configuration into the menu as much as possible. Nevertheless, ''reviewing'' each option and new sections carefully is recommended.}}
 
+==== Checking that initramfs includes necessary utilites before booting ====
+
+Before booting the system, it might be wise checking that initramfs includes necessary utilities. For example, a missing cryptsetup will produce a kernel panic when booting with [[Dm-crypt_full_disk_encryption|LUKS]]. [https://forums.gentoo.org/viewtopic-t-1066364-start-0.html This post] uses the following procedure to check that initramfs includes cryptsetup:
+
+{{RootCmd|
+mkdir /tmp/initramfs|
+cd /tmp/initramfs|
+xzcat  kernel-genkernel-x86_64-4.14.65-gentoo {{!}} cpio -idmv|
+ls -l sbin/cryptsetup|
+output=<pre>
+-rwxr-xr-x 1 root root 67568 28 d’oct 18:55 sbin/cryptsetup
+</pre>}}
+
 === Network booting ===
 
 ==== From an installation CD ====
@@ -367,36 +385,36 @@ To enable support for netbooting, include the following options while configurin
 
 First, the kernel image must include the drivers for the system's Network Interface Cards (NIC). Normally, drivers for such devices will be compiled as modules. However, it is essential (for netbooting) that such drivers are compiled directly into the kernel image and not as modules.
 
-{{KernelBox|title=Configuring a 3.x.x series kernel to support various NIC drivers|<pre>
+{{KernelBox|title=Configuring a 3.x.x series kernel to support various NIC drivers|1=
 Device Drivers --->
    Networking Support --->
       Ethernet (10 or 100Mbit)  --->
          [*] Ethernet (10 or 100Mbit)
-         <*>   The driver(s) for each network card</pre>
+         <*>   The driver(s) for each network card
 }}
 
 {{Note|Be sure to select {{c|&lt;*&gt;}} and not {{c|&lt;M&gt;}}.}}
 
 Secondly, it is suggested that ''IP: kernel level autoconfiguration'' is enabled as well as ''IP: DHCP support options''. This avoids an unnecessary layer of complexity since the IP address and the NFS path to the Installation CD can be configured on a DHCP server. Of course, this means the kernel command line will remain constant for any machine — which is very important for etherbooting.
 
-{{KernelBox|title=Configuring a 3.x.x series kernel to support DHCP|<pre>
+{{KernelBox|title=Configuring a 3.x.x series kernel to support DHCP|1=
 Device Drivers --->
    Networking Support --->
       Networking options
          [*] TCP/IP networking--->
          [*]   IP: kernel level autoconfiguration
          [*]     IP: DHCP support
-</pre>}}
+}}
 
 These options tell the kernel to send a DHCP request at bootup.
 
 Additionally, enable [[SquashFS]] because most modern Gentoo Installation CDs require it. Support for SquashFS is not included with the generic kernel source tree. To enable SquashFS, apply the necessary patches to the generic kernel source or install gentoo-sources.
 
-{{KernelBox|title=Configuring the kernel to support SquashFS|<pre>
+{{KernelBox|title=Configuring the kernel to support SquashFS|1=
 File systems--->
    Miscellaneous filesystems --->
       [*] SquashFS 2.X - Squashed file system support
-</pre>}}
+}}
 
 Once the compilation process is completed, create a compressed tarball (tar.gz) that contains the kernel's modules. This step is only necessary if the kernel version does not match the kernel image version on the Installation CD.
 
