@@ -19,6 +19,8 @@
 
 {{c|distcc}}를 사용하려면 네트워크상의 모든 컴퓨터에 같은 gcc 버전이 있어야 합니다. 예를 들어 3.3.x(x는 바뀔 수 있음)는 괜찮지만 3.3.x와 3.2.x를 같이 사용하면, 컴파일 오류 또는 실행시간 오류가 나타날지도 모릅니다. 
 
+Verify that all systems use the same version of binutils (eselect binutils list) or many packages will fail linking with various errors like text relocation.
+
 === USE 플래그 ===
 
 {{USEflag|package=sys-devel/distcc}}
@@ -42,6 +44,8 @@ USE 플래그 설정 후, {{Package|sys-devel/distcc}} 꾸러미를 설치하십
 ==== OpenRC ====
 
 {{Path|/etc/conf.d/distccd}}를 편집하고 신뢰하는 클라이언트만 허용하도록 <code>--allow</code> 지시자를 설정하였는지 확인하십시오. 보안성을 강화하기 위해, 여러분은 {{c|distccd}} 데몬이 어떤 (사방에 있는 시스템들의) IP로 수신받고 있는지 알려줄 <code>--listen</code> 지시자를 사용할 수 있습니다. 더 많은 {{c|distcc}} 보안 정보는 [https://cdn.rawgit.com/distcc/distcc/master/doc/web/security.html distcc 보안 기록]에서 찾을 수 있습니다.
+
+{{Warning|Anyone who can connect to the distcc server port can run arbitrary commands on that machine as the distccd user. }}
 
 다음 예제에서는 <code>192.168.0.4</code>와 <code>192.168.0.5</code> 주소에서 동작하는 distcc 클라언트에서 근접 네트워크 영역에서 동작하는 {{c|distccd}} 서버에 접속할 수 있도록합니다:
 
@@ -120,15 +124,15 @@ distcc에서는 {{c|pump}}  명령을 통해 "펌프" 모드를 지원합니다.
 
 {{c|distcc}} 클러스터 호스트(다른 시스템에서 동시 컴파일 작업 수를 늘려줌)가 없거나, 원격 빌드를 허용하지 않도록 ebuild를 설정하여 로컬에서만 컴파일(gcc)해야 한다면, <code>-IM</code> 플래그를 적용하여 과도한 작업을 분담하지 않도록 막으십시오. 시스템 부하가 <code>M</code>값에 근접하거나 넘어서는 경우 추가 작업 시작을 거절할 수 있습니다.
 
+<div class="mw-translate-fuzzy">
 {{FileBox|filename=/etc/portage/make.conf|title=MAKEOPTS와 FEATURES 설정|lang=bash|1=
 # Replace N and M with the right value as calculated previously
 MAKEOPTS="-jN -lM"
 FEATURES="distcc distcc-pump"
 }}
+</div>
 
-{{Note|클라이언트에서 <var>FEATURES</var> 변수에 <code>network-sandbox</code> 값을 설정하면 네트워크 통신이 막힌 것 처럼 다른 서버에 컴파일 데이터를 뿌리지 못하게 막는 것 같습니다. 이 값의 설정을 취소(없앰)하거나 비활성 상태로 설정(<code>-network-sandbox</code>)했는지 확인하십시오.}}
-
-{{Note|distcc의 펌프 모드는 큰 꾸러미를 빌드할 때 획기적으로 빌드 시간을 줄여줍니다. 자세한 내용은 [[#.EC.B0.B8.EC.97.AC_.ED.98.B8.EC.8A.A4.ED.8A.B8_.EC.A7.80.EC.A0.95|참여 호스트 지정]] 부분을 참고하십시오.}}
+{{Warning|distcc-pump is known to break multiple packages in unpredictable ways. Do not ever use it system-wide. Bug reports filed with distcc-pump enabled may be rejected.}}
 
 예컨대, {{c|distccd}}를 실행 중인 두 대의 쿼드코어 호스트 PC에 듀얼 코어 CPU를 붙인 로컬 PC를 연결했다면, <var>MAKEOPTS</var> 변수값을 다음과 같이 설정할 수 있습니다:
 
@@ -141,13 +145,17 @@ MAKEOPTS="-j21 -l2"
 
 ==== CFLAGS and CXXFLAGS ====
 
+<div class="mw-translate-fuzzy">
 {{Path|make.conf}} 파일을 편집할 때 <var>CFLAGS</var> 또는 <var>CXXFLAGS</var> 변수에 <code>-march=native</code>가 없는지 확인하십시오. <code>march</code> 값을 <code>native</code>로 설정하면 {{c|distccd}}는 다른 머신에 처리 결과물을 배포할 수 없습니다. 적당한 <code>-march=</code>값은 다음 명령을 실행하여 가져올 수 있습니다.
+</div>
 
-{{Cmd|gcc -v -E -x c -march{{=}}native -mtune{{=}}native - < /dev/null 2>&1 {{!}} grep cc1 {{!}} perl -pe 's/^.* - //g;'}}
+<div class="mw-translate-fuzzy">
+{{Cmd|gcc -v -E -x c -march{{=}}native -mtune{{=}}native - < /dev/null 2>&1 {{!}} grep cc1 {{!}} perl -pe 's/ -mno-\S+//g; s/^.* - //g;'}}
+</div>
 
 더 많은 내용은 [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ distcc에 맞게 <code>-march=native</code> 옵션 넣기]를 살펴보십시오.
 
-A GCC [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=39851 bug] has recently been fixed in the 8.0 dev tree which facilitates a more reliable and succinct mechanism for extrapolating appropriate machine flags.  The fix has been backported to the 6 and 7 branches and should be released fairly soon.  Some processing is still required and a script can be found in the [https://github.com/daniel-santos/distccflags distccflags repo], or via wget:
+A GCC [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=39851 bug] has recently been fixed in the 8.0 dev tree which facilitates a more reliable and succinct mechanism for extrapolating appropriate machine flags.  The fix has been backported to the 6 and 7 branches and should be released fairly soon.  Some processing is still required and a script can be found in the [https://github.com/daniel-santos/distccflags distccflags repo], or via {{c|wget}}:
 
 {{Warning|Downloading scripts and executing them without any validation is a security risk. Before executing such scripts, take a good look at what they want to accomplish and refrain from executing it when the content or behavior is not clear and purposeful.}}
 
@@ -180,7 +188,9 @@ FEATURES="distcc"
 MAKEOPTS="-jN"
 }}
 
-Update the <var>PATH</var> variable in the installation session as well:
+<div class="mw-translate-fuzzy">
+마찬가지로 설치 세션에서 <code>PATH</code> 변수를 업데이트하십시오:
+</div>
 
 {{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
 
