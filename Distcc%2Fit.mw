@@ -19,6 +19,8 @@ Prima di configurare {{c|distcc}}, diamo un'occhiata all'installazione del pacch
 
 Per poter usare {{c|distcc}}, tutti i computer sulla rete devono avere la stessa versione di GCC. Ad esempio, mischiare GCC 3.3.x (dove la x è variabile) non è un problema, ma mischiare 3.3.x e 3.2.x potrebbe generare errori in fase di compilazione o di esecuzione. 
 
+Verify that all systems use the same version of binutils (eselect binutils list) or many packages will fail linking with various errors like text relocation.
+
 === Opzioni USE ===
 
 {{USEflag|package=sys-devel/distcc}}
@@ -42,6 +44,8 @@ Affinché {{c|distccd}} venga avviato automaticamente, si osservino le seguenti 
 ==== OpenRC ====
 
 Modificare {{Path|/etc/conf.d/distccd}} ed assicurarsi di aver impostato la direttiva <code>--allow</code> di modo da accettare solo host fidati. Per aumentare la sicurezza, si può usare la direttiva <code>--listen</code> per indicare al demone {{c|distccd}} quale IP ascoltare (per sistemi multi-homed). Per ulteriori informazioni su {{c|distcc}}, consultare la pagina rigurdante le  [https://cdn.rawgit.com/distcc/distcc/master/doc/web/security.html note sulla sicurezza di Distcc].
+
+{{Warning|Anyone who can connect to the distcc server port can run arbitrary commands on that machine as the distccd user. }}
 
 Il seguente esempio permette ai client distcc con indirizzo IP <code> 192.168.0.4</code> e <code>192.168.0.5</code> di connettersi al server {{c|distccd}} in esecuzione sulla macchina locale:
 
@@ -120,15 +124,15 @@ Una strategia comune consiste
 
 L'uso di <code>-lM</code> nella variabile <var>MAKEOPTS</var> preverrà la comparsa di troppe attività quando uno degli host cluster di {{c|distcc}} non è disponibile (accrescendo il numero di lavori simultanei negli altri sistemi) o quando un'ebuild è configurata per non permettere compilazioni remote (come nel caso di gcc). Tutto ciò viene raggiunto rifiutando di avviare lavori aggiuntivi quando il carico di sistema è maggiore o uguale al valore di <code>M</code>.
 
+<div class="mw-translate-fuzzy">
 {{FileBox|filename=/etc/portage/make.conf|title=Configurare MAKEOPTS e FEATURES|lang=bash|1=
 # Sostituire N e M con il valore corretto come calcolato precedentemente
 MAKEOPTS="-jN -lM"
 FEATURES="distcc distcc-pump"
 }}
+</div>
 
-{{Note/it|Impostare il valore <code>network-sandbox</code> nella variabile <var>FEATURES</var> sul client sembra prevenire la distribuzione dei dati di compilazioni agli altri server, in quanto blocca la comunicazione di rete. Assicurarsi che non sia impostata (inesistente) o disabilitata (<code>-network-sandbox</code>).}}
-
-{{Note|Distcc’s pump mode may significantly reduce build time for big packages. Consider the [[#Specifying participating hosts|Specifying participating hosts]] section for more details.}}
+{{Warning|distcc-pump is known to break multiple packages in unpredictable ways. Do not ever use it system-wide. Bug reports filed with distcc-pump enabled may be rejected.}}
 
 Per esempio, quando ci sono due PC host quad-core che usano {{c|distccd}} e il computer locale ha un processore dual-core, allora la variabile <var>MAKEOPTS</var> potrebbe essere come di seguito:
 
@@ -147,7 +151,7 @@ While editing the {{Path|make.conf}} file, make sure that it does not have <code
 
 See [http://blogs.gentoo.org/mgorny/2014/06/23/inlining-marchnative-for-distcc/ Inlining <code>-march=native</code> for distcc] for more information.
 
-A GCC [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=39851 bug] has recently been fixed in the 8.0 dev tree which facilitates a more reliable and succinct mechanism for extrapolating appropriate machine flags.  The fix has been backported to the 6 and 7 branches and should be released fairly soon.  Some processing is still required and a script can be found in the [https://github.com/daniel-santos/distccflags distccflags repo], or via wget:
+A GCC [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=39851 bug] has recently been fixed in the 8.0 dev tree which facilitates a more reliable and succinct mechanism for extrapolating appropriate machine flags.  The fix has been backported to the 6 and 7 branches and should be released fairly soon.  Some processing is still required and a script can be found in the [https://github.com/daniel-santos/distccflags distccflags repo], or via {{c|wget}}:
 
 {{Warning|Downloading scripts and executing them without any validation is a security risk. Before executing such scripts, take a good look at what they want to accomplish and refrain from executing it when the content or behavior is not clear and purposeful.}}
 
@@ -157,48 +161,77 @@ A GCC [https://gcc.gnu.org/bugzilla/show_bug.cgi?id=39851 bug] has recently been
 |./distccflags -march{{=}}native
 }}
 
-=== With automake ===
+<div class="mw-translate-fuzzy">
+=== Configurare Distcc per funzionare con Automake ===
+</div>
 
-This is, in some cases, easier than the Portage setup. All that is needed is to update the <var>PATH</var> variable to include {{Path|/usr/lib/distcc/bin/}} in front of the directory that contains {{c|gcc}} ({{Path|/usr/bin/}}). However, there is a caveat. If {{c|ccache}} is used, then put the {{c|distcc}} location after the {{c|ccache}} one: 
+<div class="mw-translate-fuzzy">
+In molti casi, questa procedura è anche più semplice della parte riguardante Portage. Ciò che bisogna fare è aggiornare la propria variabile <code>PATH</code> per farle includere {{Path|/usr/lib/distcc/bin}} di fronte alla directory che contiene <code>gcc</code>  ( {{Path|/usr/bin}} ). In ogni caso, c'è da fare attenzione. Se si usa ccache bisogna inserire distcc dopo ccache:
+</div> 
 
 {{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
 
-Put this in the user's {{Path|~/.bashrc}} or equivalent file to have the <var>PATH</var> set every time the user logs in, or set it globally through an {{Path|/etc/env.d/}} file.
+<div class="mw-translate-fuzzy">
+Si può inserire tutto questo dentro il proprio {{Path|~/.bashrc}} o equivalente, di modo da impostare PATH ogni volta che si esegue il login.
+</div>
 
 Instead of calling {{c|make}} alone, add in <code>-jN</code> (where <code>N</code> is an integer). The value of <code>N</code> depends on the network and the types of computers that are used to compile. A heuristic approach to the right value is given earlier in this article.
 
-=== To bootstrap ===
+<div class="mw-translate-fuzzy">
+{{RootCmd|USE{{=}}'-*' emerge --nodeps sys-devel/distcc}}
+</div>
 
 Using {{c|distcc}} to bootstrap (i.e. build a working toolchain before installing the remainder of the system) requires some additional steps to take.
 
-==== Step 1: Configure Portage ====
+<div class="mw-translate-fuzzy">
+Fase 3: Configurare Distcc ===
+</div>
 
-Boot the new box with a Gentoo Linux LiveCD and follow the [[Handbook:AMD64|installation instructions]], while keeping track of the instructions in the [[FAQ|Gentoo FAQ]] for information about bootstrapping. Then configure Portage to use {{c|distcc}}: 
+<div class="mw-translate-fuzzy">
+Lanciare <code>distcc-config --install</code> per configurare distcc; sostituire <code>host*</code> con gli indirizzi IP o con gli hostname delle macchine partecipanti.
+</div> 
 
-{{FileBox|filename=/etc/portage/make.conf|title=Configure Portage to use distcc|lang=bash|1=
-FEATURES="distcc"
-MAKEOPTS="-jN"
-}}
+<div class="mw-translate-fuzzy">
+{{RootCmd|/usr/bin/distcc-config --set-hosts "localhost host1 host2 host3 ..."}}
+</div>
 
 Update the <var>PATH</var> variable in the installation session as well:
 
-{{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
+<div class="mw-translate-fuzzy">
+Distcc è configurato per il bootstrap! Continuare con le istruzioni di installazioni ufficiali e '''non dimenticare''' di ri-emergere Distcc dopo aver lanciato <code>emerge system</code>, per assicurarsi che tutte le dipendenze desiderate vengano installate.
+</div>
 
-==== Step 2: Getting distcc ====
+<div class="mw-translate-fuzzy">
+{{Note/it|Durante il bootstrap e l'<code>emerge system</code> distcc potrebbe dare l'impressione di non essere usato. Questo è un comportamento normale in quanto alcune ebuild non funzionano correttamente con distcc, e di conseguenza lo disabilitano intenzionalmente.}}
+</div>
 
-Install {{Package|sys-devel/distcc}}: 
+<div class="mw-translate-fuzzy">
+== Risoluzione dei problemi ==
+</div> 
 
-{{RootCmd|USE{{=}}'-*' emerge --nodeps sys-devel/distcc}}
+<div class="mw-translate-fuzzy">
+=== Alcuni pacchetti non usano Distcc ===
+</div>
 
-==== Step 3: Setting up distcc ====
+<div class="mw-translate-fuzzy">
+Man mano che si emergono pacchetti, si può notare come alcuni di essi non vengano compilati in modalità distribuita (e neanche in parallelo). Questo è possibile quando il Makefile del pacchetto in questione non supporta le operazioni parallele, o quando il manutentore dell'ebuild le ha esplicitamente disabilitate, spesso a causa di problemi noti.
+</div>
 
-Run {{c|distcc-config --install}} to setup distcc; substitute the <code>host#</code> in the example with the IP addresses or hostnames of the participating nodes.
+<div class="mw-translate-fuzzy">
+A volte distcc può causare fallimenti nelle compilazioni. Se succede, si è pregati di [http://bugs.gentoo.org comunicarlo] nel bugtracker.
+</div>
 
-{{RootCmd|/usr/bin/distcc-config --set-hosts "localhost host1 host2 host3 ..."}}
+<div class="mw-translate-fuzzy">
+=== Versioni di GCC differenti ===
+</div>
 
-Distcc is now set up to bootstrap! Continue with the proper installation instructions and do ''not'' forget to run {{c|emerge distcc}} after running {{c|emerge @system}}. This is to make sure that all of the necessary dependencies are installed. 
+<div class="mw-translate-fuzzy">
+Se si hanno diverse versioni di gcc nei propri host, molto probabilmente si manifesteranno problemi di varia natura. La soluzione consiste nell'installare in tutti gli host la stessa versione di GCC.
+</div> 
 
-{{Note|During bootstrap and {{c|emerge @system}} {{c|distcc}} may not appear to be used. This is expected as some ebuilds do not work well with distcc, so they intentionally disable it.}}
+<div class="mw-translate-fuzzy">
+Gli aggiornamenti più recenti di Portage usano <code>${CHOST}-gcc</code> invece di <code>gcc</code>. Questo significa che se si stanno usando macchine i686 insieme ad altre di diverso tipo (i586,i386) si incontreranno problemi. Una soluzione può essere quella di specificare <code>export CC='gcc' CXX='c++'</code> o di inserirlo direttamente in  {{Path|/etc/portage/make.conf}}.
+</div>
 
 === Extras ===
 
@@ -236,29 +269,29 @@ Finally, start the GUI application:
 
 === SSH for communication ===
 
-Setting up distcc via SSH includes some pitfalls. First, generate an SSH key pair without password setup. Be aware that portage compiles programs as the Portage user (or as root if <code>FEATURES="userpriv"</code> is not set). The home folder of the Portage user is {{Path|/var/tmp/portage/}}, which means the keys need to be stored in {{Path|/var/tmp/portage/.ssh/}}
+<div class="mw-translate-fuzzy">
+== Cross-Compilazione ==
+</div>
 
-{{RootCmd|ssh-keygen -b 2048 -t rsa -f /var/tmp/portage/.ssh/id_rsa}}
+<div class="mw-translate-fuzzy">
+La cross-compilazione consiste nell'utilizzare un'architettura per costruire software che verranno eseguiti su un'altra architettura. La cosa può essere semplice come ad esempio usare un Athlon (i686) per compilare un programma per K6-2(i586), o usare uno Sparc per compilare un programma per ppc. Tutto ciò è documentato nella nostra  [[Distcc/Cross-Compiling|Guida a DistCC per la Cross-compilazione]] .
+</div>
 
-Second, create a section for each host in the SSH configuration file:
+<div class="mw-translate-fuzzy">
+== Usare Distcc per il Bootstrap ==
+</div>
 
-{{FileBox|filename=/var/tmp/portage/.ssh/config|title=Add per-host sections|1=
-Host test1
-    HostName 123.456.789.1
-    Port 1234
-    User UserName
- 
-Host test2
-    HostName 123.456.789.2
-    Port 1234
-    User UserName
-}}
+<div class="mw-translate-fuzzy">
+=== Fase 1: Configurare Portage ===
+</div>
 
 Send the public key to each compilation node:
 
 {{RootCmd|ssh-copy-id -i /var/tmp/portage/.ssh/id_rsa.pub UserName@CompilationNode}}
 
-Also make sure that each host is available in the {{Path|known_hosts}} file:
+<div class="mw-translate-fuzzy">
+Avviare il computer con un Gentoo Linux LiveCD e seguire le  [http://www.gentoo.org/doc/en/handbook/handbook-x86.xml?part=1 istruzioni di installazione] fino alla parte riguardante il bootstrap (consultare le [http://www.gentoo.org//doc/en/faq.xml#stage12 Gentoo FAQ] per ulteriori informazioni riguardo il bootstrap.). In seguito, configurare Portage per l'uso di Distcc
+</div>
 
 {{RootCmd|ssh-keyscan -t rsa <compilation-node-1> <compilation-node-2> [...] > /var/tmp/portage/.ssh/known_hosts}}
 
@@ -268,9 +301,17 @@ Fix the file ownership as follows:
 
 To set up the hosts <code>test1</code> and <code>test2</code>, run:
 
-{{RootCmd|/usr/bin/distcc-config --set-hosts "@test1 @test2"}}
+<div class="mw-translate-fuzzy">
+{{RootCmd|nano -w /etc/portage/make.conf|output=<pre>
+FEATURES="distcc"
+MAKEOPTS="-jN"
+</pre>
+}}
+</div>
 
-Please note the <code>@</code> (@ sign), which specifies ssh hosts for distcc.
+<div class="mw-translate-fuzzy">
+{{RootCmd|export PATH{{=}}"/usr/lib/ccache/bin:/usr/lib/distcc/bin:${PATH}"}}
+</div>
 
 Finally, tell {{c|distcc}} which SSH binary to use:
 
@@ -309,7 +350,9 @@ Finally, ensure the compiled program works properly. To test each host, enumerat
 
 {{Cmd|./main|output=<pre>Hello distcc!</pre>}}
 
-== Troubleshooting ==
+<div class="mw-translate-fuzzy">
+{{Important/it|Effettuare questa modifica cambia alcuni comportamenti di Portage, il che potrebbe portare a strani risultati in futuro. Effettuare tutto ciò solo nel caso in cui si stiano usando CHOST differenti.}}
+</div>
 
 <!-- Consider moving this section to a separate subpage if it becomes too large -->
 
@@ -337,29 +380,47 @@ Finally, restart the distccd service:
 
 {{RootCmd|/etc/init.d/distccd restart}}
 
-=== Some packages do not use distcc ===
+<div class="mw-translate-fuzzy">
+=== -march=native ===
+</div>
 
-As various packages are installed, users will notice that some of them aren't being distributed (and aren't being built in parallel). This may happen because the package' {{Path|Makefile}} doesn't support parallel operations, or the maintainer of the ebuild has explicitly disabled parallel operations due to a known problem. 
+<div class="mw-translate-fuzzy">
+A partire da GCC 4.3.0, il compilatore supporta l'opzione <code>-march=native</code>, che abilita il rilevamento automatico della CPU e le conseguenti ottimizzazioni che val la pena utilizzare. L'uso di questa opzione rappresenta un problema per <code>distcc</code> in quanto abilita il mix di codice ottimizzato per processori differenti (come AMD Athlon e Intel Pentium). ''NON'' usare <code>-march=native</code> o <code>-mtune=native</code> nelle proprie <code>CFLAGS</code> o <code>CXXFLAGS</code> durante le compilazioni con <code>distcc</code>.
+</div> 
 
-Sometimes {{c|distcc}} might cause a package to fail to compile. If this happens, please [https://bugs.gentoo.org/ report] it.
+<div class="mw-translate-fuzzy">
+== Gli extra di Distcc ==
+</div>
 
-=== Mixed GCC versions ===
+<div class="mw-translate-fuzzy">
+=== Distcc Monitor ===
+</div>
 
-If the environment hosts different GCC versions, there will likely be very weird problems. The solution is to make certain all hosts have the same GCC version. 
+<div class="mw-translate-fuzzy">
+Distcc viene distribuito con due monitor. Quello testuale è sempre incluso, e viene lanciato con <code>distccmon-text</code>. La prima volta può apparire confusionario, ma è molto semplice da usare. Se si lancia il comando senza parametri aggiuntivi verrà eseguito solo una volta, mentre se gli si passa un numero N, verrà aggiornato ogni N secondi.
+</div> 
 
-Recent Portage updates have made Portage use <code>${CHOST}-gcc</code> (minus gcc) instead of <code>gcc</code>. This means that if i686 machines are mixed with other types (i386, i586) then the builds will run into troubles. A workaround for this may be to run:
+<div class="mw-translate-fuzzy">
+L'altro monitor viene attivato solo se è stata abilitata la <code>USE</code> flag <code>gtk</code> o <code>gnome</code> . Questo monitor è basato su gtk+, gira dentro l'ambiente X ed è molto bello. Per Gentoo il monitor con interfaccia grafica risponde al comando <code>distccmon-gui</code>. In altri ambienti dovrebbe rispondere al nome di <code>distccmon-gnome</code>.
+</div>
 
 {{RootCmd|export CC{{=}}'gcc' CXX{{=}}'c++'}}
 
 It is also possible to set the <var>CC</var> and <var>CXX</var> variables in {{Path|/etc/portage/make.conf}} to the values list in the command above.
 
-{{Important|Doing this explicitly redefines some behavior of Portage and may have some weird results in the future. Only do this if mixing CHOSTs is unavoidable.}}
+<div class="mw-translate-fuzzy">
+{{RootCmd|distccmon-text N}}
+</div>
 
 {{Note|Having the right version of gcc as a slot on a server isn’t enough. Portage uses {{c|distcc}} as a replacement for the compiler referenced by the <var>CHOST</var> variable (i.e. <code>x86_64-pc-linux-gnu</code>) and {{c|distccd}} invokes it by exactly same name. The right version of gcc should be a default system’s compiler on all involved compilation hosts.}}
 
-=== -march=native ===
+<div class="mw-translate-fuzzy">
+o lanciare <code>distccmon-gui</code>:
+</div>
 
-Starting with GCC 4.3.0, the compiler supports the <code>-march=native</code> option which turns on CPU auto-detection and optimizations that are worth being enabled on the processor on which GCC is running. This creates a problem when using {{c|distcc}} because it allows the mixing of code optimized for different processors. For example, running {{c|distcc}} with <code>-march=native</code> on a system that has an AMD Athlon processor and doing the same on ''another'' system that has an Intel Pentium processor will mix code compiled on both processors together.
+<div class="mw-translate-fuzzy">
+{{RootCmd|distccmon-gui}}
+</div>
 
 Heed the following warning:
 
@@ -387,9 +448,13 @@ Another interesting variable to use is <var>DISTCC_SAVE_TEMPS</var>. When set, i
 export DISTCC_SAVE_TEMPS=1
 }}
 
-== See also ==
+<div class="mw-translate-fuzzy">
+=== Fase 2: Procurarsi Distcc ===
+</div>
 
-* The [[Distcc/Cross-Compiling|DistCC Cross-compiling guide]] explains how using one architecture to build programs for another architecture is done through {{c|distcc}}. This can be as simple as using an Athlon (i686) to build a program for a K6-2 (i586), or using a SPARC to build a program for a PowerPC.
+<div class="mw-translate-fuzzy">
+Installare distcc:
+</div>
 
 == External resources ==
 
