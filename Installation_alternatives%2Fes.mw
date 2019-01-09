@@ -106,6 +106,8 @@ Finalmente, sepa que algunas <var>FEATURES</var> (Características) de Portage n
 
 Este método es más fácil de configurar que el arranque PXE basado en iSCSI o NFS. Múltiples máquinas pueden arrancar desde el mismo conjunto de imágenes distribuidas a través de TFTP y se puede extender fácilmente para que también funcione sobre HTTP u otro protocolo.
 
+Having a nice router or one capable of running open source firmware such as [https://lede-project.org/ LEDE], the successor to [https://openwrt.org/ OpenWRT], is one way to centralize TFTP and DHCP. Getting the firmware online could be an uphill battle, depending on your experience.
+
 Algunas distribuciones incluyendo Fedora ya se distribuyen con imágenes necesarias para inciar un CD live o de instalación. Este no es el caso de Gentoo. En lugar de ello, los usuarios necesitan:
 
 # Extraer el núcleo, initrd y [[SquashFS|squashfs]] desde el liveCD, 
@@ -114,24 +116,38 @@ Algunas distribuciones incluyendo Fedora ya se distribuyen con imágenes necesar
 
 Solo ahora se podrá configurar un cargador de arranque basado en PXE que cargará las imágenes e iniciará un sistema vivo.
 
-Guarde el siguiente guión, asegúrese de que es ejecutable y escriba su directorio como valor de la variable <var>$PATH</var> (o siga los pasos documentados de forma manual).
+There are different flavors of PXE, but all of them are going to need the kernel and initrd file, so let's create those files now. Download the [https://www.gentoo.org/downloads/ minimal installation CD]. Then, execute the following script as root. The new files '''initrd''' and '''kernel''' will be created in your specified output directory.
 
 
-{{CodeBox|title=gentoo-pxe-boot|<nowiki>
+{{CodeBox|title=pxe-craft-initrd-kernel|lang=bash|<nowiki>
 #!/bin/bash -xe
+# Create kernel and initrd files from a Gentoo LiveCD (DVD?) for PXE boot.
 
-tftproot="$1"
+print-usage() {
+  echo "Usage: $0 <output-dir> <gentoo-iso>" >&2
+}
+
+# Example Invocation
+# sudo ./gen-pxe-initrd-kernel pxe-boot-files ~/Downloads/install-amd64-minimal-20171228T214501Z.iso
+
+outdir="$1"
 image="$2"
-tmp="./tmp"
+tmp="$outdir/tmp"
 
-test -z "$tftproot" -o -z "$image" && echo "Usage: $0 <tftproot> <gentoo-iso>" >&2 && exit 1
+if [ $(id -u) -ne "0" ]; then
+  echo "You must run as root or with sudo. This is necessary for the loop mount" && 
+  print-usage &&
+  exit 2
+fi
+
+test -z "$outdir" -o -z "$image" && print-usage && exit 1
 test -e "$tmp" && echo "Temporary path '$tmp' already exists." >&2 && exit 1
 
 iso="$tmp/iso"
 initrd="$tmp/initrd.dir"
 
 # prepare directories
-mkdir -p "$tmp" "$iso" "$initrd/mnt/cdrom"
+mkdir -p "$outdir" "$tmp" "$iso" "$initrd/mnt/cdrom"
 
 # extract files from ISO image
 mount -o ro,loop "$image" "$iso"
@@ -181,28 +197,28 @@ EOF
 cp "$tmp/image.squashfs" "$initrd/mnt/cdrom"
 ( cd "$initrd" && find . -print | cpio -o -H newc | gzip -9 -c - ) > "$tmp/initrd"
 
-# prepare boot data
-grub2-mknetdir -v --net-directory="$tftproot"
-cat > "$tftproot/boot/grub/grub.cfg" <<'EOF'
-menuentry "Gentoo Live" {
-    linux /boot/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
-    initrd /boot/initrd
-}
-EOF
-cp "$tmp"/{kernel,initrd} "$tftproot/boot"
-
-# cleanup
+mv "$tmp"/{kernel,initrd} "$outdir"
 rm -rf "$tmp"
 </nowiki>}}
 
 
+If you know what you're doing, you can be on your way! Enjoy Gentoo on PXE. Otherwise, see below for more directions depending on the PXE flavor you're using.
+
+=== TFTP ===
+
+This will be needed in tandem with a DHCP server for most PCs equipped with PXE boot. However, realize that you could use iPXE to boot without a TFTP or DHCP server! See [http://ipxe.org/ ipxe.org] for info on embedding scripts, chainloading, and manual booting. There are still merits to TFTP booting such as wide-range device support, so let's get to serving TFTP!
+
+<div class="mw-translate-fuzzy">
 Descargar el [https://www.gentoo.org/downloads/ CD minimalista de instalación]. Instale {{Package|net-ftp/tftp-hpa}}, asegúrese de que ofrece {{Path|/tftproot}} y arránquelo.
+</div>
 
-Lance el guión con los parámetros adecuados.
-
-{{RootCmd|gentoo-pxe-boot /tftproot install-amd64-minimal-20141204.iso}}
-
+<div class="mw-translate-fuzzy">
 Ahora el servicio de arranque TFTP está preparado de modo que el siguiente paso es configurar un servicio DHCP. Es posible poner en marcha un servidor DHCP en la máquina, simplemente debemos asegurarnos de que las máquinas que van a arrancar están conectadas a ella. También se puede ajustar la configuración de un enrutador ya existente.
+</div> 
+
+=== DHCP ===
+
+Setting up a DHCP server on the same machine is possible - just make sure that the booted machines are connected to it. Or just tweak the configuration of an existing router.
 
 Un ejemplo de configuración para el servicio DHCP de OpenWRT se muestra a continuación:
 
@@ -212,6 +228,84 @@ config boot linux
         option servername boot
         option serveraddress 84.246.161.86
 }}
+
+From here, directions will change depending on what flavor your PXE is (i.e. GRUB, iPXE). 
+
+
+=== GRUB ===
+
+After executing the '''pxe-craft-initrd-kernel''' script, run the following '''pxe-install-grub''' to output proper files into your tftp root directory.
+
+{{CodeBox|title=pxe-install-grub|lang=bash|<nowiki>
+#!/bin/bash -xe
+# prepare boot data
+ 
+print-usage() {
+  echo "Usage: $0 -i [initrd-file] -k [kernel-file] <tftproot>" >&2
+}
+ 
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+ 
+case $key in
+    -i|--initrd)
+    initrd="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    -k|--kernel)
+    kernel="$2"
+    shift # past argument
+    shift # past value
+    ;;
+    *)    # unknown option
+    POSITIONAL+=("$1") # save it in an array for later
+    shift # past argument
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+ 
+tftproot="$1"
+ 
+test ! -e "$initrd" && echo "initrd Not found" && print-usage && exit 1
+test ! -e "$kernel" && echo "kernel Not found" && print-usage && exit 1
+test -z "$tftproot" && echo "tftproot not specified" && print-usage && exit 1
+                                                                          
+echo "initrd:$initrd"
+echo "kernel:$kernel"
+echo "tftproot:$tftproot"
+ 
+grub-mknetdir -v --net-directory="$tftproot"
+cat > "$tftproot/boot/grub/grub.cfg" <<'EOF'
+menuentry "Gentoo Live" {
+    linux /boot/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
+    initrd /boot/initrd
+}
+EOF
+ 
+cp "$kernel" "$initrd" "$tftproot/boot"
+</nowiki>}}
+
+
+=== iPXE ===
+
+Here are relevant stanzas for iPXE.
+
+{{CodeBox|title=gentoo-pxe-boot|<nowiki>
+#!ipxe                                                                    
+menu THRONG OF BAZ                                                       
+item --gap LAN
+item gentoo Gentoo x86_64 minimal
+ 
+:gentoo                                                                   
+set g http://baz.com/ipxe/gentoo                                        
+kernel ${g}/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
+initrd ${g}/initrd                                                        
+boot
+</nowiki>}}
 
 == Instalación sin disco mediante arranque PXE y NFS ==
 
@@ -326,6 +420,7 @@ Este ejemplo utiliza un comprimido stage3. Monte {{Path|/proc}} en el directorio
 
 Cuando se haga {{c|make menuconfig}} de la configuración de núcleo, no olvidar que se deben habilitar las siguientes opciones junto a las otras recomendadas en la guía de instalación. 
 
+<div class="mw-translate-fuzzy">
 {{KernelBox|title=Opciones necesarias para instalaciones sin disco|<pre>
 
 - Soporte para el dispositivo adaptador de red (En el núcleo, ¡*No* como módulo!)
@@ -344,6 +439,7 @@ File systems --->
     [*] Provide NFSv3 client support
     [*] Root file system on NFS
 </pre>}}
+</div>
 
 Guarde el núcleo en el {{Path|/}} del chroot (no en {{Path|/boot}}) de acuerdo con las configuraciones de pxegrub definidas anteriormente. A continuación, configurar el archivo {{Path|/etc/fstab}} de los clientes sin disco. 
 
