@@ -9,6 +9,8 @@
 Dans les dernières années, la gestion de l'énergie est devenue l'une des fonctionnalités discriminante dans le recherche du parfait ordinateur portable. Encore faut-il que le système d'exploitation prenne en charge les nombreuses fonctionnalités d'économie d'énergie également. Dans ce guide, nous couvrons la manière de configurer votre installation de Gentoo pour qu'elle gère les ressources énergivores d'une manière automatique et flexible.
 </div>
 
+{{InfoBox stack|{{InfoBox todo|Add instructions for kernel configuration of remaining CPU frequency drivers|header=true}}}}
+
 == Introduction ==
 
 === À propos de ce document... ===
@@ -37,7 +39,9 @@ Les outils du ''Laptop Mode '' constituent un paquet ( {{Package|app-laptop/lapt
 
 <div class="mw-translate-fuzzy">
 Différentes sources du noyau sont disponibles dans Portage. Nous recommandons d'utiliser {{Package|sys-kernel/gentoo-sources}}, mais si vous désirez la prise en charge du  mode avancé d'hibernation, vous pouvez avoir besoin des {{Package|sys-kernel/tuxonice-sources}}. Pour activer une gestion de l'énergie digne de ce nom dans le noyau Linux, activez au minimum les réglages suivants :
-</div> 
+</div>
+
+To enable proper power management features in the Linux kernel, enable the following settings: 
 
 <div class="mw-translate-fuzzy">
 	
@@ -72,7 +76,70 @@ Power management and ACPI options --->
 N'oubliez pas d'activer le pilote d'adaptation de fréquence (frequency scaling driver) du CPU pour votre modèle de CPU. Il se trouve juste après les ''ACPI Processor P-States driver''  cités plus haut.
 </div>
 
-For a more detailed description see the [[Power management/Processor#Kernel]] article.
+In this case, the ''userspace'', ''ondemand'', and ''conservative'' governors are unnecessary. The ''performance'' governor should be selected as the default. <ref>Dominik Brodowski. [https://www.kernel.org/doc/Documentation/cpu-freq/intel-pstate.txt Intel P-State driver], [https://www.kernel.org
+/doc/Documentation/cpu-freq/index.txt CPU frequency and voltage scaling code in the Linux(TM) kernel]. Retrieved 12 June 2016.</ref>
+
+{{KernelBox|title=Kernel setup for Intel Sandy Bridge and newer processors|1=
+Power management and ACPI options --->
+  -*- Device power management core functionality
+  [*] ACPI (Advanced Configuration and Power Interface) Support --->
+    <*> AC Adapter
+    <*> Battery
+    -*- Button
+    -*- Video
+    <*> Fan
+    <*> Processor
+    <*> Thermal Zone
+  
+  [*] CPU Frequency scaling --->
+        Default CPUFreq governor (performance)  --->
+    -*- 'performance' governor
+    <*> Intel P state control
+}}
+
+=== Enabling additional drivers ===
+For Intel processors used in laptops since 2011 you may want to enable additional advanced features - Thermal and powercap sysfs. 
+
+==== Thermal sysfs driver ====
+{{KernelBox|title=Generic Thermal sysfs driver|1=
+Device Drivers --->
+  -*- Generic Thermal sysfs driver --->
+    (0)   Emergency poweroff delay in milli-seconds                                                                              
+    [*]   Expose thermal sensors as hwmon device                                                                                
+    -*-   Enable writable trip points                                                                                          
+          Default Thermal governor (step_wise)  --->                                                                           
+    [*]   Fair-share thermal governor                                                                                           
+    -*-   Step_wise thermal governor                                                                                            
+    -*-   Bang Bang thermal governor                                                                                            
+    -*-   User_space thermal governor                                                                                           
+    [ ]   Thermal emulation mode support
+    [*]   Power allocator thermal governor   
+    <M>   Intel PowerClamp idle injection driver
+    <M>   X86 package temperature thermal driver
+    < >   Intel SoCs DTS thermal driver                                                                                          
+          ACPI INT340X thermal drivers  --->                                                                                     
+             <M> ACPI INT340X thermal drivers
+    <M>   Intel PCH Thermal Reporting Driver
+}}
+
+==== powercap sysfs driver ====
+{{anchor|powercap}}
+Additionally, you can enable [https://01.org/blogs/2014/running-average-power-limit-%E2%80%93-rapl Running Average Power Limit – RAPL] technology. Both [[PowerTOP]] and [[turbostat]] utilities are aware of RAPL. For RAPL enablement use:
+
+{{KernelBox|title=Generic powercap sysfs driver|1=
+Device Drivers --->
+  [*] Generic powercap sysfs driver --->
+    <M>   Intel RAPL Support
+}}
+
+To make use of Intel's [https://01.org/linux-thermal-daemon Linux thermal daemon] you first need to emerge {{Package|sys-power/thermald}} and enable it via:
+
+{{RootCmd|rc-config add thermald}}
+or
+{{RootCmd|systemctl enable thermald}}
+
+=== Kernel setup finalization ===
+For a more detailed configuration description see the [[Power management/Processor#Kernel]] article.
 
 <div class="mw-translate-fuzzy">
 Compilez et installez le nouveau noyau (si besoin) et redémarrez.
@@ -157,7 +224,7 @@ With OpenRC:
 With systemd:
 
 {{RootCmd
-|systemctl laptop-mode.service enable --now
+|systemctl enable laptop-mode.service --now
 }}
 
 === Comment fonctionnent les outils laptop-mode-tools ? ===
@@ -175,7 +242,9 @@ Les préfixes  <code>AC/BATT_</code> et <code>LM/NOLM_</code> peuvent se combine
 
 Après que le service  <code>laptop_mode</code> a démarré,  il change de mode en se basant sur des événements qui se produisent ( et bien sûr sur la configuration). Par exemple, le réglage  <code>ENABLE_LAPTOP_MODE_ON_BATTERY=1</code>  s'assurera que les outils du mode laptop commutent vers ''laptopmode'' quand la batterie est vide. Si c'est le cas, alors les réglages commençant par  <code>LM_</code> , <code>LM_BATT_</code> , <code>BATT_LM_</code> et <code>BATT_</code> seront utilisés. 
 
-Pour s'assurez que les réglages n'entrent pas en conflit, il n'est pas autorisé d'avoir des réglages qui se recouvrent. Dans l'exemple qui suit, le premier réglage  (pour <code>CPU_MAXFREQ</code> ) est valide, mais le deuxième (pour  <code>CPU_GOVERNOR</code> ) ne l'est pas. 
+<div class="mw-translate-fuzzy">
+Pour s'assurez que les réglages n'entrent pas en conflit, il n'est pas autorisé d'avoir des réglages qui se recouvrent. Dans l'exemple qui suit, le premier réglage  (pour <code>CPU_MAXFREQ</code> ) est valide, mais le deuxième (pour  <code>CPU_GOVERNOR</code> ) ne l'est pas.
+</div> 
 
 {{CodeBox|title=Colliding settings|1=
 ## Valid set
