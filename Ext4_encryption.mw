@@ -37,8 +37,11 @@ Wants=multi-user.target
 
 [Service]
 Type=oneshot
-User=REPLACEWITH_USERNAMEOFYOURUSER
-ExecStart=/usr/local/sbin/decrypt.sh
+User=REPLACE_BY_YOUR_USERNAME
+ExecStartPre=/usr/bin/sleep 6
+ExecStartPre=/usr/bin/chvt 6
+ExecStart=/bin/bash /usr/local/sbin/decrypt.sh
+ExecStartPost=/usr/bin/sleep infinity
 KeyringMode=inherit
 StandardInput=tty-force
 TTYPath=/dev/tty6
@@ -48,36 +51,30 @@ TTYVTDisallocate=yes
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
-}}
+WantedBy=multi-user.target}}
 
 and script - wait for display manager loads itself, then switch to VT 6, ask password and save it to @s (session), set permissions to allow link it to @u (user keyring) and change back to VT 7 (display manager). Sleep infinity, because at moment, when this script ends, user keyring is wiped and it has no point.
 
 Into script you have to fill number, which you'll get after you run {{c|/usr/sbin/e4crypt add_key}} under normal circumstances and then run {{c|keyctl list @s}}.
 
 {{FileBox|filename=/usr/local/sbin/decrypt.sh|lang=bash|1=
-#!/bin/bash
-sleep 10
-chvt 6
-systemd-ask-password {{!}} /usr/sbin/e4crypt add_key -k @s
-keyctl setperm `keyctl search @s logon ext4:_THIS_NUMBER_YOU_GET_FROM_keyctl list @u_` 0x3d3d0000
-keyctl link `keyctl search @s logon ext4:_THIS_NUMBER_YOU_GET_FROM_keyctl list @u_` @u
-sleep 1
-chvt 7
-sleep infinity
+systemd-ask-password | /usr/sbin/e4crypt add_key -k @us
+keyctl setperm `keyctl search @us logon ext4:OUTPUT_KEY_FROM_E4CRYPT_ADD_KEY` 0x3f3f3f3f
 }}
+
+{{FileBox|filename=/usr/local/sbin/decrypt_link.sh|lang=bash|1=
+#!/bin/sh
+sudo -u $PAM_USER /bin/keyctl link @us @s
+}}
+
 
 Last thing, you need link from @u (user keyring) to @s (session keyring), because otherwise ext4 is not able to detect key (no idea why).
+For this case is best use pam.
 
-So in my case
+Search for files which has {{c|pam_keyinit.so}} inside, grep it and put line after with
+{{c|session optional pam_exec.so /usr/local/bin/decrypt_link.sh}}
 
-{{FileBox|filename=/etc/gdm/Xsession|1=
-... somewhere in beggining of file...
-keyctl link @u @s
-... rest of it ....
-}}
 
 === Issues ===
 
 * When is e4crypt issued with -k @u (user keyring), kernel is not able decrypt content
-* Didn't found how to make it work under Wayland session
