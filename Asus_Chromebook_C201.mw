@@ -109,16 +109,89 @@ Requirements:
 
 * {{Package|sys-boot/vboot-utils}}
 * {{Package|dev-embedded/u-boot-tools}}
+<br>
 
-Configure and build {{Package|sys-kernel/gentoo-sources}} as usual, including dtbs.
+Configure {{Package|sys-kernel/gentoo-sources}} as usual.
+Build kernel and dtbs:
+{{RootCmd
+|make -j5 zImage dtbs
+}}
+<br>
 
-Create the configuration file for the FIT image:
+From your kernel build directory, copy the zImage and the rk3288-veyron-speedy.dtb to your desired working directory, and change there:
+{{RootCmd
+|cp -a arch/arm/boot/zImage /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+|cp -a arch/arm/boot/dtbs/rk3288-veyron-speedy.dtb /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+|cd /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+}}
+<br>
 
-Pack the FIT image, i.e. kernel with device tree and (optional) initramfs:
+Create the configuration file ("gentoo.its") for the FIT image with the following content:
+{{CodeBox|title=gentoo.its|lang=bash|1=
+/dts-v1/;
+
+/ {
+    description = "Linux kernel image with one or more FDT blobs";
+    #address-cells = <1>;
+    images {
+        kernel@1{
+            description = "vmlinuz";
+            data = /incbin/("zImage");
+            type = "kernel_noload";
+            arch = "arm";
+            os = "linux";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+        fdt@1{
+            description = "dtb";
+            data = /incbin/("rk3288-veyron-speedy.dtb");
+            type = "flat_dt";
+            arch = "arm";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+        ramdisk@1{
+            description = "initrd.img";
+            data = /incbin/("initrd.img");
+            type = "ramdisk";
+            arch = "arm";
+            os = "linux";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+    };
+    configurations {
+        default = "conf@1";
+        conf@1{
+            kernel = "kernel@1";
+            fdt = "fdt@1";
+                ramdisk = "ramdisk@1";
+        };
+    };
+};
+}}
+<br>
+
+Pack the FIT image:
 {{RootCmd
 |mkimage -f gentoo.its gentoo.itb
 |sync
 }}
+<br>
+
+Create a file ("kernel.flags") that stores CMDLINE parameters:
+{{CodeBox|title=kernel.flags|lang=bash|1=
+console=tty1 root=/dev/YOUR_ROOTFS_PARTITION rootfstype=YOUR_ROOTFS_TYPE rootwait rw
+}}
+<br>
+
 Sign and repack your kernel:
 {{RootCmd
 |futility --debug vbutil_kernel \
@@ -126,13 +199,15 @@ Sign and repack your kernel:
     --version 1 \
     --keyblock /usr/share/vboot/devkeys/kernel.keyblock \
     --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk \
-    --bootloader cmdline \
-    --config cmdline \
+    --bootloader kernel.flags \
+    --config kernel.flags \
     --vmlinuz gentoo.itb \
     --pack vmlinuz.signed \
 |sync
 }}
-Install the kernel to the kernel partition:
+<br>
+
+Install the kernel to your kernel partition:
 {{RootCmd
 |dd if{{=}}vmlinuz.signed of{{=}}/dev/YOUR_KERNEL_PARTITION
 }}
