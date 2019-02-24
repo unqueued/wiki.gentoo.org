@@ -1,0 +1,68 @@
+Depthcharge, the ChromeOS bootloader, is one of coreboot’s (and also libreboot’s) available payloads and as such mostly found on chromebooks.<ref>[https://chromium.googlesource.com/chromiumos/platform/depthcharge depthcharge source code],[https://chromium.googlesource.com Git at Google], Retrieved on February 25th, 2019</ref> This guide shows how to create bootable media, e.g. a installation media USB drive, for those devices.
+{{Warning|So far these instructions have only been tested on the ARMv7-A based [[Asus Chromebook C201]].}}
+
+== Installing required tools ==
+
+The guide assumes that the current platform is a Gentoo Linux one. The majority of steps however can be performed from any distribution, just translate the Gentoo-specific way of doing things (such as installing software) to the other distribution's practices.
+{{Note|Throughout this guide that computer will be referred to as the {{c|host system}} whereas the device that shall be booted will be referred to as the {{c|target device}}.}}
+
+Install {{Package|dev-embedded/u-boot-tools}}, {{Package|sys-apps/dtc}}, {{Package|sys-block/parted}} and {{Package|sys-boot/vboot-utils}}
+{{RootCmd
+|emerge –ask dev-embedded/u-boot-tools sys-apps/dtc sys-block/parted sys-boot/vboot-utils
+}}
+Some drivers might also require proprietary firmware available from {{Package|sys-kernel/linux-firmware}}.
+
+== Preparing the partitions ==
+
+{{Important|Throughout the following steps the term “sd*” needs to be replaced with the term corresponding to the installation media – in case of an SD Card something like “mmcblkXp”. In any case the “*” represents a letter and the “X” represents a number.}}
+
+Recommended partition layout and size:
+{| class="wikitable"
+|-
+| /dev/sd*1 || Kernel partition (equivalent to Boot partition) || 32MiB
+|-
+| /dev/sd*2 || Root partition || available space
+|}
+
+
+{{Warning|This will delete all data on /dev/sd*}}
+{{RootCmd
+|parted /dev/sd* mklabel gpt
+|parted -a optimal /dev/sd* unit mib mkpart Kernel 1 33
+|parted -a optimal /dev/sd* unit mib mkpart Root 33 100%
+}}
+
+Depthcharge requires some specific parameters to be set. These signal the bootloader the presence of a valid kernel partition:
+{{RootCmd
+|cgpt add -i 1 -t kernel -S 1 -T 5 -P 15 /dev/sd*
+}}
+Preparing the Root partition
+{{RootCmd
+|mkfs.ext4 /dev/sd*2
+|mount /dev/sd*2 /mnt 
+}}
+
+==Install a Gentoo rootfs==
+
+Get a stage 3 tarball from the main website's [https://www.gentoo.org/downloads/#other-arches download section] that is suitable for the arch of the target device and extract it to /mnt/
+{{RootCmd
+|tar xvpf /PATH/TO/STAGE3-TARBALL -C /mnt/
+}}
+Switch the installation media’s Gentoo to unstable to ensure the availability of the latest versions of vboot-utils and u-boot-tools and speed up the installation media. Replace {{c|ARCH}} with the target device's arch, e.g. {{c|arm}} for ARMv7-A based devices 
+{{RootCmd
+|echo "ACCEPT_KEYWORDS{{=}}\"~ARCH\"" >> /mnt/etc/portage/make.conf
+|echo "MAKEOPTS{{=}}\"-j4\"" >> /mnt/etc/portage/make.conf
+}}
+Set the installation media’s root password to “gentoo”, cf. [[TrimSlice#Setting_the_default_root_password|Setting the default root password]]
+{{RootCmd
+|sed -i 's/root\:\*/root\:\$6\$I9Q9AyTL\$Z76H7wD8mT9JAyrp\/vaYyFwyA5wRVN0tze8pvM\.MqScC7BBm2PU7pLL0h5nSxueqUpYAlZTox4Ag2Dp5vchjJ0/' /mnt/etc/shadow
+}}
+Finish this step by unmounting the install media’s rootfs
+{{RootCmd
+|umount /mnt
+}}
+
+
+
+
+== References ==
