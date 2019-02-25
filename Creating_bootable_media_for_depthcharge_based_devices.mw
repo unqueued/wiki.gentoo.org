@@ -4,12 +4,14 @@ Depthcharge, the ChromeOS bootloader, is one of coreboot’s (and also libreboot
 == Installing required tools ==
 
 The guide assumes that the current platform is a Gentoo Linux one. The majority of steps however can be performed from any distribution, just translate the Gentoo-specific way of doing things (such as installing software) to the other distribution's practices.
-{{Note|Throughout this guide that computer will be referred to as the {{c|host system}} whereas the device that shall be booted will be referred to as the {{c|target device}}.}}
+{{Note|Throughout this guide that computer will be referred to as the <i>host system</i> whereas the device that shall be booted will be referred to as the <i>target device</i>.}}
 
 Install {{Package|dev-embedded/u-boot-tools}}, {{Package|sys-apps/dtc}}, {{Package|sys-block/parted}} and {{Package|sys-boot/vboot-utils}}
+
 {{RootCmd
 |emerge –ask dev-embedded/u-boot-tools sys-apps/dtc sys-block/parted sys-boot/vboot-utils
 }}
+
 Some drivers might also require proprietary firmware available from {{Package|sys-kernel/linux-firmware}}.
 
 == Preparing the partitions ==
@@ -26,6 +28,7 @@ Recommended partition layout and size:
 
 
 {{Warning|This will delete all data on /dev/sd*}}
+
 {{RootCmd
 |parted /dev/sd* mklabel gpt
 |parted -a optimal /dev/sd* unit mib mkpart Kernel 1 33
@@ -33,10 +36,13 @@ Recommended partition layout and size:
 }}
 
 Depthcharge requires some specific parameters to be set. These signal the bootloader the presence of a valid kernel partition:
+
 {{RootCmd
 |cgpt add -i 1 -t kernel -S 1 -T 5 -P 15 /dev/sd*
 }}
+
 Preparing the Root partition
+
 {{RootCmd
 |mkfs.ext4 /dev/sd*2
 |mount /dev/sd*2 /mnt 
@@ -44,24 +50,81 @@ Preparing the Root partition
 
 ==Install a Gentoo rootfs==
 
-Get a stage 3 tarball from the main website's [https://www.gentoo.org/downloads/#other-arches download section] that is suitable for the arch of the target device and extract it to /mnt/
+Get a stage 3 tarball from the main website's [https://www.gentoo.org/downloads/#other-arches download section] that is suitable for the architecture (e.g. {{c|ARMv7a HardFP}}) of the target device and extract it to /mnt/
+
 {{RootCmd
 |tar xvpf /PATH/TO/STAGE3-TARBALL -C /mnt/
 }}
-Switch the installation media’s Gentoo to unstable to ensure the availability of the latest versions of vboot-utils and u-boot-tools and speed up the installation media. Replace {{c|ARCH}} with the target device's arch, e.g. {{c|arm}} for ARMv7-A based devices 
+
+Switch the installation media’s Gentoo to unstable to ensure the availability of the latest versions of vboot-utils and u-boot-tools and speed up the installation media. Replace {{c|TARGETARCH}} with the target device's architecture, e.g. {{c|arm}} for ARMv7-A based devices.
+
 {{RootCmd
-|echo "ACCEPT_KEYWORDS{{=}}\"~ARCH\"" >> /mnt/etc/portage/make.conf
+|echo "ACCEPT_KEYWORDS{{=}}\"~TARGETARCH\"" >> /mnt/etc/portage/make.conf
 |echo "MAKEOPTS{{=}}\"-j4\"" >> /mnt/etc/portage/make.conf
 }}
+
 Set the installation media’s root password to “gentoo”, cf. [[TrimSlice#Setting_the_default_root_password|Setting the default root password]]
+
 {{RootCmd
 |sed -i 's/root\:\*/root\:\$6\$I9Q9AyTL\$Z76H7wD8mT9JAyrp\/vaYyFwyA5wRVN0tze8pvM\.MqScC7BBm2PU7pLL0h5nSxueqUpYAlZTox4Ag2Dp5vchjJ0/' /mnt/etc/shadow
 }}
+
 Finish this step by unmounting the install media’s rootfs
+
 {{RootCmd
 |umount /mnt
 }}
 
+==Create a cross-compiler==
+
+{{Important|This step is only necessary if the host system is <b>not</b> based on the same architecture as the target device.}}
+{{Note|This step is specific to Gentoo, i.e. if the host system runs a different Linux distribution the respective distribution’s documentation on cross-compilation should be consulted instead.}}
+
+Create a local overlay for the cross toolchain, cf. [[Custom_repository#Crossdev|Custom repository for crossdev]]:
+
+{{RootCmd
+|mkdir -p /usr/local/portage-crossdev/{profiles,metadata}
+|echo 'crossdev' > /usr/local/portage-crossdev/profiles/repo_name
+|echo 'masters {{=}} gentoo' > /usr/local/portage-crossdev/metadata/layout.conf
+|chown -R portage:portage /usr/local/portage-crossdev
+}}
+
+Then instruct Portage and crossdev to use this overlay:
+
+{{FileBox|filename=/etc/portage/repos.conf/crossdev.conf|lang=ini|1=
+[crossdev]
+location = /usr/local/portage-crossdev
+priority = 10
+masters = gentoo
+auto-sync = no
+}}
+
+Install crossdev and create the cross toolchain. Replace {{c|TUPLE}} with the [[Embedded_Handbook/Tuples|system tuple]] fitting the target architecture, e.g. {{c|arm-linux-gnueabihf}} for ARMv7-A based devices.
+
+{{RootCmd
+|emerge --ask sys-devel/crossdev
+|crossdev --stable --target TUPLE
+}}
+
+Replace {{c|TARGETARCH}} with the target device's architecture, e.g. {{c|arm}} for ARMv7-A based devices.
+
+{{Cmd
+|export ARCH{{=}}TARGETARCH
+}}
+
+Replace {{c|TUPLE}} with the [[Embedded_Handbook/Tuples|system tuple]] fitting the target architecture, e.g. {{c|arm-linux-gnueabihf}} for ARMv7-A based devices. Mind the trailing "<b>-</b>"!
+
+{{Cmd
+|export CROSS_COMPILE{{=}}TUPLE-
+}}
+
+==Configuring the Linux kernel==
+
+{{Note|This section is still incomplete}}
+
+{{RootCmd
+|dd vmlinuz.signed of{{=}}/dev/sd*1
+}}
 
 
 
