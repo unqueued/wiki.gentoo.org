@@ -68,6 +68,138 @@ Enable booting from external media:
 |crossystem dev_boot_usb{{=}}1
 }}
 
+=== Booting the installation media ===
+
+=== Backup the internal eMMC storage ===
+
+=== Preparing the disks ===
+
+=== Installing the Gentoo installation files ===
+
+=== Installing the Gentoo base system ===
+
+=== Configuring the Linux kernel ===
+
+Configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]]. If all necessary drivers are built into the kernel (i.e. no loadable modules are needed to boot the target device) there's no need to have an initramfs, which keeps things simple. Especially if the host system's architecture differs from the target device's architecture creating an initramfs would at least involve cross-compiling busybox.
+
+Build the kernel and device tree binaries:
+
+{{Cmd
+|make -j5 zImage dtbs
+}}
+
+From the kernel build directory, copy the zImage and the target device's device tree binary to the desired working directory. Replace {{c|DEVICETREE}} with the filename of the target device's device tree binary, e.g. {{c|rk3288-veyron-speedy.dtb}} for the Asus Chromebook C201 (which is based on Rockchip's RK3288 SoC and a board with the codename "Veyron Speedy").
+
+{{Cmd
+|cp -a arch/arm/boot/zImage /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+|cp -a arch/arm/boot/dts/DEVICETREE /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+}}
+
+Change to the desired working directory:
+
+{{Cmd
+|cd /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+}}
+
+
+Create the configuration file ("gentoo.its") for the FIT image with the following content. Again replace {{c|DEVICETREE}} with the filename of the target device's device tree binary, e.g. {{c|rk3288-veyron-speedy.dtb}} for the Asus Chromebook C201.
+
+{{FileBox|filename=gentoo.its|lang=bash|1=
+/dts-v1/;
+
+/ {
+    description = "Linux kernel image with one or more FDT blobs";
+    #address-cells = <1>;
+    images {
+        kernel@1{
+            description = "vmlinuz";
+            data = /incbin/("zImage");
+            type = "kernel_noload";
+            arch = "arm";
+            os = "linux";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+        fdt@1{
+            description = "dtb";
+            data = /incbin/("rk3288-veyron-speedy.dtb");
+            type = "flat_dt";
+            arch = "arm";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+        ramdisk@1{
+            description = "initrd.img";
+            data = /incbin/("initrd.img");
+            type = "ramdisk";
+            arch = "arm";
+            os = "linux";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+    };
+    configurations {
+        default = "conf@1";
+        conf@1{
+            kernel = "kernel@1";
+            fdt = "fdt@1";
+            ramdisk = "ramdisk@1";
+        };
+    };
+};
+}}
+
+Pack the FIT image:
+
+{{Cmd
+|sync
+|mkimage -f gentoo.its gentoo.itb
+}}
+
+Create a file ("kernel.flags") for the CMDLINE parameters:
+
+{{Important|The term "sd*" needs to be replaced with the term corresponding to the bootable media <b>in future</b>, i.e. when booting on the target system. This depends entirely on the target device, but "sda" or "sdb" respectively "mmcblk0p" or "mmcblk1p" are good guesses.}}
+
+{{FileBox|filename=kernel.flags|lang=bash|1=
+console=tty1 root=/dev/sd*2 rootfstype=ext4 rootwait rw
+}}
+
+Sign and pack the kernel:
+
+{{Cmd
+|sync
+|futility --debug vbutil_kernel --arch arm --version 1 --keyblock /usr/share/vboot/devkeys/kernel.keyblock --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk --bootloader kernel.flags --config kernel.flags --vmlinuz gentoo.itb --pack vmlinuz.signed
+}}
+
+Install the kernel to the kernel partition:
+
+{{RootCmd
+|sync && dd if{{=}}vmlinuz.signed of{{=}}/dev/YOUR_KERNEL_PARTITION
+}}
+
+=== Configuring the system ===
+
+Again back to the Handbook: [[Handbook:AMD64/Installation/System|Configuring the system]]
+
+=== Installing system tools ===
+
+Stick with the Handbook: [[Handbook:AMD64/Installation/Tools|Installing system tools]] 
+
+{{Important|Skip the chapter <b>Configuring the bootloader</b> ([[Handbook:AMD64/Installation/Bootloader|this]] one) in the Handbook, as the bootloader (depthcharge) is part of the system firmware.}}
+
+=== Finalizing ===
+
+[[Handbook:AMD64/Installation/Finalizing Finalize]] your new Gentoo installation according to the handbook. To use wifi remember to install {{Package|net-wireless/wpa_supplicant}}:
+
+{{RootCmd
+|emerge –ask net-wireless/wpa-supplicant
+}}
 
 == Considerations ==
 
@@ -133,119 +265,6 @@ INPUT_DEVICES="synaptics evdev"
 VIDEO_CARDS="fbdev" #fbturbo also works if using an overlay
 }}
 
-== 4.20+ kernel deployment ==
-
-Requirements:
-* {{Package|dev-embedded/u-boot-tools}}
-* {{Package|sys-boot/vboot-utils}}
-
-
-Configure {{Package|sys-kernel/gentoo-sources}} as usual. For reference adhere to the config provided here.
-
-
-Build kernel and dtbs:
-{{Cmd
-|make -j5 zImage dtbs
-}}
-
-From the kernel build directory, copy the zImage and the rk3288-veyron-speedy.dtb to the desired working directory:
-{{Cmd
-|cp -a arch/arm/boot/zImage /PATH/TO/ARBITRARY_WORKING_DIRECTORY
-|cp -a arch/arm/boot/dts/rk3288-veyron-speedy.dtb /PATH/TO/ARBITRARY_WORKING_DIRECTORY
-}}
-
-Create a [[Custom Initramfs]].
-Create it as a separate file (cf. [[Custom_Initramfs#Creating_a_separate_file|Custom Initramfs - Creating a separate file]]):
-{{Cmd
-|<nowiki>find . -print0 | cpio --null --create --verbose --format=newc | gzip --best > /PATH/TO/ARBITRARY_WORKING_DIRECTORY/initrd.img</nowiki>
-}}
-
-Change to the desired working directory:
-{{Cmd
-|cd /PATH/TO/ARBITRARY_WORKING_DIRECTORY
-}}
-
-
-Create the configuration file ("gentoo.its") for the FIT image with the following content<ref>https://wiki.debian.org/InstallingDebianOn/Asus/C201</ref>:
-{{FileBox|filename=gentoo.its|lang=bash|1=
-/dts-v1/;
-
-/ {
-    description = "Linux kernel image with one or more FDT blobs";
-    #address-cells = <1>;
-    images {
-        kernel@1{
-            description = "vmlinuz";
-            data = /incbin/("zImage");
-            type = "kernel_noload";
-            arch = "arm";
-            os = "linux";
-            compression = "none";
-            hash@1{
-                algo = "sha1";
-            };
-        };
-        fdt@1{
-            description = "dtb";
-            data = /incbin/("rk3288-veyron-speedy.dtb");
-            type = "flat_dt";
-            arch = "arm";
-            compression = "none";
-            hash@1{
-                algo = "sha1";
-            };
-        };
-        ramdisk@1{
-            description = "initrd.img";
-            data = /incbin/("initrd.img");
-            type = "ramdisk";
-            arch = "arm";
-            os = "linux";
-            compression = "none";
-            hash@1{
-                algo = "sha1";
-            };
-        };
-    };
-    configurations {
-        default = "conf@1";
-        conf@1{
-            kernel = "kernel@1";
-            fdt = "fdt@1";
-                ramdisk = "ramdisk@1";
-        };
-    };
-};
-}}
-
-Pack the FIT image:
-{{Cmd
-|sync && mkimage -f gentoo.its gentoo.itb
-}}
-
-
-Create a file ("kernel.flags") for the CMDLINE parameters:
-{{FileBox|filename=kernel.flags|lang=bash|1=
-console=tty1 root=/dev/YOUR_ROOTFS_PARTITION rootfstype=YOUR_ROOTFS_TYPE rootwait rw
-}}
-
-Sign and repack the kernel:
-{{Cmd
-|sync && futility --debug vbutil_kernel \
-    --arch arm \
-    --version 1 \
-    --keyblock /usr/share/vboot/devkeys/kernel.keyblock \
-    --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk \
-    --bootloader kernel.flags \
-    --config kernel.flags \
-    --vmlinuz gentoo.itb \
-    --pack vmlinuz.signed \
-}}
-
-Install the kernel to the kernel partition:
-{{RootCmd
-|sync && dd if{{=}}vmlinuz.signed of{{=}}/dev/YOUR_KERNEL_PARTITION
-}}
 
 == 4.13+ kernel configuration ==
 
