@@ -80,9 +80,9 @@ Enable booting from external media:
 
 === Configuring the Linux kernel ===
 
-Configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]]. If all necessary drivers are built into the kernel (i.e. no loadable modules are needed to boot the target device) there's no need to have an initramfs, which keeps things simple. Especially if the host system's architecture differs from the target device's architecture creating an initramfs would at least involve cross-compiling busybox.
+Configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]].
 
-Build the kernel and device tree binaries:
+==== Build the kernel and device tree binaries ====
 
 {{Cmd
 |make -j5 zImage dtbs
@@ -95,14 +95,25 @@ From the kernel build directory, copy the zImage and the target device's device 
 |cp -a arch/arm/boot/dts/DEVICETREE /PATH/TO/ARBITRARY_WORKING_DIRECTORY
 }}
 
+
+==== Optional: Creating a Custom Initramfs ====
+
+Follow instructions from the [[Custom Initramfs]] article.
+Embed the initramfs into the kernel or create it as a separate file (cf. [[Custom_Initramfs#Creating_a_separate_file|Custom Initramfs - Creating a separate file]]):
+{{Cmd
+|<nowiki>find /PATH/TO/INITRAMFS/ -print0 | cpio --null --create --verbose --format=newc | gzip --best > /PATH/TO/ARBITRARY_WORKING_DIRECTORY/initrd.img</nowiki>
+}}
+
+
+==== Creating the FIT image ====
+
 Change to the desired working directory:
 
 {{Cmd
 |cd /PATH/TO/ARBITRARY_WORKING_DIRECTORY
 }}
 
-
-Create the configuration file ("gentoo.its") for the FIT image with the following content. Again replace {{c|DEVICETREE}} with the filename of the target device's device tree binary, e.g. {{c|rk3288-veyron-speedy.dtb}} for the Asus Chromebook C201.
+Create the configuration file ("{{Path|gentoo.its}}") for the Flattened Image Tree (FIT)<ref>Joel A Fernandes, [https://elinux.org/images/f/f4/Elc2013_Fernandes.pdf Flattened Image Trees: A powerful kernel image format (PDF)], [https://elinux.org/Main_Page Embedded Linux Wiki], February 21, 2013. Retrieved on February 25th, 2019</ref> with the following content. Again replace {{c|DEVICETREE}} with the filename of the target device's device tree binary, e.g. {{c|rk3288-veyron-speedy.dtb}} for the Asus Chromebook C201.
 
 {{FileBox|filename=gentoo.its|lang=bash|1=
 /dts-v1/;
@@ -124,7 +135,7 @@ Create the configuration file ("gentoo.its") for the FIT image with the followin
         };
         fdt@1{
             description = "dtb";
-            data = /incbin/("rk3288-veyron-speedy.dtb");
+            data = /incbin/("DEVICETREE");
             type = "flat_dt";
             arch = "arm";
             compression = "none";
@@ -162,12 +173,13 @@ Pack the FIT image:
 |mkimage -f gentoo.its gentoo.itb
 }}
 
+
+==== Preparing verified boot ====
+
 Create a file ("kernel.flags") for the CMDLINE parameters:
 
-{{Important|The term "sd*" needs to be replaced with the term corresponding to the bootable media <b>in future</b>, i.e. when booting on the target system. This depends entirely on the target device, but "sda" or "sdb" respectively "mmcblk0p" or "mmcblk1p" are good guesses.}}
-
 {{FileBox|filename=kernel.flags|lang=bash|1=
-console=tty1 root=/dev/sd*2 rootfstype=ext4 rootwait rw
+console=tty1 root=/dev/YOUR_ROOTFS_PARTITION rootfstype=YOUR_ROOTFS_TYPE  rootwait rw
 }}
 
 Sign and pack the kernel:
@@ -177,7 +189,7 @@ Sign and pack the kernel:
 |futility --debug vbutil_kernel --arch arm --version 1 --keyblock /usr/share/vboot/devkeys/kernel.keyblock --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk --bootloader kernel.flags --config kernel.flags --vmlinuz gentoo.itb --pack vmlinuz.signed
 }}
 
-Install the kernel to the kernel partition:
+==== Install the kernel to the kernel partition ====
 
 {{RootCmd
 |sync && dd if{{=}}vmlinuz.signed of{{=}}/dev/YOUR_KERNEL_PARTITION
