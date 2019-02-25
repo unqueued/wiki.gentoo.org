@@ -151,7 +151,7 @@ Skip "Mounting the boot partition", apart from that follow the Handbook for [[Ha
 
 === Configuring the Linux kernel ===
 
-Configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]].
+Configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]]. Alternatively refer to the [https://github.com/Miouyouyou/RockMyy RockMyy repository] to include Mali GPU drivers.
 
 ==== Build the kernel and device tree binaries ====
 
@@ -297,30 +297,14 @@ Also keep in mind that the built-in wifi requires [[Asus_Chromebook_C201#Built-i
 * Backing up the ChromeOS partition (mmcblk0) is highly recommended, however it is not difficult restore ChromeOS after a failure. Create a restore USB medium through desktop Chrome or download the files manually to write to a USB drive.
 {{Warning|DO NOT disable cros' developer mode! If the kernel fails to boot, the machine will not be able to boot from the install medium and will be forced to "powerwash" the Chromebook. Even the kernel boots, crossystem/mosys is needed to change these flags. [https://lists.gnu.org/archive/html/libreboot/2016-06/msg00023.html This] is the solution if this happens on Libreboot, though wait for partition 5 to complete instead.}}
 
-== Preparation == 
 
-First, enable developer mode, unsigned boot and booting from external mediums. Look [https://libreboot.org/docs/depthcharge/#configuring-verified-boot-parameters here] for more information.
 
-This laptop uses a depthcharge payload to boot, thus standard minimal ISOs will not work here.
-Creating a [https://notabug.org/dimkr/devsus Devsus] image and writing it to a flash drive to use for the installation medium is recommended. If this is done, modify the kernel config file to include modules for either brcmfmac SDIO or the USB wifi/ethernet dongle.
 
-{{Note|Devsus uses Google's 3.14 kernel. This is out of date and caused some issues for me. It is recommended to follow the 4.13+ kernel configuration below.}}
-
-Once booted into the minimal environment and have obtained an internet connection via either wifi or an ethernet dongle, obtain {{Package|sys-boot/vboot-utils}} from whatever distribution is running. We will now wipe ChromeOS and setup a partition for the kernel, and leave the rest for root.
 
 {{Warning|
 <big>'''CHECK lsblk BEFORE DOING ANYTHING!'''</big>
 On Google's 3.14 kernel, the eMMC storage is presented as mmcblk0, and the SD is presented as mmcblk2. On newer kernels, this can be reversed, with internal storage being mmcblk2. Needless to say this can cause an issue if partitioning or using dd on the wrong device!}}
 {{Important|If planning on using firmware blobs, copy them from ChromeOS's root partition to the flash medium for later use.}}
-
-{{RootCmd
-|parted /dev/mmcblk[ID] mklabel gpt
-|cgpt create -z /dev/mmcblk[root ID]
-|cgpt create /dev/mmcblk[ID]
-|cgpt add -i 1 -t kernel -b 8192 -s 65536 -l Kernel -S 1 -T 5 -P 10 /dev/mmcblk[ID] # 32mb
-|sync}}
-
-Partition the rest of the free space as desired with gdisk. Put the root filesystem directly after the kernel partition.
 
 If planning to use the kernel on a USB drive, simply dd it to the internal storage and copy all modules from it:
 {{RootCmd
@@ -330,79 +314,13 @@ If planning to use the kernel on a USB drive, simply dd it to the internal stora
 |cp -R /lib/modules/* /mnt/gentoo/lib/modules}}
 Optionally, copy the firmware blobs previously backed up earlier to lib/firmware on the internal storage root.
 
-== Base installation ==
-
-At this point, follow generic stage3 install steps. Mount the root filesystem wherever and setup stage3/Portage:
-{{Note|Exchange /mnt/gentoo with the real mountpoint.}}
-
-{{RootCmd
-|<nowiki>wget -O - http://distfiles.gentoo.org/releases/arm/autobuilds/$(wget -O - http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt 2>/dev/zero |  tail -n1) |  tar xjvp -C /mnt/gentoo/</nowiki>
-|<nowiki>wget -O - http://distfiles.gentoo.org/releases/snapshots/current/portage-latest.tar.bz2 |  tar xvjp -C /mnt/gentoo/usr/</nowiki>}}
-
-{{Note| Alternatively, use a (hardened) [[Project:Hardened_musl|musl]] [https://gentoo.osuosl.org/experimental/arm/musl/ stage3], which is known to work as well, though different instructions apply.}}
-
-Proceed to chroot and emerge world and whatever else.
-
 {{FileBox|filename=make.conf|lang=bash|1=
 CFLAGS="-O2 -pipe -march=armv7-a -mtune=cortex-a17 -mfpu=neon -mfloat-abi=hard -pipe -fomit-frame-pointer -fstack-protector-strong"
 CXXFLAGS="${CFLAGS}"
 CHOST="armv7a-hardfloat-linux-gnueabi"
-INPUT_DEVICES="synaptics evdev"
-VIDEO_CARDS="fbdev" #fbturbo also works if using an overlay
+INPUT_DEVICES="libinput"
+VIDEO_CARDS="fbdev"
 }}
-
-
-== 4.13+ kernel configuration ==
-
-{{Warning|This section is out of date, better follow instructions above.}}
-{{Important
-|This script is out of date and will require adaptation to get it working, in particular the patches used. The important bits for building the raw kernel begin on line [https://gist.github.com/anonymous/d0ce3911c933562154ca2e3f5fe602c5#file-c201-kerngen-sh-L171 171].  Using the RockMyy repo as is to build a kernel is recommended. }}
-Requirements:
-
-* {{Package|sys-boot/vboot-utils}}
-* {{Package|dev-embedded/u-boot-tools}}
-* (if building on another machine) crossdev with the armv7a-hardfloat-linux-gnueabi target
-
-Clone the RockMyy repo:
-
-{{Cmd
-|git clone https://github.com/Miouyouyou/RockMyy.git
-|cd RockMyy
-}}
-
-Download the following gist:
-
-https://gist.github.com/anonymous/d0ce3911c933562154ca2e3f5fe602c5
-
-Save 0007-brcmfmac-wififix.patch to patches/kernel/v4.13
-
-Save c201_kerngen.sh & kernel.its to .
-
-Save config-latest to ./config/v4.13/
-
-Create a file named cmdline in the current directory.
-
-Put the following in it, replace rootfstype:
-{{FileBox|filename=cmdline|lang=bash|1=
-console=tty1 init=/sbin/init root=PARTUUID=%U/PARTNROFF=1 rootfstype=[ext4/f2fs/etc] rootwait rw quiet
-}}
-
-The CPU governor defaults to conservative. If ondemand, or other modules, are desired, set MAKE_CONFIG=menuconfig to enter menuconfig.
-
-Otherwise:
-
-{{Cmd|sh c201_kerngen.sh}}
-
-If all goes well, this will put the kernel as ./kernel and the modules in ./modules
-
-Now scp/copy this file and folder to the C201. Once done, or if compiling on the C201, install them:
-
-{{RootCmd
-|dd if{{=}}kernel of{{=}}/dev/mmcblk[ID]p1 conv{{=}}notrunc
-|cp -Rv ./modules/lib /
-}}
-
-This kernel can be used with the Devsus USB as well.
 
 == Built-in wifi ==
 
