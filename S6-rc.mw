@@ -121,7 +121,7 @@ esac}}
 
 A service bundle is just a named group of services, created for administrative purposes. Because a bundle is also created with a service definition directory supplied to {{C|s6-rc-compile}}, and bundle names can be used in most places that expect a service name, the term ''service'' is loosely used to also refer to bundles, and the term ''atomic service'' is used to refer to either longruns or oneshots, but not bundles, when the distinction matters. In particular, bundles can be used to implement runlevel-like functionality if so desired, combined with the {{C|s6-rc -pu change}} command (see [[#dependencies|service dependencies]]). For examples of this, see [[#s6rcupdate|live updates to the service database]].
 
-A service bundle definition in {{C|s6-rc-compile}}'s source format must contain a regular file named {{Path|contents}}. The {{Path|type}} file must contain the word '''bundle''' followed by a newline. The {{Path|contents}} file must contain a list of service names, one per line; the bundle will cointain all the corresponding services. Whitespace at the beginning of a line is ignored, but trailing whitespace is not. Lines starting with a hash sign ('#') are ignored. Names that refer to other bundles can be used in {{Path|contents}}; {{C|s6-rc-compile}} interprets them as referring to the set of atomic services contained in the named bundle. For the full description of the bundle definition source format, please consult {{C|s6-rc-compile}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+A service bundle definition in {{C|s6-rc-compile}}'s source format must contain a regular file named {{Path|contents}}. The {{Path|type}} file must contain the word '''bundle''' followed by a newline. The {{Path|contents}} file must contain a list of service names, one per line; the bundle will cointain all the corresponding services. Whitespace at the beginning of a line is ignored, but trailing whitespace is not. Lines that start with a hash sign ('#') are treated as comments and ignored. Names that refer to other bundles can be used in {{Path|contents}}; {{C|s6-rc-compile}} interprets them as referring to the set of atomic services contained in the named bundle. For the full description of the bundle definition source format, please consult {{C|s6-rc-compile}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
 Example definition in source format for a service bundle named ''test-bundle'':
 {{Cmd|ls -l test-bundle|
@@ -643,33 +643,33 @@ The plus sign ('+') confirms that s6 considers it up. Consistency can be restore
 {{anchor|dependencies}}
 === Service dependencies ===
 
-s6-rc supports the specification of dependencies between services. Service A can be defined to ''directly depend'' on service B, with the following meaning:
+s6-rc supports the specification of dependencies between services. Service '''A''' can be defined to ''directly depend'' on service '''B''', with the following meaning:
 
-* If s6-rc it is asked to start A, then B is automatically started first, and if that transition was successful, the requested operation is performed.
-* If s6-rc it is asked to stop B, then A is automatically stopped first, and if that transition was successful, the requested operation is performed.
+* If s6-rc it is asked to start '''A''', then '''B''' is automatically started first, and if that transition was successful, the requested operation is performed.
+* If s6-rc it is asked to stop '''B''', then '''A''' is automatically stopped first, and if that transition was successful, the requested operation is performed.
 
 Therefore, transition failures (see [[#manage|managing services]]) might result in not performing the requested operation, leaving the service in the state it was before.
 
-In turn, a service's dependencies can have dependencies themselves, forming dependency chains: if service A directly depends on service B, and B directly depends on service C, then service A is said to ''depend'' (with no qualification) on both B and C. The aforementioned procedure for state transitions is performed recursively when there are dependency chains, so asking s6-rc to start A will result in a cascade of transitions to up to honor dependencies: C first, B second, A last. Similarly, asking s6-rc to stop C will result in transitions to down for A, B and C, in that order. This means that dependencies introduce, for the purpose of state transitions, a partial ordering of services. The {{C|s6-rc change}} command parallelizes the transitions as much as it can. Independent services are processed in parallel, but ordering constraints introduced by dependencies may result in serial processing for one or more subsets of services.
+In turn, a service's dependencies can have dependencies themselves, forming dependency chains: if service '''A''' directly depends on service '''B''', and '''B''' directly depends on service '''C''', then service '''A''' is said to ''depend'' (with no qualification) on both '''B''' and '''C'''. The aforementioned procedure for state transitions is performed recursively when there are dependency chains, so asking s6-rc to start A will result in a cascade of transitions to up to honor dependencies: C first, B second, A last. Similarly, asking s6-rc to stop C will result in transitions to down for A, B and C, in that order. This means that dependencies introduce, for the purpose of state transitions, a partial ordering of services. The {{C|s6-rc change}} command parallelizes the transitions as much as it can. Independent services are processed in parallel, but ordering constraints introduced by dependencies may result in serial processing for one or more subsets of services.
 
-A service definition in {{C|s6-rc-compile}}'s source format can specify direct dependencies by including a regular file named {{Path|dependencies}}, that must contain a list of service names, one per line. Whitespace at the beginning of a line is ignored, but trailing whitespace is not. Lines starting with a hash sign ('#') are ignored. Only atomic service definitions can contain a {{Path|dependencies}} file, [[#bundles|service bundle definitions]] cannot. {{Path|dependencies}} files ''can'' contain service bundle names; s6-rc considers the service being defined to directly depend on every atomic service contained in the specified bundle. For further information about configuration of service dependencies, please consult {{C|s6-rc-compile}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory. 
+An atomic service definition in {{C|s6-rc-compile}}'s source format (i.e. not [[#bundles|bundle definitions]]) can specify direct dependencies by including a regular file named {{Path|dependencies}}, that must contain a list of service names, one per line. Whitespace at the beginning of a line is ignored, but trailing whitespace is not. Lines that start with a hash sign ('#') are treated as comments and ignored. {{Path|dependencies}} files ''can'' contain service bundle names; s6-rc considers the service being defined to directly depend on every atomic service contained in the specified bundle. For further information about configuration of service dependencies, please consult {{C|s6-rc-compile}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory. 
 
-Because dependencies may cause state transitions for services that are not in the computed selection of an {{C|s6-rc change}} command, the {{C|s6-rc}} program must also compute a ''forward dependency graph'' for transitions to up, or a ''reverse dependency graph'' for transitions to down, and then it must computed the ''closed selection'', which is the set of all atomic services in the database that need a state transition. An atomic service is in the command's closed selection if:
+Because dependencies may cause state transitions for services that are not in the computed selection of an {{C|s6-rc change}} command, the {{C|s6-rc}} program must also compute a ''forward dependency graph'' for transitions to up, or a ''reverse dependency graph'' for transitions to down, and then it must compute the ''closed selection'', which is the set of all atomic services in the database that need a state transition. An atomic service is in the command's closed selection if:
 * it is in the selection, or
 * a service in the selection depends on it and the requested operation was to start services, or
 * it depends on a service in the selection and the requested operation was to stop services.
 
 The format of a compiled service database allows {{C|s6-rc}} to perform these computations efficiently. Dependency correctness, i.e. the absence of dependency cycles in the submitted set of service definitions, is verified by {{C|s6-rc-compile}} at the time of database creation.
 
-The {{C|s6-rc-db}} program (see [[#s6rcdb|extracting information from a compiled database]]) has two subcommands that display depencency information:
-* '''dependencies''': displays the direct dependencies of the service corresponding to the name supplied as the subcommand's argument. If the name corresponds to a service bundle, it displays the union of the direct dependencies of all the atomic services contained in the bundle.
-* '''all-dependencies''': displays the fully resolved list of atomic services represented by the list of service names supplied as the subcommand's arguments, in the same way as the <code>atomics</code> subcommand, and all services in either the forward or the reverse dependency graph. The forward dependency graph is used if the <code>-u</code> option is passed to {{C|s6-rc-db}}, and the reverse dependency graph is used if the <code>-d</code> option is passed to {{C|s6-rc-db}}.
+The {{C|s6-rc-db}} program (see [[#s6rcdb|extracting information from a compiled database]]) has two subcommands that display dependency information:
+* '''dependencies''': displays the direct dependencies of the service corresponding to the name supplied as the subcommand's argument. If the specified service is a bundle, it displays the union of the direct dependencies of all the atomic services contained in the bundle.
+* '''all-dependencies''': displays the fully resolved list of atomic services represented by the list of service names supplied as the subcommand's arguments, in the same way as the <code>atomics</code> subcommand, plus all services in either the forward or the reverse dependency graph. The forward dependency graph is used if a <code>-u</code> option is passed to {{C|s6-rc-db}}, and the reverse dependency graph is used if a <code>-d</code> option is passed to {{C|s6-rc-db}}. If there is neither a <code>-u</code> option nor a <code>-d</code> option, {{C|s6-rc-db}} behaves as if the <code>-u</code> option had been specified.
 
-Finally, the {{C|s6-rc}} program has a '''listall''' subcommand that displays the closed selection computed from the service names supplied as arguments. Since this is done with a depencency graph, the result is the same as that of <kbd>s6-rc-db all-dependencies</kbd>, except that the latter can also be used with a compiled database that is not live. The forward dependency graph is used if the <code>-u</code> option is passed to {{C|s6-rc}}, and the reverse dependency graph is used if the <code>-d</code> option is passed to {{C|s6-rc}}. If a <code>-p</code> option ('prune') is passed to {{C|s6-rc}} combined with the <code>change</code> command, if a transition to up was requested, services in the computed closed selection are started and every other service not in down state is stopped. If a transition to down was requested, services in the computed closed selection are stopped and every other service not in up state is started. In both cases, all transitions to down are performed before all transitions to up.
+Finally, the {{C|s6-rc}} program also has a '''listall''' subcommand that displays the closed selection computed from the service names supplied as arguments. Since this is done with a depencency graph, the result is the same as that of {{C|s6-rc-db all-dependencies}}, except that the latter can also be used with a compiled database that is not live. The forward dependency graph is used if the <code>-u</code> option is passed to {{C|s6-rc}}, and the reverse dependency graph is used if the <code>-d</code> option is passed to {{C|s6-rc}}. If a <code>-p</code> option ('prune') is passed to {{C|s6-rc}} combined with the <code>change</code> subcommand, if a transition to up was requested, services in the computed closed selection are started and every other service not in down state is stopped. If a transition to down was requested, services in the computed closed selection are stopped and every other service not in up state is started. In both cases, all transitions to down are performed before all transitions to up.
 
 For further information about the {{C|s6-rc}} and {{C|s6-rc-db}} programs, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-Example set of service defitions with dependencies:
+Example set of service definitions with dependencies:
 {{Cmd|ls -l srv-src3/*|
 output=<pre>srv-src3/service-A:
 total 24
@@ -722,7 +722,7 @@ total 12
 -rw-r--r-- 1 user user 85 Apr 11 12:00 run
 -rw-r--r-- 1 user user  8 Apr 11 12:00 type</pre>}}
 
-Dependency specifications for this set of services are set up according to this diagram:
+Dependency specifications for these services are set up according to the following diagram:
 <pre>
 A <-- B <--+ D
            |
@@ -895,7 +895,7 @@ s6rc-oneshot-runner
 service-G:
 </pre>}}
 
-Note that for every oneshot the implicit dependency on service ''s6rc-oneshot-runner'' is also displayed (see [[#oneshots|oneshot definitions]]). Initializing s6-rc, assuming that there is a supervision tree with {{Path|/home/user/scan}} as the scan directory and with a logger like in the example from section [[#initialization|"initializing s6-rc"]], that database ''test-database2'' is in {{Path|/home/user}}, and that the working directory is the scan directory:
+Note that for every oneshot the implicit dependency on service {{Path|s6rc-oneshot-runner}} is also displayed (see [[#oneshots|oneshot definitions]]). Initializing s6-rc, assuming that there is a supervision tree with {{Path|/home/user/scan}} as the scan directory and with a logger like in the example from section [[#initialization|"initializing s6-rc"]], that database ''test-database2'' is in {{Path|/home/user}}, and that the working directory is the scan directory:
 
 {{Cmd|s6-rc-init -c /home/user/test-database2 -l /home/user/live /home/user/scan|s6-rc -ul ../live list service-<nowiki>{D,F,G}</nowiki> {{!}} sort|
 output=<pre>service-D
@@ -924,7 +924,7 @@ s6-rc-dryrun: s6-sudo -el0 -t 30000 -T 0 -- ../live/servicedirs/s6rc-oneshot-run
 s6-rc-dryrun: s6-sudo -el0 -t 30000 -T 0 -- ../live/servicedirs/s6rc-oneshot-runner/s up 7  # service-C
 s6-rc-dryrun: s6-svc -uwu -T 0 -- ../live/servicedirs/service-D</pre>}}
 
-Services D and G are longruns that don't use readiness notificacion, so {{C|s6-svc}}'s <code>-wu</code> option (wait for the up notification) is used instead of <code>-wU</code> (wait for the up and ready notification). An because service A's definition specified an up timeout of 15 seconds, the corresponding {{C|s6-svc}} invocation uses a <code>-T 15000</code> option instead of <code>-T 0</code> ("infinite").
+Services D and G are longruns that don't use readiness notificacion, so {{C|s6-svc}}'s <code>-wu</code> option (wait for the up notification) is used instead of <code>-wU</code> (wait for the up and ready notification). And because service A's definition specified an up timeout of 15 seconds, the corresponding {{C|s6-svc}} invocation uses a <code>-T 15000</code> option instead of <code>-T 0</code> ("infinite").
 
 Actually starting the services:
 {{Cmd|time s6-rc -ul ../live change service-<nowiki>{D,F,G}</nowiki> {{!}} s6-tai64nlocal|
@@ -941,7 +941,7 @@ output=<pre>2018-04-12 11:39:59.683503297 Service G starting
 2018-04-12 11:40:10.784500674 Service B starting
 2018-04-12 11:40:20.793244854 Service D starting</pre>}}
 
-This shows how {{C|s6-rc change}} tried to paralellize state transitions as much as it could: services A, C, E and G were started immediately and in paralell, but services B, D and F were not. Service B's transition happens approximately 11 seconds after service A's, because it is a dependency and that is the time it took service A to become up and ready, and service D's transition happens approximately 10 seconds after service B's for the same reason. It didn't happen later than that because its other dependencies, services A and C, had already successfully transitioned to up. Service F's transition happens approximately 10 seconds after service E's, because it is a dependency and that is the time it took service E to become up and ready. Service D's, F's, and G's transitions are almost instant, because service F is a oneshot, and services D and G {{C|s6-rc}} do not wait for readiness, so the whole operation took about 21 seconds, and finished after service D's transition to up. Because all state transitions were successful, all services in the selection are now in up state. Stopping all services:
+This shows how {{C|s6-rc change}} tried to parallelize state transitions as much as it could: services A, C, E and G were started immediately and in parallel, but services B, D and F were not. Service B's transition happens approximately 11 seconds after service A's, because it is a dependency and that is the time it took service A to become up and ready, and service D's transition happens approximately 10 seconds after service B's for the same reason. It didn't happen later than that because its other dependencies, services A and C, had already successfully transitioned to up. Service F's transition happens approximately 10 seconds after service E's, because it is a dependency and that is the time it took service E to become up and ready. Service D's, F's, and G's transitions are almost instant, because service F is a oneshot, and services D and G do not wait for readiness, so the whole operation took about 21 seconds, and finished after service D's transition to up. Because all state transitions were successful, all services in the selection are now in up state. Stopping all services:
 {{Cmd|time s6-rc -dal ../live change {{!}} s6-tai64nlocal|
 output=<pre>2018-04-12 11:42:37.012906156 Service F stopping
 2018-04-12 11:42:37.022828479 Service C stopping
@@ -963,7 +963,7 @@ output=<pre>2018-04-12 11:39:59.683503297 Service G starting
 
 This shows that most state transitions were almost instant except service F's, because of the {{C|sleep 10}} command in its {{Path|down}} file. Service E's transition happens after service F's transition completed because it is a dependency, so the whole operation took about 10 seconds and finished after service E's transition to down.
 
-Forcing a rotation of the logging directory with an {{C|s6-svc -a logger}} command so that the {{Path|current}} file gets emptied, and redoing the steps with one modification:
+Forcing a rotation of the logging directory with an <kbd>s6-svc -a logger</kbd> command so that the {{Path|current}} file gets emptied, and redoing the steps with one modification:
 {{Cmd|echo 10 >service-A/env/LONGRUN_TIME|time s6-rc -ul ../live change service-<nowiki>{D,F,G}</nowiki> {{!}} s6-tai64nlocal|
 output=<pre>2018-04-12 11:47:02.955608987 Service C starting
 2018-04-12 11:47:12.969170358 Service F starting
@@ -1002,7 +1002,7 @@ output=<pre>2018-04-12 11:53:24.632173839 Service E starting
 2018-04-12 11:53:24.637411837 Service A starting
 2018-04-12 11:53:35.650247605 Service B starting</pre>}}
 
-This shows that the attempt to start service C failed: the equivalent of executing the {{Path|up}} file of its service definition that program {{C|s6-rc-oneshot-run}} performs exited with a nonzero code ('''7'''), caused by the setting of environment variable <var>ONESHOT_STATUS</var>. And because service D depends on service C, the former was not stated. The whole operation took about 21 seconds and finished after service B's transition to up.
+This shows that the attempt to start service C failed: the equivalent of executing the {{Path|up}} file of its service definition that program {{C|s6-rc-oneshot-run}} performs exited with a nonzero code ('''7'''), caused by the setting of environment variable <var>ONESHOT_STATUS</var>. And because service D depends on service C, the former was not started. The whole operation took about 21 seconds and finished after service B's transition to up.
 {{Cmd|s6-rc -al ../live list {{!}} sort|
 output=<pre>s6rc-oneshot-runner
 service-A
@@ -1028,7 +1028,7 @@ output=<pre>2018-04-12 12:08:45.689700612 Service G starting
 2018-04-12 12:08:56.846140697 Service B starting
 2018-04-12 12:09:06.853497873 Service D starting</pre>}}
 
-This shows that the attempt to start service E failed: the setting of environment variable <var>LONGRUN_FAIL</var> to '''yes''' caused the {{Path|run}} script in its s6 service directory to exit immediately, and the {{Path|finish}} script to exit with code 125, which signals permanent failure to s6. And because service F depends on service E, the former was not stated. The whole operation took about 21 seconds and finished after service D's transition to up.
+This shows that the attempt to start service E failed: the setting of environment variable <var>LONGRUN_FAIL</var> to '''yes''' caused the {{Path|run}} script in its s6 service directory to exit immediately, and the {{Path|finish}} script to exit with code 125, which signals permanent failure to s6. And because service F depends on service E, the former was not started. The whole operation took about 21 seconds and finished after service D's transition to up.
 {{Cmd|s6-rc -al ../live list {{!}} sort|
 output=<pre>s6rc-oneshot-runner
 service-A
@@ -1042,17 +1042,17 @@ This shows that after the {{C|s6-rc -u change}} command, services E and F are no
 === Live updates to the service database ===
 
 The s6-rc package provides a program, {{C|s6-rc-bundle}}, that allows adding or removing [[#bundles|service bundles]] to or from a compiled database, without having to recompile it from source using {{C|s6-rc-compile}}. It is also notable in that it can be used even if the database is live, i.e. already associated with an s6 supervision tree and an s6-rc live state directory. {{C|s6-rc-bundle}} accepts a subcommand that tells it what to do:
-* '''add''': adds a service bundle to the database. It accepts a list of service names: the first one is the name of the bundle, and the others are the contents of the bundle. The effect is the same as that of a bundle definition in {{C|s6-rc-compile}}'s source format that contains those service names in the {{Path|contents}} file.
+* '''add''': adds a service bundle to the database. It accepts a list of service names: the first one is the name of the bundle, and the others are the contents of the bundle. The effect is the same as that of a bundle definition in {{C|s6-rc-compile}}'s source format that contains those service names in its {{Path|contents}} file.
 * '''delete''': removes a service bundle from the database. It accepts a single argument specifying the name of the bundle.
-* '''multiple''': allows removal and addition of several service bundles in one go. It expects its arguments to be in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], so the forward compatible way to use it is in an execline script or {{C|execlineb -c}} command: the invocation can be written using a the syntax <kbd>s6-rc-bundle multiple { d1 d2 ... } n1 { c11 c12 ... } n2 { c21 c22 ... } ...</kbd>, where ''d1'', ''d2'', ... are service names specifying bundles to delete, ''n1'', ''n2'', ... are service names specifying bundles to add, ''c11'', ''c12'', ... are service names specifying the contents of bundle ''n1'', ''c21'', ''c22'', ... are service names specifying the contents of bundle ''n2'', and so on. The list ''d1 d2 ...'' can be empty, resulting in no deletions. Everything after the first {}-block can be ommited, resulting in no additions.
+* '''multiple''': allows removal and addition of several service bundles in one go. It expects its arguments to be in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], so the forward compatible way to use it is in an execline script or {{C|execlineb -c}} command: the invocation can be written using a the syntax <kbd>s6-rc-bundle multiple { d1 d2 ... } n1 { c11 c12 ... } n2 { c21 c22 ... } ...</kbd>, where ''d1'', ''d2'', ... are service names specifying bundles to delete, ''n1'', ''n2'', ... are service names specifying bundles to add, ''c11'', ''c12'', ... are service names specifying the contents of bundle ''n1'', ''c21'', ''c22'', ... are service names specifying the contents of bundle ''n2'', and so on. The list ''d1 d2 ...'' can be empty, resulting in no deletions. Everything after the first {}-block can be omitted, resulting in no additions.
 
 {{C|s6-rc-bundle}} operates on the database associated with live state directory {{Path|/run/s6-rc}}, unless it is passed an <code>-l</code> option followed by the (absolute or relative to the working directory) pathname of a different live state directory, or it is passed a <code>-c</code> option followed by the pathname of a database. For more information about {{C|s6-rc-bundle}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
 Using {{C|s6-rc-bundle}} is the only way to modify a compiled database. Any other modification has to be done on the service definitions in source format that were used to create the database, and then {{C|s6-rc-compile}} must be used to make a new database. Because a database that is live cannot be deleted, the s6-rc package provides a tool that allows its ''replacement'': the {{C|s6-rc-update}} program, an ''online service database switcher''. If the replaced database contained a service that is not present in the replacing database, the affected service will be ''deleted'': its name will no longer be recognized as valid by tools like the {{C|s6-rc}} and {{C|s6-rc-db}} programs. Therefore, the replacing database must contain all wanted services, both modified and unmodified ones, and generally means that service definitions in {{C|s6-rc-compile}}'s source format must be kept around.
 
-{{C|s6-rc-update}} accepts the replacing database's absolute pathname as an argument, and performs the database switch for live state directory {{Path|/run/s6-rc}}, unless it is passed an <code>-l</code> option followed by the absolute pathname of a different live state directory. It also ensures consistency of service states: it analyses both the replaced and replacing database's contents to determine which services are present in both (based on name), and preserves their corresponding state, except for services that change types (longrun to oneshot and vice-versa, atomic service to bundle and vice-versa) or direct dependencies. In those cases, if the service is in up state at program startup, {{C|s6-rc-update}} ''restarts'' it: it stops it before the database replacement, and then starts it after the database replacement, so if there are new services defined as direct dependencies, {{C|s6-rc-update}} starts them too after the database replacement. Deleted services are stopped before the replacement.
+{{C|s6-rc-update}} accepts the replacing database's absolute pathname as an argument, and performs the database switch for live state directory {{Path|/run/s6-rc}}, unless it is passed an <code>-l</code> option followed by the absolute pathname of a different live state directory. It also ensures consistency of service states: it analyses both the replaced and replacing database's contents to determine which services are present in both (based on name), and preserves their corresponding state, except for services that change types (longrun to oneshot and vice-versa, atomic service to bundle and vice-versa) or direct dependencies. In those cases, if the service is in up state at program startup, {{C|s6-rc-update}} ''restarts'' it: it stops it before the database replacement, and then starts it after the database replacement, so if there are new services defined as direct dependencies, {{C|s6-rc-update}} will start them too after the database replacement. Deleted services are stopped before the replacement.
 
-{{C|s6-rc-update}} also accepts an <code>-f</code> option followed by the pathname of a file, the ''conversion file'', that can currently be used for two purposes: service renaming and forced restarts. The file must contain a sequence of lines of text, each of which is independently lexed into words as if by the {{C|execlineb}} program, so it can contain #-comments, quoted strings, etc. Lines of the form <code>old-service -> new-service</code> rename service ''old-service'' to ''new-service''. Therefore, all appearances of name ''old-service'' in service definitions of the replaced database, and all appearances of name ''new-service'' in service definitions of the replacing database, are understood to refer to the same service for the purpose of computing needed state transitions. Otherwise, they are considered to name unrelate services. Lines of the form <code>service-name restart</code> makes {{C|s6-rc-update}} forcibly restart service ''service-name'', and lines of the form <code>old-service -> new-service restart</code> make {{C|s6-rc-update}} perform both a rename and a forced restart.
+{{C|s6-rc-update}} also accepts an <code>-f</code> option followed by the pathname of a file, the ''conversion file'', that can currently be used for two purposes: service renaming and forced restarts. The file must contain a sequence of lines of text, each of which is independently lexed into words as if by the {{C|execlineb}} program, so it can contain #-comments, quoted strings, etc. A line of the form <code>old-service -> new-service</code> renames service ''old-service'' to ''new-service''. Therefore, all appearances of name ''old-service'' in service definitions of the replaced database, and all appearances of name ''new-service'' in service definitions of the replacing database, are understood to refer to the same service for the purpose of computing needed state transitions. Otherwise, they are considered to name unrelated services. A line of the form <code>service-name restart</code> makes {{C|s6-rc-update}} forcibly restart service ''service-name'', and a line of the form <code>old-service -> new-service restart</code> makes {{C|s6-rc-update}} perform both a rename and a forced restart.
 
 {{Note|If a renamed service is a longrun that does not end up getting restarted by {{C|s6-rc-update}}, and the {{C|ps}} utility is used after the service database switch, its {{C|s6-supervise}} parent will appear in the output with the old service name as agrument, because that is how it was invoked by {{C|s6-svscan}}. This is purely cosmetic and has no impact on the service; nevertheless, if the 'correct' ouput is desired, the file supplied with the <code>-f</code> option must also specify a forced restart of the longrun.}}
 
@@ -1060,11 +1060,22 @@ Using {{C|s6-rc-bundle}} is the only way to modify a compiled database. Any othe
 
 {{Important|The absolute pathname specified to {{C|s6-rc-update}} with an <code>-l</code> option must be that of the symbolic link to directory created by {{C|s6-rc-init}}, not that of the actual directory.}}
 
-Finally, s6-rc provides the {{C|s6-rc-format-upgrade}} program, that can be used to upgrade the format of a compiled service database that is live and was created with an earlier incompatible version of {{C|s6-rc-compile}}. It is intended to be used after upgrading the s6-rc package to a backwards-incompatible version, without disrupting the live state directory and associated s6 supervision tree (e.g. if s6-rc is used as an init system component) and currently works for upgrades from version 0.3.0.0 to version 0.4.0.0. It actually performs a database switch like {{C|s6-rc-update}} does, it accepts the absolute path of a compiled database, and operates on live state directory {{Path|/run/s6-rc}}, unless it is passed an <code>-l</code> option followed by the (absolute or relative to the working directory) pathname of a different live state directory. For more information about {{C|s6-rc-format-upgrade}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+Finally, s6-rc provides the {{C|s6-rc-format-upgrade}} program, that can be used to upgrade the format of a compiled service database that is live and was created with an earlier, incompatible version of {{C|s6-rc-compile}}. It is intended to be used after upgrading the s6-rc package to a possibly backwards-incompatible version, without disrupting the live state directory and associated s6 supervision tree (e.g. if s6-rc is used as [[#initsystem|an init system component]]). It accepts the absolute pathname of a compiled database, and operates on live state directory {{Path|/run/s6-rc}}, unless it is passed an <code>-l</code> option followed by the (absolute or relative to the working directory) pathname of a different live state directory. For more information about {{C|s6-rc-format-upgrade}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-{{Important|The replacing database submitted to {{C|s6-rc-format-upgrade}} must have been created with the {{C|s6-rc-compile}} program from the same version of s6-rc, i.e. the upgraded package, and must be created from the same service definitions as the replaced database. So, for example, if database A was created from service definitions ''S1'', ''S2'', ..., ''SN'' with {{C|s6-rc-compile}} from version 0.3.0.0, and an upgrade is made to s6-rc version 0.4.0.0, then a new database B must be created from the exact same ''S1'', ''S2'', ..., ''SN'', but with {{C|s6-rc-compile}} from version 0.4.0.0, and then {{C|s6-rc-format-upgrade}} from version 0.4.0.0 must be invoked with database B (and the pathname of the live state directory A is currently associated with using the <code>-l</code> option, if it is not {{Path|/run/s6-rc}}. Please carefully review the details of the upgrade procedure in {{C|s6-rc-format-upgrade}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory. {{C|s6-rc-update}} '''cannot be used''' with a live state directory currently associated with a database created with the {{C|s6-rc-compile}} program from an earlier backwards-incompatible version of s6-rc.}}
+{{Important|The replacing database submitted to {{C|s6-rc-format-upgrade}} must have been created with the {{C|s6-rc-compile}} program from the upgraded package, and the exact same service definitions in source format that were originally used to compile the replaced database. So, for example, if database A was created from service definitions ''S1'', ''S2'', ..., ''SN'' with {{C|s6-rc-compile}} from version 0.3.0.1, and an upgrade is made to version 0.4.0.0, then, after the ugrade, a new database B must be created from ''S1'', ''S2'', ..., ''SN'' with {{C|s6-rc-compile}}, and then {{C|s6-rc-format-upgrade}} must be invoked with database B's pathname (and that of the live state directory A is currently associated with, using the <code>-l</code> option, if it is not {{Path|/run/s6-rc}}). Please carefully review the details of the upgrade procedure in {{C|s6-rc-format-upgrade}}'s HTML documentation (in the package's {{Path|/usr/share/doc}} subdirectory).}}
 
-{{Note|s6-rc packages have four number verions of the form A.B.C.D. For the purpose of deciding whether {{C|s6-rc-format-upgrade}} should be used, two versions are considered incompatible if their they differ in either the first (A) or second (B) number.}}
+{{Warning|As of s6-rc version 0.4.0.0, {{C|s6-rc-update}} '''cannot''' be safely used with a live state directory currently associated with a database that was created with the {{C|s6-rc-compile}} program from an earlier, backwards-incompatible version of the package.}}
+
+{{C|s6-rc-format-upgrade}} currently handles upgrades from version 0.3.0.1 to version 0.4.0.0, and performs a database switch like {{C|s6-rc-update}} does, but without changing any service states (i.e. without executing any {{C|s6-rc change}} commands). However, to upgrade to version 0.4.0.0, or any later version compatible with the 0.4.x.x series, without disruption of services in a database that is live, an intermediate upgrade to version 0.3.0.1 is needed<ref>Laurent Bercot, [https://skarnet.org/cgi-bin/archive.cgi?2:mss:1973:201805:omimnjmkdciaebibmpkp On upgrading from s6-rc version 0.3.0.1 to version 0.4.0.0], May 20th, 2018.</ref> using the following procedure:
+
+# Upgrade to s6-rc version 0.3.0.1.
+# Recompile all live service databases using {{C|s6-rc-compile}} from their corresponding service definitions in source format.
+# Perform all live database switches using {{C|s6-rc-update}} ({{C|s6-rc-format-upgrade}} was introduced in version 0.4.0.0).
+# Upgrade to s6-rc version 0.4.0.0 or any later, compatible version.
+# Recompile all live service databases again using {{C|s6-rc-compile}}.
+# Perform all database format upgrades using {{C|s6-rc-format-upgrade}}.
+
+{{Note|s6-rc packages have four number verions of the form A.B.C.D. For the purpose of deciding whether {{C|s6-rc-format-upgrade}} should be used, two versions are considered incompatible if they differ in either the first (A) or second (B) number.}}
 
 Example usage of {{C|s6-rc-update}}, assuming the setup from section [[#dependencies|"service dependencies"]], and assuming that the working directory is the scan directory:
 {{Cmd|ls -l ../live|
@@ -1118,7 +1129,7 @@ total 12
 -rw-r--r-- 1 user user  8 Apr 14 12:00 type
 -rw-r--r-- 1 user user 50 Apr 14 12:00 up</pre>}}
 
-This shows that directories containing service definitions are allowed to have symbolic links to files and directories placed elsewhere. The new database is mostly the same as database ''test-database2'', except that it contains no service A, so it will be removed after the database switch, renames service C, and turn service E into a oneshot. So all references to service A must be removed, and all references to service C must use the new name:
+This shows that directories containing service definitions are allowed to have symbolic links to files and directories placed elsewhere. The new database is mostly the same as database ''test-database2'', except that it contains no service A (so it will be removed after the database switch), renames service C to ''service-C-renamed'', and turns service E into a oneshot. So all references to service A must be removed, and all references to service C must use the new name:
 {{FileBox|filename=srv-src4/service-D/dependencies|
 1=service-B
 service-C-renamed}}
@@ -1144,7 +1155,7 @@ Compiling the new database using an <kbd>s6-rc-compile -u $(id -u) test-database
 output=<pre>s6-rc-dryrun: s6-rc -v 1 -t 0 -l /home/user/live -d -- change service-E service-A
 s6-rc-dryrun: s6-rc -v 1 -t 0 -l /home/user/live -u -- change service-F service-E service-D service-B</pre>}}
 
-This shows that {{C|s6-rc-update}} would use an {{C|s6-rc -d change}} command to stop some services, switch the database, and then use an {{C|s6-rc -u change}} command to start some other services, which implies that (possibly updated) dependency specifications would be honored. Actually performing the database switch:
+This shows that {{C|s6-rc-update}} would use an {{C|s6-rc -d change}} command to stop some services, switch the database, and then use an {{C|s6-rc -u change}} command to start some other services, which implies that (possibly updated) dependency specifications would be honored. Actually performing the database switch, after forcing a rotation of the logging directory with an <kbd>s6-svc -a logger</kbd> command so that the {{Path|current}} file gets emptied:
 {{Cmd|time s6-rc-update -l /home/user/live -f ../conversion-file1 /home/user/test-database3 {{!}} s6-tai64nlocal|
 output=<pre>2018-04-16 12:17:38.591813680 Service F stopping
 2018-04-16 12:17:48.616989175 Service E starting
@@ -1155,12 +1166,7 @@ user	0m0.006s
 sys	0m0.012s</pre>}}
 
 {{Cmd|cat ../logdir/current {{!}} s6-tai64nlocal|
-output=<pre>2018-04-16 12:14:29.899306549 Service G starting
-2018-04-16 12:14:29.902011519 Service E starting
-2018-04-16 12:14:29.906354333 Service A starting
-2018-04-16 12:14:40.917018474 Service B starting
-2018-04-16 12:14:50.926763361 Service D starting
-2018-04-16 12:17:38.591475904 Service D stopping
+output=<pre>2018-04-16 12:17:38.591475904 Service D stopping
 2018-04-16 12:17:38.596463367 Service B stopping
 2018-04-16 12:17:38.603899826 Service A stopping
 2018-04-16 12:17:48.601233571 Service E stopping
@@ -1193,7 +1199,7 @@ service-E
 service-F
 service-G</pre>}}
 
-This shows that, except for service A, the same set of services are in up state after the database switch, and that the renaming of service C has been performed indeed. Note that the service has not been restarted; there were no "Service C starting" or "Service C stopping" messages printed to {{C|s6-rc-update}}'s standard output.
+This shows that, except for service A, the same set of services are in up state after the database switch, and that the renaming of service C has been performed indeed. Note that the service C has not been restarted; there were no "Service C starting" or "Service C stopping" messages printed to {{C|s6-rc-update}}'s standard output. Also note that, because service G is both in {{Path|test-database2}} and {{Path|test-database3}} and not in any dependency chain that involves modified or restarted services, it is left alone by {{C|s6-rc-update}} and remains in up state during the database switch.
 
 One more example with another set of service definitions:
 {{Cmd|ls -l srv-src5/*|
@@ -1240,7 +1246,7 @@ Conversion file for renaming service B that also forces a restart of service G (
 1=service-B -> service-B-renamed
 service-G restart}}
 
-Compiling a new database with these service definitions using a <kbd>s6-rc-compile -u $(id -u) test-database4 srv-src5</kbd> command, assuming it will also be placed in {{Path|/home/user}} along with the conversion file, forcing a rotation of the supervision tree's logging directory with an <kbd>s6-svc -a logger</kbd>, and then performing the database switch:
+Compiling a new database with these service definitions using a <kbd>s6-rc-compile -u $(id -u) test-database4 srv-src5</kbd> command, assuming it will also be placed in {{Path|/home/user}} along with the conversion file, forcing another rotation of the supervision tree's logging directory, and then performing the database switch:
 {{Cmd|time s6-rc-update -l /home/user/live -f ../conversion-file2 /home/user/test-database4|
 output=<pre>
 real	0m0.127s
@@ -1254,7 +1260,7 @@ output=<pre>2018-04-16 12:23:07.375107786 Service G stopping
 2018-04-16 12:23:07.479606503 Service G starting
 2018-04-16 12:23:07.496890435 Service D starting</pre>}}
 
-This shows that service G was restarted indeed because of the conversion file, but also service D, because it was in up state before the database switch and its dependencies changed: service H was added as a direct dependency after the database switch. On the other hand, service B was only renamed, so it didn't restart. The whole operation took place almost instantly, because not waiting for readiness notification makes service D's, G's and H's transitions almost instant.
+This shows that service G was restarted indeed because of the conversion file, but also service D, because it was in up state before the database switch and its dependencies changed after the switch: service H was added as a direct dependency. On the other hand, service B was only renamed, so it didn't restart. The whole operation took place almost instantly, because not waiting for readiness notification makes service D's, G's and H's transitions almost instant.
 {{Cmd|ls -l ../live|
 output=<pre>lrwxrwxrwx 1 user user 24 Apr 16 12:23 ../live -> live:s6-rc-update:5RCX6s</pre>}}
 
@@ -1281,10 +1287,8 @@ service-G
 service-H</pre>}}
 
 This shows again that the same set of services are in up state after the database switch, and that the renaming of service B has been performed indeed. Adding two runlevel-like bundles to the compiled service database while it is live:
-{{Cmd|s6-rc-db -l ../live list bundles|execlineb -Pc '|
-output=<pre>> s6-rc-bundle -l ../live multiple { } runlevel-X { service-D } runlevel-Y { service-F service-G }'</pre>}}
 
-{{Cmd|s6-rc-db -l ../live list bundles {{!}} sort|
+{{Cmd|s6-rc-db -l ../live list bundles|execlineb -Pc 's6-rc-bundle -l ../live multiple { } runlevel-X { service-D } runlevel-Y { service-F service-G }'|s6-rc-db -l ../live list bundles {{!}} sort|
 output=<pre>runlevel-X
 runlevel-Y</pre>}}
 
@@ -1303,7 +1307,7 @@ service-C-renamed
 service-D
 service-H</pre>}}
 
-This shows that only atomic services members of bundle ''runlevel-X'' are now up. Deleting the bundle from the compiled service database:
+This shows that only atomic services that are members of bundle ''runlevel-X'', and their dependencies, are now up. Deleting the bundle from the compiled service database:
 {{Cmd|s6-rc-bundle -l ../live delete runlevel-X|s6-rc-db -l ../live list bundles|
 output=<pre>runlevel-Y</pre>}}
 
@@ -1326,21 +1330,21 @@ service-E
 service-F
 service-G</pre>}}
 
-This shows that atomic services members of (former) bundle ''runlevel-X'' were stopped, and only atomic services members of bundle ''runlevel-Y'' are now up.
+This shows that atomic services that were members of (former) bundle ''runlevel-X'' were stopped, and only atomic services that are members of bundle ''runlevel-Y'', and their dependencies, are now up.
 {{anchor|pipelines}}
 === Longrun pipelining ===
 
 The s6 supervision tools support the [[daemontools-encore#logging|daemontools mechanism]] that allows connecting the standard output of a supervised process to the standard input of another one with a pipe, normally for logging purposes. This mechanism is used when a subdirectory or symbolic link to directory named {{Path|log}} is present in a service directory. s6-rc generalizes this idea with ''pipelines'': it allows arbirary length chains of longruns that have their standard output connected to the standard input of the next one in the chain with a pipe. Moreover, as of version 0.4.0.0, s6-rc also allows tying the standard input of a longrun with the standard output of two or more other longruns, so that multiple streams of messages from different supervised processes can be collapsed into a single stream. This means that s6-rc pipelines are really ''funnels'', but the name 'pipeline' is retained for compatibility with earlier versions that did not support this feature.
 
-The {{C|s6-rc-compile}} program creates pipelines when the definition directories of their member services contain regular files named {{Path|producer-for}} and {{Path|consumer-for}}. A {{Path|producer-for}} file must contain a single service name; the standard output of the service being defined will then be connected to the standard input of the service named in the file as a result. s6-rc requires that the definition directory of the latter also contain a {{Path|consumer-for}} file that names the former, and {{C|s6-rc-compile}} implicitly makes the latter a direct dependency of the former, as if by the presence a {{Path|dependencies}} file. This ensures that if the pipeline mechanism is used for logging, loggers will be up before starting the 'main' services. A {{Path|consumer-for}} file must contain a list of service names. If more that one service is named in a {{Path|consumer-for}} file, the funnel-style collapsing of message streams will take place. Pipeline consistency, e.g. absence of collisions or cycles, is verified by {{C|s6-rc-compile}} at service database creation time, as well as the existence of a {{Path|consumer-for}} file in the definition of each service named in a {{Path|producer-for}} file, and a {{Path|producer-for}} file in the definition of each service named in a {{Path|consumer-for}} file. To create [[s6#loggingchain|a logging chain]] with s6-rc services, definitions of 'main' services must contain a {{Path|producer-for}} file naming their loggers, and the loggers must be created just like any other s6-rc service, with definitions that contain a {{Path|consumer-for}} file naming (only) their main services.
+The {{C|s6-rc-compile}} program creates pipelines when the definition directories of their member services contain regular files named {{Path|producer-for}} and {{Path|consumer-for}}. A {{Path|producer-for}} file must contain a single service name; the standard output of the service being defined will then be connected to the standard input of the service named in the file as a result. s6-rc requires that the definition directory of the latter also contain a {{Path|consumer-for}} file that names the former, and {{C|s6-rc-compile}} implicitly makes the latter a direct dependency of the former, as if by the presence a {{Path|dependencies}} file. This ensures that if the pipeline mechanism is used for logging, loggers will be up before starting the 'main' services. A {{Path|consumer-for}} file must contain a list of service names. If more that one service is named in a {{Path|consumer-for}} file, the funnel-style collapsing of message streams will take place. Pipeline consistency, e.g. absence of collisions or cycles, is verified by {{C|s6-rc-compile}} at service database creation time, as well as the existence of a {{Path|consumer-for}} file in the definition of each service named in a {{Path|producer-for}} file, and a {{Path|producer-for}} file in the definition of each service named in a {{Path|consumer-for}} file. To create [[s6#loggingchain|a logging chain]] with s6-rc services, definitions of 'main' services must contain a {{Path|producer-for}} file naming their loggers, and the loggers must be created just like any other s6-rc longrun, with definition directories that contain a {{Path|consumer-for}} file naming (only) their main services.
 
-The definition directory of a service with a {{Path|consumer-for}} and no {{Path|producer-for}} file, named the corresponding pipeline's ''last consumer'', can also contain an optional, regular file named {{Path|pipeline-name}}, that must contain a single service name; {{C|s6-rc-compile}} will then create a service bundle with this name that contains all the services that are members of the pipeline. A {{Path|pipeline-name}} in the definition directory of a service that is not a pipeline's last consumer is ignored. For further information about pipelines, please consult {{C|s6-rc-compile}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+The definition directory of a service with a {{Path|consumer-for}} file and no {{Path|producer-for}} file, named the corresponding pipeline's ''last consumer'', can also contain an optional, regular file named {{Path|pipeline-name}}, that must contain a single service name; {{C|s6-rc-compile}} will then create a service bundle with this name that contains all the services that are members of the pipeline. A {{Path|pipeline-name}} in the definition directory of a service that is not a pipeline's last consumer is ignored. For further information about pipelines, please consult {{C|s6-rc-compile}}'s HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-s6-rc implements pipelines using an internal support service named ''s6rc-fdholder''. This service spawns a long-lived process that executes the {{C|s6-fdholderd}} program, i.e. [[s6#fdholder|the fd-holder daemon from s6]], and runs an internal s6-rc program, {{C|s6-rc-fdholder-filler}}, chained from {{C|s6-ipcclient}}. {{C|s6-rc-fdholder-filler}} is a short-lived [[s6#superserver|UCSPI IPC client]], that reads a file containing service names, creates a pipe for each of them using the POSIX <code>pipe()</code> call, connects to the socket of an {{C|s6-fdholderd}} process, and transfers the file descriptors associated with the reading and writing end of all pipes to the server with a set dump operation, i.e. as if by {{C|s6-fdholder-setdumpc}}. The file with service names is created by {{C|s6-rc-compile}} in {{Path|s6rc-fdholder}}'s s6 service directory. {{C|s6-rc-compile}} also automatically makes {{Path|s6rc-fdholder}} a direct dependency of every longrun that is a member of a pipeline, and creates a wrapper {{Path|run}} execline script in their compiled s6 service directory. The wrapper script retrieves the file descriptors that correspond to the reading and / or writing ends of the pipes the service needs with {{C|s6-fdholder-retrieve}} invocations, and then executes the actual {{Path|run}} file supplied in its s6-rc definition (currently installed as {{Path|run.user}} in the compiled s6 service directory). The same happens with the {{Path|finish}} file, if there is one. For further information about {{C|s6-rc-fdholder-filler}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+s6-rc implements pipelines using an internal support service named '''s6rc-fdholder'''. This service spawns a long-lived process that executes the {{C|s6-fdholderd}} program, i.e. [[s6#fdholder|the fd-holder daemon from s6]], and runs an internal s6-rc program, {{C|s6-rc-fdholder-filler}}, chained from {{C|s6-ipcclient}}. {{C|s6-rc-fdholder-filler}} is a short-lived [[s6#superserver|UCSPI IPC client]], that reads a file containing service names, creates a pipe for each of them using the POSIX <code>pipe()</code> call, connects to the socket of an {{C|s6-fdholderd}} process, and transfers the file descriptors associated with the reading and writing end of all pipes to the server with a set dump operation, i.e. as if by {{C|s6-fdholder-setdumpc}}. The file with service names is created by {{C|s6-rc-compile}} in {{Path|s6rc-fdholder}}'s s6 service directory. {{C|s6-rc-compile}} also automatically makes {{Path|s6rc-fdholder}} a direct dependency of every longrun that is a member of a pipeline, and creates a wrapper {{Path|run}} execline script in their compiled s6 service directory. The wrapper script retrieves the file descriptors that correspond to the reading and / or writing ends of the pipes the service needs with {{C|s6-fdholder-retrieve}} invocations, and then executes the actual {{Path|run}} file supplied in its s6-rc definition (currently installed as {{Path|run.user}} in the compiled s6 service directory). The same happens with the {{Path|finish}} file, if there is one. For further information about {{C|s6-rc-fdholder-filler}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-{{Path|s6rc-fdholder}} uses a rules directory to decide whether to grant or refuse service to clients that connect to its UNIX domain socket of its {{C|s6-fdholderd}} process. The effective user of all processes in an s6 supervision tree is initially that of {{C|s6-svscan}}. The {{C|s6-supervise}} process of every longrun that is a member of a pipeline will spawn a child process that executes the wrapper {{Path|run}} execline script that contains {{C|s6-fdholder-retrieve}} invocations, so {{C|s6-svscan}}'s effective user must be allowed by {{Path|s6rc-fdholder}}'s rules directory. Setup of this rules directory can be done using {{C|s6-rc-compile}}'s <code>-u</code> and <code>-g</code> options, see [[#initialization|initializing s6-rc]]. If {{C|s6-svscan}}'s effective user is root, the effective user of the {{C|s6-fdholderd}} process can be adjusted by passing an <code>-h</code> option to {{C|s6-rc-compile}} followed by an account's username; {{Path|s6rc-fdholder}}'s {{Path|run}} script will then include an {{C|s6-envuidgid}} invocation to drop privileges. For further information about {{C|s6-rc-compile}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+{{Path|s6rc-fdholder}} uses a rules directory to decide whether to grant or refuse service to clients that connect to its UNIX domain socket. The effective user of all processes in an s6 supervision tree is initially that of {{C|s6-svscan}}. The {{C|s6-supervise}} process of every longrun that is a member of a pipeline will spawn a child process that executes the wrapper {{Path|run}} execline script with the {{C|s6-fdholder-retrieve}} invocations, so {{C|s6-svscan}}'s effective user must be allowed by {{Path|s6rc-fdholder}}'s rules directory. Setup of this rules directory can be done using {{C|s6-rc-compile}}'s <code>-u</code> and <code>-g</code> options, see [[#initialization|initializing s6-rc]]. If {{C|s6-svscan}}'s effective user is root, the effective user of the {{C|s6-fdholderd}} process can be adjusted by passing an <code>-h</code> option to {{C|s6-rc-compile}} followed by an account's username; {{Path|s6rc-fdholder}}'s {{Path|run}} script will then include an {{C|s6-envuidgid}} invocation to drop privileges accordingly. For further information about {{C|s6-rc-compile}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-Finally, the {{C|s6-rc-db}} program (see [[#s6rcdb|extracting information from a compiled database]]) has a '''pipeline''' subcommand that displays information about the pipeline that the service corresponding to the name supplied as the subcommand's argument is a member of. If the service is not a member of a pipeline, it just prints the name supplied as argument. For further information about {{C|s6-rc-db}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+Finally, the {{C|s6-rc-db}} program (see [[#s6rcdb|extracting information from a compiled database]]) has a '''pipeline''' subcommand that accepts a service name argument. If the corresponding service is a member of a pipeline, it displays information about it, otherwise, it just prints the supplied name. For further information about {{C|s6-rc-db}}, please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
 Example set of service definitions using pipelines:
 {{Cmd|ls -l srv-src6/*|
@@ -1390,13 +1394,13 @@ Reader A spawns a process that reads lines of text from its standard input and p
 {{FileBox|filename=srv-src6/reader-A/type|longrun}}
 
 {{FileBox|lang=python|filename=srv-src6/reader-A/run|
-1=#!/usr/bin/python
+1=#!/usr/bin/python3
 import sys
 for line in sys.stdin: print ('This comes from service A:', line, end='', flush=True)}}
 
 {{FileBox|filename=srv-src6/reader-A/consumer-for|1=service-A}}
 
-Service A's standard ouput is connected to reader A's standard input with a pipe. Service B and reader B constitute a similar pair of services:
+Service A's standard ouput will be connected to reader A's standard input with a pipe. Service B and reader B constitute a similar pair of services:
 
 {{FileBox|filename=srv-src6/service-B/type|1=longrun}}
 
@@ -1409,7 +1413,7 @@ test-daemon}}
 {{FileBox|filename=srv-src6/reader-B/type|1=longrun}}
 
 {{FileBox|lang=python|filename=srv-src6/reader-B/run|
-1=#!/usr/bin/python
+1=#!/usr/bin/python3
 import sys
 for line in sys.stdin: print ('This comes from service B:', line, end='', flush=True)}}
 
@@ -1438,7 +1442,7 @@ The s6-rc pipeline ties reader A's and B's standard output with this logger's st
 1=reader-A
 reader-B}}
 
-This service is the last consumer, so it has a {{Path|pipeline-name}} file that specifies a name for the pipeline:
+{{Path|final-logger}} is the pipeline's last consumer, so it has a {{Path|pipeline-name}} file that specifies a name for the pipeline:
 {{FileBox|filename=srv-src6/final-logger/pipeline-name|1=service-AB-pipeline}}
 
 A diagram that represents this pipeline:
@@ -1505,7 +1509,7 @@ output=<pre> PID  PPID  PGRP EUSER    COMMAND
 2128  2121  2128 user     -bash
 2473  2128  2473 user      \_ s6-svscan
 2477  2473  2473 user          \_ s6-supervise reader-A
-2506  2477  2506 user          |   \_ /usr/lib/python-exec/python3.5/python ./run.user
+2506  2477  2506 user          |   \_ /usr/lib/python-exec/python3.6/python3 ./run.user
 2478  2473  2473 user          \_ s6-supervise service-B
 2511  2478  2511 user          |   \_ test-daemon
 2479  2473  2473 user          \_ s6-supervise s6rc-oneshot-runner
@@ -1514,7 +1518,7 @@ output=<pre> PID  PPID  PGRP EUSER    COMMAND
 2481  2473  2473 user          \_ s6-supervise s6rc-fdholder
 2489  2481  2489 user          |   \_ s6-fdholderd -1 -i data/rules
 2482  2473  2473 user          \_ s6-supervise reader-B
-2505  2482  2505 user          |   \_ /usr/lib/python-exec/python3.5/python ./run.user
+2505  2482  2505 user          |   \_ /usr/lib/python-exec/python3.6/python3 ./run.user
 2483  2473  2473 user          \_ s6-supervise final-logger
 2498  2483  2498 user              \_ s6-log /home/user/logdir
 ...
@@ -1549,16 +1553,15 @@ Reader B is a member of pipeline {{Path|service-AB-pipeline}}, so that is what i
 
 s6-rc can be used as the service manager of [[s6 and s6-rc-based init system|an init system based on s6]]. Such an init system runs program {{C|s6-svscan}} from the s6 package as process 1 for most of the machine's uptime, and separate programs (usually execline scripts), the ''stage1 init'' and the ''stage3 init'', during the boot and shutdown sequences, respectively. Therefore, process 1 is the root of an s6 supervision tree for most of the machine's uptime, and has an associated scan directory, usually in a read-write tmpfs. s6-rc uses this supervision tree and a compiled service database, the ''boot-time service database'', that must be available during the machine's boot sequence, usually in the rootfs.
 
-Because s6-rc must be initialized using the {{C|s6-rc-init}} program (see [[#initialization|initializing s6-rc]]) when the {{C|s6-svscan}} process is already running, this takes place in the ''stage2 init'', a program (usually an execline or shell script) that is launched by the stage1 init and blocks until the init system's catch-all logger is started. The s6-rc live state database is usually created in the same read-write tmpfs that is used for the init system's scan directory. The tmpfs is customarily mounted on {{Path|/run}}, and the live state directory is left to be {{Path|/run/s6-rc}}, s6-rc's default, so that no <code>-l</code> options have to be specified each time to s6-rc tools. After initializing s6-rc, atomic services (oneshots and longruns) that are needed to complete the machine's initialization, and longruns that are wanted in up state at the end of the boot sequence, must be started. This is can be usually done by defining [[#bundles|a service bundle]] containing all those services, and starting it in the stage2 init with an {{C|s6-rc -u change}} command naming that bundle.
+Because s6-rc must be initialized using the {{C|s6-rc-init}} program (see [[#initialization|initializing s6-rc]]) when the {{C|s6-svscan}} process is already running, this takes place in the ''stage2 init'', a program (usually an execline or shell script) that is launched by the stage1 init and blocks until the init system's catch-all logger is started. The s6-rc live state database is usually created in the same read-write tmpfs that is used for the init system's scan directory. The tmpfs is customarily mounted on {{Path|/run}}, and the live state directory is left to be {{Path|/run/s6-rc}}, s6-rc's default, so that no <code>-l</code> options have to be specified each time to s6-rc tools. After initializing s6-rc, atomic services (oneshots and longruns) that are needed to complete the machine's initialization, and longruns that are wanted in up state at the end of the boot sequence, must be started. This is customarily done by defining a service bundle that contains all those services, and starting it in the stage2 init with an {{C|s6-rc -u change}} command naming that bundle.
 
-The boot-time service database becomes live during the machine's boot sequence, so any service modification must be generally performed by creating a new service database using {{C|s6-rc-compile}}, and then replacing the current one with it using the {{C|s6-rc-update}} program (see [[#s6rcupdate|live updates to the service database]]). Service bundles can be direclty modified in the live database with the {{C|s6-rc-bundle}}, so a database switch is not strictly required in this case. If during the machine's uptime the s6-rc package is upgraded to a backwards-incompatible version, the current live database must be recompiled after the package upgrade using the same service definitions in  {{C|s6-rc-compile}}'s source format, and the {{C|s6-rc-format-upgrade}} program must be used to switch databases.
+The boot-time service database becomes live during the machine's boot sequence, so any service modification must be generally performed by creating a new database using {{C|s6-rc-compile}}, and then replacing the currently live one with this database using the {{C|s6-rc-update}} program (see [[#s6rcupdate|live updates to the service database]]). If during the machine's uptime the s6-rc package is upgraded to a backwards-incompatible version, the current live database must be recompiled after the package upgrade using the same service definitions in  {{C|s6-rc-compile}}'s source format, and the {{C|s6-rc-format-upgrade}} program must be used to switch databases.
 
-Here is a summary of possible ways of performing service modification:
-* Bundle modifications in the live database performed with {{C|s6-rc-bundle}} are 'sticky' (i.e. are preserved across machine reboots).
-* Contents of longrun's {{Path|env}} and {{Path|data}} subdirectories can be modified using the service directory symlinks in the init system's scan directory, but changes like this are not 'sticky'. They 'reset' to the contents in the corresponding service definition used to create the boot-time database after a machine reboot.
-* Files with meaning defined by s6 ({{Path|run}}, {{Path|finish}}, etc.) ''could'' be modified directly using a longrun's service directory symlink in the init system's scan directory, but the modification of service directory contents is inherently a non-atomic operation that can have issues if the corresponding supervised process dies and gets restarted by its supervisor in the middle of the process<ref>Laurent Bercot, [https://www.skarnet.org/cgi-bin/archive.cgi?2:mss:1871:201710:nadggnhoigbpknlffnni On updating a live service directory]. Retrieved on April 29th, 2018.</ref>. Also, the changes are not 'sticky', so this is discouraged.
-* Supporting files of oneshots (e.g. external scripts invoked from an {{Path|up}} or {{Path|down}} file) or longurns that are not placed in {{Path|env}} and {{Path|data}} subdirectories generally must referred to by absolute path, can be modified in their corresponding locations, and the changes are 'sticky'.
-* Any other modification must generally be done with a new database and {{C|s6-rc-update}}, changes are 'sticky' this way and safe.
+Here is a summary of possible ways of performing modifications to s6-rc-managed services after boot:
+* Bundle modifications can be performed directly on the live database using {{C|s6-rc-bundle}}, without requiring a database switch, and these changes are 'sticky' (i.e. are preserved across machine reboots).
+* Longrun modifications, including the contents of their {{Path|env}} and {{Path|data}} subdirectories, if present, ''could'' be modified directly using a longrun's service directory symlink in the init system's scan directory, but this is a non-atomic operation that can have issues if the corresponding supervised process terminates and gets restarted by its supervisor in the middle of the directory update <ref>Laurent Bercot, [https://www.skarnet.org/cgi-bin/archive.cgi?2:mss:1871:201710:nadggnhoigbpknlffnni On updating a live service directory], October 29th, 2017.</ref>. Also, changes done this way are not 'sticky', so this is generally discouraged.
+* Supporting files of oneshots (e.g. external scripts invoked from an {{Path|up}} or {{Path|down}} file) must be generally referred to by absolute pathname, can be modified in their corresponding locations, and these changes are 'sticky'.
+* Any other modification must generally be done using {{C|s6-rc-update}} with a new compiled service database; changes are 'sticky' this way and safe.
 
 Finally, before {{C|s6-svscan}} replaces itself with the stage3 init during the shutdown sequence, all s6-rc-managed services must be stopped, usually with an {{C|s6-rc -da change}} command. This takes place in an an execline or shell script, the ''shutdown script'', that is invoked from an {{C|s6-svscan}} [[s6 and s6-rc-based init system#signals|diverted signal handler]].
 
@@ -1568,7 +1571,7 @@ Finally, before {{C|s6-svscan}} replaces itself with the stage3 init during the 
 
 {{Unmerge|sys-apps/s6-rc}}
 
-All live state directories, compiled service databases and service definitions in {{C|s6-rc-compile}}'s source format must be manually deleted if no longer wanted after removing the package. And obviously, if s6-rc is being used as an init system component, an alternative init system must be installed in parallel, and the machine rebooted to use it (possibly by reconfiguring the bootloader), before the package is removed, or otherwise the machine will become unbootable.
+All live state directories, compiled service databases and service definitions in {{C|s6-rc-compile}}'s source format must be manually deleted if no longer wanted after removing the package. And obviously, if s6-rc is being used as an init system component, an alternative init system must be installed in parallel, and the machine rebooted to use it (possibly by reconfiguring the [[bootloader]]), before the package is removed, or otherwise the machine will become unbootable.
 
 == See also ==
 
