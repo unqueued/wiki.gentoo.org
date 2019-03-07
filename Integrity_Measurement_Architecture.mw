@@ -3,73 +3,50 @@ The Linux IMA subsystem is responsible for calculating the hashes of files and p
 == Purpose of IMA ==
 
 === Introduction ===
-
 {{Warning|Using IMA on your system is currently only recommended for development purposes.}}
 
-The Linux IMA subsystem introduces hooks within the Linux kernel to support measuring the integrity of files that are loaded (including application code) before it is executed or mmap()ed to memory. The measured value (hash) is then registered in a log that can be consulted by administrators. 
+The Linux IMA subsystem introduces hooks within the Linux kernel to support creating and collecting hashes of files when opened, before their contents are accessed for read or execute. The IMA subsystem has 2 subsystems within in it - '''measure''' and '''appraise'''. '''Measurement''' collects the hashes of files, while '''appraisal'''  compares a collected hash to a stored hash and denies access in the event of a mismatch
 
-To support proven integrity of the files, the IMA subsystem can interact with the TPM chip within the system to protect the registered hashes from tampering by a rogue administrator or application. The IMA subsystem, as already supported by the Linux kernel, supports ''reporting'' on the hashes of files and commands ran by privileged accounts (and more if you create your own measurement policies). 
+To support proven integrity of the files, the IMA measurement subsystem can interact with the TPM chip within the system to protect the collected hashes from tampering by a rogue administrator or application.
 
-Since kernel 3.7, an additional patch, called the ''IMA appraisal patch'' , has been merged within the IMA subsystem so it can even register the measured value as an extended attribute, and after subsequent measurement(s) validate this extended attribute against the measured value and refuse to load the file (or execute the application) if the hash does not match. In that case, the IMA subsystem allows files and applications to be loaded if the hashes match (and will save the updated hash if the file is modified) but refuse to load it if it doesn't. This provides some protection against offline tampering of the files. 
+The IMA measurement subsystem was added in linux-2.6.30. Appraisal came later, in linux-3.7.
 
-Protection of the extended attribute itself is handled by EVM, which is discussed in a separate document. 
-
+Protection of the extended attribute itself is handled by [[Extended Verification Module|EVM]]. 
 === Trusted Computing Base ===
-
-The Trusted Computing Base defines a set of rules that a properly, integrity-protected system should adhere to. The Linux IMA subsystem supports this set of rules through the ''ima_tcb'' policy. This policy roughly states that all files read by root (applications, but also regular files, libraries, ...) need to be measured and registered against the security log, as well as application binaries when ran (or mmap()ed for execution) by any user. 
-
-=== The Big Fat Warnings ===
-
-Using IMA on your system is currently only recommended for development purposes. Gentoo Hardened is working on integrating IMA properly, so please be aware that: 
-
-* users might be able to have your machine run out of (kernel) memory by having (root-owned) processes generate new files over and over again, which all get measured and their hashes stored
-* the system might have issues booting if not all files have their hash registered properly; you are easily warned if this is the case through the Linux audit subsystem
-
-We are working on fine-tuning the default policies so that measurements only occur on legitimate resources. 
-
+The Trusted Computing Base defines a set of rules that a properly, integrity-protected system should adhere to. Linux defines 2 policies for this: The '''tcb''' policy, which performs measurement, and '''tcb_appraise''' which performs appraisal.
 == Setting up IMA ==
-
 === Kernel configuration ===
-
-First of all, enable the IMA subsystem in the Linux kernel configuration. IMA is supported in the main tree since 2.6.30, and IMA appraisal (needed when you want the system to stop if it detects an off-line modified file) is merged in the main tree since 3.7. 
-
+First of all, enable the IMA subsystem in the Linux kernel configuration.
 {{KernelBox|title=Linux kernel configuration for IMA|1=
 CONFIG_INTEGRITY=y
 CONFIG_IMA=y
 CONFIG_IMA_MEASURE_PCR_IDX=10
-CONFIG_IMA_AUDIT=y
 CONFIG_IMA_LSM_RULES=y
-  
-# Since 3.7:
 CONFIG_INTEGRITY_SIGNATURE=y
 CONFIG_IMA_APPRAISE=y
+
+# Since 4.13
+IMA_APPRAISE_BOOTPARAM=y
 }}
 
-=== Bootloader configuration ===
+=== Kernel command line options ===
+There are 2 important IMA command line options: '''ima_appraise=''' and '''ima_policy='''
 
-Next, configure the bootloader to enable the TCB policy: 
+'''ima_appraise=''' can take 1 of 4 values:
+* '''enforce''' causes IMA to appraise files according to policy. Access is denied to the appraised file if the store hash is missing or does not match the collected value. IMA generates new stored hashes for newly created files, but not changed ones.
+* '''log''' is similar to '''enforce''' except access is not denied but only logged/
+* '''off''' disables all appraisal. The stored hashes aren't checked and new files don't get a stored hash
+* '''fix''' disabled all appraisal, but generates new stored hashes for any file opened for read or without one. Incorrect stored hashes are not fixed, however.
 
-{{CodeBox|title=Bootloader configuration to enable IMA TCB policy|1=
-kernel /boot/vmlinuz root=/dev/vda1 ima_tcb
-  
-# Only if IMA appraisal is wanted:
-kernel /boot/vmlinuz root=/dev/vda1 ima_tcb ima_appraise=fix ima_appraise_tcb
-}}
+'''ima_policy=''' can take 1 of 3 values:
+* '''tcb''' measures all executables run, all mmap'd files for execution (such as shared libraries), all kernel modules loaded, and all firmware loaded. Additonally, a files opened for read by root are measured as well.
+* '''appraise_tcb''' appraises all files owned by root.
+* '''secure_boot''' appraises all loaded modules, firmware, kexec'd kernel, and IMA policies. It also requires them to have an IMA signature as well. This is normally used with the CONFIG_INTEGRITY_TRUSTED_KEYRING option in the kernel in "secure boot" scenario, with the public key obtained from the OEM in firmware or via the MOK (Machine Owner Key) in ''shim''.  
 
-We currently set <code>ima_appraise=fix</code> because the integrity hashes have not been stored yet. If we would run with <code>ima_appraise=enforce</code> immediately, the system would simply refuse to boot properly as all file accesses would be denied. We will switch to <code>ima_appraise=enforce</code> later. 
+'''ima_policy=''' can be specified multiple times, and the result is the union of the policies.
 
-=== Enable security file system ===
-
-Finally, have the security file system mounted (if this is not already the case): 
-
-{{RootCmd|mount {{!}} grep securityfs|output=<pre>
-securityfs on /sys/kernel/security type securityfs (rw,nosuid,nodev,noexec,relatime)
-</pre>
-}}
-
-=== Enable i_version mount option ===
-
-Mount all file systems with the ''i_version'' support (which, sadly, means you need to mount it with <code>iversion</code> mount option - without the underscore). This is needed for IMA to detect changes on files, allowing it to remeasure the hash of the file. 
+=== Enable i_version mount option (optional) ===
+Mount all file systems with the ''i_version'' support (which, sadly, means you need to mount it with <code>iversion</code> mount option - without the underscore). This is an optimization for IMA, allowing it to only recompute the hash of file when it actually changes instead of every time the file is opened. 
 
 {{CodeBox|title=Enabling i_version on all mounts|1=
 # Example for a single partition, in /etc/fstab:
@@ -80,39 +57,39 @@ For the root file system, you might want to enable it through the <code>rootflag
 
 {{CodeBox|title=Using rootflags in the bootloader configuration|1=
 # Example kernel line for a GRUB setup
-kernel /boot/kernel root=/dev/vg/root rootflags=i_version dolvm ima_tcb ima_appraise=enforce ima_appraise_tcb
-}}
+kernel /boot/kernel root=/dev/vg/root rootflags=i_version dolvm ima_appraise=enforce ima_policy=tcb ima_policy=appraise_tcb}}
 
+Note that the underscore needs to be present here, unlike in the fstab case.
 === Registering the file hashes for the system ===
-
 {{Note|This is only applicable when IMA appraisal is enabled.}}
 
 First boot with the <code>ima_appraise=fix</code> boot option. This will allow the system to boot up even when no (or wrong) hashes are registered. 
 
-Next, have all files on the file system checked and their value stored as an extended attribute. We use the <code>evmctl</code> command for this (which is provided by the ''ima-evm-utils'' package). Note that this will take a long time and will take a lot of memory (as the measurement log for IMA is filled up). 
+Next, we need to open all files that will be appraised for read
 
-{{RootCmd|find / \( -fstype rootfs -o -fstype ext4 \) -type f -uid 0 -exec evmctl ima_hash '{}' > /dev/null \;}}
+{{RootCmd|1=find / -fstype ext4 -type f -uid 0 -exec dd if='{}' of=/dev/null count=0 status=none \;}} 
 
-You might also need to bind-mount the root file system somewhere (like on {{Path|/mnt/gentoo}}) and do the same for the {{Path|lib64/rc/init.d}} location as well as other locations that contain files but become hidden once the system mounts another file system on top of it. 
+Its also possible to use the <code>evmctl</code> utility which is part of {{Package|app-crypt/ima-evm-utils}}
 
-When done, you should be able to see the registered hash value as an extended attribute: 
+{{RootCmd|1=find / -fstype ext4 -type f -uid 0 -exec evmctl ima_hash '{}' > /dev/null}} 
 
-{{RootCmd|getfattr -m . -d /boot/grub/grub.conf|output=<pre>
-# file: grub.conf
-security.selinux="root:object_r:boot_t"
-security.ima="76a0d787be14d84dfe3cf3930ac3da38bb389464"
+When done, the stored hash value should show as an extended attribute: 
+
+{{RootCmd|getfattr -m - -d /sbin/init|output=<pre>
+# file: sbin/init
+security.ima=0sAXr7Qmun5mkGDS286oZxCpdGEuKT
+security.selinux="system_u:object_r:init_exec_t"
 </pre>
 }}
 
-Finally, reboot with <code>ima_appraise=enforce</code>. The system should now run with appraisal enabled, causing the system to validate the hash against the stored value before using it. If it doesn't match, then the file is not loaded and any access towards it will be denied with a ''Permission denied'' error. If it does match, and afterwards the file is modified, then the new hash is stored as extended attribute. 
+Finally, reboot with <code>ima_appraise=enforce</code>. The system should now run with appraisal enabled, causing the system to validate the hash against the stored value before using it. If it doesn't match, then the file is not loaded and any access towards it will be denied with a ''Permission denied'' error. 
 
 You can check if this works by booting with <code>ima_appraise=off</code> and changing the contents of a root-owned file (or the value of the extended attribute) and reboot with <code>ima_appraise=enforce</code>, or by directly editing virtual guest images. 
 
 === Using digital signatures for immutable files ===
-
 The IMA appraisal code also supports immutable files. In this case, an RSA-key based signature is taken of the file and stored in the extended attribute. The private key is used to sign the files, whereas the public key is used to verify the signature. This provides additional protection against tampering as the private key does not need to be available on the system while its running (only during the initial marking). 
 
-To sign such immutable files (like kernel modules and application code), you need to use the <code>evmctl</code> command provided by the {{Path|sys-admin/ima-evm-utils}} package (currently only available in the hardened-dev overlay). But first, setup the kernel keyring: 
+To sign such immutable files (like kernel modules and application code), you need to use the <code>evmctl</code> command provided by the {{Package|app-crypt/ima-evm-utils}} package. But first, setup the kernel keyring: 
 
 {{RootCmd|ima_id{{=}}`keyctl newring _ima @u`
 |evmctl import --rsa /path/to/rsa_public.pem $ima_id}}
