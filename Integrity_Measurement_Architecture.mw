@@ -13,8 +13,8 @@ The IMA measurement subsystem was added in linux-2.6.30. Appraisal came later, i
 
 Protection of the extended attribute itself is handled by [[Extended Verification Module|EVM]]. 
 === Trusted Computing Base ===
-{{Warning|The default policies are unsuitable for general-use systems. The '''tcb''' policy opens up a local DoS where a malicious user can fill the measurement log and make the kernel run out of memory. The '''tcb_appraise''' policy prevents Portage from working.}}
-The Trusted Computing Base defines a set of rules that a properly, integrity-protected system should adhere to. Linux defines 2 policies for this: The '''tcb''' policy, which performs measurement, and '''tcb_appraise''' which performs appraisal.
+{{Warning|The default policies are unsuitable for general-use systems. The {{c|tcb}} policy opens up a local DoS where a malicious user can fill the measurement log and make the kernel run out of memory. The {{c|tcb_appraise}} policy prevents Portage from working.}}
+The Trusted Computing Base defines a set of rules that a properly, integrity-protected system should adhere to. Linux defines 2 policies for this: The {{c|tcb}} policy, which performs measurement, and {{c|tcb_appraise}} which performs appraisal.
 
 == Setting up IMA ==
 === Kernel configuration ===
@@ -32,48 +32,46 @@ IMA_APPRAISE_BOOTPARAM=y
 }}
 
 === Kernel command line options ===
-There are 2 important IMA command line options: '''ima_appraise=''' and '''ima_policy='''
+There are 2 important IMA command line options: {{c|ima_appraise{{=}}}} and {{c|ima_policy{{=}}}}
 
-'''ima_appraise=''' can take 1 of 4 values:
+{{c|ima_appraise{{=}}}} can take 1 of 4 values:
 * '''enforce''' causes IMA to appraise files according to policy. Access is denied to the appraised file if the store hash is missing or does not match the collected value. IMA generates new stored hashes for new files and changed files with valid hashes.
 * '''log''' is similar to '''enforce''' except access is not denied but only logged.
 * '''off''' disables all appraisal. The stored hashes aren't checked and new stored hashes are not generated or updated.
 * '''fix''' disabled all appraisal, but generates new stored hashes for any file opened for read or without one. Incorrect stored hashes are not fixed, however.
 
-'''ima_policy=''' can take 1 of 3 values:
+{{c|ima_policy{{=}}}} can take 1 of 3 values:
 * '''tcb''' measures all executables run, all mmap'd files for execution (such as shared libraries), all kernel modules loaded, and all firmware loaded. Additonally, a files opened for read by root are measured as well.
 * '''appraise_tcb''' appraises all files owned by root.
 * '''secure_boot''' appraises all loaded modules, firmware, kexec'd kernel, and IMA policies. It also requires them to have an IMA signature as well. This is normally used with the CONFIG_INTEGRITY_TRUSTED_KEYRING option in the kernel in "secure boot" scenario, with the public key obtained from the OEM in firmware or via the MOK (Machine Owner Key) in ''shim''.  
 
-'''ima_policy=''' can be specified multiple times, and the result is the union of the policies.
+{{c|ima_policy{{=}}}} can be specified multiple times, and the result is the union of the policies.
 
 === Enable i_version mount option (optional) ===
-Mount all file systems with the ''i_version'' support (which, sadly, means you need to mount it with <code>iversion</code> mount option - without the underscore). This is an optimization for IMA, allowing it to only recompute the hash of file when it actually changes instead of every time the file is opened. 
+Mount all file systems with the {{c|i_version}} support (which, sadly, means you need to mount it with {{c|iversion}} mount option - without the underscore). This is an optimization for IMA, allowing it to only recompute the hash of file when it actually changes instead of every time the file is opened. 
 
 {{CodeBox|title=Enabling i_version on all mounts|1=
 # Example for a single partition, in /etc/fstab:
 /dev/vda1  /  ext4  noatime,iversion  1 2
 }}
 
-For the root file system, you might want to enable it through the <code>rootflags</code> kernel parameter as well so that it gets mounted immediately with i_version support when the Linux kernel mounts the root file system. 
+For the root file system, it can be enabled through the {{c|rootflags}} kernel parameter as well so that it gets mounted immediately with i_version support when the Linux kernel mounts the root file system. 
 
 {{CodeBox|title=Using rootflags in the bootloader configuration|1=
 # Example kernel line for a GRUB setup
-kernel /boot/kernel root=/dev/vg/root rootflags=i_version dolvm ima_appraise=enforce ima_policy=tcb ima_policy=appraise_tcb}}
+GRUB_CMDLINE_LINUX="rootflags=i_version dolvm ima_appraise=enforce ima_policy=tcb ima_policy=appraise_tcb"}}
 
 Note that the underscore needs to be present here, unlike in the fstab case.
 === Registering the file hashes for the system ===
 {{Note|This is only applicable when IMA appraisal is enabled.}}
 
-First boot with the <code>ima_appraise=fix</code> boot option. This will allow the system to boot up even when no (or wrong) hashes are registered. 
+First boot with the {{c|ima_appraise{{=}}fix}} boot option. This will allow the system to boot up even when no (or wrong) hashes are registered. 
 
-Next, we need to open all files that will be appraised for read
-
+Next, all files that will be appraised need read
 {{RootCmd|1=find / -fstype ext4 -type f -uid 0 -exec dd if='{}' of=/dev/null count=0 status=none \;}} 
-
-Its also possible to use the <code>evmctl</code> utility which is part of {{Package|app-crypt/ima-evm-utils}}
-
-{{RootCmd|1=find / -fstype ext4 -type f -uid 0 -exec evmctl ima_hash '{}' > /dev/null}} 
+Its also possible to use the {{c|evmctl}} utility which is part of {{Package|app-crypt/ima-evm-utils}}
+{{RootCmd|1=find / -fstype ext4 -type f -uid 0 -exec evmctl ima_hash '{}' > /dev/null}}
+However, this will hash all files even if the file has a {{c|dont_hash}} rule.
 
 When done, the stored hash value should show as an extended attribute: 
 
@@ -84,19 +82,19 @@ security.selinux="system_u:object_r:init_exec_t"
 </pre>
 }}
 
-Finally, reboot with <code>ima_appraise=enforce</code>. The system should now run with appraisal enabled, causing the system to validate the hash against the stored value before using it. If it doesn't match, then the file is not loaded and any access towards it will be denied with a ''Permission denied'' error. 
+Finally, reboot with {{c|ima_appraise{{=}}enforce}}. The system should now run with appraisal enabled, causing the system to validate the hash against the stored value before using it. If it doesn't match, then the file is not loaded and any access towards it will be denied with a ''Permission denied'' error. 
 
-You can check if this works by booting with <code>ima_appraise=off</code> and changing the contents of a root-owned file (or the value of the extended attribute) and reboot with <code>ima_appraise=enforce</code>, or by directly editing virtual guest images. 
+You can check if this works by booting with {{c|ima_appraise{{=}}off}} and changing the contents of a root-owned file (or the value of the extended attribute) and reboot with {{c|ima_appraise{{=}}enforce}}, or by directly editing virtual guest images. 
 
 === Using digital signatures for immutable files ===
 The IMA appraisal code also supports immutable files. In this case, an RSA-key based signature is taken of the file and stored in the extended attribute. The private key is used to sign the files, whereas the public key is used to verify the signature. This provides additional protection against tampering as the private key does not need to be available on the system while its running (only during the initial marking). 
 
-To sign such immutable files (like kernel modules and application code), you need to use the <code>evmctl</code> command provided by the {{Package|app-crypt/ima-evm-utils}} package. But first, setup the kernel keyring: 
+To sign such immutable files (like kernel modules and application code),the {{c|evmctl}} command provided by the {{Package|app-crypt/ima-evm-utils}} package needs be used. But first, setup the kernel keyring: 
 
 {{RootCmd|ima_id{{=}}`keyctl newring _ima @u`
 |evmctl import --rsa /path/to/rsa_public.pem $ima_id}}
 
-This allows the IMA subsystem to validate the signature (which is also needed when initially setting the signature) by loading the public key onto the IMA keyring. You will need to do this every time the system boots, so it makes sense to do so within an initramfs (early in the boot process): 
+This allows the IMA subsystem to validate the signature (which is also needed when initially setting the signature) by loading the public key onto the IMA keyring. This needs to be done every time the system boots, so it makes sense to do so within an initramfs (early in the boot process): 
 
 {{RootCmd|find /lib/modules -name "*.ko" -type f -uid 0 -exec evmctl sign --imasig '{}' /path/to/rsa_private.pem \;}}
 
@@ -148,14 +146,14 @@ To read the integrity log as registered by the IMA subsystem, look at the {{Path
 </pre>
 }}
 
-What you see here (from left to right) are
+The columns (from left to right) are:
 
-* '''PCR (Platform Configuration Register)''' in which the values are registered. This only makes sense if you have a TPM chip in use.
+* '''PCR (Platform Configuration Register)''' in which the values are registered. This only makes sense if a TPM chip is in use.
 * '''Template hash''' of the entry, which is a hash that combines the length and values of the file content hash and the pathname
 * '''Template''' that registered the integrity value (ima-ng the case)
-* '''File content''' hash which is the hash of the file itse;lf
+* '''File content''' hash which is the hash of the file itself
 
-Unless you have asked for a different hashing algorithm, the default one will be used which is the SHA-1 hashing algorithm.
+The default hash algorithm is SHA-1.
 
 == Asked Questions with Answers ==
 
@@ -205,7 +203,7 @@ security.selinux="root:object_r:etc_runtime_t"
 === I was able to edit an 'immutable' file and still run it. How come? ===
 
 If you digitally signed a script using <code>evmctl sign --imasig <file> <private-key></code> and then edited the file with <code>vim</code>, then this behavior is to be expected. <code>vim</code> removes the original file and replaces it with a new one. The newly created file is given an appropriate hash (but no digital signature of course) and thus you can still execute it. 
-
+Integrity Measurement Architecture/Recipes
 The use of digital signatures is more for kernel modules and ELF binaries. But below an example of how it does work - if you edit the file rather than replace it. 
 
 {{RootCmd|evmctl sign --imasig ./test.sh /root/rsa_private.pem
@@ -233,88 +231,10 @@ comm="cat" name="/bin/test.sh" dev="dm-2" ino=131466 res=0
 </pre>
 }}
 
-=== How do I load in my own, custom IMA policy? ===
-You can load in an IMA policy by writing the ''name of the file with the policy'' (not the policy itself!) to {{Path|/sys/kernel/security/ima/policy}}. If the policy is accepted, then the command will succeed. A policy can only be replaced once. Further writes to the {{Path|policy}} will be either be disallowed or append to the existing policy, depending on whether or not CONFIG_IMA_WRITE_POLICY was set. The policy can be read back by reading the {{Path|policy}} file if CONFIG_IMA_READ_POLICY was set. 
+=== How do I load a custom IMA policy? ===
+It is possible, and recommended to use a custom IMA policy. A breakdown of the default rules and snippets to rules for be included can by found in [[Integrity Measurement Architecture/Recipes]]
 
-Below is an example custom policy, taken from the default one with one addition: ask it not to measure and appraise log files (through the use of the SELinux <code>logfile</code> attribute). 
-
-{{CodeBox|title=Example IMA custom policy|1=
-# Magics can be found in kernel/include/uapi/linux/magic.h
-# Default can be found in security/integrity/ima/ima_policy.c
-# PROC_SUPER_MAGIC = 0x9fa0
-dont_measure fsmagic=0x9fa0
-dont_appraise fsmagic=0x9fa0
-# SYSFS_MAGIC = 0x62656572
-dont_measure fsmagic=0x62656572
-dont_appraise fsmagic=0x62656572
-# DEBUGFS_MAGIC = 0x64626720
-dont_measure fsmagic=0x64626720
-dont_appraise fsmagic=0x64626720
-# TMPFS_MAGIC = 0x01021994
-dont_measure fsmagic=0x01021994
-dont_appraise fsmagic=0x01021994
-# RAMFS_MAGIC = 0x858458f6
-dont_measure fsmagic=0x858458f6
-dont_appraise fsmagic=0x858458f6
-# DEVPTS_SUPER_MAGIC = 0x1cd1
-dont_measure fsmagic=0x1cd1
-dont_appraise fsmagic=0x1cd1
-# BINFMTFS_MAGIC = 0x42494e4d
-dont_measure fsmagic=0x42494e4d
-dont_appraise fsmagic=0x42494e4d
-# SECURITYFS_MAGIC = 0x73636673
-dont_measure fsmagic=0x73636673
-dont_appraise fsmagic=0x73636673
-# SELINUX_MAGIC = 0xf97cff8c
-dont_measure fsmagic=0xf97cff8c
-dont_appraise fsmagic=0xf97cff8c
-# NFS_MAGIC = 0x6969
-dont_measure fsmagic=0x6969
-dont_appraise fsmagic=0x6969
-# CGROUP_SUPER_MAGIC = 0x27e0eb
-dont_appraise fsmagic=0x27e0eb
-# Some defaults for measurement
-measure func=FILE_MMAP mask=MAY_EXEC
-measure func=BPRM_CHECK mask=MAY_EXEC
-# Do not measure all types that have the "logfile" SELinux attribute
-# You can use seinfo -alogfile -x to get an overview of all these types
-dont_measure obj_type=initrc_var_log_t
-dont_measure obj_type=nscd_log_t
-dont_measure obj_type=auth_cache_t
-dont_measure obj_type=cron_log_t
-dont_measure obj_type=faillog_t
-dont_measure obj_type=lastlog_t
-dont_measure obj_type=puppet_log_t
-dont_measure obj_type=var_log_t
-dont_measure obj_type=wtmp_t
-dont_measure obj_type=portage_log_t
-dont_measure obj_type=getty_log_t
-dont_measure obj_type=rsync_log_t
-dont_measure obj_type=fsadm_log_t
-dont_measure obj_type=auditd_log_t
-dont_appraise obj_type=initrc_var_log_t
-dont_appraise obj_type=nscd_log_t
-dont_appraise obj_type=auth_cache_t
-dont_appraise obj_type=cron_log_t
-dont_appraise obj_type=faillog_t
-dont_appraise obj_type=lastlog_t
-dont_appraise obj_type=puppet_log_t
-dont_appraise obj_type=var_log_t
-dont_appraise obj_type=wtmp_t
-dont_appraise obj_type=portage_log_t
-dont_appraise obj_type=getty_log_t
-dont_appraise obj_type=rsync_log_t
-dont_appraise obj_type=fsadm_log_t
-dont_appraise obj_type=auditd_log_t
-# Remainder of the defaults
-measure func=FILE_CHECK mask=MAY_READ uid=0
-appraise fowner=0
-}}
-
-
-{{Note|A small bug in the 3.7 kernel series requires a small [https://sourceforge.net/mailarchive/message.php?msg_id{{=}}30306475 patch] to be applied if you are planning on using a custom policy based on SELinux rules (actually any LSM-implemented security subsystem rule).}}
-
-Make sure no empty lines are in the policy; if not, it will be refused. You can check the output of <code>dmesg</code> for hints why the policy was refused (it shows what was accepted, so the next line would be a not-accepted line), or the audit logs (but you will need to have <code>auditd</code> running) if you get lines such as ''audit_printk_skb: XX callbacks suppressed'' as you then might not have all the information you need. 
+Make sure no empty lines are in the policy; if not, it will be refused. You can check the output of {{c|dmesg}} for hints why the policy was refused (it shows what was accepted, so the next line would be a not-accepted line), or the audit logs (but you will need to have {{c|auditd}} running) if you get lines such as ''audit_printk_skb: XX callbacks suppressed'' as you then might not have all the information you need. 
 
 Have the policy be loaded in as soon as possible, either in an initramfs or early in the boot process through an init script in the ''sysinit'' runlevel. I keep my policy in {{Path|/etc/ima}} and use the following small init script to load it early on: 
 
