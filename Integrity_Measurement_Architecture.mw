@@ -46,7 +46,7 @@ There are 2 important IMA command line options: {{c|ima_appraise{{=}}}} and {{c|
 * '''enforce''' causes IMA to appraise files according to policy. Access is denied to the appraised file if the store hash is missing or does not match the collected value. IMA generates new stored hashes for new files and changed files with valid hashes.
 * '''log''' is similar to '''enforce''' except access is not denied but only logged.
 * '''off''' disables all appraisal. The stored hashes aren't checked and new stored hashes are not generated or updated.
-* '''fix''' disables all appraisal, but generates new stored hashes for any file opened for read. If a file has an incorrect stored hash, it is updated to a correct one.
+* '''fix''' creates and updates the stored hashes of files that would otherwise be appraised. 
 {{c|ima_policy{{=}}}} can take 1 of 3 values:
 * '''tcb''' measures all executables run, all mmap'd files for execution (such as shared libraries), all kernel modules loaded, and all firmware loaded. Additionally, a files opened for read by root are measured as well.
 * '''appraise_tcb''' appraises all files owned by root.
@@ -58,15 +58,13 @@ There are 2 important IMA command line options: {{c|ima_appraise{{=}}}} and {{c|
 
 Mount all file systems with the {{c|i_version}} support (which, sadly, means  it needs to added with {{c|iversion}} mount option - without the underscore). This is an optimization for IMA, allowing it to only recompute the hash of file when it actually changes instead of every time the file is opened.
 
-{{CodeBox|title=Enabling i_version on all mounts|1=
+{{FileBox|filename=/etc/fstab|title=Enabling i_version on all mounts|1=
 # Example for a single partition, in /etc/fstab:
-/dev/vda1  /  ext4  noatime,iversion  1 2
-}}
+/dev/vda1  /  ext4  noatime,iversion  1 2}}
 
 For the root file system, it can be enabled through the {{c|rootflags}} kernel parameter as well so that it gets mounted immediately with i_version support when the Linux kernel mounts the root file system.
 
-{{CodeBox|title=Using rootflags in the bootloader configuration|1=
-# Example kernel line for a GRUB setup
+{{FileBox|filename=/etc/default/grub|title=Using rootflags in the bootloader configuration|1=
 GRUB_CMDLINE_LINUX="rootflags=i_version dolvm ima_appraise=enforce ima_policy=tcb ima_policy=appraise_tcb"}}
 
 Note that the underscore needs to be present here, unlike in the fstab case.
@@ -77,15 +75,11 @@ Note that the underscore needs to be present here, unlike in the fstab case.
 
 First boot with the {{c|ima_appraise{{=}}fix}} boot option. This will allow the system to boot up even when no (or wrong) hashes are registered.
 
-Next, all files that will be appraised need read
+{{Important|{{c|ima_appraise{{=}}fix}} only creates and updates hashes on the files that would otherwise be appraised, so if using a custom IMA policy, that policy must be loaded ''first''. If neither {{c|ima_policy{{=}}appraise_tcb}} or a custom policy is loaded, the default policy is to not appraise anything, and the below command will have no effect. Additionally, this process may need to be completed if there's a change in the IMA policy}} 
+
+Next, all files that will be appraised need to be opened for read
 
 {{RootCmd|1=find / -fstype ext4 -type f -uid 0 -exec dd if='{}' of=/dev/null count=0 status=none \;}}
-
-Its also possible to use the {{c|evmctl}} utility which is part of {{Package|app-crypt/ima-evm-utils}}
-
-{{RootCmd|1=find / -fstype ext4 -type f -uid 0 -exec evmctl ima_hash '{}' > /dev/null}}
-
-However, this will hash all files even if the file has a {{c|dont_hash}} rule.
 
 When done, the stored hash value should show as an extended attribute:
 
@@ -98,7 +92,7 @@ security.selinux="system_u:object_r:init_exec_t"
 
 Finally, reboot with {{c|ima_appraise{{=}}enforce}}. The system should now run with appraisal enabled, causing the system to validate the hash against the stored value before using it. If it doesn't match, then the file is not loaded and any access towards it will be denied with a ''Permission denied'' error.
 
-You can check if this works by booting with {{c|ima_appraise{{=}}off}} and changing the contents of a root-owned file (or the value of the extended attribute) and reboot with {{c|ima_appraise{{=}}enforce}}, or by directly editing virtual guest images.
+Appraisal can be verified with {{c|ima_appraise{{=}}off}} and changing the contents of a root-owned file (or the value of the extended attribute) and reboot with {{c|ima_appraise{{=}}enforce}}, or by directly editing virtual guest images.
 
 === Using digital signatures for immutable files ===
 
