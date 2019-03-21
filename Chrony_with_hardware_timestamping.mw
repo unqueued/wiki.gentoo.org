@@ -1,0 +1,233 @@
+== Chrony with hardware timestamping ==
+[https://en.wikipedia.org/wiki/Precision_Time_Protocol Precision Time Protocol (PTP)] can be used by Chrony to provide much more accurate time tracking with less jitter using readily available hardware time sources on most recent NIC hardware.  This howto guide uses an example home network that has seven hosts including two that are internet facing servers.  All but one (thufir) have sufficiently modern ethernet devices that can support a PTP hardware clock interface.
+
+=== Host List ===
+* parry - An internet facing server based on an AMD Kaveri class APU (2014 vintage whose NIC on the motherboard supports PTP)
+* topshelf - An internet facing server recently refreshed with an AMD Zen2 class motherboard
+* thufir - A local host based on AMD Bulldozer class from around 2012 whose motherboard NIC is too old for PTP
+* mater - A local AMD Zen1 class host
+* mike - A local AMD Zen1 class host
+* figo - A local AMD Zen2 class host
+* tube - A local AMD Kaveri class host
+
+=== Kernel support ===
+Linux PTP version 2 support was released in 2008, and thus all current Gentoo source kernels (4.x and later) can be built with PTP clock support (CONFIG_PTP_1588_CLOCK).  If you use VMs and want your virtual machines to take advantage of PTP you can also set CONFIG_PTP_1588_KVM.  Also set up your network PHY device support for your line of adapters if you haven't already done so.
+
+{{KernelBox|1=
+PTP Clock Support
+  PTP Clock Support
+  KVM virtual PTP clock
+Network device support
+  PHY Device support and infrastructure
+}}
+
+
+=== Verifying the NIC PTP device clock ===
+Emerge ethtool if you haven't already done so.  It can show you the PTP capabilities and associated ptp device for the NIC clock if it exists.  For topshelf, the inward facing nic is eth2, and we see that clock 2 (/dev/ptp2) is associated with it.
+
+{{RootCmd|ethtool -T eth2|output=<pre>
+Time stamping parameters for eth2:
+Capabilities:
+        hardware-transmit     (SOF_TIMESTAMPING_TX_HARDWARE)
+        software-transmit     (SOF_TIMESTAMPING_TX_SOFTWARE)
+        hardware-receive      (SOF_TIMESTAMPING_RX_HARDWARE)
+        software-receive      (SOF_TIMESTAMPING_RX_SOFTWARE)
+        software-system-clock (SOF_TIMESTAMPING_SOFTWARE)
+        hardware-raw-clock    (SOF_TIMESTAMPING_RAW_HARDWARE)
+PTP Hardware Clock: 2
+Hardware Transmit Timestamp Modes:
+        off                   (HWTSTAMP_TX_OFF)
+        on                    (HWTSTAMP_TX_ON)
+Hardware Receive Filter Modes:
+        none                  (HWTSTAMP_FILTER_NONE)
+        all                   (HWTSTAMP_FILTER_ALL)
+</pre>}}
+
+This is what you would see instead if your device doesn't have PTP support such as the eth0 device on thufir.
+{{RootCmd|ethtool -T eth0|output=<pre>
+Time stamping parameters for eth0:
+Capabilities:
+        software-transmit     (SOF_TIMESTAMPING_TX_SOFTWARE)
+        software-receive      (SOF_TIMESTAMPING_RX_SOFTWARE)
+        software-system-clock (SOF_TIMESTAMPING_SOFTWARE)
+PTP Hardware Clock: none
+Hardware Transmit Timestamp Modes: none
+Hardware Receive Filter Modes: none
+</pre>}}
+
+
+=== Chrony config on the internet facing servers ===
+topshelf and parry have multiple nic adapters and are directly connected to the internet with shorewall keeping out the unwashed masses.  Their chrony config will differ from the other hosts because they will talk to upstream ntp.org and gentoo.org ntp servers at a higher stratum.  The local home network is the private 192.168.1.0 class C subnet.
+
+{{FileBox|filename=/etc/chrony/chrony.conf|title=Customized chrony config file for topshelf|lang=ini|1=
+
+# Record the rate at which the system clock gains/losses time.
+driftfile /var/lib/chrony/drift
+
+# Allow the system clock to be stepped in the first three updates
+# if its offset is larger than 1 second.
+makestep 1.0 3
+
+# Enable kernel synchronization of the real-time clock (RTC).
+rtcsync
+
+allow 192.168.1.0/24
+cmdallow 192.168.1.0/24
+
+#
+#  Outside pools are the public ntp.org and the gentoo ntp pool.  Leave polling intervals at the default of 64 seconds to not
+#  abuse the public services.  Use iburst for initial startup only.  These outside pools are commented out for everybody other than
+#  topshelf and maginot
+#
+pool pool.ntp.org iburst
+server 0.gentoo.pool.ntp.org iburst
+server 1.gentoo.pool.ntp.org iburst
+server 2.gentoo.pool.ntp.org iburst
+server 3.gentoo.pool.ntp.org iburst
+
+#
+#  parry and topshelf are firewalls facing the internet so mark them as preferred sources
+#
+peer parry.example.com minpoll 0 maxpoll 0 xleave prefer
+peer topshelf.example.com minpoll 0 maxpoll 0 xleave prefer
+initstepslew 30 parry.example.com topshelf.example.com
+#
+#  thufir's hardware currently doesn't have any nics with ethernet clocks so leave off the xleave directive
+#
+peer thufir.example.com minpoll 0 maxpoll 0
+peer mater.example.com minpoll 0 maxpoll 0 xleave
+peer figo.example.com minpoll 0 maxpoll 0 xleave
+peer mike.example.com minpoll 0 maxpoll 0 xleave
+peer tube.example.com minpoll 0 maxpoll 0 xleave
+
+
+
+#
+#  May need tweaking for each host depending on the presence of ptp clocks on the nics
+#
+refclock PHC /dev/ptp2
+hwtimestamp *
+
+
+
+dumpdir /run/chronyd
+dumponexit
+hwclockfile /etc/adjtime
+
+logdir /var/log/chrony
+log tracking rtc
+}}
+
+The first part of the file uses the public pool of ntp.org and gentoo ntp servers for our upstream sources.  The iburst option allows topshelf and parry to have an initially larger amount of ntp transactions pack and forth with the upstream servers until the accurate time gets settled upon.  However that may not necessarily happen since the initstepslew directive will take effect first.  That directive will quickly slew the clock into shape upon startup if the time is off by 30 seconds or more.
+
+The prefer option on these two designates them to be treated with higher priority amongst all of the peers.  Thus either parry or topshelf will show up as the reference clock when you issue a tracking command to chronyc.
+
+The xleave option gets used everywhere there is a peer that has PTP support.  That will cause chrony to use the NIC clock to hardware timestamp the ethernet traffic it uses with the other host to update the clock.  This helps to reduce jitter and improve accuracy.
+
+The refclock directive has the host use the NIC clock as an additional reference source.  As noted previously, topshelf uses /dev/ptp2 since that is the NIC clock associated with its inward facing eth2 port.  It will show up as the PHC0 source in the first line of a chronyc sources command.
+
+The hwtimestamp * directive tells chrony to enable hardware timestamping on any of the NICs it may use that support PTP.
+
+
+=== Chrony config on a local peer===
+
+{{FileBox|filename=/etc/chrony/chrony.conf|title=Customized chrony config file for thufir|lang=ini|1=
+
+# Record the rate at which the system clock gains/losses time.
+driftfile /var/lib/chrony/drift
+
+# Allow the system clock to be stepped in the first three updates
+# if its offset is larger than 1 second.
+makestep 1.0 3
+
+# Enable kernel synchronization of the real-time clock (RTC).
+rtcsync
+
+allow 192.168.1.0/24
+cmdallow 192.168.1.0/24
+
+#
+#  Outside pools are the public ntp.org and the gentoo ntp pool.  Leave polling intervals at the default of 64 seconds to not
+#  abuse the public services.  Use iburst for initial startup only.  These outside pools are commented out for everybody other than
+#  topshelf and maginot
+#
+#pool pool.ntp.org iburst
+#server 0.gentoo.pool.ntp.org iburst
+#server 1.gentoo.pool.ntp.org iburst
+#server 2.gentoo.pool.ntp.org iburst
+#server 3.gentoo.pool.ntp.org iburst
+
+#
+#  parry and topshelf are firewalls facing the internet so mark them as preferred sources
+#
+peer parry.example.com minpoll 0 maxpoll 0 prefer
+peer topshelf.example.com minpoll 0 maxpoll 0 prefer
+initstepslew 30 parry.example.com topshelf.example.com
+#
+#  thufir's hardware currently doesn't have any nics with ethernet clocks so leave off the xleave directive
+#
+peer thufir.example.com minpoll 0 maxpoll 0
+peer mater.example.com minpoll 0 maxpoll 0
+peer figo.example.com minpoll 0 maxpoll 0
+peer mike.example.com minpoll 0 maxpoll 0
+peer tube.example.com minpoll 0 maxpoll 0
+
+
+
+#
+#  May need tweaking for each host depending on the presence of ptp clocks on the nics
+#
+#refclock PHC /dev/ptp0
+hwtimestamp *
+
+
+
+dumpdir /run/chronyd
+dumponexit
+hwclockfile /etc/adjtime
+
+logdir /var/log/chrony
+log tracking rtc
+}}
+
+For the local peers, we have commented out the ntp.org and gentoo.org server pools since they will be relying on topshelf and parry.  For thufir, we have also removed all the xleave options and commented out the refclock directive since it lacks PTP support on its NIC.
+
+
+=== chrony with hardware timestamping in action ===
+This is the output of a chronyc sources and tracking report on tube after the newly configured chrony has been pushed out to all of the hosts and has been running for a while.  topshelf shows with "=*" since it is the reference clock.  parry shows "=+" since it is regarded highly enough to be considered in the clock adjustment combining algorithm.  The other peers show as "=-" since they are not currently being regarded as sources for adjustments.  The PHC0 shows as "=X" since it is a hardware reference associated with the /dev/ptp0 clock on the eth0 NIC interface.
+
+{{RootCmd|chronyc|output=<pre>
+chrony version 3.3
+Copyright (C) 1997-2003, 2007, 2009-2018 Richard P. Curnow and others
+chrony comes with ABSOLUTELY NO WARRANTY.  This is free software, and
+you are welcome to redistribute it under certain conditions.  See the
+GNU General Public License version 2 for details.
+
+chronyc> sources
+210 Number of sources = 8
+MS Name/IP address         Stratum Poll Reach LastRx Last sample               
+===============================================================================
+#x PHC0                          0   4   377    17   +37.4s[ +37.4s] +/-  901ns
+=+ parry.example.com             3   0   365     3    -48ns[  -48ns] +/-   15ms
+=* topshelf.example.com.>        2   0   377     7   -390ns[ -438ns] +/-   15ms
+=- thufir.example.com            3   0   165    10    +49us[  +49us] +/-   15ms
+=- mater.example.com             3   0   377     0  -4842ns[-4842ns] +/-   15ms
+=- figo.example.com              3   0   375     3   -459ns[ -459ns] +/-   15ms
+=- mike.example.com              3   0   157     2  +7333ns[+7333ns] +/-   14ms
+=? tube.example.com              0   0     0     -     +0ns[   +0ns] +/-    0ns
+chronyc> tracking
+Reference ID    : C0A80B21 (topshelf.example.com.1.168.192.in-addr.arpa)
+Stratum         : 3
+Ref time (UTC)  : Thu Mar 21 20:57:24 2019
+System time     : 0.000000522 seconds fast of NTP time
+Last offset     : +0.000000025 seconds
+RMS offset      : 0.000001429 seconds
+Frequency       : 0.321 ppm fast
+Residual freq   : -0.000 ppm
+Skew            : 0.007 ppm
+Root delay      : 0.025426105 seconds
+Root dispersion : 0.002194689 seconds
+Update interval : 5.4 seconds
+Leap status     : Normal
+chronyc> 
+</pre>}}
