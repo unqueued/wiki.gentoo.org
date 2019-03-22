@@ -127,7 +127,7 @@ acl_check_connect:
 
   # Set up for finalisation: write to log
   warn
-          condition    = ${if def:acl_c1 {true}{false} }
+          condition   = ${if def:acl_c1 {true}{false} }
           logwrite    = $acl_c1
 
   # On error: accept but stall (good actors tend to be patient)
@@ -175,7 +175,7 @@ acl_check_helo:
 
   # Set up for finalisation: write to log
   warn
-          condition    = ${if def:acl_c2 {true}{false} }
+          condition   = ${if def:acl_c2 {true}{false} }
           logwrite    = $acl_c2
 
   # On error: accept but stall (good actors tend to be patient)
@@ -221,7 +221,7 @@ acl_check_mail_from:
 
   # Set up for finalisation: add all headers and write to log
   warn
-          condition    = ${if def:acl_c3 {true}{false} }
+          condition   = ${if def:acl_c3 {true}{false} }
           logwrite    = $acl_c3
           add_header  = $acl_c1
           add_header  = $acl_c2
@@ -284,7 +284,7 @@ acl_check_dkim:
 
   # Set up for finalisation: add header and write to log
   warn
-          condition    = ${if def:acl_c4 {true}{false} }
+          condition   = ${if def:acl_c4 {true}{false} }
           add_header  = $acl_c4
           logwrite    = $acl_c4
 
@@ -297,42 +297,50 @@ acl_check_dkim:
 acl_check_rcpt:
 
   # Test empty sending host field to accept local SMTP (i.e. not over network)
-  accept  hosts = :
-          control = dkim_disable_verify
+  accept
+          hosts         = :
+          control       = dkim_disable_verify
 
   # Strange non-alphanumeric characters may indicate a user trying to trick us;
   # 1/2: incoming mail address may not begin with . or contain @ % ! / or {{!}}
-  deny    message	= Restricted characters in address
+  deny
+          message	= Restricted characters in address
           domains	= +local_domains
           local_parts   = ^[.] : ^.*[@%!/{{!}}]
 
   # 2/2: outgoing mail address may not begin with . / or {{!}} and neither may it
   #      contain @ % ! or the sequence /../ (this is slightly looser than 1/2)
-  deny    message	= Restricted characters in address
+  deny
+          message	= Restricted characters in address
           domains	= !+local_domains
           local_parts   = ^[./{{!}}] : ^.*[@%!] : ^.*/\\.\\./
 
   # Deny unless we have a route to deliver mail back to the sender address
-  require verify        = sender
+  require
+          verify        = sender
 
   # Skip other checks for all authenticated connections (probably MUAs), set
   # submission mode and assume MUAs send address in From: that includes @domain
-  accept  authenticated = *
+  accept
+          authenticated = *
           control	= submission/sender_retain
           control	= dkim_disable_verify
-          add_header     = X-Authenticated-Sender: ${sender_address}
+          add_header    = X-Authenticated-Sender: ${sender_address}
           set acl_c_authenticated = 1
 
   # Insist that a HELO/EHLO was accepted.
-  require message	= nice hosts say HELO first
+  require
+          message	= nice hosts say HELO first
           condition     = ${if def:sender_helo_name}
 
   # Insist that any other recipient address is in one of our local domains
-  require message = relay not permitted
-          domains = +local_domains
+  require
+          message       = relay not permitted
+          domains       = +local_domains
 
   # Ensure we can deliver the message before we accept it
-  require verify = recipient
+  require
+          verify        = recipient
 
   # If it got through to this point, accept it without further checks
   accept
@@ -343,33 +351,179 @@ acl_check_rcpt:
 acl_check_data:
 
   # Deny if the message contains an overlong line, as per the standards
-  deny    message    = maximum allowed line length is 998 octets, \
-                       got $max_received_linelength
-          condition  = ${if > {$max_received_linelength}{998} }
+  deny
+          message       = maximum allowed line length is 998 octets, \
+                          got $max_received_linelength
+          condition     = ${if > {$max_received_linelength}{998} }
 
   # Deny if the headers contain badly-formed addresses.
-  deny    !verify    = header_syntax
-          message    = header syntax
-          logwrite   = header syntax ($acl_verify_message)
+  deny
+          !verify       = header_syntax
+          message       = header syntax
+          logwrite      = header syntax ($acl_verify_message)
 
   # Deny if the message contains a virus. Before enabling this check, you
   # must install a virus scanner and set the av_scanner option above.
-  # deny    malware    = *
-  #         message    = This message contains a virus ($malware_name).
+  # deny
+  #         malware     = *
+  #         message     = This message contains a virus ($malware_name).
 
   # Add headers to a message if it is judged to be spam. Before enabling this,
   # you must install SpamAssassin. You may also need to set the spamd_address
   # option above.
-  # warn    spam       = nobody
-  #         add_header = X-Spam_score: $spam_score\n\
-  #                      X-Spam_score_int: $spam_score_int\n\
-  #                      X-Spam_bar: $spam_bar\n\
-  #                      X-Spam_report: $spam_report
+  # warn
+  #         spam        = nobody
+  #         add_header  = X-Spam_score: $spam_score\n\
+  #                       X-Spam_score_int: $spam_score_int\n\
+  #                       X-Spam_bar: $spam_bar\n\
+  #                       X-Spam_report: $spam_report
 
   # Accept the message.
   accept
-          logwrite   = Received message from $sender_address_domain
+            logwrite    = Received message from $sender_address_domain
 
+
+#########
+# ROUTERS
+#########
+
+begin routers
+
+# ---
+# Routers that handle addresses in remote domains (! +local_domains).
+# ---
+
+# Route addresses by doing a DNS lookup on the domain name.
+# Domains that resolve to 0.0.0.0 or to loopback (127.0.0.0/8) are treated as 
+# if they have no DNS entry: lookup fails, 'no_more' intervenes and the 
+# address is handled as unrouteable.
+dnslookup:
+  driver = dnslookup
+  driver = dnslookup
+  domains = ! +local_domains
+  transport = remote_smtp
+  ignore_target_hosts = 0.0.0.0 : 127.0.0.0/8
+  no_more
+
+# ---
+# Routers that handle addresses in local domains ("domainlist local_domains").
+# ---
+# If none of these routers picks up the message, "Unknown user" is returned to
+# sender.
+
+# This section is heavily dependent on your setup, especially how you wish to
+# manage the 'local_parts', i.e. what aliases exist, what mailboxes exist and
+# where mailboxes are stored.
+# Traditionally answers to these questions were files that have existed since
+# dawn of Unix tradition, but nowadays it's typical to put this in a database.
+# If you already administer one or more databases, you can use it here as well.
+# But if you don't, you can consider sqlite or flat files, so you don't need to
+# learn about database-upgrades, etc. This example uses an sqlite database.
+
+# If recepient is an alias, redirect it to the appropriate mailbox
+aliases:
+  debug_print = "Redir: virtual_aliases for ${local_part}@${domain}"
+  driver = redirect
+  domains = +local_domains
+  local_part_suffix = -*
+  local_part_suffix_optional
+# Change the following two lines to reflect your database setup
+#  condition = ${if eq{${local_part} }{${lookup sqlite {/path/to/db.sqlite SELECT alias FROM aliases WHERE domain='${quote_sqlite:$domain}' AND alias='${quote_sqlite:$local_part}'; }  }
+#  data = /path/to/mailboxes/${domain}/${lookup sqlite {/path/to/db.sqlite SELECT userid FROM aliases WHERE domain='${quote_sqlite:$domain}' AND alias='${quote_sqlite:$local_part}'; } }
+  file_transport = redir_virtual_directory
+  directory_transport = redir_virtual_directory
+
+# If recepient is a mailbox on its own, deliver the message.
+# This router treats local parts with suffixes introduced by "-" as if the 
+# suffixes did not exist. E.g. xxxx-foo@your.domain will be treated
+# in the same way as xxxx@your.domain by this router.
+users:
+  debug_print = "Acc: userid for ${local_part}@${domain}"
+  driver = accept
+  no_check_local_user
+  domains = +local_domains
+  local_part_suffix = -*
+  local_part_suffix_optional
+# Change the following line to reflect your database setup
+#  condition = ${if eq{${local_part} }{${lookup sqlite {/path/to/db.sqlite SELECT userid FROM users WHERE domain='${quote_sqlite:$domain}' AND userid='${quote_sqlite:$local_part}'; }  }
+  transport = accept_virtual_directory
+  cannot_route_message = Unknown user
+
+
+
+############
+# TRANSPORTS
+############
+# Transports can only be called by a router picking up the message
+
+begin transports
+
+# ---
+# Transport for delivering over SMTP (e.g. outgoing e-mail)
+# ---
+
+# Refuse messages with over-long lines as per standard
+# Note: the use of message_size_limit is a red herring.
+remote_smtp:
+  driver = smtp
+  message_size_limit = ${if > {$max_received_linelength}{998} {1}{0} }
+  dkim_domain = ${sender_address_domain}
+  dkim_selector = dkim
+  dkim_private_key = /etc/ssl/private/dkim-mailserver.example.com.key
+  dkim_canon=relaxed
+
+# ---
+# Transport for delivering to local mailbox
+# ---
+
+# This transport is used for local delivery to user mailboxes w/ Maildir
+accept_virtual_directory:
+  driver = appendfile
+  maildir_format
+  user = vmail
+  group = vmail
+  mode = 0600
+  directory = /var/mail/${domain}/${local_part}/
+  delivery_date_add
+
+redir_virtual_directory:
+  driver = appendfile
+  maildir_format
+  user = vmail
+  group = vmail
+  mode = 0600
+
+
+#######
+# RETRY
+#######
+
+begin retry
+
+# Because we're not going to give up after our first attempt
+# Address or Domain    Error       Retries
+  *                    *           F,2h,15m; G,16h,1h,1.5; F,4d,6h
+
+################
+# AUTHENTICATION
+################
+
+begin authenticators
+
+# Authentication can be finicky to set up, but will also be needed by the
+# POP/IMAP server you will probably also be setting up. This example makes use
+# of dovecot to handle authentication for our SMTP clients.
+dovecot_login:
+  driver = dovecot
+  public_name = LOGIN
+  server_socket = /var/run/dovecot/auth-client
+  server_set_id = $auth1
+
+dovecot_plain:
+  driver = dovecot
+  public_name = PLAIN
+  server_socket = /var/run/dovecot/auth-client
+  server_set_id = $auth1
 
 }}
 
