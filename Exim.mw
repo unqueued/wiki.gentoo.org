@@ -106,6 +106,201 @@ timeout_frozen_after = 7d
 # If we don't set the following option, Exim will complain mildly
 keep_environment =
 
+###################
+# ACL CONFIGURATION
+###################
+begin acl
+
+# Work through the SMTP protocol
+
+# Trigger on an incoming connection
+acl_check_connect:
+
+  # Record the current timestamp, in order to delay crappy senders
+  warn
+          set acl_m0  = $tod_epoch
+
+  # Warn if reverse DNS lookup failed. Note: later we compare rDNS with HELO
+  warn
+          !verify     = reverse_host_lookup
+          set acl_c1  = X-DNS-Warning: Couldn't lookup reverse DNS for ${sender_host_address}
+
+  # Set up for finalisation: write to log
+  warn
+          condition    = ${if def:acl_c1 {true}{false} }
+          logwrite    = $acl_c1
+
+  # On error: accept but stall (good actors tend to be patient)
+  accept
+          set acl_m0  = ${if def:acl_c1 {${eval:20 + $acl_m0 - $tod_epoch} }{0} }
+          delay       = ${if >{$acl_m0}{0}{$acl_m0}{0} }s
+
+# Trigger on the HELO/EHLO of incoming connections.
+acl_check_helo:
+
+  # Record the current timestamp, in order to delay crappy senders
+  warn
+          set acl_m0  = $tod_epoch
+
+  # Warn if sender did not provide a HELO/EHLO greeting
+  warn
+          condition   = ${if !def:sender_helo_name {true}{false} }
+          set acl_c2  = X-HELO-Warning: Remote host $sender_host_address \
+                        did not present HELO/EHLO greeting.
+
+  # Warn if sender greeted with an IP address (technically correct, but crappy)
+  warn
+          condition   = ${if !def:acl_c2 {true}{false} }
+          condition   = ${if isip {$sender_helo_name}{true}{false} }
+          set acl_c2  = X-HELO-Warning: Remote host $sender_host_address \
+                        used IP address instead of hostname in HELO/EHLO
+
+  # Warn if sender pretended to be us (they may think that would trick us)
+  warn
+          condition   = ${if !def:acl_c2 {true}{false} }
+          condition   = ${if match_domain{$sender_helo_name}\
+                        {$primary_hostname:+local_domains}{true}{false} }
+          set acl_c2  = X-HELO-Warning: Remote host $sender_host_address \
+                        used our name in HELO/EHLO but it is not defined in \
+                        our +local_domains
+
+  # Warn if HELO verification fails, e.g. rDNS of IP != HELO domain
+  warn
+          condition   = ${if !def:acl_c2 {true}{false} }
+          !verify     = helo
+          set acl_c2  = X-HELO-Warning: Remote host ${if def:sender_host_name \
+                            {$sender_host_name ($sender_host_address) }\
+                            {$sender_host_address } }\
+                        incorrectly presented itself as $sender_helo_name
+
+  # Set up for finalisation: write to log
+  warn
+          condition    = ${if def:acl_c2 {true}{false} }
+          logwrite    = $acl_c2
+
+  # On error: accept but stall (good actors tend to be patient)
+  accept
+          set acl_m0  = ${if def:acl_c2 {${eval:20 + $acl_m0 - $tod_epoch} }{0} }
+          delay       = ${if >{$acl_m0}{0}{$acl_m0}{0} }s
+
+# Trigger on MAIL FROM: command. Here we perform SPF checks.
+acl_check_mail_from:
+
+  # Skip SPF checks for all authenticated connections (probably MUAs)
+  accept
+          authenticated = *
+
+  # Record the current timestamp, in order to delay crappy senders
+  warn
+          set acl_m0  = $tod_epoch
+
+  # Query if we can find an SPF policy for the sending domain
+  warn
+          spf         = none:temperror:permerror
+          set acl_c3  = X-SPF-Warning: can't find SPF policy for \
+                        $sender_address_domain
+
+
+  # Query if the sending domain has set a useful SPF policy
+  warn
+          condition   = ${if !def:acl_c3 {true}{false} }
+          condition   = ${if match {${lookup dnsdb{txt=$sender_address_domain}{$value} } }{\\+all} }
+          set acl_c3  = X-SPF-Warning: $sender_address_domain allows +all in SPF policy
+
+  # Query the SPF policy whether sender was authorized to deliver this message
+  # Note: fail = '-all', softfail = '~all', neutral = '?all'
+  warn
+          spf         = fail:softfail:neutral
+          condition   = ${if !def:acl_c3 {true}{false} }
+          set acl_c3  = X-SPF-Warning: $sender_host_address is not allowed to \
+                        send mail for $sender_address_domain
+
+  # Add a SPF-Received: line to the message header (regardless of SPF status)
+  warn
+          add_header  = $spf_received
+
+  # Set up for finalisation: add all headers and write to log
+  warn
+          condition    = ${if def:acl_c3 {true}{false} }
+          logwrite    = $acl_c3
+          add_header  = $acl_c1
+          add_header  = $acl_c2
+          add_header  = $acl_c3
+
+  # On error: accept but stall (good actors tend to be patient)
+  accept
+          set acl_m0  = ${if or { {def:acl_c1}{def:acl_c2}{def:acl_c3} } {${eval:20 + $acl_m0 - $tod_epoch} }{0} }
+          delay       = ${if >{$acl_m0}{0}{$acl_m0}{0} }s
+
+
+# This access control list is used to process DKIM status.
+acl_check_dkim:
+
+  # Skip DKIM checks for all authenticated connections (probably MUAs)
+  accept
+          authenticated = *
+
+  # Record the current timestamp, in order to delay crappy senders
+  warn
+          set acl_m0  = $tod_epoch
+
+  # Warn no DKIM
+  warn
+          dkim_status = none
+          set acl_c4  = X-DKIM-Warning: No signature found
+
+  # RFC 8301 requires 'permanently failed evaluation' for DKIM signatures signed with 'historic algorithms (currently, rsa-sha1)'
+  # @SEE: https://www.exim.org/exim-html-current/doc/html/spec_html/ch-dkim_and_spf.html
+  warn
+          condition              = ${if !def:acl_c4 {true}{false} }
+          condition              = ${if eq {$dkim_verify_status}{pass} }
+          condition              = ${if eq {${length_3:$dkim_algo} }{rsa} }
+          condition              = ${if or { {eq {$dkim_algo}{rsa-sha1} } \
+                                    {< {$dkim_key_length}{1024} } } }
+          set acl_c4             = X-DKIM-Warning: forced DKIM failure (weak hash or short key)
+          set dkim_verify_status = fail
+          set dkim_verify_reason = hash too weak or key too short
+
+  # RFC6376 requires that verification fail if the From: header is not included in the signature
+  # @SEE: https://www.exim.org/exim-html-current/doc/html/spec_html/ch-dkim_and_spf.html
+  warn
+          condition   = ${if !def:acl_c4 {true}{false
+          condition   = ${if !inlist{from}{$dkim_headernames}{true}{false
+          set acl_c4  = X-DKIM-Warning: From: header not included in the \
+                        signature, this defies the purpose of DKIM
+
+  # Warn invalid or failed signatures
+  warn
+          condition   = ${if !def:acl_c4 {true}{false} }
+          dkim_status = fail:invalid
+          set acl_c4  = X-DKIM-Warning: verifying signature of $dkim_cur_signer \
+                        failed for $sender_address because $dkim_verify_reason
+
+  # Add a DKIM-Received: line to the message header (regardless of DKIM status)
+  warn
+          add_header  = Received-DKIM: $dkim_verify_status ${if \
+                        def:dkim_cur_signer {($dkim_cur_signer with \
+                        $dkim_algo for $dkim_headernames)} }
+
+  # Set up for finalisation: add header and write to log
+  warn
+          condition    = ${if def:acl_c4 {true}{false} }
+          add_header  = $acl_c4
+          logwrite    = $acl_c4
+
+  # On error: accept but stall (good actors tend to be patient)
+  accept
+          set acl_m0  = ${if def:acl_c4 {${eval:20 + $acl_m0 - $tod_epoch} }{0} }
+          delay       = ${if >{$acl_m0}{0}{$acl_m0}{0} }s
+
+# Trigger on RCPT of incoming message.
+acl_check_rcpt:
+
+  # Test empty sending host field to accept local SMTP (i.e. not over network)
+  accept  hosts = :
+          control = dkim_disable_verify
+
+
 }}
 
 ===Example for SpamAssasin, ClamAV with PostgreSQL and Maildir===
