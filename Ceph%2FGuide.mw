@@ -304,7 +304,7 @@ The result is a readable text file:
 
 Next we create an admin keyring file which goes into <code>/etc/ceph/ceph.client.admin.keyring</code>.  
 
-{{RootCmd|ceph-authtool --create-keyring /etc/ceph/ceph.client.admin.keyring --gen-key -n client.admin --set-uid{{=}}0 --cap mon 'allow *' --cap osd 'allow *' --cap mds 'allow'|output=<pre>
+{{RootCmd|ceph-authtool --create-keyring /etc/ceph/ceph.client.admin.keyring --gen-key -n client.admin --cap mon 'allow *' --cap osd 'allow *' --cap mds 'allow'|output=<pre>
 creating /etc/ceph/ceph.client.admin.keyring
 </pre>}}
 
@@ -314,7 +314,6 @@ The resulting text file may actually be shorter than the complicated command lin
 {{FileBox|filename=/etc/ceph/ceph.client.admin.keyring|title=ceph-authtool generated admin file|lang=ini|1=
 [client.admin]
         key = (redacted key text)
-        auid = 0
         caps mds = "allow"
         caps mon = "allow *"
         caps osd = "allow *"
@@ -324,38 +323,27 @@ The resulting text file may actually be shorter than the complicated command lin
 {{Note|The default ownership for the client.admin.keyring file is <code>root:root</code> and mode <code>600</code>.  You might consider changing the mode to either <code>660</code> or <code>640</code> and then changing the group to something like <code>disk</code>.  This will allow non-root users who you trust to do disk maintenance (ie mount/unmount) to use ceph admin commands.}}
 
 
-This next command is just as annoying, because it wasn't until after running it that we discovered that the auth tool basically just appended the client admin keyring file contents to the mon keyring file.
+==== Creating /var/lib/ceph ====
+ceph uses /var/lib/ceph for various server settings and storage.  Since the author had a legacy install of ceph to start with, there was already a /var/lib/ceph tree with ownership set to ceph:ceph.  Daemons ran as the root user in ceph release up until around Giant and then changed to run as the user ceph in later releases so this ownership needed a reset at some point.  Depending on the class of ceph servers running on the host there would then be msd, mon and osd subdirectories under this tree with the appropriate files.  There is also likely to be a tmp subdir there that gets created at some point due to commands.  YMMV for a fresh install so you may need to create a tree like this.  The author had to create a new /var/lib/ceph/bootstrap-osd subdir for himself for the next keyring:
 
-{{RootCmd|ceph-authtool /etc/ceph/ceph.mon.keyring --import-keyring /etc/ceph/ceph.client.admin.keyring|output=<pre>
-importing contents of /etc/ceph/ceph.client.admin.keyring into /etc/ceph/ceph.mon.keyring
+
+{{RootCmd|ceph-authtool --create-keyring /var/lib/ceph/bootstrap-osd/ceph.keyring --gen-key -n client.bootstrap-osd --cap mon 'profile bootstrap-osd'|output=<pre>
+creating /var/lib/ceph/bootstrap-osd/ceph.keyring
 </pre>}}
 
 
-{{FileBox|filename=/etc/ceph/ceph.mon.keyring|title=mon keyring with client admin contents|lang=ini|1=
-[mon.]
-        key = (redacted)
-        caps mon = "allow *"
-[client.admin]
-        key = (redacted)
-        auid = 0
-        caps mds = "allow"
-        caps mon = "allow *"
-        caps osd = "allow *"
+{{FileBox|filename=/var/lib/ceph/bootstrap-osd/ceph.keyring|title=ceph-authtool generated client.bootstrap-osd file|lang=ini|1=
+[client.bootstrap-osd]
+        key = (redacted key text)
+        caps mon = "profile bootstrap-osd"
 }}
 
 
-We push the mon and client keyrings out to <code>/etc/ceph</code> on the other kroll hosts.
-{{RootCmd|scp ceph.mon.keyring ceph.client.admin.keyring kroll2:/etc/ceph|output=<pre>
-ceph.mon.keyring                                                  100%  214     0.2KB/s   0.2KB/s   00:00    
-ceph.client.admin.keyring                                         100%  137     0.1KB/s   0.2KB/s   00:00    
-</pre>}}
-{{RootCmd|scp ceph.mon.keyring ceph.client.admin.keyring kroll3:/etc/ceph|output=<pre>
-ceph.mon.keyring                                                  100%  214     0.2KB/s   0.2KB/s   00:00    
-ceph.client.admin.keyring                                         100%  137     0.1KB/s   0.2KB/s   00:00    
-</pre>}}
-{{RootCmd|scp ceph.mon.keyring ceph.client.admin.keyring kroll4:/etc/ceph|output=<pre>
-ceph.mon.keyring                                                  100%  214     0.2KB/s   0.2KB/s   00:00    
-ceph.client.admin.keyring                                         100%  137     0.1KB/s   0.2KB/s   00:00    
+==== Merging the three keyrings together into the mon.keyring file ====
+The ceph manual guide then uses the authtool with --import-keyring options to merge the three keys together into the mon.keyring file.  You can save a bit of typing just by using good 'ole cat to slap everything together.
+
+{{RootCmd|cat client.admin.keyring /var/lib/ceph/bootstrap-osd/ceph.keyring >>ceph.mon.keyring|output=<pre>
+mater /etc/ceph # 
 </pre>}}
 
 ==== Creating the initial monmap file ====
