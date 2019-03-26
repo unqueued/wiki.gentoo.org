@@ -340,33 +340,58 @@ The ceph manual guide then uses the authtool with <code>--import-keyring</code> 
 mater /etc/ceph # 
 </pre>}}
 
+
+{{FileBox|filename=/etc/ceph/ceph.mon.keyring|title=Resulting merged ceph.mon.keyring file|lang=ini|1=
+[client.bootstrap-osd]
+        key = (redacted key text)
+        caps mon = "profile bootstrap-osd"
+[mon.]
+        key = (redacted key text)
+        caps mon = "allow *"
+[client.admin]
+        key = (redacted key text)
+        caps mds = "allow *"
+        caps mgr = "allow *"
+        caps mon = "allow *"
+        caps osd = "allow *"
+[client.bootstrap-osd]
+        key = (redacted key text)
+        caps mon = "profile bootstrap-osd"
+}}
+
 ==== Creating the initial monmap file ====
 
-The OSD and MDS servers use the {{Path|/etc/ceph/ceph.conf}} for discovering MON servers, but the MON servers themselves have a much stricter consistency scheme in order to form and maintain their quorum.  When up and running the quorum uses majority rule voting system called Praxis, but MONs do work with an initial binary file called a monmap when you first set up the Ceph cluster.
+The OSD and MDS servers use the {{Path|/etc/ceph/ceph.conf}} for discovering MON servers, but the MON servers themselves have a much stricter consistency scheme in order to form and maintain their quorum.  When up and running the quorum uses amajority rule voting system called Praxis, but MONs do work with an initial binary file called a monmap when you first set up the Ceph cluster.
 
-The [http://ceph.com/docs/master/install/manual-deployment/ manual deployment] page covers the example where only a single MON is used to form the quorum.  We referred to the [http://ceph.com/docs/master/rados/configuration/mon-config-ref/#data Monitor Config] reference page and the [http://ceph.com/docs/master/dev/mon-bootstrap/ Monitor Bootstrap] page it refers to when creating our scheme with an initial quorum of three MONs.
+The [http://ceph.com/docs/master/install/manual-deployment/ manual deployment] page covers the example where only a single MON is used to form the quorum.  It's simply a matter of using more <code>--add</code> stanzas to define our initial 3 member monitor map.
 
-The {{c|monmap}} command is used to create the initial monmap binary file.  We essentially give it the addresses corrsponding to our <code>mon.0, mon.1, mon.2</code> <code>initial members</code> and the cluster fsid from <code>/etc/ceph/ceph.conf</code> file.  We will park this file in {{Path|/etc/ceph}} and then pass it around to the right place when we configure our MON hosts.
+The {{c|monmap}} command is used to create the initial monmap binary file.  We essentially give it the addresses corresponding to our <code>mon.a on kroll1, mon.b on kroll5, and mon.c kroll6</code> <code>initial members</code> and the cluster fsid from <code>/etc/ceph/ceph.conf</code> file.  We will park this file in {{Path|/etc/ceph}} and then pass it around to the right place when we configure our MON hosts.
 
-{{RootCmd|monmaptool  --create --add 0 192.168.2.1 --add 1 192.168.2.2 --add 2 192.168.2.3 --fsid 1798897a-f0c9-422d-86b3-d4933a12c7ac initial-monmap|output=<pre>
+{{RootCmd|monmaptool  --create --add mon.a 192.168.2.1 --add mon.b 192.168.2.5 --add mon.c 192.168.2.6 --fsid 1798897a-f0c9-422d-86b3-d4933a12c7ac initial-monmap|output=<pre>
 monmaptool: monmap file initial-monmap
-monmaptool: set fsid to 1798897a-f0c9-422d-86b3-d4933a12c7ac
+monmaptool: set fsid to fb3226b4-c5ff-4bf3-92a8-b396980c4b71
 monmaptool: writing epoch 0 to initial-monmap (3 monitors)
 </pre>}}
 
-We push the initial monmap file out to the other {{Path|/etc/ceph}} directories on kroll2, 3, and 4.
+Once the three monitors are up and running and have established a quorum, they will begin to automatically revise this initial monitor map.   Each revision is called an epoch, and the epoch number will get bumped whenever it happens.  It will change when the OSDs get added and as the initial CRUSH map and PG pools get set up.  It also changes as events happen such as the scrubbing processes scrub a PG and move on to the next.  So this initial map will no longer be needed after the quorum is established.  In fact, when a new monitor is added to the cluster following [http://docs.ceph.com/docs/mimic/rados/operations/add-or-rm-mons add-or-rm-mons], there's a point where you retrieve the current monitor map from the quorum to a file and then use that to create the new monitor's filesystem.  Part of the process of joining the new monitor to the quorum involves it figuring out what needs to be changed to go from the old epoch number to the current one that the quorum is working with.
 
-{{RootCmd|scp initial-monmap kroll2:/etc/ceph|output=<pre>
+{{Note|Early versions of ceph used id numbers (eg 0, 1 and 2 for our case) for mons, mds servers and osds.  This was deprecated around Giant or Hammer to use letters of the alphabet instead and then changed yet again to use the more descriptive names used above.  The example in the [http://docs.ceph.com/docs/master/install/manual-deployment manual deployment guide] just has <code>node1</code> for its monitor id probably just to confuse everybody.}}
+
+{{Note|There used to be a lot more settings going into the {{Path|/etc/ceph/ceph.conf}} but this has changed over time in favor of extracting and injecting things to and from the monitor maps by communicating with the quorum of monitors.}}
+
+We push the initial monmap file over to {{Path|/etc/ceph}} directories on kroll1, kroll5 and kroll6.
+
+{{RootCmd|scp initial-monmap kroll1:/etc/ceph|output=<pre>
 initial-monmap                                                    100%  481     0.5KB/s   0.5KB/s   00:00    
 </pre>}}
-{{RootCmd|scp initial-monmap kroll3:/etc/ceph|output=<pre>
+{{RootCmd|scp initial-monmap kroll5:/etc/ceph|output=<pre>
 initial-monmap                                                    100%  481     0.5KB/s   0.5KB/s   00:00    
 </pre>}}
-{{RootCmd|scp initial-monmap kroll4:/etc/ceph|output=<pre>
+{{RootCmd|scp initial-monmap kroll6:/etc/ceph|output=<pre>
 initial-monmap                                                    100%  481     0.5KB/s   0.5KB/s   00:00    
 </pre>}}
 
-==== Creating kroll1 server mon.0 ====
+==== Creating kroll1 server mon.a ====
 
 Ceph servers look for their file trees in {{Path|/var/lib/ceph}}.  Mon servers look for their server id number subtree under {{Path|/var/lib/ceph/mon/ceph.N}} where N is the id number that has been designated for the server in {{Path|/etc/ceph/ceph.conf}}.  Kroll1 will host mon.0, so we create {{Path|/var/lib/ceph/mon/ceph.0}} for it.  This implies that we will be using our 256GB SSD root system device for mon.0's i/o.  Later on when we create the OSD for kroll1, we will be creating and mounting a btrfs subvolume for it to use.  Otherwise the object store would default to eating us out of house and home on our system drive!
 
