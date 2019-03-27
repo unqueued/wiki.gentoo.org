@@ -55,7 +55,7 @@ The CRUSH map defaults to an algorithm that computes a deterministic uniform ran
 
 It is this spreading out of the load with the CRUSH map that allows Ceph to scale up to thousands of OSDs so easily while increasing performance as new stores are added.  Because of the spreading, the bottleneck transfers from raw disk performance (about 100mb/sec for a SATA drive for example) to the bandwidth capacity of your network and switches.
 
-There are a number of ways to work with the MON pool and Praxis database to monitor and administrate the cluster, but the most common is the <code>/usr/bin/ceph</code> command.  This is a Python script that uses a number of Ceph supplied Python modules that use json to communicate with the MON pool.
+There are a number of ways to work with the MON pool and the rocksdb database to monitor and administrate the cluster, but the most common is the <code>/usr/bin/ceph</code> command.  This is a Python script that uses a number of Ceph supplied Python modules that use json to communicate with the MON pool.
 
 ==== RADOS block device and RADOS gateway ====
 
@@ -189,6 +189,8 @@ We will be following the [http://ceph.com/docs/master/install/manual-deployment/
 {{FileBox|filename=/etc/ceph/ceph.conf|title=Initial ceph config file|lang=ini|1=
 #
 #  New version of ceph.conf for BlueFS rollout on Luminous
+#  The manual installation guide offered by ceph seems to also use the host names as the names for the monitors and thus may confuse
+#  the poor users who may be doing this for real.  Use mon.a, mon.b and mon.c for the monitor names instead.
 #j
 [global]
 	fsid = fb3226b4-c5ff-4bf3-92a8-b396980c4b71
@@ -197,7 +199,7 @@ We will be following the [http://ceph.com/docs/master/install/manual-deployment/
 	auth cluster required = cephx
 	auth service required = cephx
 	auth client required = cephx
-	mon inital members = kroll1, kroll5, kroll6
+	mon initial members = mon.a, mon.b, mon.c
 	mon host = 192.168.2.1:6789, 192.168.2.5:6789, 192.168.2.6:6789
 
 #
@@ -361,7 +363,7 @@ mater /etc/ceph #
 
 ==== Creating the initial monmap file ====
 
-The OSD and MDS servers use the {{Path|/etc/ceph/ceph.conf}} for discovering MON servers, but the MON servers themselves have a much stricter consistency scheme in order to form and maintain their quorum.  When up and running the quorum uses amajority rule voting system called Praxis, but MONs do work with an initial binary file called a monmap when you first set up the Ceph cluster.
+The OSD and MDS servers use the {{Path|/etc/ceph/ceph.conf}} for discovering MON servers, but the MON servers themselves have a much stricter consistency scheme in order to form and maintain their quorum.  When up and running the quorum uses a majority rule voting system with each maintaining a local rocksdb database in the filesystem, but MONs do work with an initial binary file called a monmap when you first set up the Ceph cluster.
 
 The [http://ceph.com/docs/master/install/manual-deployment/ manual deployment] page covers the example where only a single MON is used to form the quorum.  It's simply a matter of using more <code>--add</code> stanzas to define our initial 3 member monitor map.
 
@@ -391,11 +393,14 @@ initial-monmap                                                    100%  481     
 initial-monmap                                                    100%  481     0.5KB/s   0.5KB/s   00:00    
 </pre>}}
 
+
+
 ==== Creating kroll1 server mon.a ====
 
-Ceph servers look for their file trees in {{Path|/var/lib/ceph}}.  Mon servers look for their server id number subtree under {{Path|/var/lib/ceph/mon/ceph.N}} where N is the id number that has been designated for the server in {{Path|/etc/ceph/ceph.conf}}.  Kroll1 will host mon.0, so we create {{Path|/var/lib/ceph/mon/ceph.0}} for it.  This implies that we will be using our 256GB SSD root system device for mon.0's i/o.  Later on when we create the OSD for kroll1, we will be creating and mounting a btrfs subvolume for it to use.  Otherwise the object store would default to eating us out of house and home on our system drive!
+Ceph servers look for their file trees in {{Path|/var/lib/ceph}}.  Mon servers look for their server id number subtree under {{Path|/var/lib/ceph/mon/clustername-monname}} where clustername is ceph because we are using the {{Path|/etc/ceph/cepf.conf}} file for kroll and monname is the mon.a monitor name we just added to the initial monmap file. Kroll1 (thufir) will host mon.a, so we shell into it and create {{Path|/var/lib/ceph/mon/ceph-mon.a}} for the filesystem.
 
-{{RootCmd|mkdir -p /var/lib/ceph/mon/ceph-0|}}
+{{RootCmd|mkdir -p /var/lib/ceph/mon/ceph-mon.a|}}
+{{RootCmd|chown -R ceph:ceph /var/lib/ceph|}}
 
 Before continuing on, you may want to look at {{Path|/var/log/ceph}} to clear out anything that may be in there.  The next command will create an empty {{Path|/var/log/ceph/ceph-mon.0.log}} file if it doesn't already exist.
 
@@ -403,65 +408,59 @@ Before continuing on, you may want to look at {{Path|/var/log/ceph}} to clear ou
 {{RootCmd|rm -rf *}}
 {{RootCmd|cd /etc/ceph}}
 
-The {{c|ceph-mon}} command will populate the {{Path|ceph.0}} directory with a copy of the {{Path|ceph.mon.keyring}} file renamed to {{Path|keyring<}} and a {{Path|store.db}} directory tree which is a Praxis database reflecting the contents of the initial monmap file.
+The {{c|ceph-mon}} command will populate the {{Path|mon.a}} directory with a copy of the {{Path|ceph.mon.keyring}} file renamed to {{Path|keyring<}} and a {{Path|store.db}} directory tree which is a Praxis database reflecting the contents of the initial monmap file.
 
-{{RootCmd|ceph-mon --mkfs -i 0 --monmap initial-monmap --keyring ceph.mon.keyring|output=<pre>
-ceph-mon: set fsid to 1798897a-f0c9-422d-86b3-d4933a12c7ac
-ceph-mon: created monfs at /var/lib/ceph/mon/ceph-0 for mon.0
+{{RootCmd|ceph-mon --mkfs -i mon.a --monmap initial-monmap --keyring ceph.mon.keyring|output=<pre>
 </pre>}}
-{{RootCmd|cd /var/lib/ceph/mon/ceph-0}}
-{{RootCmd|ls -lR|output=<pre>
-.:
-total 8
--rw-r--r-- 1 root root   77 Jul 14 13:13 keyring
-drwxr-xr-x 2 root root 4096 Jul 14 13:13 store.db
-
-./store.db:
+{{RootCmd|ls -l /var/lib/ceph/mon/ceph-mon.a|output=<pre>
+/var/lib/ceph/mon/ceph-mon.a:
 total 12
--rw-r--r-- 1 root root 1069 Jul 14 13:13 000003.log
--rw-r--r-- 1 root root   16 Jul 14 13:13 CURRENT
--rw-r--r-- 1 root root    0 Jul 14 13:13 LOCK
--rw-r--r-- 1 root root   50 Jul 14 13:13 MANIFEST-000002
-</pre>}}
-{{RootCmd|cat keyring|output=<pre>
-[mon.]
-        key = (redacted)
-        caps mon = "allow *"
+-rw------- 1 root root   77 Mar 27 11:30 keyring
+-rw-r--r-- 1 root root    8 Mar 27 11:30 kv_backend
+drwxr-xr-x 2 root root 4096 Mar 27 11:30 store.db
+
+/var/lib/ceph/mon/ceph-mon.a/store.db:
+total 24
+-rw-r--r-- 1 root root  820 Mar 27 11:30 000003.log
+-rw-r--r-- 1 root root   16 Mar 27 11:30 CURRENT
+-rw-r--r-- 1 root root   37 Mar 27 11:30 IDENTITY
+-rw-r--r-- 1 root root    0 Mar 27 11:30 LOCK
+-rw-r--r-- 1 root root   13 Mar 27 11:30 MANIFEST-000001
+-rw-r--r-- 1 root root 4143 Mar 27 11:30 OPTIONS-000005
 </pre>}}
 
-We set up the mon.0 server startup in {{Path|/etc/init.d}} by softlinking.  Examination of the ceph script reveals that the Gentoo ebuild developer was merely picking the server type and id number from string positions in the script file name.  Thus it isn't crucial to use the "." and the "-" as we did here, but it does make things readable:
+As mentioned previously, the ceph daemons changed around the Giant or Hammer releases to setuid to ceph from root in order to drop privileges.  So we reset the ownership of the tree.
+
+{{RootCmd|chown -R ceph:ceph /var/lib/ceph/mon/ceph-mon.a|}}
+
+{{Note|If you look in {{Path|/var/log/ceph}} you will see a log file created with the log of the new monitor being created.  This directory on each cluster host will become the first place you will look into when tracing down issues with the cluster.  At the very least, you should keep an eye on the size of the logs that end up piling up in there.  The <code>ceph -w</code> command that you will use later to watch event traffic in the cluster is basically just a running tail of the ceph.log in here}}
+
+We set up the mon.a server startup in {{Path|/etc/init.d}} by softlinking.  The naming here is crucial since the init script checks the daemon type by chopping off <code>ceph-</code> in front and then chopping off everything after the first period.  If you looked in /var/log/ceph and had used the same mon.a monitor name as this example, you would have seen a <code>ceph-mon.mon.a.log</code> file get created.  So we use this for the softlink name.
 
 {{RootCmd|cd /etc/init.d}}
-{{RootCmd|ln -s ceph ceph.mon-0}}
-{{RootCmd|rc-update add ceph.mon-0 default|output=<pre>
- * service ceph.mon-0 added to runlevel default
+{{RootCmd|ln -s ceph ceph-mon.mon.a}}
+{{RootCmd|rc-update add ceph.mon.mon.a default|output=<pre>
+ * service ceph-mon.mon.a added to runlevel default
 </pre>}}
 
 {{Note|We won't start the server yet until after the other mon hosts have been set up.  Otherwise it would just sit stalled looking for its friends and periodically complaining into its log file in {{Path|/var/log/ceph}}}}
-{{Note|This author is not contemplating a move to systemd any time soon after prior ugly experiences with it when it first started to appear on Fedora.  It is left as an exercise to the reader to figure out what sort of scheme will be necessary when they are not using OpenRC}}
+{{Note|This author is not contemplating a move to systemd any time soon after having to deal with the train wrecks known as RHEL7 and CentOS7 on a daily basis at work.  It is left as an exercise to the reader to figure out what sort of scheme will be necessary when they are not using OpenRC}}
 
-We repeated the same process to create {{Path|mon.1}}, {{Path|mon.2}}, and {{Path|mon.3}} on the other kroll member hosts.
+We repeated the same process to create {{Path|mon.b}} and {{Path|mon.c}} on the other kroll member hosts.
 
-===== kroll2 =====
+===== kroll2 (refurb) =====
 
-{{RootCmd|mkdir -p /var/lib/ceph/mon/ceph-1}}
-{{RootCmd|ceph-mon --mkfs -i 1 --monmap initial-monmap --keyring ceph.mon.keyring|output=<pre>
-ceph-mon: set fsid to 1798897a-f0c9-422d-86b3-d4933a12c7ac
-ceph-mon: created monfs at /var/lib/ceph/mon/ceph-1 for mon.1
-</pre>}}
-{{RootCmd|cd /var/lib/ceph/mon}}
-{{RootCmd|ls -l ceph-1|output=<pre>
-total 8
--rw-r--r-- 1 root root   77 Jul 14 13:44 keyring
-drwxr-xr-x 2 root root 4096 Jul 14 13:44 store.db
-</pre>}}
-{{RootCmd|cd /etc/init.d}}
-{{RootCmd|ln -s ceph ceph.mon-1}}
+{{RootCmd|mkdir -p /var/lib/ceph/mon/ceph-mon.b|}}
+{{RootCmd|cd /etc/ceph}}
+{{RootCmd|ceph-mon --mkfs -i mon.b --monmap initial-monmap --keyring ceph.mon.keyring|}}
+{{RootCmd|chown -R ceph:ceph /var/lib/ceph/mon|}}
+{{RootCmd|cd /etc/init.d|}}
+{{RootCmd|ln -s ceph ceph-mon.mon.b}}
 {{RootCmd|rc-update add ceph.mon-1 default|output=<pre>
-* service ceph.mon-1 added to runlevel default
+* service ceph-mon.mon.b added to runlevel default
 </pre>}}
 
-===== kroll3 =====
+===== kroll3 (topshelf) =====
 
 {{RootCmd|mkdir -p /var/lib/ceph/mon/ceph-2}}
 {{RootCmd|ceph-mon --mkfs -i 2 --monmap initial-monmap --keyring ceph.mon.keyring|output=<pre>
