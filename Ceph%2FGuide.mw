@@ -8,10 +8,11 @@ A standard SATA "spinning rust" hard drive will max out performance at about 100
 
 == Overview ==
 
-Ceph consists of five major components:
+Ceph consists of six major components:
 
 * Object Store Device Server
 * Monitor Server
+* Manager Server
 * RADOS API using librados and support for a number of languages including Python and systems like libvirt
 * Metadata Server providing a POSIX compliant filesystem that can be shared out to non-Linux platforms with NFS and/or Samba
 * Kernel support for the RADOS block device and cephfs filesystem
@@ -56,6 +57,11 @@ The CRUSH map defaults to an algorithm that computes a deterministic uniform ran
 It is this spreading out of the load with the CRUSH map that allows Ceph to scale up to thousands of OSDs so easily while increasing performance as new stores are added.  Because of the spreading, the bottleneck transfers from raw disk performance (about 100mb/sec for a SATA drive for example) to the bandwidth capacity of your network and switches.
 
 There are a number of ways to work with the MON pool and the rocksdb database to monitor and administrate the cluster, but the most common is the <code>/usr/bin/ceph</code> command.  This is a Python script that uses a number of Ceph supplied Python modules that use json to communicate with the MON pool.
+
+
+==== Manager Server ====
+Starting with the Luminous release, there is a new server called a Manager Server.  The documentation recommends that there should be one set up to run alongside each MON on the same host.  It appears to roll up the old Ceph dashboard optional product as well as other add-ons that run as plugins.  This guide will be updated over time as we get more experience using it.
+
 
 ==== RADOS block device and RADOS gateway ====
 
@@ -520,6 +526,118 @@ total 24
     usage:   0B used, 0B / 0B avail
     pgs:     
 </pre>}}
+
+
+==== Creating mgr.a on kroll1 ====
+
+This appears to consist of creating a keyring file for the new mgr service out in {{Path|/var/lib/ceph}} and then adding it as a new service to the default runlevel.
+
+{{RootCmd|mkdir -p /var/lib/ceph/mgr/ceph-a|}}
+{{RootCmd|ceph auth get-or-create mgr.a mon 'allow profile mgr' osd 'allow *' mds 'allow *'|output=<pre>
+[mgr.a]
+        key = (redacted key text)
+</pre>}}
+
+We simply dumped that out into /var/lib/ceph/mgr/ceph-a/keyring and then reset ownership on everything to ceph.
+
+{{RootCmd|chown -R ceph:ceph /var/lib/ceph/mgr|}}
+
+Then softlinked a new init script for mgr.a and added it to the default runlevel.
+
+{{RootCmd|cd /etc/init.d|}}
+{{RootCmd|ln -s ceph ceph-mgr.a|}}
+{{RootCmd|./ceph-mgr.a start|output=<pre>
+ * Caching service dependencies ...                                                                                               [ ok ]
+ * Starting ceph-mgr.a ...                                                                                                        [ ok ]
+</pre>}}
+{{RootCmd|rc-update add ceph-mgr.a default|output=<pre>
+ * service ceph-mgr.a added to runlevel default
+</pre>
+{{RootCmd|ceph -s|output=<pre>
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active)
+    osd: 0 osds: 0 up, 0 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   0B used, 0B / 0B avail
+    pgs:     
+</pre>}}
+
+On kroll5 and kroll6 we simply piped the output from the authtool to the keyring files directly for mgr.b and mgr.c
+
+(on kroll5)
+{{RootCmd|cd /var/lib/ceph|}}
+{{RootCmd|mkdir -p mgr/ceph-b|}}
+{{RootCmd|cd mgr/ceph-b|}}
+{{RootCmd|ceph auth get-or-create mgr.b mon 'allow profile mgr' osd 'allow *' mds 'allow *' >keyring|}}
+{{RootCmd|chown -R ceph:ceph /var/lib/ceph/mgr|}}
+{{RootCmd|cd /etc/init.d|}}
+{{RootCmd|ln -s ceph ceph-mgr.b|}}
+{{RootCmd|./ceph-mgr.b start|output=<pre>
+ * Caching service dependencies ...                                                                                               [ ok ]
+ * Starting ceph-mgr.b ...                                                                                                        [ ok ]
+</pre>}}
+{{RootCmd|rc-update add ceph-mgr.b default|output=<pre>
+ * service ceph-mgr.b added to runlevel default
+</pre>}}
+{{RootCmd|ceph -s|output=<pre>
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b
+    osd: 0 osds: 0 up, 0 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   0B used, 0B / 0B avail
+    pgs:     
+</pre>}}
+
+
+(on kroll6)
+{{RootCmd|cd /var/lib/ceph|}}
+{{RootCmd|mkdir -p mgr/ceph-c|}}
+{{RootCmd|cd mgr/ceph-c|}}
+{{RootCmd|ceph auth get-or-create mgr.c mon 'allow profile mgr' osd 'allow *' mds 'allow *' >keyring|}}
+{{RootCmd|chown -R ceph:ceph /var/lib/ceph/mgr|}}
+{{RootCmd|cd /etc/init.d|}}
+{{RootCmd|ln -s ceph ceph-mgr.c|}}
+{{RootCmd|./ceph-mgr.c start|output=<pre>
+ * Caching service dependencies ...                                                                                               [ ok ]
+ * Starting ceph-mgr.c ...                                                                                                        [ ok ]
+</pre>}}
+{{RootCmd|rc-update add ceph-mgr.c default|output=<pre>
+ * service ceph-mgr.c added to runlevel default
+</pre>}}
+{{RootCmd|ceph -s|output=<pre>
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 0 osds: 0 up, 0 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   0B used, 0B / 0B avail
+    pgs:     
+</pre>}}
+
+
 
 ==== Creating osd.0 on kroll1 ====
 
