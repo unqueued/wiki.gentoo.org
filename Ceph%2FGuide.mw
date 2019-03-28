@@ -641,124 +641,60 @@ On kroll5 and kroll6 we simply piped the output from the authtool to the keyring
 
 ==== Creating osd.0 on kroll1 ====
 
-We use {{c|uuidgen}} command to create a unique id which will be used in our first osd.  With the mon servers up and running maintaining the server map in praxis, we will need to follow the id numbers returned to us from {{c|ceph osd create}} and then retrofit {{Path|/etc/ceph/ceph.conf}} if necessary if we lose and osd later or do things out of order.
+Creating and starting osd servers has changed radically since the Firefly release when this guide was first written.  The author first followed the "short form" section for Bluestore in the [http://docs.ceph.com/docs/master/install/manual-deployment/ deployment guide] but immediately ran into a couple of stumbling blocks that required a bit more prerequiste work and some deviation from the steps.
 
-{{RootCmd|uuidgen|output=<pre>
-fb84a114-e961-4a8d-98a3-0b263c003129
+The first problem was the way Bluestore wants to use a disk.  It requires LVM, a layer of bureaucracy that the author merely tolerated in the RHEL/Centos world and would happily avoid if allowed to build his own servers.  So, it never ended getting activated on any of his home Gentoo servers.  This got resolved by making sure that lvm and lvmetad got thrown into the boot runlevel with lvm-monitoring getting put into the default runlevel.
+
+The second problem is that Redhat's fanatical devotion to systemd has infected the folk at Inktank.  The <code>ceph-volume create</code> command assumes that the user wants to activate the service after the osd filesystem is created.  It tries to run systemctl to get that done, promptly panics when the aforementioned virus isn't found and then proceeds to rollback everything to a non-osd state.  This requires that the <code>ceph-volume</code> command only gets used to prepare the osd and then we take things from there.
+
+We had leftovers from the previous abortive attempts so you might just want to breeze by <code>osd.0</code> and look at <code>osd.1</code> creation unless you want to see how to take out the garbage first.
+
+kroll1 (thufir) has 3 4tb drives at /dev/sdc, /dev/sdd and /dev/sde that will be used to make the first three osd servers.
+
+{{RootCmd|ceph osd purge 0 --yes-i-really-mean-it}}
+{{RootCmd|ceph osd destroy 0 --yes-i-really-mean-it}}
+{{RootCmd|ceph-volume lvm zap /dev/ceph-a7287028-07de-4b3d-a814-f8b5ccd1305a/osd-block-932520d8-ee14-4d3d-9b60-4f1ea6c52735}}
+{{RootCmd|ceph-volume lvm prepare --data /dev/ceph-a7287028-07de-4b3d-a814-f8b5ccd1305a/osd-block-932520d8-ee14-4d3d-9b60-4f1ea6c52735|output=<pre>
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: /usr/bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring -i - osd new a23b9c03-bc6c-4c11-844d-f95eb8a5aeae
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: mount -t tmpfs tmpfs /var/lib/ceph/osd/ceph-0
+--> Absolute path not found for executable: restorecon
+--> Ensure $PATH environment variable contains common executable locations
+Running command: chown -h ceph:ceph /dev/ceph-a7287028-07de-4b3d-a814-f8b5ccd1305a/osd-block-932520d8-ee14-4d3d-9b60-4f1ea6c52735
+Running command: chown -R ceph:ceph /dev/dm-0
+Running command: ln -s /dev/ceph-a7287028-07de-4b3d-a814-f8b5ccd1305a/osd-block-932520d8-ee14-4d3d-9b60-4f1ea6c52735 /var/lib/ceph/osd/ceph-0/block
+Running command: ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring mon getmap -o /var/lib/ceph/osd/ceph-0/activate.monmap
+ stderr: got monmap epoch 1
+Running command: ceph-authtool /var/lib/ceph/osd/ceph-0/keyring --create-keyring --name osd.0 --add-key (key redacted)
+ stdout: creating /var/lib/ceph/osd/ceph-0/keyring
+added entity osd.0 auth auth(auid = 18446744073709551615 key=(key redacted) with 0 caps)
+Running command: chown -R ceph:ceph /var/lib/ceph/osd/ceph-0/keyring
+Running command: chown -R ceph:ceph /var/lib/ceph/osd/ceph-0/
+Running command: /usr/bin/ceph-osd --cluster ceph --osd-objectstore bluestore --mkfs -i 0 --monmap /var/lib/ceph/osd/ceph-0/activate.monmap --keyfile - --osd-data /var/lib/ceph/osd/ceph-0/ --osd-uuid a23b9c03-bc6c-4c11-844d-f95eb8a5aeae --setuser ceph --setgroup ceph
+--> ceph-volume lvm prepare successful for: ceph-a7287028-07de-4b3d-a814-f8b5ccd1305a/osd-block-932520d8-ee14-4d3d-9b60-4f1ea6c52735
 </pre>}}
-{{RootCmd|ceph osd create fb84a114-e961-4a8d-98a3-0b263c003129|output=<pre>
-0
-</pre>}}
-
-Since this will be the first osd for the mon servers, we get assigned id 0 to create {{Path|osd.0}} on kroll1.  As we have noted earlier, kroll1 (Thufir) already has a btrfs raid5 array up and running with the default volume mounted on {{Path|/thufirraid}}.  The "normal" content is in the subvolume <code>raid</code> which is mounted at <code>/raid</code>.  We will add a new subvolume called <code>ceph_osd_0</code> which will be mounted to {{Path|/var/lib/ceph/osd/ceph-0}} for use by the new osd server.
-
-{{RootCmd|df|output=<pre>
-Filesystem                        1K-blocks       Used  Available Use% Mounted on
-/dev/sda2                         230374564  152033716   66615436  70% /
-devtmpfs                           16387752          0   16387752   0% /dev
-tmpfs                               3284440        952    3283488   1% /run
-shm                                16422196        140   16422056   1% /dev/shm
-cgroup_root                           10240          0      10240   0% /sys/fs/cgroup
-/dev/sdb                        15628074336 6429555452 7031525188  48% /thufirraid
-/dev/sdb                        15628074336 6429555452 7031525188  48% /raid
-</pre>}}
-{{RootCmd|cd /thufirraid}}
-{{RootCmd|btrfs subvol create ceph_osd_0|output=<pre>
-Create subvolume './ceph_osd_0'
-</pre>}}
-{{RootCmd|ls|output=<pre>
-ceph_osd_0  raid
-</pre>}}
-
-We add the new subvolume to our {{Path|/etc/fstab}} and take the liberty of turning on automatic defragmentation and on-the-fly lzo compression for the subvolume.  The osd will actually manage some subvolumes of its own underneath this mountpoint ({{Path|current}} and {{Path|snap.N}} rolling snapshots).
-
-{{FileBox|filename=/etc/fstab|title=Adding ceph_osd_0 to the fstab|1=
-LABEL=boot	/boot		ext3		noauto,noatime	1 2
-LABEL=root	/		ext4		defaults,noatime,discard		0 1
-/dev/sdb	/thufirraid	btrfs		defaults,noatime,compress=lzo,autodefrag		0 0
-/dev/sdb	/raid		btrfs		defaults,noatime,compress=lzo,autodefrag,subvol=raid	0 0
-/dev/sdb	/var/lib/ceph/osd/ceph-0  btrfs defaults,noatime,compress=lzo,autodefrag,subvol=ceph_osd_0	0 0
-}}
-
-{{RootCmd|mkdir -p /var/lib/ceph/osd/ceph-0}}
-{{RootCmd|mount /var/lib/ceph/osd/ceph-0}}
-{{RootCmd|df|output=<pre>
-Filesystem                        1K-blocks       Used  Available Use% Mounted on
-/dev/sda2                         230374564  152034736   66614416  70% /
-devtmpfs                           16387752          0   16387752   0% /dev
-tmpfs                               3284440        952    3283488   1% /run
-shm                                16422196        140   16422056   1% /dev/shm
-cgroup_root                           10240          0      10240   0% /sys/fs/cgroup
-/dev/sdb                        15628074336 6429555484 7031525188  48% /thufirraid
-/dev/sdb                        15628074336 6429555484 7031525188  48% /raid
-/dev/sdb                        15628074336 6429555484 7031525188  48% /var/lib/ceph/osd/ceph-0
-</pre>}}
-
-
-Now we let ceph-osd have its way with our new btrfs subvolume.
-
-{{RootCmd|ceph-osd -i 0 --mkfs --mkkey --osd-uuid fb84a114-e961-4a8d-98a3-0b263c003129|output=<pre>
-2014-07-14 16:15:48.188183 7f667580dbc0 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 16:15:51.294994 7f667580dbc0 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 16:15:51.314809 7f667580dbc0 -1 filestore(/var/lib/ceph/osd/ceph-0) could not find 23c2fcde/osd_superblock/0//-1 in index: (2) No such file or directory
-2014-07-14 16:15:52.440379 7f667580dbc0 -1 created object store /var/lib/ceph/osd/ceph-0 journal /var/lib/ceph/osd/ceph-0/journal for osd.0 fsid 1798897a-f0c9-422d-86b3-d4933a12c7ac
-2014-07-14 16:15:52.440477 7f667580dbc0 -1 auth: error reading file: /var/lib/ceph/osd/ceph-0/keyring: can't open /var/lib/ceph/osd/ceph-0/keyring: (2) No such file or directory
-2014-07-14 16:15:52.440658 7f667580dbc0 -1 created new key in keyring /var/lib/ceph/osd/ceph-0/keyring
-</pre>}}
-
-We now have a {{Path|/var/log/ceph/ceph-osd.0.log}} which shows us all of the activity and the btrfs features that the osd decided to take advantage of:
-
-{{RootCmd|cat /var/log/ceph/ceph-osd.0.log|output=<pre>
-2014-07-14 16:15:45.644892 7f667580dbc0  0 ceph version 0.80.1 (a38fe1169b6d2ac98b427334c12d7cf81f809b74), process ceph-osd, pid 25509
-2014-07-14 16:15:45.650521 7f667580dbc0  1 filestore(/var/lib/ceph/osd/ceph-0) mkfs in /var/lib/ceph/osd/ceph-0
-2014-07-14 16:15:45.650596 7f667580dbc0  1 filestore(/var/lib/ceph/osd/ceph-0) mkfs using provided fsid fb84a114-e961-4a8d-98a3-0b263c003129
-2014-07-14 16:15:48.185602 7f667580dbc0  1 filestore(/var/lib/ceph/osd/ceph-0) leveldb db exists/created
-2014-07-14 16:15:48.188183 7f667580dbc0 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 16:15:48.190839 7f667580dbc0  1 journal _open /var/lib/ceph/osd/ceph-0/journal fd 9: 1073741824 bytes, block size 4096 bytes, directio = 1, aio = 0
-2014-07-14 16:15:48.325943 7f667580dbc0  0 filestore(/var/lib/ceph/osd/ceph-0) mkjournal created journal on /var/lib/ceph/osd/ceph-0/journal
-2014-07-14 16:15:48.325974 7f667580dbc0  1 filestore(/var/lib/ceph/osd/ceph-0) mkfs done in /var/lib/ceph/osd/ceph-0
-2014-07-14 16:15:48.326479 7f667580dbc0  0 filestore(/var/lib/ceph/osd/ceph-0) mount detected btrfs
-2014-07-14 16:15:48.481458 7f667580dbc0  0 genericfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_features: FIEMAP ioctl is supported and appears to work
-2014-07-14 16:15:48.481508 7f667580dbc0  0 genericfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_features: FIEMAP ioctl is disabled via 'filestore fiemap' config option
-2014-07-14 16:15:49.418326 7f667580dbc0  0 genericfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_features: syncfs(2) syscall fully supported (by glibc and kernel)
-2014-07-14 16:15:49.418549 7f667580dbc0  0 btrfsfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_feature: CLONE_RANGE ioctl is supported
-2014-07-14 16:15:50.018307 7f667580dbc0  0 btrfsfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_feature: SNAP_CREATE is supported
-2014-07-14 16:15:50.027624 7f667580dbc0  0 btrfsfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_feature: SNAP_DESTROY is supported
-2014-07-14 16:15:50.029177 7f667580dbc0  0 btrfsfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_feature: START_SYNC is supported (transid 4539)
-2014-07-14 16:15:50.318284 7f667580dbc0  0 btrfsfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_feature: WAIT_SYNC is supported
-2014-07-14 16:15:50.778085 7f667580dbc0  0 btrfsfilestorebackend(/var/lib/ceph/osd/ceph-0) detect_feature: SNAP_CREATE_V2 is supported
-2014-07-14 16:15:51.293060 7f667580dbc0  0 filestore(/var/lib/ceph/osd/ceph-0) mount: enabling PARALLEL journal mode: fs, checkpoint is enabled
-2014-07-14 16:15:51.294994 7f667580dbc0 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 16:15:51.295050 7f667580dbc0  1 journal _open /var/lib/ceph/osd/ceph-0/journal fd 15: 1073741824 bytes, block size 4096 bytes, directio = 1, aio = 0
-2014-07-14 16:15:51.314226 7f667580dbc0  1 journal _open /var/lib/ceph/osd/ceph-0/journal fd 15: 1073741824 bytes, block size 4096 bytes, directio = 1, aio = 0
-2014-07-14 16:15:51.314809 7f667580dbc0 -1 filestore(/var/lib/ceph/osd/ceph-0) could not find 23c2fcde/osd_superblock/0//-1 in index: (2) No such file or directory
-2014-07-14 16:15:52.437200 7f667580dbc0  1 journal close /var/lib/ceph/osd/ceph-0/journal
-2014-07-14 16:15:52.440379 7f667580dbc0 -1 created object store /var/lib/ceph/osd/ceph-0 journal /var/lib/ceph/osd/ceph-0/journal for osd.0 fsid 1798897a-f0c9-422d-86b3-d4933a12c7ac
-2014-07-14 16:15:52.440477 7f667580dbc0 -1 auth: error reading file: /var/lib/ceph/osd/ceph-0/keyring: can't open /var/lib/ceph/osd/ceph-0/keyring: (2) No such file or directory
-2014-07-14 16:15:52.440658 7f667580dbc0 -1 created new key in keyring /var/lib/ceph/osd/ceph-0/keyring
-</pre>}}
-
-
 
 The resulting filesystem looks like this:
 {{RootCmd|cd /var/lib/ceph/osd/ceph-0}}
 {{RootCmd|ls -l|output=<pre>
-total 1048608
--rw-r--r-- 1 root root         37 Jul 14 16:15 ceph_fsid
-drwxr-xr-x 1 root root         42 Jul 14 16:15 current
--rw-r--r-- 1 root root         37 Jul 14 16:15 fsid
--rw-r--r-- 1 root root 1073741824 Jul 14 16:15 journal
--rw------- 1 root root         56 Jul 14 16:15 keyring
--rw-r--r-- 1 root root         21 Jul 14 16:15 magic
--rw-r--r-- 1 root root          6 Jul 14 16:15 ready
-drwxr-xr-x 1 root root         26 Jul 14 16:15 snap_1
-drwxr-xr-x 1 root root         42 Jul 14 16:15 snap_2
--rw-r--r-- 1 root root          4 Jul 14 16:15 store_version
--rw-r--r-- 1 root root         42 Jul 14 16:15 superblock
--rw-r--r-- 1 root root          2 Jul 14 16:15 whoami
+total 48
+-rw-r--r-- 1 ceph ceph 393 Mar 27 22:42 activate.monmap
+lrwxrwxrwx 1 ceph ceph  93 Mar 27 22:42 block -> /dev/ceph-a7287028-07de-4b3d-a814-f8b5ccd1305a/osd-block-932520d8-ee14-4d3d-9b60-4f1ea6c52735
+-rw-r--r-- 1 ceph ceph   2 Mar 27 22:42 bluefs
+-rw-r--r-- 1 ceph ceph  37 Mar 27 22:42 ceph_fsid
+-rw-r--r-- 1 ceph ceph  37 Mar 27 22:42 fsid
+-rw------- 1 ceph ceph  56 Mar 27 22:42 keyring
+-rw-r--r-- 1 ceph ceph   8 Mar 27 22:42 kv_backend
+-rw-r--r-- 1 ceph ceph  21 Mar 27 22:42 magic
+-rw-r--r-- 1 ceph ceph   4 Mar 27 22:42 mkfs_done
+-rw-r--r-- 1 ceph ceph  41 Mar 27 22:42 osd_key
+-rw-r--r-- 1 ceph ceph   6 Mar 27 22:42 ready
+-rw-r--r-- 1 ceph ceph  10 Mar 27 22:42 type
+-rw-r--r-- 1 ceph ceph   2 Mar 27 22:42 whoami
 </pre>}}
 
-The {{Path|current}}, {{Path|snap_1}} and {{Path|snap_2}} directories are btrfs snapshots.  The keyring file is a new unique key that was generated for <code>osd-0</code>.
+The keyring file is a new unique key that was generated for <code>osd-0</code> by the ceph-authtool.  It actually would have appeared in the output above if the author hadn't redacted it.
 
 {{RootCmd|cat keyring|output=<pre>
 [osd.0]
@@ -766,53 +702,31 @@ The {{Path|current}}, {{Path|snap_1}} and {{Path|snap_2}} directories are btrfs 
 </pre>}}
 
 
-Now use {{c|ceph auth}} to transfer that into the praxis database in the mon servers.
-
-{{RootCmd|ceph auth add osd.0 osd 'allow *' mon 'allow profile osd' -i /var/lib/ceph/osd/ceph-0/keyring|output=<pre>
-added key for osd.0
+<code>ceph -s</code> now shows there's an osd, but it is marked as both down and out.  That means that both the service isn't running and that there are no placement groups (PGs) present on it.
+{{RootCmd|ceph -s|output=<pre>
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 1 osds: 0 up, 0 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   0B used, 0B / 0B avail
+    pgs:     
 </pre>}}
 
-
-The <code>ceph_fsid</code> actually contains the fsid for the cluster from {{Path|/etc/ceph/ceph.conf}} and not the one we passed when creating the osd itself:
-
-{{RootCmd|cat ceph_fsid|output=<pre>
-1798897a-f0c9-422d-86b3-d4933a12c7ac
-</pre>}}
-{{RootCmd|grep fsid /etc/conf/ceph.conf|output=<pre>
-        fsid = 1798897a-f0c9-422d-86b3-d4933a12c7ac
-</pre>}}
-
-We save the uuid we used for osd.0 in a text file in {{Path|/etc/ceph/osd_uuids.txt}} just in case.  It would probably be a bad idea to try to recycle an osd id number if we ever have a filesystem go bad, but you never know...
-
-We set up kroll1 as a host in the CRUSH map and make it part of the <code>default</code> osd tree.
-
-{{RootCmd|ceph osd crush add-bucket kroll1 host|output=<pre>
-added bucket kroll1 type host to crush map
-</pre>}}
-{{RootCmd|ceph osd crush move kroll1 root{{=}}default|output=<pre>
-moved item id -2 name 'kroll1' to location {root=default} in crush map
-</pre>}}
-
-We can now see kroll1 as a host in the default tree using {{c|ceph osd tree}}. {{Path|osd.0}} also appears but hasn't been assigned to a host.
+The <code>ceph osd tree</code> command shows that <code>ceph-volume</code> did some additional work for us behind the scenes to configure things for the CRUSH map.  However, since <code>osd.0</code> has yet to be started, the cluster doesn't yet know just how big the drive is for the weighting part.
 
 {{RootCmd|ceph osd tree|output=<pre>
 # id    weight  type name       up/down reweight
 -1      0       root default
 -2      0               host kroll1
 0       0       osd.0   down    0
-</pre>}}
-
-We now put {{Path|osd.0}} in the crush map under kroll1 with a default weighting value.
-
-{{RootCmd|ceph osd crush add osd.0 1.0 host{{=}}kroll1|output=<pre>
-add item id 0 name 'osd.0' weight 1 at location {host=kroll1} to crush map
-</pre>}}
-{{RootCmd|ceph osd tree|output=<pre>
-ceph osd tree
-# id    weight  type name       up/down reweight
--1      1       root default
--2      1               host kroll1
-0       1                       osd.0   down    0
 </pre>}}
 
 All that is left is to enable and start the osd.0 service.
@@ -828,126 +742,182 @@ All that is left is to enable and start the osd.0 service.
 starting osd.0 at :/0 osd_data /var/lib/ceph/osd/ceph-0 /var/lib/ceph/osd/ceph-0/journal                [ ok ]
 </pre>}}
 
-With one osd spun up, our cluster is now operating in a degraded state.
+With one osd spun up, our cluster is now operating in a degraded state.  We don't want to go creating pools and cephfs until we have osds running on at least three hosts.  In the old days, the cluster would have been in HEALTH_WARN state with degraded PGs since it would have created some pools with default sizes from the getgo.
 
 {{RootCmd|ceph -s|output=<pre>
-    cluster 1798897a-f0c9-422d-86b3-d4933a12c7ac
-     health HEALTH_WARN 192 pgs degraded; 192 pgs stuck unclean
-     monmap e3: 4 mons at {0=192.168.2.1:6789/0,1=192.168.2.2:6789/0,2=192.168.2.3:6789/0,3=192.168.2.4:6789/0}, election epoch 8, quorum 0,1,2,3 0,1,2,3
-     osdmap e7: 1 osds: 1 up, 1 in
-      pgmap v9: 192 pgs, 3 pools, 0 bytes data, 0 objects
-            6132 GB used, 6704 GB / 14904 GB avail
-                 192 active+degraded
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 1 osds: 1 up, 1 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   1.00GiB used, 3.64TiB / 3.64TiB avail
+    pgs:     
+</pre>}}
+
+The <code>ceph osd tree</code> command now shows <code>osd.0</code> under the host thufir with a weight set to 3.63869 which shows just how much you don't get when you buy a 4tb drive.  We are going to reweight that to a nice round 4.0 number instead.
+
+{{RootCmd|ceph osd crush reweight osd.0 4.0|output=<pre>
+reweighted item id 0 name 'osd.0' to 4 in crush map
 </pre>}}
 
 
-==== osd.1 on kroll3 ====
 
-{{Path|osd.1}} will use our other big btrfs array on host kroll2 (mater).
+==== osd.1 and osd.2 on kroll1 ====
 
-{{RootCmd|uuidgen|output=<pre>
-0b4c1e77-cc5c-49aa-b322-42d331621113
+<code>ceph-volume</code> is a lot more concise, now that we know what we are doing.
+
+{{RootCmd|ceph-volume lvm prepare --data /dev/sdd|output=<pre>
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: /usr/bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring -i - osd new ecfc1e8d-f21d-46cb-93f8-ad1065d4542a
+Running command: vgcreate --force --yes ceph-1e733afa-e1b4-45a1-b5fe-031eb25ca379 /dev/sdd
+ stdout: Physical volume "/dev/sdd" successfully created.
+ stdout: Volume group "ceph-1e733afa-e1b4-45a1-b5fe-031eb25ca379" successfully created
+Running command: lvcreate --yes -l 100%FREE -n osd-block-ecfc1e8d-f21d-46cb-93f8-ad1065d4542a ceph-1e733afa-e1b4-45a1-b5fe-031eb25ca379
+ stdout: Logical volume "osd-block-ecfc1e8d-f21d-46cb-93f8-ad1065d4542a" created.
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: mount -t tmpfs tmpfs /var/lib/ceph/osd/ceph-1
+--> Absolute path not found for executable: restorecon
+--> Ensure $PATH environment variable contains common executable locations
+Running command: chown -h ceph:ceph /dev/ceph-1e733afa-e1b4-45a1-b5fe-031eb25ca379/osd-block-ecfc1e8d-f21d-46cb-93f8-ad1065d4542a
+Running command: chown -R ceph:ceph /dev/dm-1
+Running command: ln -s /dev/ceph-1e733afa-e1b4-45a1-b5fe-031eb25ca379/osd-block-ecfc1e8d-f21d-46cb-93f8-ad1065d4542a /var/lib/ceph/osd/ceph-1/block
+Running command: ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring mon getmap -o /var/lib/ceph/osd/ceph-1/activate.monmap
+ stderr: got monmap epoch 1
+Running command: ceph-authtool /var/lib/ceph/osd/ceph-1/keyring --create-keyring --name osd.1 --add-key (key redacted)
+ stdout: creating /var/lib/ceph/osd/ceph-1/keyring
+added entity osd.1 auth auth(auid = 18446744073709551615 key=(key redacted) with 0 caps)
+Running command: chown -R ceph:ceph /var/lib/ceph/osd/ceph-1/keyring
+Running command: chown -R ceph:ceph /var/lib/ceph/osd/ceph-1/
+Running command: /usr/bin/ceph-osd --cluster ceph --osd-objectstore bluestore --mkfs -i 1 --monmap /var/lib/ceph/osd/ceph-1/activate.monmap --keyfile - --osd-data /var/lib/ceph/osd/ceph-1/ --osd-uuid ecfc1e8d-f21d-46cb-93f8-ad1065d4542a --setuser ceph --setgroup ceph
+--> ceph-volume lvm prepare successful for: /dev/sdd
 </pre>}}
-{{RootCmd|ceph osd create 0b4c1e77-cc5c-49aa-b322-42d331621113|output=<pre>
-1
-</pre>}}
-
-Since we are visiting hosts in the right order, we get to set up osd.1 on kroll3 just as we had anticipated in our <code>/etc/ceph/ceph.conf</code> file.  Mater's btrfs array has its default volume mounted at {{Path|/materraid}}
-{{RootCmd|cd /materraid}}
-{{RootCmd|btrfs subvol create ceph_osd_1|output=<pre>
-Create subvolume './ceph_osd_1'
-</pre>}}
-
-{{FileBox|filename=/etc/fstab|title=Edited to add ceph_osd_1 subvolume|1=
-LABEL=SAMBOOT	/boot		ext4		defaults,noatime,discard	1 2
-LABEL=SAMROOT	/		ext4		defaults,noatime,discard		0 1
-/dev/sdb	/materraid	btrfs		defaults,noatime,compress=lzo,autodefrag		0 0
-/dev/sdb	/raid		btrfs		defaults,noatime,compress=lzo,autodefrag,subvol=raid	0 0
-/dev/sdb	/var/lib/ceph/osd/ceph-1 btrfs	defaults,noatime,compress=lzo,autodefrag,subvol=ceph_osd_1	0 0
-}}
-
-{{RootCmd|mkdir -p /var/lib/ceph/osd/ceph-1}}
-{{RootCmd|mount /var/lib/ceph/osd/ceph-1}}
-{{RootCmd|df|output=<pre>
-Filesystem                        1K-blocks       Used  Available Use% Mounted on
-/dev/sda3                         239716036  150083632   77432412  66% /
-devtmpfs                            8160292          0    8160292   0% /dev
-tmpfs                               1632264        928    1631336   1% /run
-shm                                 8161308         76    8161232   1% /dev/shm
-cgroup_root                           10240          0      10240   0% /sys/fs/cgroup
-/dev/sda2                            499656      20764     442196   5% /boot
-/dev/sdb                        15628074336 6398440760 7076273736  48% /materraid
-/dev/sdb                        15628074336 6398440760 7076273736  48% /raid
-/dev/sdb                        15628074336 6398440760 7076273736  48% /var/lib/ceph/osd/ceph-1
-</pre>}}
-
-{{RootCmd|ceph-osd -i 1 --mkfs --mkkey --osd-uuid 0b4c1e77-cc5c-49aa-b322-42d331621113|output=<pre>
-2014-07-14 17:41:03.717559 7fcc47c22bc0 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 17:41:12.369793 7fcc47c22bc0 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 17:41:12.371069 7fcc47c22bc0 -1 filestore(/var/lib/ceph/osd/ceph-1) could not find 23c2fcde/osd_superblock/0//-1 in index: (2) No such file or directory
-2014-07-14 17:41:14.455595 7fcc47c22bc0 -1 created object store /var/lib/ceph/osd/ceph-1 journal /var/lib/ceph/osd/ceph-1/journal for osd.1 fsid 1798897a-f0c9-422d-86b3-d4933a12c7ac
-2014-07-14 17:41:14.455697 7fcc47c22bc0 -1 auth: error reading file: /var/lib/ceph/osd/ceph-1/keyring: can't open /var/lib/ceph/osd/ceph-1/keyring: (2) No such file or directory
-2014-07-14 17:41:14.455883 7fcc47c22bc0 -1 created new key in keyring /var/lib/ceph/osd/ceph-1/keyring
-</pre>}}
-
-{{RootCmd|ceph auth add osd.1 osd 'allow *' mon 'allow profile osd' -i /var/lib/ceph/osd/ceph-1/keyring|output=<pre>
-added key for osd.1
-</pre>}}
-
-{{RootCmd|ceph osd crush add-bucket kroll3 host|output=<pre>
-added bucket kroll3 type host to crush map
-</pre>}}
-
-{{RootCmd|ceph osd crush move kroll3 root{{=}}default|output=<pre>
-moved item id -3 name 'kroll3' to location {root=default} in crush map
-</pre>}}
-
-{{RootCmd|ceph osd crush add osd.1 1.0 host{{=}}kroll3|output=<pre>
-add item id 1 name 'osd.1' weight 1 at location {host=kroll3} to crush map
-</pre>}}
-
-{{RootCmd|ceph osd tree|output=<pre>
-# id    weight  type name       up/down reweight
--1      2       root default
--2      1               host kroll1
-0       1                       osd.0   up      1
--3      1               host kroll3
-1       1                       osd.1   down    0
-</pre>}}
-
 {{RootCmd|cd /etc/init.d}}
-{{RootCmd|ln -s ceph ceph.osd-1}}
-{{RootCmd|rc-update add ceph.osd-1 default|output=<pre>
- * service ceph.osd-1 added to runlevel default
+{{RootCmd|ln -s ceph ceph-osd.1}}
+{{RootCmd|./ceph-osd.1 start|output=<pre>
+ * Caching service dependencies ...                                                                                               [ ok ]
+ * Starting ceph-osd.1 ...                                                                                                        [ ok ]
 </pre>}}
-{{RootCmd|./ceph.osd-1 start|output=<pre>
- * Caching service dependencies ...                                                                     [ ok ]
- * Starting Ceph osd.1 ...
-starting osd.1 at :/0 osd_data /var/lib/ceph/osd/ceph-1 /var/lib/ceph/osd/ceph-1/journal                [ ok ]
+{{RootCmd|rc-update add ceph-osd.1 default|output=<pre>
+ * service ceph-osd.1 added to runlevel default
 </pre>}}
-
-With two osds running now, the cluster moves from degraded to "warn" state.  This may be leftover from our warning about the root filesystem on kroll1.
-
-{{RootCmd|ceph osd tree|output=<pre>
-
-# id    weight  type name       up/down reweight
--1      2       root default
--2      1               host kroll1
-0       1                       osd.0   up      1
--3      1               host kroll3
-1       1                       osd.1   up      1
+{{RootCmd|ceph osd crush reweight osd.1 4.0|output=<pre>
+reweighted item id 1 name 'osd.1' to 4 in crush map
 </pre>}}
 {{RootCmd|ceph -s|output=<pre>
-    cluster 1798897a-f0c9-422d-86b3-d4933a12c7ac
-     health HEALTH_WARN
-     monmap e3: 4 mons at {0=192.168.2.1:6789/0,1=192.168.2.2:6789/0,2=192.168.2.3:6789/0,3=192.168.2.4:6789/0}, election epoch 8, quorum 0,1,2,3 0,1,2,3
-     osdmap e13: 2 osds: 2 up, 2 in
-      pgmap v24: 192 pgs, 3 pools, 0 bytes data, 0 objects
-            12235 GB used, 13452 GB / 29808 GB avail
-                 192 active+clean
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 2 osds: 2 up, 2 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   2.00GiB used, 7.28TiB / 7.28TiB avail
+    pgs:     
 </pre>}}
 
-==== osd.2 on kroll4 ====
+
+Adding the third osd on kroll using <code>/dev/sde</code> and getting it up and in leaves us like so before we move on to kroll2 (figo) and its "great tracts of land".
+
+{{RootCmd|ceph -s|output=<pre>
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 3 osds: 3 up, 3 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   3.01GiB used, 10.9TiB / 10.9TiB avail
+    pgs:     
+</pre>}}
+{{RootCmd|ceph osd tree|output=<pre>
+ID CLASS WEIGHT   TYPE NAME       STATUS REWEIGHT PRI-AFF 
+-1       12.00000 root default                            
+-3       12.00000     host thufir                         
+ 0   hdd  4.00000         osd.0       up  1.00000 1.00000 
+ 1   hdd  4.00000         osd.1       up  1.00000 1.00000 
+ 2   hdd  4.00000         osd.2       up  1.00000 1.00000 
+</pre>}}
+
+
+
+==== osd.3, osd.4 and osd.5 on kroll2 (figo) ====
+
+Before doing anything with figo, we pop over to mater real quick to make sure that the {{Path|/etc/ceph}} directory gets an rsync over to figo.  When figo got its hardware refresh to Ryzen2, it ended up with a clean Gentoo install and no /etc/ceph directory to start with.  We also want to rsync the bootstrap-osd tree which <code>ceph-volume</code> uses for keys.
+
+(on mater)
+{{RootCmd|rsync -av --delete /etc/ceph/ figo:/etc/ceph/|output=<pre>
+created directory /etc/ceph
+./
+ceph.client.admin.keyring
+ceph.conf
+ceph.conf.old
+ceph.conf.orig
+ceph.conf~
+ceph.keyring
+ceph.mon.keyring
+client.libvirt.key
+initial-monmap
+libvirt.secret.xml
+root.secret
+
+sent 30,153 bytes  received 431 bytes  20,389.33 bytes/sec
+total size is 28,711  speedup is 0.94
+</pre>}}
+
+As mentioned earlier, you will see a few odds and ends (eg libvirt stuff) that belong in the "nothing to see here, move along" category.  That includes a couple of older versions of ceph.conf from the before-times that have a lot of now useless stuff in them.
+
+{{RootCmd|rsync -av /var/lib/ceph/bootstrap-osd/ figo:/var/lib/ceph/bootstrap-osd/|output=<pre>
+sending incremental file list
+created directory /var/lib/ceph/bootstrap-osd
+./
+ceph.keyring
+
+sent 222 bytes  received 88 bytes  620.00 bytes/sec
+total size is 107  speedup is 0.35
+</pre>}}
+
+
+(moving on to figo now)
+
+It isn't in the {{Path|/etc/fstab}} of the new ssd drive, but we can see that there is still a btrfs filesystem lying around from the old figo from when it was running as the old <code>osd.1</code>.  We will be letting <code>ceph-volume</code> have its way with these three drives.
+
+{{RootCmd|btrfs fi show|output=<pre>
+Label: 'ROOT'  uuid: 5559cde3-d3f2-4617-af34-5476453ec37c
+        Total devices 1 FS bytes used 37.72GiB
+        devid    1 size 465.51GiB used 45.01GiB path /dev/sda3
+
+Label: 'HOME'  uuid: b9515249-ae10-4d56-b212-f629be369ace
+        Total devices 1 FS bytes used 1.45TiB
+        devid    1 size 3.64TiB used 1.46TiB path /dev/sdc
+
+Label: 'FIGOSYS'  uuid: c9c536b9-99a2-4efc-b2f9-fa4fa550bd24
+        Total devices 1 FS bytes used 45.86GiB
+        devid    1 size 200.17GiB used 200.17GiB path /dev/sdb3
+
+Label: 'cephosd1'  uuid: 0663dbb2-1a57-4660-b43b-f40a4a0e2dab
+        Total devices 3 FS bytes used 1.77TiB
+        devid    1 size 3.64TiB used 1.18TiB path /dev/sde
+        devid    2 size 3.64TiB used 1.18TiB path /dev/sdf
+        devid    3 size 3.64TiB used 1.18TiB path /dev/sdd
+</pre>}}
+
 
 After shoving a couple of data archives from {{Path|/home}} to the {{Path|/raid}} filesystem on thufir, we got the root drive down to 51% of capacity.  The cluster now shows HEALTH_OK.
 
