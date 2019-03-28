@@ -552,7 +552,7 @@ Then softlinked a new init script for mgr.a and added it to the default runlevel
 </pre>}}
 {{RootCmd|rc-update add ceph-mgr.a default|output=<pre>
  * service ceph-mgr.a added to runlevel default
-</pre>
+</pre>}}
 {{RootCmd|ceph -s|output=<pre>
   cluster:
     id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
@@ -918,122 +918,346 @@ Label: 'cephosd1'  uuid: 0663dbb2-1a57-4660-b43b-f40a4a0e2dab
         devid    3 size 3.64TiB used 1.18TiB path /dev/sdd
 </pre>}}
 
+We realized that we had gotten a little ahead of ourselves when trying to spin up <code>osd.3</code> and saw the following errors.  LVM wasn't running yet and /var/lib/ceph/osd didn't exist yet either.
 
-After shoving a couple of data archives from {{Path|/home}} to the {{Path|/raid}} filesystem on thufir, we got the root drive down to 51% of capacity.  The cluster now shows HEALTH_OK.
-
-{{RootCmd|ceph -s|output=<pre>
-    cluster 1798897a-f0c9-422d-86b3-d4933a12c7ac
-     health HEALTH_OK
-     monmap e3: 4 mons at {0=192.168.2.1:6789/0,1=192.168.2.2:6789/0,2=192.168.2.3:6789/0,3=192.168.2.4:6789/0}, election epoch 8, quorum 0,1,2,3 0,1,2,3
-     osdmap e14: 2 osds: 2 up, 2 in
-      pgmap v39: 192 pgs, 3 pools, 0 bytes data, 0 objects
-            12269 GB used, 13407 GB / 29808 GB avail
-                 192 active+clean
+{{RootCmd|ceph-volume lvm prepare --data /dev/sdd|output=<pre>
+ceph-volume lvm prepare --data /dev/sdd
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: /usr/bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring -i - osd new 5c140ed9-b126-4906-9db3-7ed9357e385f
+Running command: vgcreate --force --yes ceph-78c23580-df79-4bad-b437-7e1d88b73f41 /dev/sdd
+ stderr: /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+ stdout: Wiping btrfs signature on /dev/sdd.
+ stdout: Physical volume "/dev/sdd" successfully created.
+ stdout: Volume group "ceph-78c23580-df79-4bad-b437-7e1d88b73f41" successfully created
+Running command: lvcreate --yes -l 100%FREE -n osd-block-5c140ed9-b126-4906-9db3-7ed9357e385f ceph-78c23580-df79-4bad-b437-7e1d88b73f41
+ stderr: /run/lvm/lvmetad.socket: connect failed: No such file or directory
+  WARNING: Failed to connect to lvmetad. Falling back to internal scanning.
+ stdout: Logical volume "osd-block-5c140ed9-b126-4906-9db3-7ed9357e385f" created.
+Running command: /usr/bin/ceph-authtool --gen-print-key
+--> Was unable to complete a new OSD, will rollback changes
+--> OSD will be fully purged from the cluster, because the ID was generated
+Running command: ceph osd purge osd.3 --yes-i-really-mean-it
+ stderr: purged osd.3
+-->  OSError: [Errno 2] No such file or directory: '/var/lib/ceph/osd/ceph-3'
 </pre>}}
 
-We will now add our final (for the moment) object store as osd.2 on kroll4.  Its btrfs mirror set has its default volume mounted on <code>/tuberaid</code>.  It also has a different subvolume setup from thufir and mater.  Instead of mounting and exporting a single <code>/raid</code> subvolume, it has subvolumes for <code>/home, /mythtv</code> and a dedicated volume for virtual machines as <code>/vm</code>.  Another wrinkle is that this system has been set up to use btrfs on the SSD for its /boot and / drives.  In fact, the root drive is mounted as a subvolume of <code>/systemraid</code>
+Remedying lvm first...
 
-{{RootCmd|uuidgen|output=<pre>
-9b5550a2-7c92-4875-bea8-e61ee7a1ea15
+{{RootCmd|rc-update add lvm boot|output=<pre>
+ * service lvm added to runlevel boot
+<pre>}}
+{{RootCmd|/etc/init.d/lvm start|output=<pre>
+ * /run/lvm: creating directory
+ * Starting lvmetad ...                                                                                                           [ ok ]
+ * Setting up the Logical Volume Manager ...                                                                                      [ ok ]
 </pre>}}
-{{RootCmd|ceph osd create 9b5550a2-7c92-4875-bea8-e61ee7a1ea15|output=<pre>
-2
+{{RootCmd|rc-update add lvm-monitoring default|output=<pre>
+ * service lvm-monitoring added to runlevel default
 </pre>}}
-
-{{RootCmd|cd /tuberaid}}
-{{RootCmd|btrfs subvol create ceph_osd_2|output=<pre>
-Create subvolume './ceph_osd_2'
-</pre>}}
-
-{{FileBox|filename=/etc/fstab|title=updated with ceph_osd_2 mount|1=
-/dev/sda3     	/systemraid	    btrfs   defaults,noatime,ssd	0 0
-/dev/sda2	/boot  	  	    btrfs   defaults,noatime,ssd	0 0
-/dev/sda3	/		    btrfs   defaults,noatime,ssd,compress=lzo,subvol=activeroot	0 0
-#
-#  2x4tb raid1/raid1 btrfs.  /dev/sdb1,c1 has alternative grub2bios and /dev/sdb2,c2 has alternative /boot
-#
-/dev/sdb3      /tuberaid	btrfs   defaults,noatime,compress=lzo,autodefrag		0 0
-/dev/sdb3      /home		btrfs	subvol=home,defaults,noatime,compress=lzo,autodefrag	0 0
-/dev/sdb3      /mythtv		btrfs   subvol=mythtv,autodefrag,defaults,noatime		0 0
-/dev/sdb3      /vm		btrfs	subvol=vm,compress=lzo,autodefrag,default,noatime	0 0
-/dev/sdb3      /var/lib/ceph/osd/ceph-2	 btrfs	subvol=ceph_osd_2,compress=lzo,autodefrag,default,noatime 0 0
-}}
-
-
-{{RootCmd|mkdir -p /var/lib/ceph/osd/ceph-2}}
-{{RootCmd|mount /var/lib/ceph/osd/ceph-2}}
-{{RootCmd|df|output=<pre>
-Filesystem                        1K-blocks       Used  Available Use% Mounted on
-/dev/sda3                         249542980   26435412  221184188  11% /
-devtmpfs                            7634844          0    7634844   0% /dev
-tmpfs                               1527156        956    1526200   1% /run
-shm                                 7635760        912    7634848   1% /dev/shm
-cgroup_root                           10240          0      10240   0% /sys/fs/cgroup
-/dev/sda3                         249542980   26435412  221184188  11% /systemraid
-/dev/sda2                            512000      47048     460860  10% /boot
-/dev/sdb3                        7813006984  443978232 7367515784   6% /tuberaid
-/dev/sdb3                        7813006984  443978232 7367515784   6% /home
-/dev/sdb3                        7813006984  443978232 7367515784   6% /mythtv
-/dev/sdb3                        7813006984  443978232 7367515784   6% /vm
-/dev/sdb3                        7813006984  443978232 7367515784   6% /var/lib/ceph/osd/ceph-2
+{{RootCmd|/etc/init.d/lvm-monitoring start|output=<pre>
+ * Starting dmeventd ...                                                                                                          [ ok ]
+ * Starting LVM monitoring for VGs   ceph-78c23580-df79-4bad-b437-7e1d88b73f41: ...
+  1 logical volume(s) in volume group "ceph-78c23580-df79-4bad-b437-7e1d88b73f41" monitored                                       [ ok ]
 </pre>}}
 
+Moving on to creating the osd subtree in /var/lib/ceph now...
 
-{{RootCmd|ceph-osd -i 2 --mkfs --mkkey --osd-uuid 9b5550a2-7c92-4875-bea8-e61ee7a1ea15|output=<pre>
-2014-07-14 18:52:38.014662 7f88eed18780 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 18:52:38.789413 7f88eed18780 -1 journal FileJournal::_open: disabling aio for non-block journal.  Use journal_force_aio to force use of aio anyway
-2014-07-14 18:52:38.803037 7f88eed18780 -1 filestore(/var/lib/ceph/osd/ceph-2) could not find 23c2fcde/osd_superblock/0//-1 in index: (2) No such file or directory
-2014-07-14 18:52:39.057377 7f88eed18780 -1 created object store /var/lib/ceph/osd/ceph-2 journal /var/lib/ceph/osd/ceph-2/journal for osd.2 fsid 1798897a-f0c9-422d-86b3-d4933a12c7ac
-2014-07-14 18:52:39.057479 7f88eed18780 -1 auth: error reading file: /var/lib/ceph/osd/ceph-2/keyring: can't open /var/lib/ceph/osd/ceph-2/keyring: (2) No such file or directory
-2014-07-14 18:52:39.057665 7f88eed18780 -1 created new key in keyring /var/lib/ceph/osd/ceph-2/keyring
+{{RootCmd|ls -l /var/lib/ceph|output=<pre>
+total 0
+drwxr-xr-x 1 root root 24 Mar 23 10:40 bootstrap-osd
+drwxr-xr-x 1 ceph ceph 48 Mar 18 21:35 tmp
 </pre>}}
-{{RootCmd|ceph auth add osd.2 osd 'allow *' mon 'allow profile osd' -i /var/lib/ceph/osd/ceph-2/keyring|output=<pre>
-added key for osd.2
+{{RootCmd|mkdir /var/lib/ceph/osd}}
+{{RootCmd|chown ceph:ceph /var/lib/ceph/osd}}
+
+As you may have noticed, ceph-volume rolled back the new osd.3 changes to the crush map when it couldn't create the ceph-3 subtree.  However, the lvm volume is still lying around so we need to use that instead of the device name <code>/dev/sdd</code> when running the prepare again like when we botched the creation of <code>osd.0</code> on thufir eearlier.  Otherwise we get this error.
+
+{{RootCmd|ceph-volume lvm prepare --data /dev/sdd|output=<pre>
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: /usr/bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring -i - osd new d7259989-477c-4abf-b31c-eb7d028428d4
+Running command: vgcreate --force --yes ceph-4b0080d9-a107-4c7b-b14d-f54efd5e1dae /dev/sdd
+ stderr: Can't open /dev/sdd exclusively.  Mounted filesystem?
+--> Was unable to complete a new OSD, will rollback changes
+--> OSD will be fully purged from the cluster, because the ID was generated
+Running command: ceph osd purge osd.3 --yes-i-really-mean-it
+ stderr: purged osd.3
+-->  RuntimeError: command returned non-zero exit status: 5
 </pre>}}
 
-{{RootCmd|ceph osd crush add-bucket kroll4 host|output=<pre>
-added bucket kroll4 type host to crush map
-</pre>}}
-{{RootCmd|ceph osd crush move kroll4 root{{=}}default|output=<pre>
-moved item id -4 name 'kroll4' to location {root=default} in crush map
-</pre>}}
-{{RootCmd|ceph osd crush add osd.2 1.0 host{{=}}kroll4|output=<pre>
-add item id 2 name 'osd.2' weight 1 at location {host=kroll4} to crush map
+We have to use <code>lsblk</code> to figure out where lvm is hiding the block device for that new lvm volume and then use it for the <code>ceph-volume</code> command now instead of {{Path|/dev/sdd}}
+
+{{RootCmd|lsblk -a|output=<pre>
+NAME                                                                                                MAJ:MIN RM   SIZE RO TYPE MOUNTPOINT
+loop0                                                                                                 7:0    0         0 loop 
+loop1                                                                                                 7:1    0         0 loop 
+loop2                                                                                                 7:2    0         0 loop 
+loop3                                                                                                 7:3    0         0 loop 
+loop4                                                                                                 7:4    0         0 loop 
+loop5                                                                                                 7:5    0         0 loop 
+loop6                                                                                                 7:6    0         0 loop 
+loop7                                                                                                 7:7    0         0 loop 
+sda                                                                                                   8:0    0 465.8G  0 disk 
+├─sda1                                                                                                8:1    0     2M  0 part 
+├─sda2                                                                                                8:2    0   256M  0 part /boot
+└─sda3                                                                                                8:3    0 465.5G  0 part /
+sdb                                                                                                   8:16   0 232.9G  0 disk 
+├─sdb1                                                                                                8:17   0     1M  0 part 
+├─sdb2                                                                                                8:18   0   500M  0 part 
+├─sdb3                                                                                                8:19   0 200.2G  0 part 
+├─sdb4                                                                                                8:20   0  10.8G  0 part 
+├─sdb5                                                                                                8:21   0  10.8G  0 part 
+└─sdb6                                                                                                8:22   0  10.8G  0 part 
+sdc                                                                                                   8:32   0   3.7T  0 disk /figoraid
+sdd                                                                                                   8:48   0   3.7T  0 disk 
+└─ceph--78c23580--df79--4bad--b437--7e1d88b73f41-osd--block--5c140ed9--b126--4906--9db3--7ed9357e385f
+                                                                                                    252:0    0   3.7T  0 lvm  
+sde                                                                                                   8:64   0   3.7T  0 disk 
+sdf                                                                                                   8:80   0   3.7T  0 disk 
+md0                                                                                                   9:0    0         0 md   
 </pre>}}
 
-{{RootCmd|cd /etc/init.d}}
-{{RootCmd|ln -s ceph ceph.osd-2}}
-{{RootCmd|rc-update add ceph.osd-2 default|output=<pre>
- * service ceph.osd-2 added to runlevel default
+We can't just copy and paste that as is because the logical volume name and volume group name are both mashed together.  However we still had the abortive osd.3 creation attempt showing both names separately.  We just have to know how to mash it together for the <code>--data</code> directive to pick up the block device properly.  We can look at how the <code>block</code> softlink is set up on any of the running osd servers on thufir to figure out how to specify it properly.
+
+{{RootCmd|ls -l /var/lib/ceph/osd/ceph-0|output=<pre>
+total 48
+-rw-r--r-- 1 ceph ceph 393 Mar 27 22:42 activate.monmap
+lrwxrwxrwx 1 ceph ceph  93 Mar 27 22:42 block -> /dev/ceph-a7287028-07de-4b3d-a814-f8b5ccd1305a/osd-block-932520d8-ee14-4d3d-9b60-4f1ea6c52735
+-rw-r--r-- 1 ceph ceph   2 Mar 27 22:42 bluefs
+-rw-r--r-- 1 ceph ceph  37 Mar 27 22:42 ceph_fsid
+-rw-r--r-- 1 ceph ceph  37 Mar 27 22:42 fsid
+-rw------- 1 ceph ceph  56 Mar 27 22:42 keyring
+-rw-r--r-- 1 ceph ceph   8 Mar 27 22:42 kv_backend
+-rw-r--r-- 1 ceph ceph  21 Mar 27 22:42 magic
+-rw-r--r-- 1 ceph ceph   4 Mar 27 22:42 mkfs_done
+-rw-r--r-- 1 ceph ceph  41 Mar 27 22:42 osd_key
+-rw-r--r-- 1 ceph ceph   6 Mar 27 22:42 ready
+-rw-r--r-- 1 ceph ceph  10 Mar 27 22:42 type
+-rw-r--r-- 1 ceph ceph   2 Mar 27 22:42 whoami
 </pre>}}
-{{RootCmd|./ceph.mon-2 start|ouput=<pre>
- * Caching service dependencies ...                                                                     [ ok ]
- * Starting Ceph osd.2 ...
-starting osd.2 at :/0 osd_data /var/lib/ceph/osd/ceph-2 /var/lib/ceph/osd/ceph-2/journal                [ ok ]
+
+
+{{RootCmd|ceph-volume prepare --data /dev/ceph-78c23580-df79-4bad-b437-7e1d88b73f41/osd-block-5c140ed9-b126-4906-9db3-7ed9357e385f|output=<pre>
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: /usr/bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring -i - osd new 0e2e5166-1b57-47bf-a39a-88f376db6317
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: mount -t tmpfs tmpfs /var/lib/ceph/osd/ceph-3
+--> Absolute path not found for executable: restorecon
+--> Ensure $PATH environment variable contains common executable locations
+Running command: chown -h ceph:ceph /dev/ceph-78c23580-df79-4bad-b437-7e1d88b73f41/osd-block-5c140ed9-b126-4906-9db3-7ed9357e385f
+Running command: chown -R ceph:ceph /dev/dm-0
+Running command: ln -s /dev/ceph-78c23580-df79-4bad-b437-7e1d88b73f41/osd-block-5c140ed9-b126-4906-9db3-7ed9357e385f /var/lib/ceph/osd/ceph-3/block
+Running command: ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring mon getmap -o /var/lib/ceph/osd/ceph-3/activate.monmap
+ stderr: got monmap epoch 1
+Running command: ceph-authtool /var/lib/ceph/osd/ceph-3/keyring --create-keyring --name osd.3 --add-key (redacted key)
+ stdout: creating /var/lib/ceph/osd/ceph-3/keyring
+added entity osd.3 auth auth(auid = 18446744073709551615 key=(redacted key) with 0 caps)
+Running command: chown -R ceph:ceph /var/lib/ceph/osd/ceph-3/keyring
+Running command: chown -R ceph:ceph /var/lib/ceph/osd/ceph-3/
+Running command: /usr/bin/ceph-osd --cluster ceph --osd-objectstore bluestore --mkfs -i 3 --monmap /var/lib/ceph/osd/ceph-3/activate.monmap --keyfile - --osd-data /var/lib/ceph/osd/ceph-3/ --osd-uuid 0e2e5166-1b57-47bf-a39a-88f376db6317 --setuser ceph --setgroup ceph
+--> ceph-volume lvm prepare successful for: ceph-78c23580-df79-4bad-b437-7e1d88b73f41/osd-block-5c140ed9-b126-4906-9db3-7ed9357e385f
 </pre>}}
+
+Moving on to the creation of the <code>osd.3</code> service, the author ponders thoughts about just how much of a mess lvm is when things don't quite go the right way the first time with things like wrapper scripts.  After it is spun up and reweighted, the host figo now shows up in the crush map.
 
 {{RootCmd|ceph osd tree|output=<pre>
-# id    weight  type name       up/down reweight
--1      3       root default
--2      1               host kroll1
-0       1                       osd.0   up      1
--3      1               host kroll3
-1       1                       osd.1   up      1
--4      1               host kroll4
-2       1                       osd.2   up      1
+
+ID CLASS WEIGHT   TYPE NAME       STATUS REWEIGHT PRI-AFF 
+-1       16.00000 root default                            
+-5        4.00000     host figo                           
+ 3   hdd  4.00000         osd.3       up  1.00000 1.00000 
+-3       12.00000     host thufir                         
+ 0   hdd  4.00000         osd.0       up  1.00000 1.00000 
+ 1   hdd  4.00000         osd.1       up  1.00000 1.00000 
+ 2   hdd  4.00000         osd.2       up  1.00000 1.00000 
 </pre>}}
+
+With lvm started in the first place, the creation of <code>osd.4</code> using {{Path|/dev/sde}} and <code>osd.5</code> using {{Path|/dev/sdf}} just like they did for <code>osd.1</code> and <code>osd.2</code> on thufir.  The ceph status and osd tree now look like the following before we move on to the next two osd servers which will be on kroll7 (mike)
 
 {{RootCmd|ceph -s|output=<pre>
-    cluster 1798897a-f0c9-422d-86b3-d4933a12c7ac
-     health HEALTH_OK
-     monmap e3: 4 mons at {0=192.168.2.1:6789/0,1=192.168.2.2:6789/0,2=192.168.2.3:6789/0,3=192.168.2.4:6789/0}, election epoch 8, quorum 0,1,2,3 0,1,2,3
-     osdmap e20: 3 osds: 3 up, 3 in
-      pgmap v57: 192 pgs, 3 pools, 0 bytes data, 0 objects
-            12697 GB used, 20429 GB / 37259 GB avail
-                 192 active+clean
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 6 osds: 6 up, 6 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   6.03GiB used, 21.8TiB / 21.8TiB avail
+    pgs:     
+</pre>}}
+{{RootCmd|ceph osd tree|output=<pre>
+ID CLASS WEIGHT   TYPE NAME       STATUS REWEIGHT PRI-AFF 
+-1       24.00000 root default                            
+-5       12.00000     host figo                           
+ 3   hdd  4.00000         osd.3       up  1.00000 1.00000 
+ 4   hdd  4.00000         osd.4       up  1.00000 1.00000 
+ 5   hdd  4.00000         osd.5       up  1.00000 1.00000 
+-3       12.00000     host thufir                         
+ 0   hdd  4.00000         osd.0       up  1.00000 1.00000 
+ 1   hdd  4.00000         osd.1       up  1.00000 1.00000 
+ 2   hdd  4.00000         osd.2       up  1.00000 1.00000 
 </pre>}}
 
-It suddenly strikes us that we are the almost assuredly the first kid in our neighborhood to set up a cluster with almost 40tb of distributed object store in the comfort of our own home.  In fact, we are probably outclassing all but one or two NIH funded research labs that are nearby.  The cost of the hardware was probably in the range of $5-7K since it was built from scratch, and it may even been cheaper than a single desktop video editing system sold by a certain fruity computer company.
+
+==== Setting up osd.6 and osd.7 on kroll7 (mike) ====
+
+We jump back on mater to rsync over {{Path|/etc/ceph}} and {{Path|/var/lib/ceph/bootstrap-osd}} just like we did with figo.
+
+{{RootCmd|rsync -av --delete /etc/ceph/ kroll7:/etc/ceph/}}
+{{RootCmd|rsync -av /var/lib/ceph/bootstrap-osd/ kroll7:/var/lib/ceph/bootstrap-osd/}}
+
+Then we jump over to mike and spin up lvm before making any more mistakes with creating osds.
+
+{{RootCmd|rc-update add lvm boot|output=<pre>
+ * service lvm added to runlevel boot
+</pre>}}
+{{RootCmd|rc-update add lvm-monitoring default|putput=<pre>
+ * service lvm-monitoring added to runlevel default
+</pre>}}
+{{RootCmd|/etc/init.d/lvm start|output=<pre>
+ * /run/lvm: creating directory
+ * Starting lvmetad ...                                                                                                           [ ok ]
+ * Setting up the Logical Volume Manager ...                                                                                      [ ok ]
+</pre>}}
+{{RootCmd|/etc/init.d/lvm-monitoring start|output=<pre>
+ * Starting dmeventd ...                                                                                                          [ ok ]
+ * Starting LVM monitoring for VGs : ...                                                                                          [ ok ]
+</pre>}}
+
+Mike has a pair of 4tb drives in a btrfs mirror set that was being used for VM storage that was no longer needed.  So we unmounted the filesystem and pulled it out of the {{Path|/etc/fstab}}.
+
+{{RootCmd|btrfs fi show|output=<pre>
+Label: 'ROOT'  uuid: df5549f4-b8f8-4576-83e9-bcad1290c344
+        Total devices 1 FS bytes used 35.94GiB
+        devid    1 size 292.72GiB used 61.01GiB path /dev/sda3
+
+Label: 'HOME'  uuid: ac7487cb-d8cd-4c88-ab5c-9dffa3497a69
+        Total devices 1 FS bytes used 165.84GiB
+        devid    1 size 619.01GiB used 216.02GiB path /dev/sda6
+
+Label: 'mikeraid'  uuid: b723413e-f575-45dd-8214-c103a65b3066
+        Total devices 2 FS bytes used 31.57GiB
+        devid    1 size 3.64TiB used 33.01GiB path /dev/sdb
+        devid    2 size 3.64TiB used 33.01GiB path /dev/sdc
+</pre>}}
+
+{{Path|/dev/sdb}} and {{Path|/dev/sdc}} will be recycled for use with <code>osd.6</code> and <code>osd.7</code> respectively.  With lvm already running, the creation of these two goes smoothly, and the cluster looks like the following before we jump over to tube to make the last osd.
+
+{{RootCmd|ceph -s|output=<pre>
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 8 osds: 8 up, 8 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   8.05GiB used, 29.1TiB / 29.1TiB avail
+    pgs:     
+</pre>}}
+{{RootCmd|ceph osd tree|output=<pre>
+ID CLASS WEIGHT   TYPE NAME       STATUS REWEIGHT PRI-AFF 
+-1       32.00000 root default                            
+-5       12.00000     host figo                           
+ 3   hdd  4.00000         osd.3       up  1.00000 1.00000 
+ 4   hdd  4.00000         osd.4       up  1.00000 1.00000 
+ 5   hdd  4.00000         osd.5       up  1.00000 1.00000 
+-7        8.00000     host mike                           
+ 6   hdd  4.00000         osd.6       up  1.00000 1.00000 
+ 7   hdd  4.00000         osd.7       up  1.00000 1.00000 
+-3       12.00000     host thufir                         
+ 0   hdd  4.00000         osd.0       up  1.00000 1.00000 
+ 1   hdd  4.00000         osd.1       up  1.00000 1.00000 
+ 2   hdd  4.00000         osd.2       up  1.00000 1.00000 
+</pre>}}
+
+
+
+==== Setting up osd.8 on kroll4 (tube) ====
+
+tube used to have a pair of 4tb drives used as the btrfs mirror set for the old <code>osd.3</code> server.  While we could press both into service as new BlueFS based osd servers, we only need one.  Ceph would use the crush map to spread PGs out evenly to all 10 of the resulting osd servers, but it would not take fullest use of their storage capacity unless the total number of drives (all of equal size in this case) is a multiple of the replica count (which we had set to three).  Thus we only need 9 osd servers for the moment and would only jump up to the next multiple at 12 if we had enough spare 4tb drives available on hosts (which we don't at the moment).
+
+{{RootCmd|btrfs fi show|output=<pre>
+Label: 'OCZROOT'  uuid: 64ed0927-023f-49df-9268-44b1b15fc1fd
+        Total devices 1 FS bytes used 22.62GiB
+        devid    1 size 238.22GiB used 29.02GiB path /dev/sda3
+
+Label: 'cephosd3'  uuid: c4aac3db-16ea-489d-b636-2cb67769c43a
+        Total devices 2 FS bytes used 1.77TiB
+        devid    1 size 3.64TiB used 1.77TiB path /dev/sdc
+        devid    2 size 3.64TiB used 1.77TiB path /dev/sdb
+</pre>}}
+
+
+After going through all the motions of rsync from mater and getting lvm running we create <code>osd.8</code> to use {{Path|/dev/sdb}}.  This time things go south because we had forgotten that tube had been rebuilt from scratch with a new install of Gentoo and thus /var/lib/ceph/osd wasn't created yet.  So this happened.
+
+{{RootCmd|ceph-volume lvm prepare --data /dev/sdb|output=<pre>
+Running command: /usr/bin/ceph-authtool --gen-print-key
+Running command: /usr/bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring -i - osd new 96745093-a521-42be-920b-0d761144e048
+Running command: vgcreate --force --yes ceph-d735846e-3346-4f26-b109-882c77795b2e /dev/sdb
+ stdout: Wiping btrfs signature on /dev/sdb.
+ stdout: Physical volume "/dev/sdb" successfully created.
+ stdout: Volume group "ceph-d735846e-3346-4f26-b109-882c77795b2e" successfully created
+Running command: lvcreate --yes -l 100%FREE -n osd-block-96745093-a521-42be-920b-0d761144e048 ceph-d735846e-3346-4f26-b109-882c77795b2e
+ stdout: Logical volume "osd-block-96745093-a521-42be-920b-0d761144e048" created.
+Running command: /usr/bin/ceph-authtool --gen-print-key
+--> Was unable to complete a new OSD, will rollback changes
+--> OSD will be fully purged from the cluster, because the ID was generated
+Running command: ceph osd purge osd.8 --yes-i-really-mean-it
+ stderr: purged osd.8
+-->  OSError: [Errno 2] No such file or directory: '/var/lib/ceph/osd/ceph-8'
+</pre>}}
+
+So we parked it out there and then reran the prepare with the hideously complicated lvm volume names for the block device instead of just {{Path|/dev/sdb}} again.
+
+{{RootCmd|mkdir /var/lib/ceph/osd}}
+{{RootCmd|chown ceph:ceph /var/lib/ceph/osd}}
+{{RootCmd|ceph-volume lvm prepare --data /dev/ceph-d735846e-3346-4f26-b109-882c77795b2e/osd-block-96745093-a521-42be-920b-0d761144e048}}
+
+Then after all that finally worked, we continued on with the <code>osd.8</code> startup and ended up as follows before moving back to mater to finally create an MDS server for ourselves and get some pools and PGs going.
+
+{{RootCmd|ceph -s|output=<pre>
+  cluster:
+    id:     fb3226b4-c5ff-4bf3-92a8-b396980c4b71
+    health: HEALTH_OK
+ 
+  services:
+    mon: 3 daemons, quorum mon.a,mon.b,mon.c
+    mgr: a(active), standbys: b, c
+    osd: 9 osds: 9 up, 9 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0 objects, 0B
+    usage:   9.07GiB used, 32.7TiB / 32.7TiB avail
+    pgs:     
+</pre>}}
+{{RootCmd|ceph osd tree|output=<pre>
+ID CLASS WEIGHT   TYPE NAME       STATUS REWEIGHT PRI-AFF 
+-1       36.00000 root default                            
+-5       12.00000     host figo                           
+ 3   hdd  4.00000         osd.3       up  1.00000 1.00000 
+ 4   hdd  4.00000         osd.4       up  1.00000 1.00000 
+ 5   hdd  4.00000         osd.5       up  1.00000 1.00000 
+-7        8.00000     host mike                           
+ 6   hdd  4.00000         osd.6       up  1.00000 1.00000 
+ 7   hdd  4.00000         osd.7       up  1.00000 1.00000 
+-3       12.00000     host thufir                         
+ 0   hdd  4.00000         osd.0       up  1.00000 1.00000 
+ 1   hdd  4.00000         osd.1       up  1.00000 1.00000 
+ 2   hdd  4.00000         osd.2       up  1.00000 1.00000 
+-9        4.00000     host tube                           
+ 8   hdd  4.00000         osd.8       up  1.00000 1.00000 
+</pre>}}
 
 
 ==== Setting up mds.0 on kroll2 ====
