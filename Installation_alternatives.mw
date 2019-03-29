@@ -157,15 +157,17 @@ There are different flavors of PXE, but all of them are going to need the kernel
 </translate>
 
 {{CodeBox|title=pxe-craft-initrd-kernel|lang=bash|1=
-#!/bin/bash -xe
-# Create kernel and initrd files from a Gentoo LiveCD (DVD?) for PXE boot.
+#!/bin/bash -e
+# Create initrd from a Gentoo Minimal Install CD for PXE boot
+# Note. Embedding the squashfs image into the ramdisk is quite a dirty workaround
+# link from 2010: https://ercpe.de/blog/how-to-boot-a-gentoo-livecd-via-pxe
 
 print-usage() {
   echo "Usage: $0 <output-dir> <gentoo-iso>" >&2
 }
 
 # Example Invocation
-# sudo ./gen-pxe-initrd-kernel pxe-boot-files ~/Downloads/install-amd64-minimal-20171228T214501Z.iso
+# ./pxe-craft-initrd-kernel gentoopxe install-amd64-minimal-20190327T214503Z.iso
 
 outdir="$1"
 image="$2"
@@ -195,24 +197,22 @@ umount "$iso"
 mv "$tmp/gentoo" "$tmp/kernel"
 
 # patch initramfs and add squashfs to it
-xz -dc "$tmp/gentoo.igz" {{!}} ( cd "$initrd" && cpio -idv )
+xz -dc "$tmp/gentoo.igz" {{!}} ( cd "$initrd" && cpio -id )
 patch -d "$initrd" -p0 <<'EOF'
---- init.orig	2016-01-02 00:00:00.000000000 +0100
-+++ init	2016-01-02 00:00:00.000000000 +0100
-@@ -455,9 +455,9 @@
+--- init.orig	2019-03-29 11:27:49.383915780 +0300
++++ init	2019-03-29 11:29:25.642114271 +0300
+@@ -491,10 +491,6 @@
  		CHROOT=${NEW_ROOT}
  	fi
  
--	if [ /dev/nfs != "$REAL_ROOT" ] && [ sgimips != "$LOOPTYPE" ] && [ 1 != "$aufs" ]; then
+-	if [ /dev/nfs != "$REAL_ROOT" ] && [ sgimips != "$LOOPTYPE" ] && [ 1 != "$aufs" ] && [ 1 != "$overlayfs" ]; then
 -		bootstrapCD
 -	fi
-+#	if [ /dev/nfs != "$REAL_ROOT" ] && [ sgimips != "$LOOPTYPE" ] && [ 1 != "$aufs" ]; then
-+#		bootstrapCD
-+#	fi
- 
+-
  	if [ "${REAL_ROOT}" = '' ]
  	then
-@@ -591,7 +591,7 @@
+ 		warn_msg "No bootable medium found. Waiting for new devices..."
+@@ -636,7 +632,7 @@
  		else
  			bad_msg "Block device ${REAL_ROOT} is not a valid root device..."
  			REAL_ROOT=""
@@ -221,15 +221,15 @@ patch -d "$initrd" -p0 <<'EOF'
  		fi
  	done
  
-@@ -670,7 +670,7 @@
+@@ -718,8 +714,6 @@
  	[ -z "${LOOP}" ] && find_loop
  	[ -z "${LOOPTYPE}" ] && find_looptype
  
 -	cache_cd_contents
-+	#cache_cd_contents
- 
+-
  	# If encrypted, find key and mount, otherwise mount as usual
  	if [ -n "${CRYPT_ROOT}" ]
+ 	then
 EOF
 cp "$tmp/image.squashfs" "$initrd/mnt/cdrom"
 ( cd "$initrd" && find . -print {{!}} cpio -o -H newc {{!}} gzip -9 -c - ) > "$tmp/initrd"
@@ -271,7 +271,16 @@ config boot linux
 }}
 
 <!--T:134-->
-From here, directions will change depending on what flavor your PXE is (i.e. GRUB, iPXE). 
+From here, directions will change depending on what flavor your PXE is (i.e. SYSLINUX, GRUB, iPXE). 
+
+
+=== SYSLINUX ===
+
+{{CodeBox|title=pxelinux.cfg/default|1=
+label gentoo rescue
+        kernel gentoopxe/kernel
+        append initrd=gentoopxe/initrd root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=squashfs cdroot=1 real_root=/
+}}
 
 
 === GRUB === <!--T:135-->
@@ -352,6 +361,7 @@ kernel ${g}/kernel root=/dev/ram0 init=/linuxrc loop=/image.squashfs looptype=sq
 initrd ${g}/initrd                                                        
 boot
 }}
+
 
 == Diskless install using PXE boot and NFS == <!--T:31-->
 
