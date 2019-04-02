@@ -1578,35 +1578,7 @@ We can now kick off a huge rsync of /kroll to /newkroll on mater.  As that happe
 
 ==== Getting OSD servers to survive reboots with OpenRC ====
 
-We had to learn the hard way that our new bluestore based OSD servers did not survive a reboot without having the systemctl virus installed.  This is because the <code>ceph-volume lvm prepare</code> commands we used above to create the initial osd filesystems uses tmpfs to mount into {{Path|/var/lib/ceph/osd}} as you can see from the following:
-
-{{RootCmd|df|output=<pre>
-Filesystem      1K-blocks       Used Available Use% Mounted on
-/dev/root       197113132   45118800 141958520  25% /
-devtmpfs            10240          0     10240   0% /dev
-tmpfs             3283504       3420   3280084   1% /run
-cgroup_root         10240          0     10240   0% /sys/fs/cgroup
-shm              16417504          0  16417504   0% /dev/shm
-/dev/sda1          236876     139312     85123  63% /boot
-/dev/sdb       3907018584 3144176628 760862988  81% /thufirraid
-/dev/sdb       3907018584 3144176628 760862988  81% /raid
-/dev/sdb       3907018584 3144176628 760862988  81% /home
-none             16417504          4  16417500   1% /run/user/0
-tmpfs            16417504         48  16417456   1% /var/lib/ceph/osd/ceph-0
-tmpfs            16417504         48  16417456   1% /var/lib/ceph/osd/ceph-1
-tmpfs            16417504         48  16417456   1% /var/lib/ceph/osd/ceph-2
-</pre>}}
-
-As we tested a rolling reboot of the cluster, we had a rude awakening when rebooting our first host with osd servers and then watching them not come up again.  After some poking around in the server logs in {{Path|/var/log/ceph}} and some googling for the tmpfs for bluestore not getting mounted, we found an archived ceph-user mailing list thread from a Gentoo user in Australia who had run into the same problem when converting his filestore based osds to bluestore.
-
-Buried in the {{Path|/etc/init.d/ceph}} script is a check for the environment variable <code>bluestore_osd_fsid</code> being set when an osd type server is getting started.
-
-{{RootCmd|grep  bluestore /etc/init.d/ceph|output=<pre>
-        if [ -n "${bluestore_osd_fsid}" ]; then
-                ceph-volume lvm activate "${daemon_id}" "${bluestore_osd_fsid}" --no-systemd
-</pre>}}
-
-So we need to add a file to {{Path|/etc/conf.d}} for each osd server on a host, setting this variable to the <code>osd fsid</code> associated with the osd.  The <code>ceph-volume lvm activate</code> in the script will then do the necessary tmpfs setup in {{Path|/var/lib/ceph/osd}} to boot up the osd server again.  The <code>osd fsid</code> can be found using ceph-volume such as the following report on thufir for its three osds:
+Adding a file to {{Path|/etc/conf.d}} for each osd server on a host is necessary for persistence. In it, setting the <code>bluestore_osd_fsid</code> variable to the <code>osd fsid</code> associated with the osd.  The <code>ceph-volume lvm activate</code> in the script will then do the necessary tmpfs setup in {{Path|/var/lib/ceph/osd}} to boot up the osd server again.  The <code>osd fsid</code> can be found using ceph-volume such as the following report on thufir for its three osds:
 
 {{RootCmd|ceph-volume lvm list|output=<pre>
 ====== osd.1 =======
@@ -1662,7 +1634,7 @@ So we need to add a file to {{Path|/etc/conf.d}} for each osd server on a host, 
 </pre>}}
 
 
-Based on the report, we added the following three osd config files in {{Path|/etc/conf.d}}
+Based on the example, three osd config files in {{Path|/etc/conf.d}} are needed:
 
 {{FileBox|filename=/etc/conf.d/ceph-osd.0|title=config file with fsid setting for osd 0|1=
 bluestore_osd_fsid=a23b9c03-bc6c-4c11-844d-f95eb8a5aeae
@@ -1675,10 +1647,6 @@ bluestore_osd_fsid=ecfc1e8d-f21d-46cb-93f8-ad1065d4542a
 {{FileBox|filename=/etc/conf.d/ceph-osd.2|title=config file with fsid setting for osd 2|1=
 bluestore_osd_fsid=cacbb3da-0e23-4a99-944f-1ea8c41f7e2b
 }}
-
-Now thufir will be able to automatically restart its osd servers when it is rebooted.
-
-
 
 ==== Some Tunables to look at ====
 
