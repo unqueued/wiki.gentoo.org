@@ -100,6 +100,10 @@ s6 also provides an {{C|s6-svok}} program similar to daemontools' {{C|svok}}, th
 
 As of version 2.5.0.0, if a service directory contains a {{Path|finish}} file that exits with code '''125''' (indicating permanent failure), the supervised process won't be started, as if an {{C|s6-svc -O}} command naming the corresponding service directory had been used while the process was running. And as of version 2.7.1.0, {{C|s6-supervise}} keeps a record of supervised process terminations, the ''death tally'', and new programs are available to use the recorded information. The {{C|s6-svdt}} program accepts a servicedir pathname, and prints the corresponding service's death tally. For each recorded process termination, on line is printed. Each line starts with a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format], and either contains the word "exitcode" followed by the supervised process' exit code if it exited, or the word "signal" followed by a signal name if it was killed by a signal. If an <code>-s</code> option is passed to {{C|s6-svdt}}, the numerical value of the signal will be printed instead of the signal name, and if an <code>-n</code> option followed by an unsigned integer value is passed to {{C|s6-svdt}}, only the last specified number of termination events are printed. The {{C|s6-svdt-clear}} program accepts a servicedir pathname, and clears the corresponding service's death tally. The maximum number of termination events recorded by {{C|s6-supervise}} can be customized by placing a regular file named {{Path|max-death-tally}} in the corresponding service directory, containing an unsigned integer value that specifies this maximum number. This value cannot be greater than 4096. Every new termination event after the maximum number of recorded events is reached will discard the oldest one in the death tally. If {{Path|max-death-tally}} is absent, a default maximum of 100 events is recorded.
 
+{{C|s6-permafailon}} is a chain loading program that assumes that its working directory is a servicedir, and checks termination events in the corresponding death tally. If they match specified conditions, the program exits with code 125, otherwise, it executes the next program in the chain. This makes it suitable for use in {{Path|finish}} files, to signal permanent failure to {{C|s6-supervise}} when certain conditions are met. It takes two unsigned integers as arguments, specifying a time value in seconds and an event count, followed by a comma-separated list of conditions. If the number of termination events with recorded times not earlier that the specified number of seconds in the past, that match any of the conditions, is greater or equal to the specified count, {{C|s6-permafailon}} exits with code 125. A condition can be specified as an integer between 0 and 255, representing an exit code, as two such integers separated by a hyphen ('-'), representing a range of exit codes, as a (case insensitive) signal name, such as "SIGTERM", or as the (case insensitive) word "SIG" immediately followed by a signal number, such as "SIG6" for SIGABRT. If the supervised process exits with the specified code, or with a code in the specified range, the corresponding termination event matches the first or second kind of condition, respectively, and if the supervised process is killed by the specified signal, the corresponding termination event matches the last two kinds of conditions. For example, an <kbd>s6-permafailon 30 5 100,sigabrt prog1</kbd> command exits with code 125 if the supervised process has exited with code 100, or has been killed by a SIGABRT signal, 5 or more times in the last 30 seconds, and executes program ''prog1'' otherwise. And an <kbd>s6-permafailon 60 13 1-64,sig3 prog2 arg1 arg2</kbd> command exits with code 125 if the supervised process has exited with a code greater than or equal to 1 and less than or equal to 64, or has been killed by a SIGQUIT signal, 13 or more times in the last minute, and executes program ''prog2'' with arguments ''arg1'' and ''arg2'' otherwise.
+
+For further information about {{C|s6-svdt}}, {{C|s6-svdt-clear}} and {{C|s6-permafailon}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
 Example s6 scan directory with {{Path|down}}, {{Path|finish}}, and {{Path|timeout-kill}} files, as well as a symbolic link to a {{Path|supervise}} directory elsewhere, and execline scripts:
 
 {{Cmd|ls -l * .s6-svscan|
@@ -204,7 +208,7 @@ output=<pre>
 
 Status of all services reported by {{C|s6-svstat}} in human-readable format:
 
-{{Cmd|for i in *; do printf "$i: %s\n" "$(s6-svstat $i)"; done|
+{{Cmd|for i in *; do printf "$i: `s6-svstat $i`\n"; done|
 output=<pre>
 test-service1: up (pid 1758) 47 seconds
 test-service2: down (exitcode 0) 47 seconds, ready 47 seconds
@@ -213,7 +217,7 @@ test-service3: up (pid 1757) 47 seconds
 
 Output when only the service state, PID, exit code and killing signal information is requested:
 
-{{Cmd|for i in *; do printf "$i: %s\n" "$(s6-svstat -upes $i)"; done|
+{{Cmd|for i in *; do printf "$i: `s6-svstat -upes $i`\n"; done|
 output=<pre>
 test-service1: true 1758 -1 NA
 test-service2: false -1 0 NA
@@ -251,6 +255,7 @@ prw------- 1 user user  0 Mar 24 10:05 control
 </pre>}}
 
 Messages sent by {{Path|test-service2/run}} to {{C|s6-svscan}}'s standard output when manually started:
+
 {{Cmd|s6-svc -u test-service2|
 output=<pre>Starting test-service2/run
 Executing test-service2/finish with arguments 0 0
@@ -278,14 +283,14 @@ output=<pre>
 2019-03-24 10:27:37.331999323 exitcode 0
 </pre>}}
 
-{{Cmd|s6-svstat test-service1|
+{{Cmd|s6-svstat test-service2|
 output=<pre>
 up (pid 2237) 5 seconds, normally down
 </pre>}}
 
 After enough seconds have elapsed:
 
-{{Cmd|s6-svstat test-service1|
+{{Cmd|s6-svstat test-service2|
 output=<pre>
 down (exitcode 0) 6 seconds, want up
 </pre>}}
@@ -354,7 +359,7 @@ up (pid 1757) 137 seconds, want down
 Executing test-service3/finish with arguments 256 9
 </pre>}}
 
-The output of {{C|s6-svstat}} confirms shows that {{C|test-daemon-sighup}} could not be stopped ("up" but also "want down") because it ignores <code>SIGTERM</code>. The service directory contains a {{Path|timeout-kill}} file, so after waiting the specified 10 seconds, {{C|s6-supervise}} killed {{C|test-daemon-sighup}} with a <code>SIGKILL</code> signal (signal 9), as shown by {{Path|test-service3/finish}}'s message.
+The output of {{C|s6-svstat}} shows that {{C|test-daemon-sighup}} could not be stopped ("up" but also "want down") because it ignores <code>SIGTERM</code>. The service directory contains a {{Path|timeout-kill}} file, so after waiting the specified 10 seconds, {{C|s6-supervise}} killed {{C|test-daemon-sighup}} with a <code>SIGKILL</code> signal (signal 9), as shown by {{Path|test-service3/finish}}'s message.
 
 {{Cmd|s6-svstat test-service3|
 output=<pre>
@@ -363,17 +368,20 @@ down (signal SIGKILL) 14 seconds, normally up, ready 14 seconds
 
 The output of {{C|s6-svstat}} confirms that {{C|test-daemon-sighup}} was killed by a <code>SIGKILL</code> signal. Output of {{C|s6-svstat}} when only the service state, PID, exit code and killing signal information is requested:
 
-{{Cmd|for i in *; do printf "$i: %s\n" "$(s6-svstat -upes $i)"; done|
+{{Cmd|for i in *; do printf "$i: `s6-svstat -upes $i`\n"; done|
 output=<pre>
 test-service1: false -1 -1 SIGINT
 test-service2: false -1 -1 SIGTERM
 test-service3: false -1 -1 SIGKILL
 </pre>}}
 
+This shows that no services are currently in up state ("false"), so their PIDs are displayed as "-1", and that the processes have been killed by signals, so their exit codes are displayed as "-1".
+
 Creating a {{Path|down-signal}} file in service directory {{Path|test-service3}}, restarting {{C|test-daemon-sighup}} and then using an {{C|s6-svc -r}} command:
 
 {{Cmd|echo SIGHUP >test-service3/down-signal|s6-svc -u test-service3|s6-svc -r test-service3|
 output=<pre>
+test-daemon-sighup: Got SIGHUP, exiting...
 Executing test-service3/finish with arguments 0 0
 </pre>}}
 
@@ -382,10 +390,11 @@ output=<pre>
 up (pid 1760) 24 seconds
 </pre>}}
 
-The output of {{C|s6-svstat}} and {{Path|test-service3/finish}} shows that {{C|test-daemon-sighup}} exited normally with code 0, because {{C|s6-supervise}} sent it the required 'stop' signal (<code>SIGHUP</code>), and was then restarted it as usual. Stopping {{C|test-daemon-sighup}} with an {{C|s6-svc -d}} command:
+The output of {{C|s6-svstat}} and {{Path|test-service3/finish}} shows that {{C|test-daemon-sighup}} exited normally with code 0, because {{C|s6-supervise}} sent it the required 'stop' signal (<code>SIGHUP</code>, as shown by {{C|test-daemon-sighup}}'s message), and was then restarted it as usual. Stopping {{C|test-daemon-sighup}} with an {{C|s6-svc -d}} command:
 
 {{Cmd|s6-svc -d test-service3|
 output=<pre>
+test-daemon-sighup: Got SIGHUP, exiting...
 Executing test-service3/finish with arguments 0 0
 </pre>}}
 
@@ -913,10 +922,13 @@ output=<pre>2017-07-30 19:45:38.458536857 s6-svc -wu -u test-service2 exited
 2017-07-30 19:45:48.472237201 s6-svlisten -U exited</pre>}}
 
 This shows that the {{C|s6-svc}} processes waiting for up events are notified first, so they exit, and that the {{C|s6-svlisten}} process waiting for up and ready events is notified 10 seconds later. The output of {{C|ps}} shows that when the {{C|s6-svc}} processes exited, the {{C|s6-svlisten}} process and its {{C|s6-ftrigrd}} child were still running.
-{{Cmd|for i in *; do printf "$i: %sn" "$(s6-svstat $i)"; done|
-output=<pre>test-service1: up (pid 2124) 42 seconds, normally down
+
+{{Cmd|for i in *; do printf "$i: `s6-svstat $i`\n"; done|
+output=<pre>
+test-service1: up (pid 2124) 42 seconds, normally down
 test-service2: up (pid 2332) 29 seconds, normally down, ready 19 seconds
-test-service3: up (pid 2338) 29 seconds, normally down, ready 19 seconds</pre>}}
+test-service3: up (pid 2338) 29 seconds, normally down, ready 19 seconds
+</pre>}}
 
 This confirms that both {{C|test-daemon}} processes have notified readiness to their {{C|s6-supervise}} parent ("ready 19 seconds") 10 seconds after being started. Using {{C|s6-ftrig-listen1}} on fifodir {{Path|test-service1/event}} to verify that {{C|s6-supervise}} notifies listeners about a once event when {{C|test-daemon}} is killed with a <code>SIGTERM</code>, because of {{Path|test-service1/finish}}'s exit code:
 {{Cmd|s6-ftrig-listen1 test-service1/event O s6-svc -t test-service1|output=<pre>O</pre>}}
@@ -948,10 +960,13 @@ output=<pre>2017-07-30 22:23:17.063815232 s6-svc -wD -d test-service2 exited
 2017-07-30 22:23:27.078874158 s6-svc -wD -d test-service3 exited</pre>}}
 
 This shows that the {{C|s6-svlisten}} process waiting for down events and the {{C|s6-svc}} process subscribed to {{Path|test-service2/event}} and waiting for a really down event are notified first with almost no delay between them, so they exit, and that the {{C|s6-svc}} process subscribed to {{Path|test-service3/event}} and waiting for a really down event is notified 10 seconds later. The output of {{C|ps}} shows that when the {{C|s6-svlisten}} process exited, an {{C|s6-svc}} process that had replaced itself with {{C|s6-svlisten1}} (because of the <code>-w</code> option) and its {{C|s6-ftrigrd}} child were still running.
-{{Cmd|for i in *; do printf "$i: %sn" "$(s6-svstat $i)"; done|
-output=<pre>test-service1: down (signal SIGTERM) 83 seconds, ready 83 seconds
+
+{{Cmd|for i in *; do printf "$i: `s6-svstat $i`\n"; done|
+output=<pre>
+test-service1: down (signal SIGTERM) 83 seconds, ready 83 seconds
 test-service2: down (exitcode 0) 31 seconds, ready 31 seconds
-test-service3: down (exitcode 0) 31 seconds, ready 21 seconds</pre>}}
+test-service3: down (exitcode 0) 31 seconds, ready 21 seconds
+</pre>}}
 
 This confirms that the {{C|test-daemon}} process corresponding to {{Path|test-service1}} hasn't been restarted after {{Path|test-service1/finish}} exited (83 seconds in down state and no 'wanted up'), and that the down and ready events for the {{C|test-daemon}} processes corresponding to {{Path|test-service2}} and {{Path|test-service3}} have a 10 seconds delay between them ("ready 21 seconds" compared to "ready 31 seconds"). Using {{C|s6-ftrig-listen1}} on fifodir {{Path|test-service2/event}} to stop the supervision tree and verify that {{C|s6-supervise}} notifies listeners about the exit event:
 {{Cmd|s6-ftrig-listen1 test-service2/event x s6-svscanctl -t .|output=<pre>x</pre>}}
