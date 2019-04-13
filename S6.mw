@@ -94,13 +94,16 @@ s6 also provides [[daemontools-encore#changingstate|chain loading]] programs tha
 
 {{C|s6-svc}} is s6's program for controlling supervised processes, and {{C|s6-svstat}}, the program for querying status information about them. {{C|s6-svc}} accepts a service directory pathname, and options that specify what to do. Unlike daemontools' {{C|svc}}, any pathname after the first one will be ignored. The <code>-u</code>, <code>-d</code>, <code>-o</code> and <code>-x</code> options behave just like daemontools {{C|svc}}'s; in particular, {{C|s6-svc -o}} is actually defined as the equivalent of  {{C|s6-svc -uO}}. The <code>-O</code> (capital 'o') option behaves like the <code>-o</code> (small 'o') option, except that if the supervised process is not running, it won't be started. Other {{C|s6-svc}} options allow reliably sending signals to a supervised process, and interacting with {{C|s6-supervise}}'s [[#s6notification|notification features]]. In particular, {{C|s6-svc -a}} can be used to send a <code>SIGALRM</code> signal to a supervised {{C|s6-log}} process to force it to perform a rotation. As of version 2.5.1.0, {{C|s6-svc}} can send a <code>SIGKILL</code> signal to kill a supervised process that has been stopped using the <code>-d</code> option, but still hasn't died after a specified timeout. This will happen if there is a regular file named {{Path|timeout-kill}} in the corresponding service directory, containing a nonzero time value in milliseconds (as an unsigned integer) that specifies the timeout. A {{Path|timeout-kill}} file containing '''0''' or an invalid value is equivalent to an absent {{Path|timeout-kill}}. And as of version 2.7.2.0, {{C|s6-svc}}'s <code>-d</code> option can make {{C|s6-supervise}} send a custom signal to the supervised process to stop it (following it with a <code>SIGCONT</code> signal), and {{C|s6-svc}} also accepts an <code>-r</code> option (''restart'') to send the same custom signal but without stopping the process: the corresponding {{Path|finish}} file, if any, and then the {{Path|run}} file, will be executed after process termination, as usual, unless an {{C|s6-svc -O}} or {{C|s6-svc -o}} command has been used before {{C|s6-svc -r}}. A regular file named {{Path|down-signal}} can be placed in the corresponding service directory, containing a signal name or number, to specify the custom signal. An absent {{Path|down-signal}} file, or one with invalid content, is equivalent to one containing ''SIGTERM'' (making {{C|s6-svc -r}} equivalent to {{C|s6-svc -t}} in this case). The {{Path|down-signal}} mechanism is intended for daemons that use a signal other than <code>SIGTERM</code> as their default 'stop' command.
 
+{{Warning|s6 versions 2.7.2.0 to 2.7.2.2 contain a bug that prevents {{C|s6-svc}}'s <code>-r</code> option from being recognized, despite the restart feature being actually implemented. 
+The fix is [https://git.skarnet.org/cgi-bin/cgit.cgi/s6/commit/?id{{=}}a5d7492de023fa76697459cc05f15922deb2477a here]. A patch against the 2.7.2.2 tarball can be made with this {{C|diff}} output, placed in directory {{Path|/etc/portage/patches/sys-apps/s6-2.7.2.2}} and applied cleanly by the Gentoo ebuild. Examples below assume a patched {{C|s6-svc}} program is used.}}
+
 {{C|s6-svstat}} accepts a service directory pathname and options. Unlike daemontools' {{C|svstat}}, any pathname after the first one will be ignored. Without options, or with only the <code>-n</code> option, {{C|s6-svstat}} prints a human-readable summary of all the available information on the service. In this case, it displays whether the supervised process is running ("run") or not ("down"), whether it is transitioning to the desired state or already there ("want up" or "want down"), how long it has been in the current state, and whether its current up or down status matches the presence or absence of a {{Path|down}} file in the servicedir ("normally up" or "normally down"). It also shows if the supervised process is paused (because of a <code>SIGSTOP</code> signal). If the process is up, {{C|s6-svstat}} prints its process ID (PID), and, if it suports [[#s6readiness|readiness notification]], whether {{C|s6-supervise}} has been already notified ("ready") or not, and how much time has passed since the notification has been received. If the process is down, {{C|s6-svstat}} prints its exit status (signal name, or signal number if the <code>-n</code> option was given, if the supervised process was killed by a signal, or exit code otherwise), whether [[#s6notification|the really down event]] has happened or not, and how much time has passed since it did. When {{C|s6-svstat}} is invoked with options other than <code>-n</code>, it outputs programmatically parsable information instead, as a series of space-separated values, one value per requested field. For example, {{C|s6-svstat -p}}, or equivalently {{C|s6-svstat -o pid}}, will only print the supervised process' PID if {{Path|run}} is being executed (or '''-1''' if it isn't), and {{C|s6-svstat -ue}}, or equivalently {{C|s6-svstat -u -o exitcode}} or  {{C|s6-svstat -o up,exitcode}}, will only print whether service is up or not ("true" or "false"), and the supervised process' exit code, or '''-1''' if it is running or was killed by a signal.
 
 s6 also provides an {{C|s6-svok}} program similar to daemontools' {{C|svok}}, that checks whether a {{C|s6-supervise}} process is currently running on a service directory specified as an argument. Its exit status is '''0''' if there is one, and '''1''' if there isn't. For the full description of {{C|s6-svc}}'s and {{C|s6-svstat}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory. 
 
 As of version 2.5.0.0, if a service directory contains a {{Path|finish}} file that exits with code '''125''' (indicating permanent failure), the supervised process won't be started, as if an {{C|s6-svc -O}} command naming the corresponding service directory had been used while the process was running. And as of version 2.7.1.0, {{C|s6-supervise}} keeps a record of supervised process terminations, the ''death tally'', and new programs are available to use the recorded information. The {{C|s6-svdt}} program accepts a servicedir pathname, and prints the corresponding service's death tally. For each recorded process termination, on line is printed. Each line starts with a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format], and either contains the word "exitcode" followed by the supervised process' exit code if it exited, or the word "signal" followed by a signal name if it was killed by a signal. If an <code>-s</code> option is passed to {{C|s6-svdt}}, the numerical value of the signal will be printed instead of the signal name, and if an <code>-n</code> option followed by an unsigned integer value is passed to {{C|s6-svdt}}, only the last specified number of termination events are printed. The {{C|s6-svdt-clear}} program accepts a servicedir pathname, and clears the corresponding service's death tally. The maximum number of termination events recorded by {{C|s6-supervise}} can be customized by placing a regular file named {{Path|max-death-tally}} in the corresponding service directory, containing an unsigned integer value that specifies this maximum number. This value cannot be greater than 4096. Every new termination event after the maximum number of recorded events is reached will discard the oldest one in the death tally. If {{Path|max-death-tally}} is absent, a default maximum of 100 events is recorded.
 
-{{C|s6-permafailon}} is a chain loading program that assumes that its working directory is a servicedir, and checks termination events in the corresponding death tally. If they match specified conditions, the program exits with code 125, otherwise, it executes the next program in the chain. This makes it suitable for use in {{Path|finish}} files, to signal permanent failure to {{C|s6-supervise}} when certain conditions are met. It takes two unsigned integers as arguments, specifying a time value in seconds and an event count, followed by a comma-separated list of conditions. If the number of termination events with recorded times not earlier that the specified number of seconds in the past, that match any of the conditions, is greater or equal to the specified count, {{C|s6-permafailon}} exits with code 125. A condition can be specified as an integer between 0 and 255, representing an exit code, as two such integers separated by a hyphen ('-'), representing a range of exit codes, as a (case insensitive) signal name, such as "SIGTERM", or as the (case insensitive) word "SIG" immediately followed by a signal number, such as "SIG6" for SIGABRT. If the supervised process exits with the specified code, or with a code in the specified range, the corresponding termination event matches the first or second kind of condition, respectively, and if the supervised process is killed by the specified signal, the corresponding termination event matches the last two kinds of conditions. For example, an <kbd>s6-permafailon 30 5 100,sigabrt prog1</kbd> command exits with code 125 if the supervised process has exited with code 100, or has been killed by a SIGABRT signal, 5 or more times in the last 30 seconds, and executes program ''prog1'' otherwise. And an <kbd>s6-permafailon 60 13 1-64,sig3 prog2 arg1 arg2</kbd> command exits with code 125 if the supervised process has exited with a code greater than or equal to 1 and less than or equal to 64, or has been killed by a SIGQUIT signal, 13 or more times in the last minute, and executes program ''prog2'' with arguments ''arg1'' and ''arg2'' otherwise.
+{{C|s6-permafailon}} is a chain loading program that assumes that its working directory is a servicedir, and checks termination events in the corresponding death tally. If they match specified conditions, the program exits with code 125, otherwise, it executes the next program in the chain. This makes it suitable for use in {{Path|finish}} files, to signal permanent failure to {{C|s6-supervise}} when certain conditions are met. It takes two unsigned integers as arguments, specifying a time value in seconds and an event count, followed by a comma-separated list of conditions. If the number of termination events with recorded times not earlier that the specified number of seconds in the past, that match any of the conditions, is greater or equal to the specified count, {{C|s6-permafailon}} exits with code 125. A condition can be specified as an integer between 0 and 255, representing an exit code, as two such integers separated by a hyphen ('-'), representing a range of exit codes, as a (case insensitive) signal name, such as "SIGTERM", or as the (case insensitive) word "SIG" immediately followed by a signal number, such as "SIG6" for <code>SIGABRT</code>. If the supervised process exits with the specified code, or with a code in the specified range, the corresponding termination event matches the first or second kind of condition, respectively, and if the supervised process is killed by the specified signal, the corresponding termination event matches the last two kinds of conditions. For example, an <kbd>s6-permafailon 30 5 100,sigabrt prog1</kbd> command exits with code 125 if the supervised process has exited with code 100, or has been killed by a <code>SIGABRT</code> signal, 5 or more times in the last 30 seconds, and executes program ''prog1'' otherwise. And an <kbd>s6-permafailon 60 13 1-64,sig3 prog2 arg1 arg2</kbd> command exits with code 125 if the supervised process has exited with a code greater than or equal to 1 and less than or equal to 64, or has been killed by a <code>SIGQUIT</code> signal, 13 or more times in the last minute, and executes program ''prog2'' with arguments <code>arg1 arg2</code> otherwise.
 
 For further information about {{C|s6-svdt}}, {{C|s6-svdt-clear}} and {{C|s6-permafailon}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
@@ -297,7 +300,8 @@ down (exitcode 0) 6 seconds, want up
 
 The output of {{C|s6-svdt}}, {{C|s6-svstat}} and {{Path|test-service2/finish}} shows that {{Path|test-service2/run}} exits each time with an exit code of 0. Reliably sending a <code>SIGSTOP</code> signal, and later a <code>SIGTERM</code> signal, to {{Path|test-service2/run}}:
 
-{{Cmd|s6-svc -p test-service2|s6-svc -t test-service2|s6-svstat test-service2|
+{{Cmd|s6-svc -p test-service2
+|s6-svc -t test-service2|s6-svstat test-service2|
 output=<pre>
 up (pid 2312) 18 seconds, normally down, paused
 </pre>}}
@@ -326,7 +330,8 @@ As shown by {{Path|test-service2/finish}}, {{C|s6-supervise}} stopped {{Path|tes
 
 Sending two consecutive and sufficiently close <code>SIGINT</code> signals to {{C|test-daemon}}:
 
-{{Cmd|s6-svc -i test-service1|s6-svstat test-service1|
+{{Cmd|s6-svc -i test-service1
+|s6-svstat test-service1|
 output=<pre>
 up (pid 1799) 7 seconds
 </pre>}}
@@ -353,7 +358,8 @@ This shows {{C|test-daemon}}'s two recorded termination events ("involving signa
 
 Manually stopping {{C|test-daemon-sighup}}:
 
-{{Cmd|s6-svc -d test-service3|s6-svstat test-service3|
+{{Cmd|s6-svc -d test-service3
+|s6-svstat test-service3|
 output=<pre>
 up (pid 1757) 137 seconds, want down
 Executing test-service3/finish with arguments 256 9
@@ -379,7 +385,9 @@ This shows that no services are currently in up state ("false"), so their PIDs a
 
 Creating a {{Path|down-signal}} file in service directory {{Path|test-service3}}, restarting {{C|test-daemon-sighup}} and then using an {{C|s6-svc -r}} command:
 
-{{Cmd|echo SIGHUP >test-service3/down-signal|s6-svc -u test-service3|s6-svc -r test-service3|
+{{Cmd|echo SIGHUP >test-service3/down-signal
+|s6-svc -u test-service3
+|s6-svc -r test-service3|
 output=<pre>
 test-daemon-sighup: Got SIGHUP, exiting...
 Executing test-service3/finish with arguments 0 0
@@ -593,7 +601,7 @@ start-stop-daemon --start --background --make-pidfile
 start-stop-daemon --stop --retry 5 --pidfile /run/s6-svscan.pid
 }}
 
-The <code>-S</code> option will explicitly disable signal diversion so that the <code>SIGTERM</code> signal that {{C|start-stop-daemon}} sends to {{C|s6-svscan}} will make it act as if an <kbd>s6-svscanctl -rt</kbd> command had been used.
+The <code>-S</code> option will explicitly disable signal diversion so that the <code>SIGTERM</code> signal that {{C|start-stop-daemon}} sends to {{C|s6-svscan}} will make it act as if an {{C|s6-svscanctl -rt}} command had been used.
 
 And as another alternative, OpenRC's {{C|local}} service could be used to start the supervision tree when entering OpenRC's <code>default</code> runlevel, with {{Path|/service}} as the scan directory, using a '.start' file that calls the {{C|s6-svscanboot}} script provided as an example (see [[#sysvinitlaunch|starting the supervision tree from sysvinit]]), instead of {{C|s6-svscan}} directly. This allows setting up a logger program to log messages sent by supervision tree processes to {{C|s6-svscan}}'s standard output and error, provided a service directory for the logger exists in {{Path|/service}}:
 
@@ -630,7 +638,8 @@ This will make sysvinit launch and supervise {{C|s6-svscan}} when entering [[sys
 
 An s6 service directory for the {{C|s6-svscan}} logger can be created with the {{C|s6-linux-init-maker}} program from [[s6-linux-init|package s6-linux-init]]:
 
-{{RootCmd|s6-envuidgid user s6-linux-init-maker -l /service -U temp|cp -a temp/run-image/{service/s6-svscan-log,uncaught-logs} /service}}
+{{RootCmd|s6-envuidgid user s6-linux-init-maker -l /service -U temp
+|cp -a temp/run-image/{service/s6-svscan-log,uncaught-logs} /service}}
 
 The logger will be an {{C|s6-log}} process that logs to directory {{Path|/service/uncaught-logs}}, prepending messages with a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format]. Username ''user'' should be replaced by a valid account's username, to allow {{C|s6-log}} to run as an unprivileged process, and {{Path|temp}} will be a temporary directory created by {{C|s6-linux-init-maker}} on the working directory, that can be removed once the necessary subdirectories are copied to {{Path|/service}}.
 
@@ -647,6 +656,7 @@ Since processes in a supervision tree are created using the POSIX <code>fork()</
 * Leaf processes that still unavoidably report their messages using <code>syslog()</code> have them collected and logged by a (possibly supervised) syslog server.
 
 [[s6 and s6-rc-based init system]]s are arranged in such a way that {{C|s6-svscan}}'s messages are collected by a ''catch-all logger'', and that logger's standard error is redirected to {{Path|/dev/console}}.
+
 {{anchor|s6notification}}
 === The notification framework ===
 
@@ -656,27 +666,31 @@ Since processes in a supervision tree are created using the POSIX <code>fork()</
 
 A FIFO directory (or ''fifodir'') is a directory in the filesystem asociated with a ''notifier'', a process in charge of notifying other processes about some set of events. As the name implies, the directory contains FIFOs, each of them associated with a ''listener'', a process that wants to be notified about one or more events. A listener creates a FIFO in the fifodir and opens it for reading, this is called ''subscribing'' to the fifodir. When a certain event happens, the notifier writes to each FIFO in the fifodir. Written data is conventionally a single character encoding the identity of the event. Listeners wait for notifications using some blocking I/O call on the FIFO; unblocking and successfully reading data from it is their notification. A listener that no longer wants to receive notifications removes its FIFO from the fifodir, this is called ''unsubscribing''.
 
-FIFOs and FIFO directories need a special ownership and permission setup to work. The owner of a fifodir must be the notifier's effective user. A ''publically accesible fifodir'' can be subscribed to by any user, and its permissions must be '''1733''' (i.e. the fifodir shows up as 'drwx-wx-wt' in the output of <kbd>ls -l</kbd>). A ''restricted fifodir'' can be subscribed to only by members of the fifodir's group, and its permissions must be '''3730''' (i.e. the fifodir shows up as 'drwx-ws--T' in the output of <kbd>ls -l</kbd>). The owner of a FIFO in the fifodir must be the corresponding listener's effective user, and its permissions must be '''0622''' (i.e. the FIFO shows up as 'prw--w--w-' in the output of <kbd>ls -l</kbd>). Complete information about the FIFO directory internals is available [https://www.skarnet.org/software/s6/fifodir.html here].
+FIFOs and FIFO directories need a special ownership and permission setup to work. The owner of a fifodir must be the notifier's effective user. A ''publically accesible fifodir'' can be subscribed to by any user, and its permissions must be '''1733''' (i.e. the output of {{C|ls -l}} would display <code>drwx-wx-wt</code>). A ''restricted fifodir'' can be subscribed to only by members of the fifodir's group, and its permissions must be '''3730''' (i.e. the output of {{C|ls -l}} would display <code>drwx-ws--T</code>). The owner of a FIFO in the fifodir must be the corresponding listener's effective user, and its permissions must be '''0622''' (i.e. the output of {{C|ls -l}} would display <code>prw--w--w-</code>). Complete information about the FIFO directory internals is available [https://www.skarnet.org/software/s6/fifodir.html here].
 
-s6 provides an {{C|s6-mkfifodir}} program that creates a FIFO directory with correct ownership and permissions. It accepts the pathname of the fifodir. A restricted fifodir is created by specifying the <code>-g</code> option followed by a numeric group ID, which {{C|s6-mkfifodir}}'s effective user must be a member of. {{C|s6-mkfifodir}} without a <code>-g</code> option creates a publically accesible fifodir. A fifodir can be removed with an <kbd>rm -r</kbd> command. There is also a {{C|s6-cleanfifodir}} program that accepts the pathname of a fifodir and removes all FIFOs in it that don't have an active listener. Its effective user must be a member of the fifodir's group. In the normal case FIFOs are removed when the corresponding listener unsubscribes, so {{C|s6-cleanfifodir}} is a cleanup tool for cases when this fails (e.g. the listener was killed by a signal). For further information about {{C|s6-mkfifodir}} and {{C|s6-cleanfifodir}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+s6 provides an {{C|s6-mkfifodir}} program that creates a FIFO directory with correct ownership and permissions. It accepts the pathname of the fifodir. A restricted fifodir is created by specifying the <code>-g</code> option followed by a numeric group ID, which {{C|s6-mkfifodir}}'s effective user must be a member of. {{C|s6-mkfifodir}} without a <code>-g</code> option creates a publically accesible fifodir. A fifodir can be removed with an {{C|rm -r}} command. There is also a {{C|s6-cleanfifodir}} program that accepts the pathname of a fifodir and removes all FIFOs in it that don't have an active listener. Its effective user must be a member of the fifodir's group. In the normal case FIFOs are removed when the corresponding listener unsubscribes, so {{C|s6-cleanfifodir}} is a cleanup tool for cases when this fails (e.g. the listener was killed by a signal). For further information about {{C|s6-mkfifodir}} and {{C|s6-cleanfifodir}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-The {{C|s6-ftrig-notify}} program allows notifying all subscribers of a fifodir, so it can be used to create a notifier program. It accepts the pathname of a fifodir and a ''message'' that is written as-is to all FIFOs in the fifodir. Each character in the message is assumed to encode an event, and the character sequence should reflect the events sequence. The {{C|s6-ftrig-wait}} program allows subscription to a fifodir and waiting for a notification, so it can be used to create a listener program. It accepts the pathname of a fifodir and a POSIX extended regular expression (like those of the <kbd>grep -E</kbd> command), creates a FIFO in the fifodir with correct ownership and permissions, and waits until it reads a sequence of characters that match the regular expression. Then it unsubcribes from the fifodir by removing the FIFO, prints the last character read from it to its standard output, and exits. For further information about {{C|s6-ftrig-notify}} and {{C|s6-ftrig-wait}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+The {{C|s6-ftrig-notify}} program allows notifying all subscribers of a fifodir, so it can be used to create a notifier program. It accepts the pathname of a fifodir and a ''message'' that is written as-is to all FIFOs in the fifodir. Each character in the message is assumed to encode an event, and the character sequence should reflect the events sequence. The {{C|s6-ftrig-wait}} program allows subscription to a fifodir and waiting for a notification, so it can be used to create a listener program. It accepts the pathname of a fifodir and a POSIX extended regular expression (i.e those accepted by the {{C|grep -E}} command), creates a FIFO in the fifodir with correct ownership and permissions, and waits until it reads a sequence of characters that match the regular expression. Then it unsubcribes from the fifodir by removing the FIFO, prints the last character read from it to its standard output, and exits. For further information about {{C|s6-ftrig-notify}} and {{C|s6-ftrig-wait}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
 Because performing an action that might trigger an event recognized by a notifier, and subscribing to its fifodir to be notified of the event is susceptible to races that might lead to missing the notification, s6 provides two additional programs, {{C|s6-ftrig-listen}} and {{C|s6-ftrig-listen1}}. {{C|s6-ftrig-listen}} is a program that accepts options, a set of fifodir pathname and extended regular expression pairs, a program name and its arguments. It subscribes to each specified fifodir, runs the program as a child process with the supplied arguments, and waits for notifications. It makes sure that the program is executed ''after'' there are listeners reading from their FIFOs.
 
-{{C|s6-ftrig-listen}} expects its arguments to be in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], so the forward compatible way to use it is in an execline script or <kbd>execlineb -c</kbd> command: the invocation can be written using a the syntax <kbd>s6-ftrig-listen { f1 re1 f2 re2 ... } prog args</kbd>, where ''f1'', ''f2'', ... are the fifodir pathnames, ''re1'', ''re2'', ... are the regular expressions corresponding to ''f1'', ''f2'', ..., respectively, ''prog'' is the program name and ''args'', the program's arguments. If {{C|s6-ftrig-listen}} is invoked with an <code>-o</code> option (''or''), it will unsubscribe from all fifodirs and exit when it reads a matching sequence of characters from ''any'' of the created FIFOs. If {{C|s6-ftrig-listen}} is invoked without an <code>-o</code> option, or with an explicit <code>-a</code> option (''and''), it will wait until it reads a matching sequence from ''every'' FIFO. The {{C|s6-ftrig-listen1}} program is a single fifodir and regular expression version of {{C|s6-ftrig-listen}} that doesn't need {{C|execlineb}}-encoded arguments, and that prints the last character read from the created FIFO to its standard output. For further information about {{C|s6-ftrig-listen}} and {{C|s6-ftrig-listen1}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+{{C|s6-ftrig-listen}} expects its arguments to be in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], so the forward compatible way to use it is in an execline script or {{C|execlineb -c}} command: the invocation can be written using a the syntax <kbd>s6-ftrig-listen { f1 re1 f2 re2 ... } prog args</kbd>, where ''f1'', ''f2'', ... are the fifodir pathnames, ''re1'', ''re2'', ... are the regular expressions corresponding to ''f1'', ''f2'', ..., respectively, ''prog'' is the program name and ''args'', the program's arguments. If {{C|s6-ftrig-listen}} is invoked with an <code>-o</code> option (''or''), it will unsubscribe from all fifodirs and exit when it reads a matching sequence of characters from ''any'' of the created FIFOs. If {{C|s6-ftrig-listen}} is invoked without an <code>-o</code> option, or with an explicit <code>-a</code> option (''and''), it will wait until it reads a matching sequence from ''every'' FIFO. The {{C|s6-ftrig-listen1}} program is a single fifodir and regular expression version of {{C|s6-ftrig-listen}} that doesn't need {{C|execlineb}}-encoded arguments, and that prints the last character read from the created FIFO to its standard output. For further information about {{C|s6-ftrig-listen}} and {{C|s6-ftrig-listen1}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
 A timeout can be set for {{C|s6-ftrig-wait}}, {{C|s6-ftrig-listen}} and {{C|s6-ftrig-listen1}} by specifying a <code>-t</code> option followed by a time value in milliseconds. The programs exit with an error status it they haven't been notified about the desired events after the specified time.
 
 The fifodir and notification management code are implemented in the s6 package's library, '''libs6''', and an internal helper program, {{C|s6-ftrigrd}}. The library exposes a public C language API than can be used by programs; for details about the API for notifiers see [https://www.skarnet.org/software/s6/libs6/ftrigw.html here], and for details about the API for listeners see [https://www.skarnet.org/software/s6/libs6/ftrigr.html here]. {{C|s6-ftrigrd}} is launched by the library code.
 
 Creating a publically accesible fifodir named {{Path|fifodir1}} and a fifodir restricted to members of group ''user'' (assumed to have group ID 1000) named {{Path|fifodir2}}:
-{{Cmd|s6-mkfifodir fifodir1|s6-mkfifodir -g 1000 fifodir2|ls -ld fifodir*|
+{{Cmd|s6-mkfifodir fifodir1
+|s6-mkfifodir -g 1000 fifodir2
+|ls -ld fifodir*|
 output=<pre>drwx-wx-wt 2 user user 4096 Aug  2 12:00 fifodir1
 drwx-ws--T 2 user user 4096 Aug  2 12:00 fifodir2</pre>}}
 
 Creating listeners that subscribe to {{Path|fifodir1}} and wait for event sequences 'message1' and 'message2', respectively, as background processes:
-{{Cmd|s6-ftrig-wait fifodir1 message1 &|s6-ftrig-wait -t 20000 fifodir1 message2 &|ls -l fifodir1|
+{{Cmd|s6-ftrig-wait fifodir1 message1 &
+|s6-ftrig-wait -t 20000 fifodir1 message2 &
+|ls -l fifodir1|
 output=<pre>total 0
 prw--w--w- 1 user user 0 Aug  2 21:44 ftrig1:@40000000598272220ea9fa39:-KnFNSkhmW1pQPY0
 prw--w--w- 1 user user 0 Aug  2 21:46 ftrig1:@400000005982728b3a8d09c2:_UjWhNPn3Z0Q_VFQ</pre>}}
@@ -699,10 +713,16 @@ output=<pre>total 0
 prw--w--w- 1 user user 0 Aug  2 21:44 ftrig1:@40000000598272220ea9fa39:-KnFNSkhmW1pQPY0</pre>}}
 
 This shows that the {{C|s6-ftrig-wait}} process without a timeout is still running, and its FIFO is still there. Notifying all {{Path|fifodir1}} listeners about event sequence 'message1':
-{{Cmd|s6-ftrig-notify fifodir1 message1|output=<pre>1</pre>}}
+{{Cmd|s6-ftrig-notify fifodir1 message1|
+output=<pre>
+1
+</pre>}}
 
 The '1' printed on the shell's terminal after the {{C|s6-ftrig-notify}} invocation is the last event the {{C|s6-ftrig-wait}} process was notified about (i.e. the last character in string 'message1'), which then exits because the notifications have matched its regular expression.
-{{Cmd|ls -l fifodir1|output=<pre>total 0</pre>}}
+{{Cmd|ls -l fifodir1|
+output=<pre>
+total 0
+</pre>}}
 
 This shows that since all listeners have unsubscribed, the fifodir is empty.
 {{FileBox|lang=bash|filename=test-script|title=Example execline script for testing {{C|s6-ftrig-listen}}|
@@ -767,7 +787,10 @@ total 0
 prw--w--w- 1 user user 0 Aug  2 22:56 ftrig1:@40000000598282e42104bc57:Yop6JbMNBJo1r-uI</pre>}}
 
 This confirms that the listener subscribed to {{Path|fifodir2}} is still running, waiting for events. Notifying all {{Path|fifodir2}} listeners about event sequence 'message':
-{{Cmd|s6-ftrig-notify fifodir2 message|output=<pre>s6-ftrig-listen exited</pre>}}
+{{Cmd|s6-ftrig-notify fifodir2 message|
+output=<pre>
+s6-ftrig-listen exited
+</pre>}}
 
 This shows that once the remaining listener has gotten notifications that match its regular expression, {{C|s6-ftrig-listen}} exits.
 
@@ -785,13 +808,14 @@ The {{Path|event}} subdirectory of an s6 service directory is a fifodir used by 
 
 s6 provides an {{C|s6-svwait}} program, that is a process supervision-specific notification tool. It accepts service directory pathnames and options that specify an event to wait for. At program startup, for each specified servicedir it checks the {{Path|status}} file in its {{Path|supervise}} control subdirectory to see if the corresponding supervised process is already in the state implied by the specified event, and if not, it subscribes to the {{Path|event}} fifodir and waits for notifications from the corresponding {{C|s6-supervise}} process. A <code>-u</code> option specifies an up event, a <code>-U</code> option, an up and ready event, a <code>-d</code> option, a down event, and a <code>-D</code> option, a really down event. Options <code>-a</code> and <code>-o</code> work as for {{C|s6-ftrig-listen}}.
 
-There is also an {{C|s6-svlisten}} program, that is a process supervision-specific version of {{C|s6-ftrig-listen}}. It accepts servicedir pathnames in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], a program name and its arguments, and options that specify an event to wait for. Therefore, the forward compatible way to use it is in an execline script or <kbd>execlineb -c</kbd> command: the invocation can be written using the syntax <kbd>s6-svlisten { s1 s2 ... } prog args</kbd>, where ''s1'', ''s2'', ... are the servicedir pathnames, ''prog'' is the program name and ''args'' are the program's arguments. Options <code>-u</code>, <code>-U</code>, <code>-d</code> and <code>-D</code> work as for {{C|s6-svwait}}. Options <code>-a</code> and <code>-o</code> work as for {{C|s6-ftrig-listen}}. {{C|s6-svlisten}} also accepts an <code>-r</code> option (''restart event'') that makes it wait for a down event followed by an up event, and a <code>-R</code> option (''restart and ready event'') that makes it wait for a down event followed by an up and ready event. The {{C|s6-svlisten1}} program is a single servicedir version of {{C|s6-svlisten}} that doesn't need {{C|execlineb}}-encoded arguments.
+There is also an {{C|s6-svlisten}} program, that is a process supervision-specific version of {{C|s6-ftrig-listen}}. It accepts servicedir pathnames in the format execline's {{C|execlineb}} program [https://skarnet.org/software/execline/el_semicolon.html generates when parsing the block syntax], a program name and its arguments, and options that specify an event to wait for. Therefore, the forward compatible way to use it is in an execline script or {{C|execlineb -c}} command: the invocation can be written using the syntax <kbd>s6-svlisten { s1 s2 ... } prog args</kbd>, where ''s1'', ''s2'', ... are the servicedir pathnames, ''prog'' is the program name and ''args'' are the program's arguments. Options <code>-u</code>, <code>-U</code>, <code>-d</code> and <code>-D</code> work as for {{C|s6-svwait}}. Options <code>-a</code> and <code>-o</code> work as for {{C|s6-ftrig-listen}}. {{C|s6-svlisten}} also accepts an <code>-r</code> option (''restart event'') that makes it wait for a down event followed by an up event, and a <code>-R</code> option (''restart and ready event'') that makes it wait for a down event followed by an up and ready event. The {{C|s6-svlisten1}} program is a single servicedir version of {{C|s6-svlisten}} that doesn't need {{C|execlineb}}-encoded arguments.
 
 {{C|s6-svwait}}, {{C|s6-svlisten}} and {{C|s6-svlisten1}} accept a <code>-t</code> option to specify a timeout in the same way as {{C|s6-ftrig-wait}}. For further information about these programs please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-Finally, the {{C|s6-svc}} program accepts a <code>-w</code> option that makes it wait for notifications from the {{C|s6-supervise}} process corresponding to the service directory specified as argument, after asking it to perform an action on its child process. An <kbd>s6-svc -wu</kbd>, <kbd>s6-svc -wU</kbd>, <kbd>s6-svc -wd</kbd>, <kbd>s6-svc -wD</kbd>, <kbd>s6-svc -wr</kbd> or <kbd>s6-svc -wR</kbd> command is equivalent to an <kbd>s6-svlisten1 -u</kbd>, <kbd>s6-svlisten1 -U</kbd>, <kbd>s6-svlisten1 -d</kbd>, <kbd>s6-svlisten1 -D</kbd>, <kbd>s6-svlisten1 -r</kbd> or <kbd>s6-svlisten1 -R</kbd> command, respectively, specifying the same servicedir, and {{C|s6-svc}} with the same arguments except the <code>-w</code> option as the spawned program. {{C|s6-svc}} also accepts a timeout specified with a <code>-T</code> option, that is translated to the {{C|s6-svlisten1}} <code>-t</code> option.
+Finally, the {{C|s6-svc}} program accepts a <code>-w</code> option that makes it wait for notifications from the {{C|s6-supervise}} process corresponding to the service directory specified as argument, after asking it to perform an action on its child process. An {{C|s6-svc -wu}}, {{C|s6-svc -wU}}, {{C|s6-svc -wd}}, {{C|s6-svc -wD}}, {{C|s6-svc -wr}} or {{C|s6-svc -wR}} command is equivalent to an {{C|s6-svlisten1 -u}}, {{C|s6-svlisten1 -U}}, {{C|s6-svlisten1 -d}}, {{C|s6-svlisten1 -D}}, {{C|s6-svlisten1 -r}} or {{C|s6-svlisten1 -R}} command, respectively, specifying the same servicedir, and {{C|s6-svc}} with the same arguments except for the <code>-w</code> option, as the spawned program. {{C|s6-svc}} also accepts a timeout specified with a <code>-T</code> option, that is translated to the {{C|s6-svlisten1}} <code>-t</code> option.
 
 See the [[#s6readiness|service readiness notification]] section for usage examples.
+
 {{anchor|s6readiness}}
 ==== Service readiness notification ====
 
@@ -815,7 +839,8 @@ close(notification_fd);}}
 The code only relies on POSIX calls, so the program doesn't need to link to any specific library other than the libc to implement the readiness protocol. s6 uses readiness notification when a regular file named {{Path|notification-fd}} is present in a service directory, containing an integer that specifies the program's chosen notification channel file descriptor. {{C|s6-supervise}} implements the notification channel as a pipe between the supervised process and itself; when it receives a newline character signalling the service's readiness, it considers that an ''up and ready'' event and notifies all listeners subscribed to the {{Path|event}} fifodir about it. After that, {{C|s6-supervise}} no longer reads from the notification pipe, so it can be safely closed by the child process.
 
 Example s6 scan directory containing services that support readiness notification:
-{{Cmd|s6-mkfifodir test-service1/event|ls -l *|
+{{Cmd|s6-mkfifodir test-service1/event
+|ls -l *|
 output=<pre>test-service1:
 total 12
 -rw-r--r-- 1 user user    0 Jul 30 12:00 down
@@ -864,7 +889,10 @@ sleep 10}}
 {{FileBox|filename=test-service3/timeout-finish|1=20000}}
 
 It is assumed that {{C|test-daemon}} is a program that supports an <code>--s6</code> option to turn readiness notification on, specifying the notification channel's file descriptor (5), which is also stored in a {{Path|notification-fd}} file. {{Path|test-service1/finish}} exits with an exit code of 125, so that if the corresponding {{C|test-daemon}} process stops, it won't be restarted. The {{C|s6-mkfifodir}} invocation creates {{Path|test-service1/event}} as a publically accesible fifodir. Using {{C|s6-ftrig-listen1}} on it to start the supervision tree and verify that {{C|s6-supervise}} notifies listeners about the start event:
-{{Cmd|s6-ftrig-listen1 test-service1/event s s6-svscan|output=<pre>s</pre>}}
+{{Cmd|s6-ftrig-listen1 test-service1/event s s6-svscan|
+output=<pre>
+s
+</pre>}}
 
 {{Cmd|ls -ld */event|
 output=<pre>drwx-wx-wt 2 user user 4096 Jul 30 12:22 test-service1/event
@@ -878,7 +906,8 @@ foreground { s6-svwait -u test-service1 }
 echo s6-svwait exited}}
 
 Executing the example script:
-{{Cmd|../test-script &|ps xf -o pid,ppid,args|
+{{Cmd|../test-script &
+|ps xf -o pid,ppid,args|
 output=<pre> PID  PPID COMMAND
 ...
 2166  2039 \_bash
@@ -892,7 +921,10 @@ output=<pre>total 0
 prw--w--w- 1 user user 0 Jul 30 12:22 ftrig1:@40000000597df9d12c8328da:v84Zc_E_LyaqxlDh</pre>}}
 
 This shows that the {{C|s6-svwait}} process has spawned a child {{C|s6-ftrigrd}} helper, and created a FIFO in {{Path|test-service1/event}} so that it can be notified about the up event. Manually starting {{Path|test-service1/run}}:
-{{Cmd|s6-svc -u test-service1|output=<pre>s6-svwait exited</pre>}}
+{{Cmd|s6-svc -u test-service1|
+output=<pre>
+s6-svwait exited
+</pre>}}
 
 The message printed by the test script to its standard output shows that the {{C|s6-svwait}} process got the expected notification, so it exited.
 {{FileBox|lang=bash|filename=test-script|title=Example execline script for testing up and ready event notifications|
@@ -931,7 +963,10 @@ test-service3: up (pid 2338) 29 seconds, normally down, ready 19 seconds
 </pre>}}
 
 This confirms that both {{C|test-daemon}} processes have notified readiness to their {{C|s6-supervise}} parent ("ready 19 seconds") 10 seconds after being started. Using {{C|s6-ftrig-listen1}} on fifodir {{Path|test-service1/event}} to verify that {{C|s6-supervise}} notifies listeners about a once event when {{C|test-daemon}} is killed with a <code>SIGTERM</code>, because of {{Path|test-service1/finish}}'s exit code:
-{{Cmd|s6-ftrig-listen1 test-service1/event O s6-svc -t test-service1|output=<pre>O</pre>}}
+{{Cmd|s6-ftrig-listen1 test-service1/event O s6-svc -t test-service1|
+output=<pre>
+O
+</pre>}}
 
 {{FileBox|lang=bash|filename=test-script|title=Example execline script for testing really down event notifications|
 #!/bin/execlineb -P
@@ -949,6 +984,7 @@ foreground {
 ps xf -o pid,ppid,args}}
 
 The script calls {{C|s6-svlisten}} to subscribe to fifodirs {{Path|test-service2/event}} and {{Path|test-service3/event}} and wait for down events. Then it uses a <kbd>s6-svc -wD -d</kbd> command to manually stop the {{C|test-daemon}} processes corresponding to {{Path|test-service2}} and {{Path|test-service3}}, and wait for really down events. {{Path|test-service3}} has a {{Path|finish}} script that sleeps for 10 seconds, so {{Path|test-service2/event}} listeners should be notified earlier than {{Path|test-service3/event}} listeners. A message timestamped using {{C|s6-tai64n}} is printed to the standard output when the listeners get their expected notifications. Executing the example script:
+
 {{Cmd|../test-script {{!}} s6-tai64nlocal|
 output=<pre>2017-07-30 22:23:17.063815232 s6-svc -wD -d test-service2 exited
 2017-07-30 22:23:17.071855769 s6-listen -d exited
@@ -969,7 +1005,142 @@ test-service3: down (exitcode 0) 31 seconds, ready 21 seconds
 </pre>}}
 
 This confirms that the {{C|test-daemon}} process corresponding to {{Path|test-service1}} hasn't been restarted after {{Path|test-service1/finish}} exited (83 seconds in down state and no 'wanted up'), and that the down and ready events for the {{C|test-daemon}} processes corresponding to {{Path|test-service2}} and {{Path|test-service3}} have a 10 seconds delay between them ("ready 21 seconds" compared to "ready 31 seconds"). Using {{C|s6-ftrig-listen1}} on fifodir {{Path|test-service2/event}} to stop the supervision tree and verify that {{C|s6-supervise}} notifies listeners about the exit event:
-{{Cmd|s6-ftrig-listen1 test-service2/event x s6-svscanctl -t .|output=<pre>x</pre>}}
+
+{{Cmd|s6-ftrig-listen1 test-service2/event x s6-svscanctl -t .|
+output=<pre>
+x
+</pre>}}
+
+==== s6-notifyoncheck ====
+
+As of version 2.6.1.0, s6 provides the {{C|s6-notifyoncheck}} program, which can be used in combination with programs that don't support [[#s6readiness|readiness notificaton]], but can be polled for readiness somehow. In that case, {{C|s6-notifyoncheck}} can be invoked from a {{Path|run}} file, use the available polling mechanisms, and signal readiness itself to {{C|s6-supervise}} using the s6 readiness notification protocol.
+
+{{C|s6-notifyoncheck}} is a [[daemontools-encore#changingstate|chain loading]] program that assumes its working directory is a servicedir, spawns a child process that polls for readiness, and then executes the next program in the chain. By default, the child process will try to execute a file named {{Path|check}} in a subdirectory named {{Path|data}} as a child process (i.e. the pathname of the file, relative to {{C|s6-notifyoncheck}}'s working directory, is {{Path|data/check}}). Just like {{Path|run}} or {{Path|finish}}, {{Path|check}} can have any file format that the kernel knows how to execute, but is usually an execline or shell script. When executed, {{Path|check}} is expected to poll the supervised process for readiness, and then exit with code 0 if the process was verified to be ready, or exit with a nonzero code otherwise. This is similar to [[runit#svcheck|runit's {{Path|check}} file mechanism]]. If a <code>-c</code> option is passed to {{C|s6-notifyoncheck}}, instead of looking for a {{Path|check}} file, the child process will invoke {{C|execlineb}}, the script parser and launcher from the execline package, and pass it the <code>-c</code> option and the argument that follows it. For example, <kbd>s6-notifyoncheck -c eargs prog arg1 arg2</kbd> will spawn a child process that uses an <kbd>execlineb -c eargs</kbd> command to poll for readiness (so ''eargs'' can have execline syntax), while it executes program ''prog'' with arguments <code>arg1 arg2</code> (without creating a new process). This option is mainly useful if the program used to poll the supervised process is very simple and can be inlined as a simple command line, to avoid having to manage a whole script and a {{Path|check}} file.
+
+By default, {{C|s6-notifyoncheck}} expects to be able to read the file descriptor it should use for the notification channel from a {{Path|notification-fd}} file in its working directory (i.e. the file used by {{C|s6-supervise}}), and uses a single POSIX <code>fork()</code> call to create the poller child process, so the next program in the chain must be able to reap it when it terminates (e.g. with a POSIX <code>wait()</code> call). If a <code>-3</code> option followed by an unsigned integer value is passed to {{C|s6-notifyoncheck}}, it will use the specified value as the notification channel's file descriptor, ignoring {{Path|notification-fd}}. And if a <code>-d</code> option is passed to {{C|s6-notifyoncheck}}, it will use two <code>fork()</code> calls instead of one (i.e. it will ''double fork''), so the poller process will be reparented to process 1 (or to a local reaper), and the next program in the chain won't have to reap it. This is useful to avoid having a lingering zombie process if the next program in the chain does not reap child processes it doesn't know of.
+
+If the poll for readiness is successful, {{C|s6-notifyoncheck}}'s poller process signals readiness using the notification channel. Unlike runit's {{C|sv}} command, which executes the {{Path|check}} file only once, {{C|s6-notifyoncheck}}'s poller process periodically retries execution of {{Path|check}} or invocation of {{C|execlineb}} until a poll is successful, until a timeout period expires, or until a certain number of unsuccessful polls has been reached, depending on the options supplied to {{C|s6-notifyoncheck}}, and then exits. A retry is performed once every second by default, i.e. the default ''polling period'' is 1 second, but a different one can be specified by passing a <code>-w</code> option to {{C|s6-notifyoncheck}}, followed by a time value in milliseconds. Execution of the {{Path|data/check}} or {{C|execlineb}} process can be limited by passing a <code>-t</code> option to {{C|s6-notifyoncheck}}, followed by a time value in milliseconds. If the process runs for longer than the specified time, {{C|s6-notifyoncheck}}'s poller process sends it a <code>SIGTERM</code> signal to kill it, and then exits without signalling readiness. If the <code>-t</code> option is not used, {{C|s6-notifyoncheck}}'s poller process will wait indefinitely for the {{Path|data/check}} or {{C|execlineb}} process to exit.
+
+For the full description of {{C|s6-notifyoncheck}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
+
+Example scan directory with a servicedir for a program that can be polled for readiness:
+
+{{Cmd|ls -l * .s6-svscan|
+output=<pre>
+.s6-svscan:
+total 4
+-rwxr-xr-x 1 user user 20 Apr  7 12:00 finish
+
+test-service:
+total 16
+drwxr-xr-x 2 user user 4096 Apr  7 12:00 data
+-rw-r--r-- 1 user user    0 Apr  7 12:00 down
+drwxr-xr-x 2 user user 4096 Apr  7 12:00 env
+-rw-r--r-- 1 user user    2 Apr  7 12:00 notification-fd
+-rwxr-xr-x 1 user user   92 Apr  7 12:00 run
+</pre>}}
+
+{{Cmd|ls -l test-service/{data,env}|
+output=<pre>
+test-service/data:
+total 4
+-rwxr-xr-x 1 user user 148 Apr  7 12:00 check
+
+test-service/env:
+total 4
+-rw-r--r-- 1 user user 2 Apr  7 12:00 ATTEMPTS
+</pre>}}
+
+{{FileBox|lang=bash|filename=test-service/run|1=
+#!/bin/execlineb -P
+s6-envdir env
+importas A ATTEMPTS
+s6-notifyoncheck -d -n $A
+test-daemon
+}}
+
+This file allows executing a hipothetical {{C|test-daemon}} program as a supervised process. {{C|s6-notifyoncheck}} is used to poll the process for readiness. A <code>-d</code> option is used to make {{C|s6-notifyoncheck}} double fork, because {{C|test-daemon}} is assumed to not reap child processes, and the <code>-n</code> option is used to make {{C|s6-notifyoncheck}}'s poller process retry execution of {{Path|data/check}} after each unsuccessful poll, until the number of retries equals the value of the <var>ATTEMPTS</var> environment variable. The environment of the {{Path|run}} process is modified by the contents of the {{Path|env}} environment directory using an {{C|s6-envdir}} invocation.
+
+{{FileBox|lang=bash|filename=test-service/data/check|1=
+#!/bin/execlineb -P
+foreground { printf "Polling test-daemon: " }
+ifte {
+echo success
+} {
+foreground { echo failure }
+exit 1
+}
+test-daemon-check
+}}
+
+This file allows executing a hipothetical {{C|test-daemon-check}} program that is assumed to be able to poll {{C|test-daemon}} for readiness. Messages are printed to the {{Path|check}} process' standard output to report the outcome.
+
+{{FileBox|lang=bash|filename=test-service/notification-fd|1=
+3
+}}
+
+This file informs {{C|s6-supervise}} that {{Path|run}} supports the s6 readiness notification protocol using file descriptor '''3''' for the notification channel, and will also be used by {{C|s6-notifyoncheck}}.
+
+{{FileBox|lang=bash|filename=test-service/env/ATTEMPTS|1=
+5
+}}
+
+Environment directory {{Path|env}} sets the value of environment variable <var>ATTEMPTS</var> to '''5'''. This means that after 5 executions of {{C|test-daemon-check}} that result in a nonzero exit code (i.e. if {{C|test-daemon}} is determined to not be ready when polled), {{C|s6-notifyoncheck}}'s poller process will exit without signalling readiness to {{C|test-daemon}}'s {{C|s6-supervise}} parent.
+
+Starting {{Path|test-service}} and waiting for the supervised process to be ready, using {{C|s6-svc}}'s <code>-w</code> option:
+
+{{Cmd|time s6-svc -uwU -T 12000 test-service|
+output=<pre>
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+s6-svlisten1: fatal: timed out
+
+real	0m12.015s
+user	0m0.002s
+sys	0m0.001s
+</pre>}}
+
+This shows that {{C|test-daemon}} was unsuccessfully polled 5 times, and because of {{C|s6-notifyoncheck}}'s <code>-n</code> option, it exited without signalling readiness to {{C|s6-supervise}}. Therefore, after the 12 seconds specified with the <code>-T</code> option, {{C|s6-svc}} timed out, as shown by {{C|s6-svlisten1}}'s error message and the output of the {{C|time}} utility.
+
+{{Cmd|s6-svstat test-service|
+output=<pre>
+up (pid 4600) 16 seconds, normally down
+</pre>}}
+
+This shows that {{C|test-daemon}} is actually running ("up"), but {{C|s6-supervise}} does not consider the process to be ready (there is no "ready" in {{C|s6-svstat}}'s output). Modifying the {{Path|env}} directory so that the value of environment variable <var>ATTEMPTS</var> is '''0''', restarting {{Path|test-service}} and waiting for the supervised process to be ready:
+
+{{Cmd|echo 0 >test-service/env/ATTEMPTS
+|time s6-svc -rwU -T 12000 test-service|
+output=<pre>
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: failure
+Polling test-daemon: success
+
+real	0m10.116s
+user	0m0.000s
+sys	0m0.003s
+</pre>}}
+
+Because of the new value of <var>ATTEMPTS</var>, {{C|s6-notifyoncheck}} was invoked with an <code>-n 0</code> option, which tells it to keep executing {{Path|data/check}} until there is a successful poll. This shows that {{C|test-daemon}} was polled for readiness once per second until the 11th attempt, which was successful. The output of of the {{C|time}} utility shows that this happend after approximately 10 seconds, i.e. before {{C|s6-svc}}'s timeout of 12 seconds, which must mean it received an up and ready notification from {{C|test-daemon}}'s supervisor.
+
+{{Cmd|s6-svstat test-service|
+output=<pre>
+up (pid 4634) 16 seconds, normally down, ready 6 seconds
+</pre>}}
+
+This confirms that {{C|test-daemon}} up and ready. It became ready approximately 10 seconds after it was started.
+
 {{anchor|superserver}}
 === The UNIX domain super-server and related tools ===
 
@@ -1238,7 +1409,7 @@ s6 provides a program implementing fd-holder functionality, named {{C|s6-fdholde
 
 Operations supported by {{C|s6-fdholderd}} are ''store'', ''retrieve'', ''list'', ''delete'', ''get dump'' and ''set dump''. s6 provides a client program for each fd-holder operation, that invokes, using a POSIX <code>execve()</code> call, {{C|s6-ipcclient}} chained to an operation-specific program that handles communications with {{C|s6-fdholderd}}, using the connection set up by {{C|s6-ipcclient}}. To store, retrieve or delete a file descriptor, {{C|s6-fdholderd}} uses ''identifiers'' to refer to them. An identifier is a character string containing 1 to 255 characters; any non-null character can be used in an identifier, however it is recommended to only use reasonable characters. For file descriptor identifiers associated with UNIX domain sockets, it is conventional to adhere to the 'unix:$path' format, where ''$path'' is the socket's absoulte pathname, and for file descriptor identifiers associated with TCP or UDP sockets, it is conventional to adhere to the '$protocol:$address:$port' or '$protocol:$host:$port' format, where ''$protocol'' is 'tcp' or 'udp', ''$address'' is an IPv4 or IPv6 address, ''$host'' is a domain name, and ''$port'' is the TCP or UDP port number. If an identifier is currently in use by {{C|s6-fdholderd}}, it cannot be reused to store a new file descriptor until the one currently using the identifier is deleted or has expired.
 
-* A store operation transfers a file descriptor from a client to the fd-holder, specifying an identifier for it, and optionally an expiration time. When a file descriptor has been held for a period of time equal to the expiration time, the fd-holder closes it and frees its identifier. To allow store operations, a file named {{Path|S6_FDHOLDER_STORE_REGEX}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory, containing a POSIX extended regular expression (like those of the <kbd>grep -E</kbd> command). A store operation must specify an identifier that matches the regular expression.
+* A store operation transfers a file descriptor from a client to the fd-holder, specifying an identifier for it, and optionally an expiration time. When a file descriptor has been held for a period of time equal to the expiration time, the fd-holder closes it and frees its identifier. To allow store operations, a file named {{Path|S6_FDHOLDER_STORE_REGEX}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory, containing a POSIX extended regular expression (i.e those accepted by the {{C|grep -E}} command). A store operation must specify an identifier that matches the regular expression.
 ** The client program that performs store operations is {{C|s6-fdholder-store}}. It accepts options, a UNIX domain socket pathname and a file descriptor identifier, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-storec}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the identifier, to {{C|s6-fdholder-storec}}. {{C|s6-fdholder-store}} accepts a <code>-d</code> option followed by an unsigned integer value, that specifies the file descriptor to store. If it is invoked without a <code>-d</code> option, it will store its standard input (file descriptor 0). All other supplied options are passed to {{C|s6-fdholder-storec}}. {{C|s6-fdholder-storec}} makes the store request, transferring the specified identifier to the server over the connection, and file descriptor 0 via fd-passing. If it is invoked with a <code>-T</code> option followed by a time value in milliseconds, the file descriptor's expiration time is set to that value in the fd-holder. If it is invoked with a <code>-T 0</code> argument or no <code>-T</code> option, the held file descriptor does not expire. {{C|s6-fdholder-store}} copies the file descriptor specified by the <code>-d</code> option to its standard input before replacing itself with {{C|s6-ipcclient}}.
 * A retrieve operation transfers a file descriptor from the fd-holder to a client, specifying its corresponding identifier. To allow retrieve operations, a file named {{Path|S6_FDHOLDER_RETRIEVE_REGEX}} must exist in the appropriate {{Path|env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory, containing a POSIX extended regular expression. A retrieve operation must specify an identifier that matches the regular expression.
 ** The client program that performs retrieve operations is {{C|s6-fdholder-retrieve}}. It is [[daemontools-encore#changingstate|a chain loading program]] that accepts options, a UNIX domain socket pathname and a file descriptor identifier, and invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-retrievec}} program, chained to execline's {{C|fdclose}} program. The socket pathname is passed to {{C|s6-ipcclient}}, and the options and identifier, to {{C|s6-fdholder-retrievec}}. {{C|s6-fdholder-retrievec}} makes the retrieve request, transferring the specified identifier over the connection to the server, and receiving the corresponding file descriptor via fd-passing. {{C|fdclose}} closes UCSPI socket file descriptors 6 and 7 inherited from {{C|s6-ipcclient}}; its standard input will be a copy of the descriptor received from {{C|s6-fdholderd}}, which will be passed to the next program in the chain. If {{C|s6-fdholder-retrievec}} is invoked with a <code>-D</code> option, it will also request a delete operation for the file descriptor after retrieving it.
@@ -1519,7 +1690,7 @@ This shows that once {{C|s6-ipcserverd}} has started and retrieved the listening
 
 The {{C|s6-svscan}} program was also written to be robust enough and go out of its way to stay alive, even in dire situations, so that it is suitable for running as process 1 during most of a machine's uptime. However, the duties of process 1 vary widely during the machine's boot sequence, its normal, stable 'up and running' state, and its shutdown sequence, and in the first and third cases, they are heavily system-dependent, so it is not possible to use a program designed to be as portable as possible<ref>[https://www.skarnet.org/software/s6/s6-svscan-1.html How to run s6-svscan as process 1]. Retrieved on August 20th, 2017.</ref>. Because of that, auxiliary and system-dependent programs, named ''the stage1 init'' and ''the stage3 init'', are used during the boot sequence and the shutdown sequence, respectively, to run as process 1, and {{C|s6-svscan}} is used the rest of the time. For details, see [[s6 and s6-rc-based init system]].
 
-To support its role as process 1, {{C|s6-svscan}} performs a ''reaper routine'' each time it receives a <code>SIGCHLD</code> signal, i.e. it uses a POSIX <code>waitpid()</code> call for each child process that becomes a zombie, both the ones it has spawned itself, and the ones that were reparented to process 1 by the kernel because its parent process died. An <kbd>s6-svscanctl -z</kbd> command naming its scan directory can be used to force {{C|s6-svscan}} to perform its reaper routine.
+To support its role as process 1, {{C|s6-svscan}} performs a ''reaper routine'' each time it receives a <code>SIGCHLD</code> signal, i.e. it uses a POSIX <code>waitpid()</code> call for each child process that becomes a zombie, both the ones it has spawned itself, and the ones that were reparented to process 1 by the kernel because its parent process died. An {{C|s6-svscanctl -z}} command naming its scan directory can be used to force {{C|s6-svscan}} to perform its reaper routine.
 
 {{anchor|s6integration}}
 === OpenRC's s6 integration feature ===
@@ -1598,7 +1769,7 @@ sys	0m0.034s</pre>}}
 {{RootCmd|rc-service test-service status|
 output=<pre>up (pid 2279) 33 seconds, ready 23 seconds</pre>}}
 
-This shows that {{C|test-daemon}} took about 10 seconds to notify readiness to {{C|s6-supervise}}, and that the <kbd>rc-service start</kbd> command waited until the up and ready event, because of the {{C|s6-svwait}} <code>-U</code> option passed via <var>s6_svwait_options_start</var> in {{Path|/etc/conf.d/test-service}}.
+This shows that {{C|test-daemon}} took about 10 seconds to notify readiness to {{C|s6-supervise}}, and that the {{C|rc-service start}} command waited until the up and ready event, because of the {{C|s6-svwait}} <code>-U</code> option passed via <var>s6_svwait_options_start</var> in {{Path|/etc/conf.d/test-service}}.
 {{Cmd|rc-status|
 output=<pre>Runlevel: default
 ...
@@ -1651,11 +1822,11 @@ output=<pre>2017-08-08 22:40:20.562745759 Logged message #1
 
 {{Unmerge|sys-apps/s6}}
 
-All scan directories, service directories, the {{C|/command}} symlink, etc. must be manually deleted if no longer wanted after removing the package. Also, all modifications to sysvinit's {{Path|/etc/inittab}} must be manually reverted: lines for {{C|s6-svscanboot}} must be deleted, and a <kbd>telinit q</kbd> command must be used afterwards. And obviously, if {{C|s6-svscan}} is running as process 1, an alternative init system must be installed in parallel, and the machine rebooted to use it (possibly by reconfiguring the bootloader), before the package is removed, or otherwise the machine will become unbootable.
+All scan directories, service directories, the {{C|/command}} symlink, etc. must be manually deleted if no longer wanted after removing the package. Also, all modifications to sysvinit's {{Path|/etc/inittab}} must be manually reverted: lines for {{C|s6-svscanboot}} must be deleted, and a {{C|telinit q}} command must be used afterwards. And obviously, if {{C|s6-svscan}} is running as process 1, an alternative init system must be installed in parallel, and the machine rebooted to use it (possibly by reconfiguring the bootloader), before the package is removed, or otherwise the machine will become unbootable.
 
 == See also ==
 
-* {{See also|s6-rc}}
+* {{See also|S6-rc}}
 * {{See also|Daemontools}}
 * {{See also|Daemontools-encore}}
 * {{See also|Runit}}
