@@ -1,0 +1,457 @@
+[[File:GNOME_without_systemd.png|thumb|500px|GNOME 3.14 Session (Dantrell Overlays) on OpenRC]]
+
+This article provides brief instructions for using '''GNOME''' (3.14 onwards) under '''OpenRC''' (rather than {{c|systemd}}) in Gentoo, via Dantrell B.'s [https://github.com/dantrell/gentoo-project-gnome-without-systemd patchset], on either the X11 or Wayland platforms.
+
+For an alternative ({{c|OpenRC}}-based) approach (3.30 onwards) that does not require overlays, please see [[../Gentoo|this page]].
+
+== <span id="introduction">Introduction ==
+
+Dantrell B., the primary author of the Funtoo GNOME patchset, has [https://github.com/dantrell/gentoo-project-gnome-without-systemd made his work available] for Gentoo users via a set of overlays (custom ebuild repositories).
+
+These overlays enable the full GNOME experience (including session tracking and power management) to be enjoyed when booted under {{c|OpenRC}}, even on a PC running 'stable branch' ({{c|amd64}}) Gentoo.
+
+This brief guide outlines the steps needed to get GNOME up and running under his patchset.
+
+{{Important|As with any third-party overlay, please be aware that:
+* it may be more difficult to get support via the normal Gentoo channels (the forums etc.). when using an 'unofficial' patchset such as this one;
+* security fixes etc. may take longer to be released, and the overlays may themselves contain security holes;
+* the patchset's author (Dantrell B.) may cease support for this patchset in the future.
+
+Having said that:
+* the vast majority of the GNOME code is unaffected by the patches;
+* the patchset code itself is largely shared with Funtoo, who use it in their mainline distribution;
+* Dantrell B. [https://github.com/dantrell/gentoo-project-gnome-without-systemd/blob/master/GOVERNANCE.md#long-term-support has stated] his intention to support this patchset for Gentoo (at least until either a proper answer for the GNOME/systemd issue is arrived at, he ceases to use GNOME, or the complexity gets out of control).}}
+{{Note|The [https://forums.gentoo.org/viewtopic-t-1022050.html "GNOME without Systemd" thread] on the Gentoo wiki has been stickied and now doubles as an "official" support forum; accordingly, if problems are experienced with this patchset, an issue may be posted there.}}
+
+== <span id="prerequisites">Prerequisites ==
+
+It is assumed that:
+* following completion of the normal [[Handbook:AMD64#Installing_Gentoo|"Installing Gentoo" process from the official Handbook]], a stock {{Keyword|~amd64}}, {{Keyword|~ppc}}, {{Keyword|~ppc64}} or {{Keyword|~x86}} Gentoo system is running, with working internet access etc.
+* at least one 'regular' (non-root) user has already been set up;
+* the kernel and {{Path|/etc/portage/make.conf}} file has been prepared for X-server installation (<var>VIDEO_CARDS</var> and <var>INPUT_DEVICES</var> variables set), as described [[Xorg/Guide#Installation|here]]. While the X-server itself does not ''have'' to actually be installed prior to emerging GNOME, this ''is'' recommended (since X-related problems are some of the most commonly encountered);{{Note|A minimal setup for test purposes, which should run on most systems, can be created by [[Handbook:AMD64/Installation/Kernel#Alternative:_Using_genkernel|building the kernel]] using <code>genkernel all</code>, and setting <code>VIDEO_CARDS{{=}}"vesa fbdev"</code> and <code>INPUT_DEVICES{{=}}"libinput"</code> in {{Path|/etc/portage/make.conf}}; for full functionality and higher screen resolution, specify the correct video driver and kernel options, per the [[Xorg/Guide#Installation|guide just cited]].<br>NB, the {{c|vesa}} driver will not work if running as a guest in [[VirtualBox]] with [[:Wikipedia:Unified_Extensible_Firmware_Interface{{!}}EFI]] emulation turned on; in this case, instead use the {{Package|x11-drivers/xf86-video-virtualbox}} driver, as selected by <code>VIDEO_CARDS{{=}}"virtualbox"</code> in {{Path|/etc/portage/make.conf}}.}}
+** if targeting Wayland, an appropriate [[:Wikipedia:Direct_Rendering_Manager|Direct Rendering Manager]] ('DRM') kernel driver has been installed (see e.g. [[Sakaki's_EFI_Install_Guide/Setting_up_the_GNOME_3_Desktop_under_OpenRC#Enabling_the_Kernel_DRM_Driver_for_your_Graphics_Card|these notes]] for further details);
+* a UTF-8 locale has been selected (as described [[Handbook:AMD64/Installation/Base#Configure_locales|here]]).
+
+== <span id="installation">Installation ==
+
+=== <span id="global_use">Setting global USE flags</span> ===
+
+If the {{c|bindist}} <var>USE</var> flag is set in {{Path|/etc/portage/make.conf}}, it is recommended to '''unset''' it now, to avoid issues with {{Package|dev-libs/openssl}}, {{Package|net-misc/openssh}} and dependencies later.
+
+If it is desired to install GNOME on [[:Wikipedia:Wayland_(display_server_protocol)|Wayland]] (rather than the default X11), then add <code> wayland egl</code> to the global <var>USE</var> flags, in {{Path|/etc/portage/make.conf}} (note that it ''will'' still be possible to log in to an old-school GNOME-on-X11 session when needed, even when Wayland is used). It is recommended to use >= GNOME-3.24 where {{c|wayland}} is used (if running it with earlier versions of GNOME, the additional global <var>USE</var> flags <code>-ck elogind</code> must also be specified).
+
+{{Note|Performance notwithstanding, probably the strongest ''end-user'' reason to transition to a Wayland-based desktop is {{Highlight|security}}: unlike X11, by default Wayland enforces application isolation at the GUI level. More detail about about X11's vulnerability in this regard (and how to mitigate it, for legacy apps), may be found in the [[Sakaki's_EFI_Install_Guide/Sandboxing_the_Firefox_Browser_with_Firejail#x11_vulnerability{{!}}additional mini-guide]], here.}}
+
+To disable GNOME's tracker software (this is optional), add <code>-tracker</code> to the global USE flags in {{Path|/etc/portage/make.conf}}.
+
+Then, ensure everything is up-to-date, before proceeding further:
+
+{{RootCmd
+|emerge --sync
+|emerge --deep --with-bdeps{{=}}y --changed-use --update --ask --verbose @world
+}}
+
+=== <span id="installing_overlays">Installing the overlays ===
+
+There are three main ways to install Dantrell B.'s overlays:
+# [[Eselect/Repository|eselect repository]];
+# [[layman]]; or
+# add them directly (requires version >= 2.2.16 of {{Package|sys-apps/portage}}).
+
+==== <span id="install_eselect_repository">Option 1: Installation under eselect repository ====
+
+First, ensure {{Package|app-eselect/eselect-repository}} and {{Package|dev-vcs/git}} are installed:
+
+{{Emerge|params+=--noreplace|app-eselect/eselect-repository dev-vcs/git}}
+
+Then configure and sync the repository:
+
+{{RootCmd
+|eselect repository add dantrell-gnome git <nowiki>https://github.com/dantrell/gentoo-overlay-dantrell-gnome.git</nowiki>
+|emerge --sync dantrell-gnome}}
+
+Finally, add the desired GNOME 'version' overlay(s); if using the 'stable' (amd64) branch, it is probably best to use the one which matches the current stable gnome-base/gnome in Gentoo (version 3.24, at the time of writing).
+
+For version <var>nn</var> of GNOME 3, issue:
+
+{{RootCmd|eselect repository add dantrell-gnome-3-nn git <nowiki>https://github.com/dantrell/gentoo-overlay-dantrell-gnome-3-nn.git</nowiki>
+|emerge --sync dantrell-gnome-3-nn}}
+
+Substitute for <var>nn</var> in the above, with one of 14 thru 32: as a concrete example, for GNOME 3.24, issue:
+
+{{RootCmd|eselect repository add dantrell-gnome-3-24 git <nowiki>https://github.com/dantrell/gentoo-overlay-dantrell-gnome-3-24.git</nowiki>
+|emerge --sync dantrell-gnome-3-24}}
+{{Note|It is fine to add multiple version overlays here (e.g., 3-24, 3-26 etc.), as the profile — which will be selected shortly — will decide which takes precedence.}}
+
+==== <span id="install_layman">Option 2: Installation under layman ====
+
+To install the overlays, first emerge and configure {{c|layman}}, as detailed [[layman|here]], with the <code>git</code> <var>USE</var> flag enabled (it is by default).
+
+Then, edit the {{c|overlays}} stanza of {{Path|/etc/layman/layman.cfg}} so it reads:
+{{FileBox|filename=/etc/layman/layman.cfg|title=Make dantrell overlays visible to layman|1=
+overlays  : https://api.gentoo.org/overlays/repositories.xml
+            https://raw.githubusercontent.com/dantrell/gentoo-overlay-dantrell-gnome/master/repositories.xml
+}}
+
+Sync the overlay metadata, and add the 'generic' GNOME overlay:
+{{RootCmd
+|layman --sync-all
+|layman -a dantrell-gnome
+}}
+
+Next, add the desired GNOME 'version' overlay(s); if using the 'stable' ({{c|amd64}}) branch, it is probably best to use the one which matches the current stable {{Package|gnome-base/gnome}} in Gentoo (version 3.24, at the time of writing).
+
+For version <var>nn</var> of GNOME 3, issue:
+
+{{RootCmd
+|layman -a dantrell-gnome-3-nn
+}}
+
+'''Substitute''' for <var>nn</var> in the above, with one of 14 thru 30: as a concrete example, for GNOME 3.24, issue:
+{{RootCmd
+|layman -a dantrell-gnome-3-24
+}}
+
+Note that it is fine to add multiple version overlays here (e.g., 3-24, 3-26 etc.), as the profile &mdash; which will be selected shortly &mdash; will decide which takes precedence.
+
+==== <span id="install_direct">Option 3: Direct installation ====
+
+Under modern (>= 2.2.16) versions of {{c|portage}}, it isn't necessary to use [[layman]] &mdash; overlays can instead be added directly.
+
+{{Note| The following will assume use of the 'subdirectory' approach for {{Path|/etc/portage/<...>}} settings files, as this is more convenient, and furthermore is what is now used on the Gentoo "minimal install" images).}}
+
+Begin by ensuring a {{Path|/etc/portage/repos.conf}} directory is in place:
+
+{{RootCmd
+|mkdir -pv /etc/portage/repos.conf
+}}
+
+Next, create configuration files for Dantrell B.'s external ebuild repositories (aka, overlays). At the time of writing there are eleven such repos: a 'common' one, and one for each of GNOME 3.14, 3.16, ... 3.32. Create the following file for the 'common' overlay:
+
+{{FileBox|filename=/etc/portage/repos.conf/dantrell-gnome.conf|title=Configuration for dantrell-gnome repo|1=
+[dantrell-gnome]
+
+# Dantrell B.'s Gentoo Overlay for GNOME (generic)
+# Maintainer: Dantrell B. (email: see CONTRIBUTING.md in main GitHub project)
+# Homepage: https://github.com/dantrell/gentoo-project-gnome-without-systemd
+
+location = /usr/local/portage/dantrell-gnome
+sync-type = git
+sync-uri = https://github.com/dantrell/gentoo-overlay-dantrell-gnome.git
+priority = 150
+auto-sync = yes
+}}
+
+Next, create the desired GNOME 'version' overlay configuration file(s), as shown below; if using the 'stable' ({{c|amd64}}) branch, create ''at least'' the one which matches the current stable {{Package|gnome-base/gnome}} in Gentoo (version 3.24, at the time of writing).
+
+For example, for GNOME 3.14, create the following file:
+
+{{FileBox|filename=/etc/portage/repos.conf/dantrell-gnome-3-14.conf|title=Configuration for dantrell-gnome-3-14 repo|1=
+[dantrell-gnome-3-14]
+
+# Dantrell B.'s Gentoo Overlay for GNOME (3.14)
+# Maintainer: Dantrell B. (email: see CONTRIBUTING.md in main GitHub project)
+# Homepage: https://github.com/dantrell/gentoo-project-gnome-without-systemd
+
+location = /usr/local/portage/dantrell-gnome-3-14
+sync-type = git
+sync-uri = https://github.com/dantrell/gentoo-overlay-dantrell-gnome-3-14.git
+priority = 100
+auto-sync = yes
+}}
+
+The above can actually be used as a basis to create the other (3.16 &rarr; 3.32) variants, rather than entering them manually. To do so, issue:
+{{RootCmd
+|<nowiki>for ((R=16;R<=32;R+=2)); do cp -v /etc/portage/repos.conf/dantrell-gnome-3-{14,${R}}.conf; sed -e "s/14/${R}/g" -i /etc/portage/repos.conf/dantrell-gnome-3-${R}.conf; done</nowiki>
+|prompt=<span style{{=}}"color:gray;">(chroot)</span> livecd <span style{{=}}"color:royalblue;">/ #</span>
+}}
+
+{{Note|This assumes that the current shell is {{c|bash}}; if it is not, adapt the given command accordingly, or set up the files manually.}}
+
+Note that it is fine to have multiple versions installed, as the profile &mdash; which will be selected shortly &mdash; will decide which takes precedence.
+
+Next, install [[git]] (if not already present):
+{{RootCmd
+|emerge --ask --verbose --noreplace dev-vcs/git
+}}
+
+Then sync everything:
+{{RootCmd
+|emaint sync --auto
+}}
+
+=== <span id="setting_gnome_profile">Setting the profile, and updating ===
+
+Dantrell's overlays provide a bundled set of [[Profile|profiles]]. By [https://github.com/dantrell/gentoo-project-gnome-without-systemd#profile-selection using one of these], appropriate <var>USE</var> flags, masks etc. are set automatically, to ensure that installation proceeds smoothly. For any of the GNOME releases (3.14, 3.16, ... 3.32) it is possible to choose a 'standard' or 'extended' profile (and, at the time of writing, a 13.0 or 17.0 profile for each of those, giving a total of four profiles per GNOME version). The 'extended' variants have more <var>USE</var> flags enabled by default, to yield a [https://github.com/dantrell/gentoo-project-gnome-without-systemd/blob/master/HACKING.md#profiles similar experience] to the familiar {{c|desktop/gnome}} profiles in Gentoo.
+
+{{Note|Not all of the default <var>USE</var> flags from the Gentoo GNOME profiles are mirrored, even in the 'extended' variants, and indeed some <var>USE</var> flags notable by their absence in Gentoo are enforced. For example:
+* <code>qt3support</code> and <code>qt4</code> are enabled by default in Gentoo, but not in any of Dantrell's profiles. Per Dantrell: "The former isn't something that should be enabled upstream, especially since things have moved to qt4 and qt5. Users should decide for themsleves if they want qt3 support. As for the latter, it shouldn't be enabled globally at all in a GNOME environment, especially if <code>gtkstyle</code> is not enforced (and <code>gtkstyle</code> should be enforced regardless)."
+* Following neatly on from that, <code>gtkstyle</code> ''is'' enforced by the Dantrell profiles (but not in Gentoo's).
+* <code>gtk</code> is also enabled by default in Gentoo, but not in Dantrell's profiles. Per Dantrell: "this is handled by default and on packages where it's not enabled it likely refers to optional GTK+-related support that does not enable a GUI".
+}}
+
+Select an appropriate profile now (at the time of writing, users on the "stable" ({{c|amd64}}) branch are probably safest sticking to one of the 3.14 - 3.24 profiles (although, for reference, 3.32 ''will'' build under {{c|amd64}}); {{c|~amd64}} users may use whichever they choose):
+{{RootCmd
+|eselect profile list
+|output=
+<pre>
+  [1]   default/linux/amd64/13.0 (stable)
+  [2]   default/linux/amd64/13.0/selinux (dev)
+... additional output suppressed ...
+  [12]  default/linux/amd64/17.0 (stable) *
+... additional output suppressed ...
+  [57]  dantrell-gnome:default/linux/amd64/13.0/desktop/gnome+plasma (stable)
+  [58]  dantrell-gnome:default/linux/amd64/17.0/desktop/gnome+plasma (stable)
+  [59]  dantrell-gnome-3-14:default/linux/amd64/13.0/desktop/gnome/3.14 (stable)
+  [60]  dantrell-gnome-3-14:default/linux/amd64/13.0/desktop/gnome/3.14/extended (stable)
+  [61]  dantrell-gnome-3-14:default/linux/amd64/17.0/desktop/gnome/3.14 (stable)
+  [62]  dantrell-gnome-3-14:default/linux/amd64/17.0/desktop/gnome/3.14/extended (stable)
+  [63]  dantrell-gnome-3-16:default/linux/amd64/13.0/desktop/gnome/3.16 (stable)
+  [64]  dantrell-gnome-3-16:default/linux/amd64/13.0/desktop/gnome/3.16/extended (stable)
+  [65]  dantrell-gnome-3-16:default/linux/amd64/17.0/desktop/gnome/3.16 (stable)
+  [66]  dantrell-gnome-3-16:default/linux/amd64/17.0/desktop/gnome/3.16/extended (stable)
+... additional output suppressed ...
+  [91]  dantrell-gnome-3-30:default/linux/amd64/13.0/desktop/gnome/3.30 (stable)
+  [92]  dantrell-gnome-3-30:default/linux/amd64/13.0/desktop/gnome/3.30/extended (stable)
+  [93]  dantrell-gnome-3-30:default/linux/amd64/17.0/desktop/gnome/3.30 (stable)
+  [94]  dantrell-gnome-3-30:default/linux/amd64/17.0/desktop/gnome/3.30/extended (stable)
+  [91]  dantrell-gnome-3-32:default/linux/amd64/13.0/desktop/gnome/3.32 (stable)
+  [92]  dantrell-gnome-3-32:default/linux/amd64/13.0/desktop/gnome/3.32/extended (stable)
+  [93]  dantrell-gnome-3-32:default/linux/amd64/17.0/desktop/gnome/3.32 (stable)
+  [94]  dantrell-gnome-3-32:default/linux/amd64/17.0/desktop/gnome/3.32/extended (stable)
+</pre>
+}}
+(The numbering etc. on the output on any given target machine may well differ from the above, and of course only {{c|dantrell-gnome-...}} profiles corresponding to overlays ''installed'' overlays will be displayed.)
+{{RootCmd
+|eselect profile set "dantrell-gnome-3-24:default/linux/amd64/17.0/desktop/gnome/3.24/extended"
+|eselect profile show
+|output=
+<pre>
+Current /etc/portage/make.profile symlink:
+  dantrell-gnome-3-24:default/linux/amd64/17.0/desktop/gnome/3.24/extended
+</pre>
+}}
+
+{{Note|It may be worth taking note of the 'grading' status of the available GNOME versions on Dantrell's page [https://github.com/dantrell/gentoo-project-gnome-without-systemd#overview here], when making a choice.}}
+
+With the desired profile set, re-emerge {{c|@world}}, to pick up the new <var>USE</var> flags, default packages etc.
+
+{{RootCmd
+|emerge --deep --with-bdeps{{=}}y --changed-use --update --ask --verbose @world
+}}
+{{Important|Please do not skip this step - the subsequent GNOME {{c|emerge}} will probably fail otherwise.}}
+
+The various [https://github.com/dantrell/gentoo-project-gnome-without-systemd#dependencies dependencies] for GNOME without {{c|systemd}} are now installed automatically, either as part of the above @world update under the custom profile (e.g., {{Package|sys-apps/dbus}} and {{Package|sys-auth/consolekit}} (for <= GNOME 3.22) / {{Package|sys-auth/elogind}} (for >= GNOME 3.24)) or during the {{Package|gnome-base/gnome}} emerge to follow shortly (e.g., {{Package|sys-power/pm-utils}} and {{Package|sys-power/acpid}}); nothing further needs to be emerged at this stage.
+
+=== <span id="use_flags">Preparing USE Flags Prior to GNOME Emerge ===
+
+If there are any additional applications which it is desired to install as part of the GNOME emerge, set their USE flags now, [https://github.com/dantrell/gentoo-project-gnome-without-systemd#configuration-optional as follows]:
+
+{| class="table table-striped"
+|-
+! USE flag
+! Default
+! Description
+|-
+|<code>anjuta</code> || || Install the dev-util/anjuta IDE
+|-
+|<code>bijiben</code> || {{Yes}} || Install the app-misc/bijiben note editor
+|-
+|<code>boxes</code> || || Install the gnome-extra/gnome-boxes remote and virtual system manager
+|-
+|<code>builder</code> || || Install the gnome-extra/gnome-builder IDE (only in GNOME 3.16 or greater)
+|-
+|<code>california</code> || || Install the gnome-extra/california calendar
+|-
+|<code>dino</code> || {{Yes}} || Install the net-im/dino chat client (only in GNOME 3.32 or greater)
+|-
+|<code>empathy</code> || || Install the net-im/empathy chat client
+|-
+|<code>epiphany</code> || || Install the www-client/epiphany web browser
+|-
+|<code>evolution</code> || {{Yes}} || Install the mail-client/evolution mail client
+|-
+|<code>flashback</code> || || Install the gnome-base/gnome-flashback (aka fallback mode; work-in-progress)
+|-
+|<code>fonts</code> || {{Yes}} || Install media-fonts/{noto,symbola,unifont}
+|-
+|<code>games</code> || {{Yes}} || Install Gnome Games
+|-
+|<code>geary</code> || || Install the mail-client/geary mail client
+|-
+|<code>gnote</code> || || Install the app-misc/gnote note editor
+|-
+|<code>latexila</code> || || Install the app-editors/latexila integrated LaTeX environment
+|-
+|<code>multi-writer</code> || || Install the gnome-extra/gnome-multi-writer USB device writer (only in GNOME 3.16 or greater)
+|-
+|<code>recipes</code> || {{Yes}} || Install the gnome-extra/gnome-recipes live cookbook (only in GNOME 3.22 or greater)
+|-
+|<code>share</code> || {{Yes}} || Install the gnome-extra/gnome-user-share personal file sharing tool
+|-
+|<code>shotwell</code> || {{Yes}} || Install the media-gfx/shotwell photo manager
+|-
+|<code>simple-scan</code> || || Install the media-gfx/simple-scan document scanning utility
+|-
+|<code>todo</code> || {{Yes}} || Install the gnome-extra/gnome-builder task manager (only in GNOME 3.18 or greater)
+|-
+|<code>tracker</code> || {{Yes}} || Install the app-misc/tracker indexer and the GNOME packages that require it
+|-
+|<code>usage</code> || {{Yes}} || Install the gnome-extra/gnome-usage system resources monitor (only in GNOME 3.28 or greater)
+|}
+
+For example, to add the [[epiphany]] browser to the default set of installed applications, do:
+{{RootCmd
+|mkdir -pv /etc/portage/package.use
+|echo "gnome-base/gnome-extra-apps epiphany" >> /etc/portage/package.use/gnome-extra-apps
+}}
+{{Note|The above assumes that {{Path|/etc/portage/package.use}} is a directory, which is now the default on the Gentoo minimal install image. If using a single file instead, simply append to {{Path|/etc/portage/package.use}} instead of {{Path|/etc/portage/package.use/gnome-extra-apps}} in the above.}}
+
+There are some additional GNOME 'quality of life' improvements in Dantrell's patchset (background resolution etc.), which are controlled by <var>USE</var> flags on certain packages. The defaults will probably be suitable for most users, but for more details please see [https://github.com/dantrell/gentoo-project-gnome-without-systemd#configuration-optional here].
+
+=== <span id="emerging_gnome">Emerging GNOME ===
+
+GNOME itself may now be emerged! Issue:
+
+{{RootCmd
+|emerge --ask --verbose --keep-going gnome-base/gnome
+}}
+
+{{Important|If any <var>MAKEOPTS</var> and/or <var>EMERGE_DEFAULT_OPTS</var> build parallelism is in use, it is quite possible that one or more elements of this large {{c|emerge}} will fail. If that occurs, in the first instance, simply issue the {{RootCmd|emerge --ask --verbose --keep-going gnome-base/gnome}} again. This step may need repeating multiple times to get GNOME emerged successfully (in fact, three or four iterations may be necessary). As long as the 'packages to be installed' count keeps falling, keep trying ^-^}}
+
+{{Note|If desired, it is possible to {{c|emerge}} {{Package|gnome-base/gnome-light}} instead, and then add applications later.}}
+
+Assuming that completes successfully, '''it is still important to check that the necessary X11 drivers have been properly emerged''': often, they will not have been, particularly if it proved necessary to run the {{c|emerge}} step more than once (due to build parallelism errors). To make sure, issue:
+{{RootCmd
+|emerge --ask --verbose --oneshot x11-base/xorg-drivers
+}}
+
+== <span id="configuring_and_running_gnome">Configuring and running GNOME ==
+
+Once GNOME is emerged, change the <var>DISPLAYMANGER</var> value in the {{c|xdm}} configuration file ({{Path|/etc/conf.d/xdm}}), so that the [[GNOME/gdm|gdm]] display manager is used:
+
+{{FileBox|filename=/etc/conf.d/xdm|title=Specify the GNOME display manager, as follows|1=
+# What display manager do you use ?  [ xdm {{!}} gdm {{!}} kdm {{!}} gpe {{!}} entrance ]
+# NOTE: If this is set in /etc/rc.conf, that setting will override this one.
+DISPLAYMANAGER{{=}}"gdm"
+}}
+
+Leave the rest of the file as-is.
+
+Then set {{c|dbus}}, {{c|xdm}}, {{c|[[NetworkManager]]}} and {{c|openrc-settingsd}} to come up on boot, and disable {{c|[[dhcpcd]]}} if using it:
+{{RootCmd
+|rc-update add dbus default
+|rc-update add xdm default
+|rc-update add NetworkManager default
+|rc-update add openrc-settingsd default
+|rc-update del dhcpcd default
+}}
+
+If targeting X11 (rather than Wayland) ''and'' using < GNOME 3.24, issue:
+{{RootCmd
+|rc-update add acpid default
+|rc-update add consolekit default
+}}
+
+Otherwise, if targeting Wayland, ''or'' using >= GNOME 3.24 issue:
+{{RootCmd
+|rc-update add elogind boot
+}}
+
+Next, check if the machine has a {{c|plugdev}} group, and, if it does, add any regular users to it:
+{{RootCmd
+|getent group plugdev && gpasswd -a <regular_username> plugdev
+}}
+Similarly, to allow regular users to play GNOME games (assuming these have been installed), add them to the {{c|games}} group:
+{{RootCmd
+|getent group games && gpasswd -a <regular_username> games
+}}
+
+To allow the use of [[Xorg/Hardware_3D_acceleration_guide#Add_appropriate_user.28s.29_to_the_video_group|direct rendering]], issue:
+{{RootCmd
+|getent group video && gpasswd -a <regular_username> video
+}}
+
+Finally, start up GNOME!
+{{RootCmd
+|openrc
+}}
+
+A GNOME login screen should now be visible (and this will also come up automatically on boot). On some machines, it may be necessary to move the mouse or press a key, for the login screen to appear.
+
+{{Tip|<span id{{=}}"legacy_session">Even when using a Wayland-based system</span>, it is still possible to use GNOME over X11 for a given session (this may be useful to run applications that do not yet work correctly under Wayland). To do so, simply click on the "cogwheel" icon when logging in, and select {{Key|GNOME on Xorg}} from the drop-down menu. To log into a Wayland session instead, use the {{Key|GNOME}} "cogwheel" menu item &mdash; the setting is persistent between logins. Incidentally, to double-check which graphical platform (X11 or Wayland) is in use when logged in, simply issue (in a graphical terminal):{{Cmd
+|echo "${XDG_SESSION_TYPE}"
+}}}}
+
+{{Note|When using a Wayland GNOME session, unported applications (such as {{Package|www-client/firefox}}, at the time of writing) will be hosted in a shared, rootless X11 server (the so-called "[https://wayland.freedesktop.org/xserver.html XWayland]" approach). This generally works well, but may not be sufficient for all legacy apps (such as some games and virtualisation environments). For such cases, remember that [[#legacy_session{{!}}it is always possible]] to login to a 'old-school' GNOME-on-X11 session, should workflow dictate.}}
+
+== <span id="usage">Usage ==
+
+For more information about the GNOME interface (which is generally self-explanatory), see https://gnome.org.
+Some additional useful setup tips about GNOME may also be found [[Sakaki's_EFI_Install_Guide/Using_Your_New_Gentoo_System#Miscellaneous_GNOME_Points|here]].
+
+== <span id="removal">Removal ==
+
+To remove GNOME, begin by unmerging it:
+
+{{RootCmd
+|emerge --ask --verbose --depclean gnome-base/gnome
+}}
+
+or
+
+{{RootCmd
+|emerge --ask --verbose --depclean gnome-base/gnome-light
+}}
+
+Remove all of the project overlays. For example, if using {{c|layman}}:
+{{RootCmd
+|layman --delete dantrell-gnome
+|layman --delete dantrell-gnome-3.24
+}}
+
+Switch profile; for example:
+
+{{RootCmd
+|eselect profile set "default/linux/amd64/17.0"
+}}
+
+Update {{c|@world}}:
+
+{{RootCmd
+|emerge --ask --update --deep --changed-use --with-bdeps{{=}}y @world
+}}
+
+Clean dependencies:
+{{RootCmd
+|emerge --ask --depclean
+}}
+
+Prevent unnecessary services starting up automatically; e.g.:
+{{RootCmd
+|rc-update del elogind boot
+|rc-update del dbus default
+|rc-update del xdm default
+|rc-update del NetworkManager default
+|rc-update del openrc-settingsd default
+}}
+
+Add {{c|dhcpcd}} (if required, in the absence of {{c|NetworkManager}}):
+{{RootCmd
+|rc-update add dhcpcd default
+}}
+
+Finally, reboot the system to complete the uninstall (to a textual login, in this case).
+
+== <span id="see_also">See also ==
+
+* [[Project:GNOME|Gentoo GNOME Project]]
+* [[GNOME/gdm|GNOME Display Manager]]
+* [[Sakaki's_EFI_Install_Guide|Sakaki's EFI Install Guide]]
+
+== <span id="external_resources">External resources ==
+
+* [https://github.com/dantrell/gentoo-project-gnome-without-systemd Dantrell B.'s project homepage on GitHub]
+* Dantrell B.'s support thread at Gentoo forums, [https://forums.gentoo.org/viewtopic-t-1022050.html part 1] and [https://forums.gentoo.org/viewtopic-t-1082226.html part 2].
+
+[[category:GNOME]]
