@@ -1,0 +1,191 @@
+[[File:Openrc_gnome3.jpg|thumb|right|500px|Stock Gentoo GNOME v3.30.2 in Overview Mode on OpenRC]]
+
+The fully-featured GNOME desktop environment is directly supported in Gentoo for both {{c|systemd}} ''and'' {{c|OpenRC}}, as of {{Package|gnome-base/gnome-3.30}} <ref name="gnome_openrc">Raudsepp, Mart. Gentoo Blogs: [https://blogs.gentoo.org/leio/2019/03/26/gnome-3-30/ "Gentoo GNOME 3.30 for all init systems"], March 26th, 2019. Retrieved April 26th 2019.</ref>.
+
+This article briefly covers a native {{c|OpenRC}} install; for an alternative ({{c|OpenRC}}-based) approach, please see [[../Dantrell|Dantrell's overlays]].
+
+== <span id="prerequisites">Prerequisites ==
+
+It is assumed that:
+* following completion of the normal [[Handbook:AMD64#Installing_Gentoo|"Installing Gentoo" process from the official Handbook]], a stock {{Keyword|~amd64}}, {{Keyword|~ppc}}, {{Keyword|~ppc64}} or {{Keyword|~x86}} Gentoo system is running, with working internet access etc.
+* at least one 'regular' (non-root) user has already been set up;
+* the kernel and {{Path|/etc/portage/make.conf}} file has been prepared for X-server installation (<var>VIDEO_CARDS</var> and <var>INPUT_DEVICES</var> variables set), as described [[Xorg/Guide#Installation|here]]. While the X-server itself does not ''have'' to actually be installed prior to emerging GNOME, this ''is'' recommended (since X-related problems are some of the most commonly encountered);{{Note|A minimal setup for test purposes, which should run on most systems, can be created by [[Handbook:AMD64/Installation/Kernel#Alternative:_Using_genkernel|building the kernel]] using <code>genkernel all</code>, and setting <code>VIDEO_CARDS{{=}}"vesa fbdev"</code> and <code>INPUT_DEVICES{{=}}"libinput"</code> in {{Path|/etc/portage/make.conf}}; for full functionality and higher screen resolution, specify the correct video driver and kernel options, per the [[Xorg/Guide#Installation|guide just cited]].<br>NB, the {{c|vesa}} driver will not work if running as a guest in [[VirtualBox]] with [[:Wikipedia:Unified_Extensible_Firmware_Interface{{!}}EFI]] emulation turned on; in this case, instead use the {{Package|x11-drivers/xf86-video-virtualbox}} driver, as selected by <code>VIDEO_CARDS{{=}}"virtualbox"</code> in {{Path|/etc/portage/make.conf}}.}}
+** if targeting Wayland, an appropriate [[:Wikipedia:Direct_Rendering_Manager|Direct Rendering Manager]] ('DRM') kernel driver has been installed (see e.g. [[Sakaki's_EFI_Install_Guide/Setting_up_the_GNOME_3_Desktop_under_OpenRC#Enabling_the_Kernel_DRM_Driver_for_your_Graphics_Card|these notes]] for further details);
+* a UTF-8 locale has been selected (as described [[Handbook:AMD64/Installation/Base#Configure_locales|here]]).
+
+== <span id="installation">Installation ==
+
+=== <span id="keywording">Keywording</span> ===
+
+At the time of writing (April 2019), official support for GNOME on {{c|OpenRC}} requires use of the testing branch ({{Keyword|~amd64}}, {{Keyword|~ppc}}, {{Keyword|~ppc64}} or {{Keyword|~x86}}). It is expected<ref name="gnome_openrc"/> that the changes will be stabilized shortly.
+
+=== <span id="global_use">Setting global USE flags</span> ===
+
+If the {{c|bindist}} <var>USE</var> flag is set in {{Path|/etc/portage/make.conf}}, it is recommended to '''unset''' it now, to avoid issues with {{Package|dev-libs/openssl}}, {{Package|net-misc/openssh}} and dependencies later.
+
+If it is desired to install GNOME on [[:Wikipedia:Wayland_(display_server_protocol)|Wayland]] (rather than the default X11), then add <code>wayland egl</code> to the global <var>USE</var> flags, in {{Path|/etc/portage/make.conf}} (note that it ''will'' still be possible to log in to an old-school GNOME-on-X11 session when needed, even when Wayland is used).
+
+{{Note|Performance notwithstanding, probably the strongest ''end-user'' reason to transition to a Wayland-based desktop is {{Highlight|security}}: unlike X11, by default Wayland enforces application isolation at the GUI level. More detail about about X11's vulnerability in this regard (and how to mitigate it, for legacy apps), may be found in the [[Sakaki's_EFI_Install_Guide/Sandboxing_the_Firefox_Browser_with_Firejail#x11_vulnerability{{!}}additional mini-guide]], here.}}
+
+To disable GNOME's tracker software (this is optional), add <code>-tracker</code> to the global USE flags in {{Path|/etc/portage/make.conf}}.
+
+Then, ensure everything is up-to-date, before proceeding further:
+
+{{RootCmd
+|emerge --sync
+|emerge --deep --with-bdeps{{=}}y --changed-use --update --ask --verbose @world
+}}
+
+=== <span id="setting_gnome_profile">Setting the GNOME profile, and updating ===
+
+To ease installation under {{c|OpenRC}}, select the appropriate profile now (this will ensure appropriate package-specific USE flags, masks etc are set to ensure a painless GNOME emerge):
+{{RootCmd
+|eselect profile set "default/linux/amd64/17.0/desktop/gnome"
+|eselect profile show
+|output=
+<pre>
+Current /etc/portage/make.profile symlink:
+  default/linux/amd64/17.0/desktop/gnome
+</pre>
+}}
+
+{{Important|Do ''not'' set the {{c|.../gnome/systemd}} profile here: it will not work correctly with {{c|OpenRC}}.}}
+
+With the desired profile set, re-emerge {{c|@world}}, to pick up the new <var>USE</var> flags, default packages etc.
+
+{{RootCmd
+|emerge --deep --with-bdeps{{=}}y --changed-use --update --ask --verbose @world
+}}
+{{Important|Please do not skip this step - the subsequent GNOME {{c|emerge}} will probably fail otherwise.}}
+
+=== <span id="emerging_gnome">Emerging GNOME ===
+
+GNOME itself may now be emerged! Issue:
+
+{{RootCmd
+|emerge --ask --verbose --keep-going gnome-base/gnome
+}}
+
+{{Important|If any <var>MAKEOPTS</var> and/or <var>EMERGE_DEFAULT_OPTS</var> build parallelism is in use, it is quite possible that one or more elements of this large {{c|emerge}} will fail. If that occurs, in the first instance, simply issue the {{RootCmd|emerge --ask --verbose --keep-going gnome-base/gnome}} again. This step may need repeating multiple times to get GNOME emerged successfully (in fact, three or four iterations may be necessary). As long as the 'packages to be installed' count keeps falling, keep trying ^-^}}
+
+{{Note|If desired, it is possible to {{c|emerge}} {{Package|gnome-base/gnome-light}} instead, and then add applications later.}}
+
+Assuming that completes successfully, '''it is still important to check that the necessary X11 drivers have been properly emerged''': often, they will not have been, particularly if it proved necessary to run the {{c|emerge}} step more than once (due to build parallelism errors). To make sure, issue:
+{{RootCmd
+|emerge --ask --verbose --oneshot x11-base/xorg-drivers
+}}
+
+== <span id="configuration">Configuration ==
+
+Once GNOME is emerged, change the <var>DISPLAYMANGER</var> value in the {{c|xdm}} configuration file ({{Path|/etc/conf.d/xdm}}), so that the [[GNOME/gdm|gdm]] display manager is used:
+
+{{FileBox|filename=/etc/conf.d/xdm|title=Specify the GNOME display manager, as follows|1=
+# What display manager do you use ?  [ xdm {{!}} gdm {{!}} kdm {{!}} gpe {{!}} entrance ]
+# NOTE: If this is set in /etc/rc.conf, that setting will override this one.
+DISPLAYMANAGER{{=}}"gdm"
+}}
+
+Leave the rest of the file as-is.
+
+Then, set {{c|dbus}}, {{c|xdm}}, {{c|[[NetworkManager]]}} and {{c|openrc-settingsd}} to come up in the default runlevel, and disable {{c|[[dhcpcd]]}} if using it:
+{{RootCmd
+|rc-update add dbus default
+|rc-update add xdm default
+|rc-update add NetworkManager default
+|rc-update add openrc-settingsd default
+|rc-update del dhcpcd default
+}}
+
+Also, ensure that the {{Package|sys-auth/elogind}} service starts up at boot: 
+{{RootCmd
+|rc-update add elogind boot
+}}
+
+Next, check if the machine has a {{c|plugdev}} group, and, if it does, add any regular users to it:
+{{RootCmd
+|getent group plugdev && gpasswd -a <regular_username> plugdev
+}}
+Similarly, to allow regular users to play GNOME games, add them to the {{c|games}} group:
+{{RootCmd
+|getent group games && gpasswd -a <regular_username> games
+}}
+
+To allow the use of [[Xorg/Hardware_3D_acceleration_guide#Add_appropriate_user.28s.29_to_the_video_group|direct rendering]], issue:
+{{RootCmd
+|getent group video && gpasswd -a <regular_username> video
+}}
+
+Finally, start up GNOME!
+{{RootCmd
+|openrc
+}}
+
+A GNOME login screen should now be visible (and this will also come up automatically on boot). On some machines, it may be necessary to move the mouse or press a key, for the login screen to appear.
+
+{{Tip|<span id{{=}}"legacy_session">Even when using a Wayland-based system</span>, it is still possible to use GNOME over X11 for a given session (this may be useful to run applications that do not yet work correctly under Wayland). To do so, simply click on the "cogwheel" icon when logging in, and select {{Key|GNOME on Xorg}} from the drop-down menu. To log into a Wayland session instead, use the {{Key|GNOME}} "cogwheel" menu item &mdash; the setting is persistent between logins. Incidentally, to double-check which graphical platform (X11 or Wayland) is in use when logged in, simply issue (in a graphical terminal):{{Cmd
+|echo "${XDG_SESSION_TYPE}"
+}}}}
+
+{{Note|When using a Wayland GNOME session, unported applications (such as {{Package|www-client/firefox}}, at the time of writing) will be hosted in a shared, rootless X11 server (the so-called "[https://wayland.freedesktop.org/xserver.html XWayland]" approach). This generally works well, but may not be sufficient for all legacy apps (such as some games and virtualisation environments). For such cases, remember that [[#legacy_session{{!}}it is always possible]] to login to a 'old-school' GNOME-on-X11 session, should workflow dictate.}}
+
+== <span id="usage">Usage ==
+
+For more information about the GNOME interface (which is generally self-explanatory), see https://gnome.org.
+Some additional useful setup tips about GNOME may also be found [[Sakaki's_EFI_Install_Guide/Using_Your_New_Gentoo_System#Miscellaneous_GNOME_Points|here]].
+
+== <span id="removal">Removal ==
+
+To remove GNOME, begin by unmerging it:
+
+{{RootCmd
+|emerge --ask --verbose --depclean gnome-base/gnome
+}}
+
+Switch profile; for example:
+
+{{RootCmd
+|eselect profile set "default/linux/amd64/17.0"
+}}
+
+Update {{c|@world}}:
+
+{{RootCmd
+|emerge --ask --update --deep --changed-use --with-bdeps{{=}}y @world
+}}
+
+Clean dependencies:
+{{RootCmd
+|emerge --ask --depclean
+}}
+
+Prevent unnecessary services starting up automatically; e.g.:
+{{RootCmd
+|rc-update del elogind boot
+|rc-update del dbus default
+|rc-update del xdm default
+|rc-update del openrc-settingsd default
+|rc-update del NetworkManager default
+}}
+
+Add {{c|dhcpcd}} (if required, in the absence of {{c|NetworkManager}}):
+{{RootCmd
+|rc-update add dhcpcd default
+}}
+
+Finally, reboot the system to complete the uninstall (to a textual login, in this case).
+
+== <span id="see_also">See also ==
+
+* [[Project:GNOME|Gentoo GNOME Project]]
+* [[GNOME/gdm|GNOME Display Manager]]
+* [[Sakaki's_EFI_Install_Guide|Sakaki's EFI Install Guide]]
+
+== <span id="external_resources">External resources ==
+
+* The project's [https://forums.gentoo.org/viewtopic-t-1094796.html sticky support thread] on the Gentoo Forums.
+
+== <span id="references">References ==
+
+{{reflist}}
+
+[[Category:GNOME]]
