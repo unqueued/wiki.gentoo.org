@@ -1,13 +1,16 @@
-{{Note|I'd welcome some feedback on this page via the discussion subpage}}
-<div style="float: right">__TOC__</div>
-= Introduction =
+
+__TOC__
+
+== Introduction ==
+
 Kerberos allows single sign and can assist with Windows and Linux interoperability.  The basic goal is to get systems attached to an AD domain to be able to access servers using pass through authentication.  For example, start up a browser and point it at an Apache webserver.  The web server allows access to the browser user because they have been authenticated in the background via Kerberos.
 
 The setup here is designed to use Samba to manage the Kerberos keytab side of things for servers like Squid, Apache and sshd.  As is often the case there are other ways to do it but these notes provide an approach that seems to work with minimal maintenance once set up.  Winbind will sort out keytabs for server applications and also for workstation apps like Evolution.
 
 Before you start this you must ensure that the clock on your system agrees with the Windows DC that holds the "PDC Emulator" FSMO role. Realistically any of them will do not just that one but that DC is the time source for the whole AD. You must also make sure that DNS is set up correctly.  If you can resolve the name of the AD domain, then that is a good start.  If either time or DNS go astray then you will get some tricky errors to debug.  Always check them both first.  You can mitigate DNS via the [realms] section in krb5.conf but not time.
 
-= Kerberos (MIT) =
+== Kerberos (MIT) ==
+
 On Gentoo enabling the <code>kerberos</code> USE flag should pull in {{Package|app-crypt/mit-krb5}}.  Configuration for a simple setup (set your realm):
 
 {{FileBox|filename=/etc/krb5.conf|title=Main Kerberos config file|lang=bash|1=
@@ -29,8 +32,11 @@ The following command will grab a Kerberos ticket for the currently logged in us
 If the realm is already set and the ticket is for a username that matches the Unix user then simply run kinit and enter a password.
 
 It is not always possible to use supplementary groups with some daemons eg Squid.  The following will add additional ACLs to the Kerberos keytab file file to allow the processes to read the keytab. This assumes that you have ACL support on the system.  If not then you will need some other method of allowing the daemons to access the single keytab.  Failing that you will have to create separate keytabs for each application and get them set up manually - web search for that.  Only do this bit after getting Samba to create the file, otherwise you may get errors.
+
 {{RootCmd|setfacl -m u:squid:r /etc/krb5.keytab}}
+
 {{RootCmd|setfacl -m u:apache:r /etc/krb5.keytab}}
+
 {{RootCmd|getfacl /etc/krb5.keytab|output=<pre>
 file: etc/krb5.keytab
 owner: root
@@ -43,7 +49,8 @@ mask::r--
 other::---
 </pre>}}
 
-= Samba =
+== Samba ==
+
 Make sure you have a reasonably recent Samba release installed (eg 3.5 or 3.6+)
 * Set Samba to allow access via both secrets (winbind and local passwd) and Kerberos. There are many more options that you might want to configure when joining an AD domain but here we only consider Kerberos related ones.
 
@@ -66,7 +73,8 @@ Make sure you have a reasonably recent Samba release installed (eg 3.5 or 3.6+)
 
 * Start or restart Samba.  Make sure that {{Path|/etc/conf.d/samba}} has winbind included in the list of daemons.
 
-= Apache =
+== Apache ==
+
 * emerge {{Package|www-apache/mod_auth_kerb}}
 * Add <code>-D AUTH_KERB</code> to {{Path|/etc/conf.d/apache2}}
 
@@ -92,10 +100,15 @@ LoadModule auth_kerb_module modules/mod_auth_kerb.so
 Set <code>KrbMethodK5Passwd</code> on to get prompted for authentication.  I suggest you only use this over SSL/TLS (https) for obvious reasons.
 
 * Use Samba to set the service principle(s) for Apache (HTTP):
+
 {{RootCmd|net ads keytab add HTTP -U <a_domain_admin>}}
+
 {{RootCmd|net ads keytab add HTTP/<another_SPN>@EXAMPLE.CO.UK -U <a_domain_admin>}}
+
 {{RootCmd|net ads keytab list}}
+
 Note the format in the second command.  This will get non default Service Principle Names into the keytab, eg for externally facing vhosts.  Remember to set the [realms] section in {{Path|krb5.conf}} if you need an external domain to map to an internal realm (or AD domain as MS call them!) The second command also seems to need the SPN added to AD using setspn.exe (on a Windows machine with Domain Admin rights and probably an elevated command prompt on server 2008+):
+
  c:\>setspn.exe -A HTTP/<another SPN> <computer account>
 
 Test it with this {{Path|index.php}} in the web server's htdocs somewhere (assuming you have PHP installed and configured):
@@ -109,7 +122,8 @@ Test it with this {{Path|index.php}} in the web server's htdocs somewhere (assum
 Errors like this in errors_log means that the keytab can't be read - check the permissions on it for the apache user:
  gss_acquire_cred() failed: Unspecified GSS failure.  Minor code may provide more information (, Permission denied)
 
-= SSHD =
+== SSHD ==
+
 Use Samba to get the service principle for SSHD - "host".  Just to spell it out in case of confusion: use the word host in your command. It is not part of an example, only change the bits between < and >.
 {{RootCmd|net ads keytab add host -U <a_domain_admin>}}
 
@@ -124,7 +138,8 @@ UsePAM no
 
 When you turn off PAM you obviously won't be able to get it to make a home directory for a new user. So another method will be needed to do this.  Winbindd can do this - see the docs for it if you need this.
 
-= Squid =
+== Squid ==
+
 Squid also seems to use "HTTP" as its service name like Apache.  This will probably need a Squid 3.1.x release.
  
 {{FileBox|filename=/etc/squid/squid.conf|title=Part of the Squid configuration|lang=bash|1=
@@ -141,18 +156,22 @@ http_access deny all
 SQUID_KEYTAB="/etc/krb5.keytab"
 }}
 
-= Client apps =
-== setspn.exe ==
+== Client apps ==
+
+=== setspn.exe ===
 
 Check Service Principle Names:
+
  c:\>setspn.exe -l <account_name>
 
-== net ads keytab ==
+=== net ads keytab ===
 
 Check a Samba maintained keytab like this:
+
 {{RootCmd|net ads keytab list}}
 
-== ktutil and klist ==
+=== ktutil and klist ===
+
 Check keytabs like this:
 
 {{RootCmd|ktutil|Output=<pre>
@@ -175,55 +194,69 @@ slot KVNO Principal
  12    5                  host/host@EXAMPLE.CO.UK
 ktutil:  quit
 </pre>}}
+
 or 
+
 {{RootCmd|klist -ke /etc/krb5.keytab}}
 
-== Firefox ==
+=== Firefox ===
+
 * about:config
 * Type <code>negotiate</code> into the filter
 * Set <code>network.negotiate-auth.trusted-uris</code> to <code>example.co.uk</code>
 * Additional domains (eg short names) can be added separated by commas: e.g. <code>example.co.uk,host1,host2</code>.  
 * (On Linux only) at a user shell prompt type <code>kinit</code> and enter your AD password to authenticate and get a ticket from the KDC (This is not needed if you set up {{Path|/etc/security/pam_winbind.conf}})
 
-== Chrome(ium) ==
+=== Chrome(ium) ===
+
 Start Chrome with: <code>--auth-server-whitelist="*.example.co.uk" --auth-negotiate-delegate-whitelist="*.example.co.uk"</code>. 
 You can edit {{Path|/usr/share/applications/chrome.desktop}} to add this or create another launcher.
 
 Another method using policies:
+
 [https://www.chromium.org/administrators/linux-quick-start| Chromium docs, see Setup Policies] and then apply something like [https://akasurde.github.io/krb-auth-chrome.html| this] For example, with Chrome:
 
 {{RootCmd|mkdir -p /etc/opt/chrome/policies/managed}}
+
 Create a .jason file such as my_local_policy.json:
+
  {
   "HomepageLocation": "https://www.example.co.uk",
   "AuthServerWhitelist": ".example.co.uk",
   "AuthNegotiateDelegateWhitelist": ".example.co.uk"
  }
 
-== IE ==
+=== IE ===
+
 Does single signon out of the box. IE 7+. Don't use <=6!
 
-== ssh ==
+=== ssh ===
+
 For the SSH client on Linux.  This can go in the system wide configuration or in a user specific configuration: 
+
 {{FileBox|filename=/etc/ssh/ssh_conf|title=ssh config snippet|lang=bash|1=
 host *.example.co.uk
   GSSAPIAuthentication yes
 }}
 
-== Evolution EWS ==
+=== Evolution EWS ===
+
 You can connect to Exchange via Evolution EWS and provided that autodiscover is set up correctly it will work out of the box.  I have found that adding additional SPNs to the client access server's machine account can assist with getting Kerberos instead of NTLM working. eg:
+
   c:\>setspn.exe -S HTTP/exchange.example.co.uk EXCHCAS
 
 To determine what names are needed, switch Evolution to using Kerberos and have Wireshark or tcpdump running and look out for the name that Evolution tries to contact the server with. You should see a flurry of DNS lookups followed by Kerberos related packets.  One of the fields will show the host name that your client is trying to use.  
 
 If everything is in place (winbind etc) then you simply start Evolution up, add a new account, fill in your name and set the type to ews and then press the lookup button after filling in your email address
 
-== PuTTY ==
+=== PuTTY ===
+
 * Get hold of a development snapshot until it is in the core release.
 * Connection -> Data, select Use system username (your name)
 * Connection -> SSH -> Auth -> GSSAPI, make sure Attempt GSSAPI authentication is selected
 
-= Full Domain Member on a laptop =
+== Full Domain Member on a laptop ==
+
 Here's a quick rundown for a laptop domain member.  I use KDE Plasma 5 as my WM with SDDM for login.  I changed the theme to one without a user list.  The configs provided are direct copies from my working config, I have only changed domain names to EXAMPLE.
 
 * Samba4
@@ -237,7 +270,8 @@ Here's a quick rundown for a laptop domain member.  I use KDE Plasma 5 as my WM 
 * HA proxy in use which makes things a bit more interesting
 ** setspn.exe used to add more SPNs to the machine account for the Exchange CAS
 
-== Kerberos ==
+=== Kerberos ===
+
  app-crypt/mit-krb5 USE=keyutils pkinit threads -doc -libressl -openldap -selinux -test -xinetd
 
 {{FileBox|filename=/etc/krb5.conf|title=Main Kerberos config file|lang=bash|1=
@@ -245,7 +279,8 @@ Here's a quick rundown for a laptop domain member.  I use KDE Plasma 5 as my WM 
    default_realm = EXAMPLE.CO.UK
 }}
 
-== Samba ==
+=== Samba ===
+
  net-fs/samba USE=acl ads client cups gnutls ldap pam syslog system-mitkrb5 systemd winbind -addc -addns -aio -avahi -cluster -dmapi -fam -iprint -quota -selinux -test
 
 {{FileBox|filename=/etc/samba/smb.conf|title=Samba config|lang=bash|1=
@@ -348,6 +383,7 @@ mkhomedir = yes
 }}
 
 NIS:
+
 {{FileBox|filename=/etc/nsswitch.conf |title=NIS nsswitch config snippet|lang=bash|1=
 passwd:      compat winbind
 shadow:      compat
@@ -355,16 +391,19 @@ group:       compat winbind
 }}
 
 Make sure that everything is in place, join the domain and then test the join:
+
  #net ads info
  #net ads join -U AD_username_with_computer_account_create_rights
  #net ads testjoin
 
 Check NIS is working (should spit out a list of local and then AD users):
+
  # getent passwd
 
 {{Warning|Be very careful when setting up PAM, make sure that you have a backout plan and at least one root session already running to the box first, ideally on a console and not via ssh (unless you really know what you are doing)}}
 
 Setup PAM:
+
 {{FileBox|filename=/etc/pam.d/system-auth|title=PAM config|lang=bash|1=
 auth        required      pam_env.so
 auth        sufficient    pam_unix.so likeauth nullok try_first_pass
@@ -386,7 +425,8 @@ session     required      pam_systemd.so debug
 
 Now login as a domain user via a console and make sure all is well.
 
-== Notes ==
+=== Notes ===
+
 This setup enables you to carry on logging into your system even when the AD DCs etc are unavailable via "cached credentials".  One failure mode I have discovered so far, is that if you are unable to refresh Kerb tickets from your KDCs then EWS will eventually stop working if Kerberos is your only authentication mechanism (although NTLM is the default).
 
 [[Category:Software]]
