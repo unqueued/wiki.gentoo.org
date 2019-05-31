@@ -1,0 +1,105 @@
+The Libre Computer Renegade is an ARMv8-A (Cortex-A53) based single board computer.
+
+== Specifications ==
+
+* SoC: Rockchip RK3328 
+* CPU: Quad-core ARM Cortex-A53 @ 1.3 GHz
+* GPU: Mali 450
+* Board name: ROC-RK3328-CC
+* Audio: I2S
+* Ram: 4gb
+* Storage: SDXC or eMMC
+* Filename of device tree binary: rk3328-roc-cc.dtb
+
+== What works and what doesn't ==
+
+{| class="wikitable"
+|-
+! !! On >=sys-kernel/gentoo-sources-5.2
+|-
+| '''Suspend/Resume''' || untested
+|-
+| '''LAN''' || works
+|-
+| '''X''' || works
+|-
+| '''HDMI''' || works
+|-
+| '''Analog audio''' || no
+|-
+| '''HDMI-Audio''' || untested
+|-
+| '''GPU hardware acceleration''' || yes (lima: WIP)
+|}
+
+== Installing Gentoo on eMMC ==
+
+
+
+=== Additional hardware requirements ===
+
+* USB-A male to male cable
+* USB drive (at least 2GB but not bigger than the eMMC)
+
+
+=== Installing required tools ===
+
+The guide assumes that the current platform is a Gentoo Linux one. The majority of steps however can be performed from any distribution, just translate the Gentoo-specific way of doing things (such as installing software) to the other distribution's practices.
+{{Note|Throughout this guide this current platform will be referred to as the ''host system'' whereas the rk3328-roc-cc will be referred to as the ''target device''.}}
+
+Install {{Package|sys-apps/dtc}} and {{Package|sys-block/parted}}
+
+{{RootCmd
+|emerge –ask sys-apps/dtc sys-block/parted
+}}
+
+
+=== Preparing the partitions ===
+
+This is the recommended partition layout and size:
+{| class="wikitable"
+|-
+! !! Purpose !! Start !! End !! Size
+|-
+| /dev/sd*1 || preloader (miniloader or U-Boot SPL) || 32768 || 4128767 || 4096000
+|-
+| /dev/sd*2 || U-Boot || 8388608 || 12582911 || 4194304
+|-
+| /dev/sd*3 || trusted OS (atf) || 12582912 || 16777215 || 4194304
+|-
+| /dev/sd*4 || boot partition || 16777216 || 134217727 || 117440512
+|-
+| /dev/sd*5 || root partition || 134217728 || arbitrary || arbitrary
+|}
+
+{{Important|The "*" in the following commands needs to be replaced with the letter corresponding to the USB drive.}}
+
+{{Warning|This will delete all data on {{Path|/dev/sd*}}}}
+
+{{RootCmd
+|parted /dev/sd* mklabel gpt
+|parted -a optimal /dev/sd* unit b mkpart loader1 32768 4128767
+|parted -a optimal /dev/sd* unit b mkpart loader2 8388608 12582911
+|parted -a optimal /dev/sd* unit b mkpart atf 12582912 16777215
+|parted -a optimal /dev/sd* unit b mkpart boot 16777216 134217727
+|parted -a optimal /dev/sd* unit b mkpart rootfs 134217728 100%
+|parted set 4 boot on
+}}
+
+Due to upstream providing only an old and buggy version of u-boot the rootfs partition's GUID must be set to {{c|B921B045-1DF0-41C3-AF44-4C6F280D3FAE}}.
+
+{{RootCmd
+|gdisk /dev/sd*
+}}
+
+Now, one after the other confirmed with {{Key|Enter}}, enter "x", "c", "5", "B921B045-1DF0-41C3-AF44-4C6F280D3FAE", "w" and "y".
+
+====Create the appropriate file systems and mount the partitions====
+
+{{RootCmd
+|mkfs.vfat /dev/sd*4
+|mkfs.ext4 /dev/sd*5
+|mkdir /mnt/{newboot,newroot}
+|mount /dev/sdX4 /mnt/newboot
+|mount /dev/sdX5 /mnt/newroot
+}}
