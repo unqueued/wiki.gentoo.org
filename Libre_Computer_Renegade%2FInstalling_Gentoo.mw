@@ -29,7 +29,7 @@ The Libre Computer Renegade is an ARMv8-A (Cortex-A53) based single board comput
 |-
 | '''HDMI-Audio''' || untested
 |-
-| '''GPU hardware acceleration''' || yes (lima: WIP)
+| '''GPU hardware acceleration''' || partial (lima: WIP)
 |}
 
 == Installing Gentoo on eMMC ==
@@ -59,7 +59,7 @@ Install {{Package|sys-apps/dtc}} and {{Package|sys-block/parted}}
 This is the recommended partition layout and size:
 {| class="wikitable"
 |-
-! !! Purpose !! Start !! End !! Size
+! !! Purpose !! Start (Bytes) !! End (Bytes) !! Size (Bytes)
 |-
 | /dev/sd*1 || preloader (miniloader or U-Boot SPL) || 32768 || 4128767 || 4096000
 |-
@@ -69,7 +69,7 @@ This is the recommended partition layout and size:
 |-
 | /dev/sd*4 || boot partition || 16777216 || 134217727 || 117440512
 |-
-| /dev/sd*5 || root partition || 134217728 || arbitrary || arbitrary
+| /dev/sd*5 || root partition || 134217728 || arbitrary || depends
 |}
 
 {{Important|The "*" in the following commands needs to be replaced with the letter corresponding to the USB drive.}}
@@ -102,4 +102,90 @@ Now, one after the other confirmed with {{Key|Enter}}, enter "x", "c", "5", "B92
 |mkdir /mnt/{newboot,newroot}
 |mount /dev/sdX4 /mnt/newboot
 |mount /dev/sdX5 /mnt/newroot
+}}
+
+=== Create a cross-compiler ===
+
+{{Important|This section can be skipped if the host system's architecture is the same as the target system's. These steps are only necessary if the host system is '''not''' based on the same architecture as the target device.}}
+{{Note|The instructions for setting up a cross-compilation toolchain are very specific to Gentoo, i.e. if the host system runs a different Linux distribution the respective distribution’s documentation on cross-compilation should be consulted instead.}}
+
+Create a local overlay for the cross toolchain, cf. [[Custom_repository#Crossdev|Custom repository for crossdev]]:
+
+{{RootCmd
+|mkdir -p /usr/local/portage-crossdev/{profiles,metadata}
+|echo 'crossdev' > /usr/local/portage-crossdev/profiles/repo_name
+|echo 'masters {{=}} gentoo' > /usr/local/portage-crossdev/metadata/layout.conf
+|chown -R portage:portage /usr/local/portage-crossdev
+}}
+
+Then instruct Portage and {{Package|sys-devel/crossdev}} to use this overlay:
+
+{{FileBox|filename=/etc/portage/repos.conf/crossdev.conf|lang=ini|1=
+[crossdev]
+location = /usr/local/portage-crossdev
+priority = 10
+masters = gentoo
+auto-sync = no
+}}
+
+Install {{Package|sys-devel/crossdev}} and create the cross toolchain. Replace {{c|TUPLE}} with the [[Embedded_Handbook/Tuples|system tuple]] fitting the target architecture, i.e. {{c|aarch64-linux-gnueabihf}} for the ARMv8-A based Libre Computer Renegade.
+
+{{RootCmd
+|emerge --ask sys-devel/crossdev
+|crossdev --stable --target TUPLE
+}}
+
+
+Finally prepare cross-compiling the kernel.
+
+Replace {{c|TARGETARCH}} with the target device's architecture, {{c|arm64}}.
+
+{{Cmd
+|export ARCH{{=}}TARGETARCH
+}}
+
+Replace {{c|TUPLE}} again with the system tuple fitting the target architecture, {{c|aarch64-linux-gnueabihf}}. Mind the trailing "{{c|-}}".
+
+{{Cmd
+|export CROSS_COMPILE{{=}}TUPLE-
+}}
+
+=== Configuring the Linux kernel ===
+
+If all necessary drivers are built into the kernel (i.e. no loadable modules are needed to boot the target device) there's no need to have an initramfs, which keeps things simple. Especially if the host system's architecture differs from the target device's architecture creating an initramfs would at least involve cross-compiling busybox. With that in mind configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]].
+
+Build the kernel and device tree binaries:
+
+{{Cmd
+|make -j5 Image dtbs
+}}
+
+=== Prepare the boot partition ===
+
+From the kernel build directory, copy the Image and the target device's device tree binary to the desired working directory. Replace {{c|DTBINARY}} with the filename of the target device's device tree binary, {{c|rk3328-roc-cc.dtb}}.
+
+{{RootCmd
+|cp -a arch/arm/boot/Image /mnt/newboot/
+|cp -a arch/arm/boot/dts/rockchip/DTBINARY /mnt/newboot/
+}}
+
+Create directory "extlinux" on the boot partition
+
+{{RootCmd
+|mkdir /mnt/newboot/extlinux
+}}
+
+Create the file {{Path|/mnt/newboot/extlinux/extlinux.conf}}
+
+{{FileBox|filename=extlinux.conf|lang=bash|1=
+label kernel-4.4
+    kernel /Image
+    fdt /rk3328-roc-cc.dtb
+    append  earlycon=uart8250,mmio32,0xff130000 rw root=PARTUUID=b921b045-1d rootwait rootfstype=ext4 init=/sbin/init
+}}
+
+Unmount the boot partition
+
+{{RootCmd
+|umount /mnt/newboot
 }}
