@@ -42,33 +42,32 @@ The guide assumes that the current platform is a Gentoo Linux one. The majority 
 * USB-A male to male cable
 * USB drive (at least 2GB but not bigger than the eMMC)
 
-{{Important|For further advice consult the Gentoo Handbook for AMD64 (there is none for ARM64). In large parts the installation instructions from the [[Handbook:Main_Page|Gentoo Handbooks]] are not too architecture specific. Nevertheless mind that discrepancy.}}
-
 === Installing required tools ===
 
-Install {{Package|sys-apps/dtc}} and {{Package|sys-block/parted}}
+Install {{Package|sys-apps/dtc}}, {{Package|sys-apps/gptfdisk}} and {{Package|sys-block/parted}}
 
 {{RootCmd
-|emerge –ask sys-apps/dtc sys-block/parted
+|emerge –ask sys-apps/dtc sys-apps/gptfdisk sys-block/parted
 }}
 
-
 === Preparing the partitions ===
+
+{{Important|For further advice consult the Gentoo Handbook for AMD64 (there is none for ARM64). In large parts the installation instructions from the [[Handbook:Main_Page|Gentoo Handbooks]] are not too architecture specific. Nevertheless mind that discrepancy.}}
 
 This is the recommended partition layout and size:
 {| class="wikitable"
 |-
-! !! Purpose !! Start (Bytes) !! End (Bytes) !! Size (Bytes)
+! !! Purpose !! Start (Bytes) !! End (Bytes) !! Size (Bytes) !! Partition Offset<ref>[http://opensource.rock-chips.com/wiki_Partitions Default storage map], [http://opensource.rock-chips.com/wiki_Main_Page Rockchip wiki]. Retrieved on Jun 1st, 2019</ref>
 |-
-| /dev/sd*1 || preloader (miniloader or U-Boot SPL) || 32768 || 4128767 || 4096000
+| /dev/sd*1 || preloader (miniloader or U-Boot SPL) || 32768 || 4128767 || 4096000 || 0x40
 |-
-| /dev/sd*2 || U-Boot || 8388608 || 12582911 || 4194304
+| /dev/sd*2 || U-Boot || 8388608 || 12582911 || 4194304 || 0x4000
 |-
-| /dev/sd*3 || trusted OS (atf) || 12582912 || 16777215 || 4194304
+| /dev/sd*3 || trusted OS (atf) || 12582912 || 16777215 || 4194304 || 0x6000
 |-
-| /dev/sd*4 || boot partition || 16777216 || 134217727 || 117440512
+| /dev/sd*4 || boot partition || 16777216 || 134217727 || 117440512 || 0x8000
 |-
-| /dev/sd*5 || root partition || 134217728 || arbitrary || depends
+| /dev/sd*5 || root partition || 134217728 || arbitrary || depends || 0x40000
 |}
 
 {{Important|The "*" in the following commands needs to be replaced with the letter corresponding to the USB drive.}}
@@ -88,10 +87,15 @@ This is the recommended partition layout and size:
 Due to upstream providing only an old and buggy version of u-boot the rootfs partition's GUID must be set to {{c|B921B045-1DF0-41C3-AF44-4C6F280D3FAE}}.
 
 {{RootCmd
-|gdisk /dev/sd*
+|gdisk /dev/sd* <<EOF
+|output=<pre>> x
+> c
+> 5
+> B921B045-1DF0-41C3-AF44-4C6F280D3FAE
+> w
+> y
+> EOF </pre>
 }}
-
-Now, one after the other confirmed with {{Key|Enter}}, enter "x", "c", "5", "B921B045-1DF0-41C3-AF44-4C6F280D3FAE", "w" and "y".
 
 === Create the appropriate file systems and mount the partitions ===
 
@@ -129,7 +133,7 @@ masters = gentoo
 auto-sync = no
 }}
 
-Install {{Package|sys-devel/crossdev}} and create the cross toolchain. Replace {{c|TUPLE}} with the [[Embedded_Handbook/Tuples|system tuple]] fitting the target architecture, i.e. {{c|aarch64-linux-gnueabihf}} for the ARMv8-A based Libre Computer Renegade.
+Install {{Package|sys-devel/crossdev}} and create the cross toolchain. Replace {{c|TUPLE}} with the [[Embedded_Handbook/Tuples|system tuple]] fitting the target architecture, i.e. {{c|aarch64-linux-gnu}} for the ARMv8-A based Libre Computer Renegade.
 
 {{RootCmd
 |emerge --ask sys-devel/crossdev
@@ -145,7 +149,7 @@ Replace {{c|TARGETARCH}} with the target device's architecture, {{c|arm64}}.
 |export ARCH{{=}}TARGETARCH
 }}
 
-Replace {{c|TUPLE}} again with the system tuple fitting the target architecture, {{c|aarch64-linux-gnueabihf}}. Mind the trailing "{{c|-}}".
+Replace {{c|TUPLE}} again with the system tuple fitting the target architecture, {{c|aarch64-linux-gnu}}. Mind the trailing "{{c|-}}".
 
 {{Cmd
 |export CROSS_COMPILE{{=}}TUPLE-
@@ -176,7 +180,7 @@ Create directory "extlinux" on the boot partition
 |mkdir /mnt/newboot/extlinux
 }}
 
-Create the file {{Path|/mnt/newboot/extlinux/extlinux.conf}}
+In this directory create the file {{Path|extlinux.conf}}
 
 {{FileBox|filename=extlinux.conf|lang=bash|1=
 label kernel-4.4
@@ -201,7 +205,7 @@ For example in case someday a kernel upgrade goes wrong, backup the new boot par
 
 === Install a Gentoo rootfs ===
 
-As arm64 is not yet officially supported, get a stage3 tarball from Gentoo's [https://gentoo.osuosl.org/experimental/arm64/ experimental repository] and extract it to {{Path|/mnt/newroot/}}
+As {{c|arm64}} is not yet officially supported, get a stage3 tarball from Gentoo's [https://gentoo.osuosl.org/experimental/arm64/ experimental repository] and extract it to {{Path|/mnt/newroot/}}
 
 {{RootCmd
 |tar xvpf /PATH/TO/STAGE3-TARBALL -C /mnt/newroot/
@@ -228,7 +232,7 @@ Finish this step by unmounting the bootable media’s rootfs
 
 === Install the firmware ===
 
-Download Firefly's Linux SDK<ref>[https://roc-rk3328-cc.readthedocs.io/en/latest/linux_compile_firmware.html Compiling linux firmware], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on May 31st, 2019</ref>:
+Download Firefly's Linux SDK<ref>Firefly Team, [https://roc-rk3328-cc.readthedocs.io/en/latest/linux_compile_firmware.html Compiling linux firmware], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on May 31st, 2019</ref>:
 
 {{Cmd
 |git clone -b roc-rk3328-cc https://github.com/FireflyTeam/u-boot
@@ -236,7 +240,7 @@ Download Firefly's Linux SDK<ref>[https://roc-rk3328-cc.readthedocs.io/en/latest
 |git clone -b master https://github.com/FireflyTeam/rkbin
 }}
 
-Assemble the firmware files idbloader.img, uboot.img and trust.img and the DDR init binary rk3328_loader_ddr786_v1.06.243.bin which later on is needed for flashing to the eMMC.
+Assemble the firmware files {{Path|idbloader.img}}, {{Path|uboot.img}} and {{Path|trust.img}} and the DDR init binary {{Path|rk3328_loader_ddr786_v1.06.243.bin}} which is needed for flashing to the eMMC later on.
 
 {{Cmd
 |./build/mk-uboot.sh roc-rk3328-cc
@@ -252,7 +256,7 @@ Finish the remaining partitions by copying the firmware files to the USB drive.
 
 === Flash to eMMC ===
 
-Download and install rkdeveloptool<ref>[https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#rkdeveloptool Flashing to the eMMC - rkdeveloptool], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on May 31st, 2019</ref>
+Download and install rkdeveloptool<ref>Firefly Team, [https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#rkdeveloptool Flashing to the eMMC - rkdeveloptool], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on Jun 1st, 2019</ref>
 
 {{Cmd
 |git clone https://github.com/rockchip-linux/rkdeveloptool
@@ -265,11 +269,11 @@ Download and install rkdeveloptool<ref>[https://roc-rk3328-cc.readthedocs.io/en/
 |make install
 }}
 
-Force the Libre Computer Renegade into Maskrom Mode<ref>[https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#maskrom-mode Flashing to the eMMC - Maskrom Mode], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on May 31st, 2019</ref>:
+Force the Libre Computer Renegade into {{c|Maskrom Mode}}<ref>Firefly Team, [https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#maskrom-mode Flashing to the eMMC - Maskrom Mode], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on Jun 1st, 2019</ref>:
 
 *Pull all the USB cables (including micro USB cable and male to male USB cable) out of the board to keep the board powered off and if applicable pull out the SD card
 *Use a male to male USB cable to connect the host system and the USB OTG port (lower one of double-decker, white) of the target device, for pictures see the [https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#maskrom-mode ROC-RK3328-CC Manual]
-*Connect the eMMC CLK and GND pads with metal tweezers while plugging in the micro USB cable to power on the board. Wait about 1 second before breaking the connection of the two pads
+*Connect the eMMC {{c|CLK}} and {{c|GND}} pads with metal tweezers while plugging in the micro USB cable to power on the board. Wait about 1 second before breaking the connection of the two pads
 
 Finally flash the system image, i.e. the USB drive to the eMMC
 
@@ -291,7 +295,7 @@ Consult the Handbook for [[Handbook:AMD64/Installation/System|Configuring the sy
 
 == Recovery ==
 
-If a kernel upgrade goes wrong the boot partition can be restored by forcing the device into Maskrom Mode and flashing the backup partition
+If a kernel upgrade goes wrong the boot partition can be restored by forcing the device into {{c|Maskrom Mode}} and flashing the backup boot partition to the eMMC
 
 {{RootCmd
 |rkdeveloptool db         out/uboot/rk3328_loader_ddr786_v1.06.243.bin
