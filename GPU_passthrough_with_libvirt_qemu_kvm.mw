@@ -123,21 +123,88 @@ Device Drivers --->
       < >   Mediated device driver framework
 }}
 
+Search for your VGA card ids. Run 
+{{RootCmd|lspci -nn|output=<pre>
+...
+04:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Vega 10 XL/XT [Radeon RX Vega 56/64] [1002:687f] (rev c1)
+04:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:aaf8]
+..
+</pre>}}
+
+
 Add VGA PCI ids to VFIO
 
 {{FileBox|filename=/etc/modprobe.d/vfio.conf|1=
-options vfio-pci ids=1002:67c4,1002:aaf0
+options vfio-pci ids=1002:687f,1002:aaf8
 }}
 
 == Libvirt ==
 
-== Guests configuration ==
-
 === Windows ===
 
-==== AMD Card turn on/off ====
+Create windows 10 as usual via libvirt manager. Edit virtual image, click Add Hardware, select AMD Ati Vega 64 and AMD Ati device. Click Apply. 
 
-* Workaround for AMD graphic card (turn on/off amd vcard)
+Now you can start Windows 10 guest OS.
+
+Amd card have 2 devices on PCIe bus -> one video output and another is HDMI output. Windows drivers works only if KVM will bypass to windows both AMD devices.
+
+==== Fixed Vega 56/64 reset bug ====
+
+AMD Vega 56/64 are unable to initialize after Guest host shutdown/reboot, because drivers set card in "garbage" state. As workaround of this bug, VFIO will load AMD card ROM at guest startup. To do that:
+
+1) Install clear Windows 10 somewhere (not in libvirt. We need REAL windows10)
+
+2) Install all latest windows 10 updates
+
+3) Install AMD vga drivers
+
+4) Reboot
+
+5) Go again to real windows 10
+
+6) Install GPU-z
+
+7) In GPU-z in main tab, near BIOS version will be small button "Save ROM". Click it and save ROM on somewhere. We will need this ROM for our gentoo and libvirt. For example, for my Vega64 I save ROM as Vega64.rom
+
+8) Boot into gentoo back
+
+9) mkdir /etc/firmware
+
+10) Copy to /etc/firmware your ROM file (in my case it is Vega64.rom)
+
+11) Go to /etc/libvirt/qemu
+
+12) Edit xml file with description of Win10 guest
+
+13) Find section with your AMD Card Video Card device (not AMD HDMI. You can always re-check by lspci): 
+
+In my case: 
+{{FileBox|filename=/etc/libvirt/qeme/win10.xml|1=
+...
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
+      </source>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x08' function='0x0'/>
+    </hostdev>
+...
+}}
+14) Add path to vga ROM.
+
+      <rom bar='on' file='/etc/firmware/Vega10.rom'/>
+
+So, it should be:
+{{FileBox|filename=/etc/libvirt/qeme/win10.xml|1=
+...
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
+      </source>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x08' function='0x0'/>
+      <rom bar='on' file='/etc/firmware/Vega10.rom'/>
+    </hostdev>
+...
+}}
 
 ==== Sound ====
 
