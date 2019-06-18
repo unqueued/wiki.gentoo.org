@@ -1,3 +1,315 @@
-#REDIRECT [[RK3328-ROC-CC]]
+The Libre Computer Renegade is an ARMv8-A (Cortex-A53) based single board computer. It's essentially a relabeled Firefly ROC-RK3328-CC.
+
+== Specifications ==
+
+* SoC: Rockchip RK3328 
+* CPU: Quad-core ARM Cortex-A53 @ 1.3 GHz
+* GPU: Mali 450
+* Board name: ROC-RK3328-CC
+* Audio: I2S
+* Ram: 4gb
+* Storage: SDXC or eMMC
+* Filename of device tree binary: rk3328-roc-cc.dtb
+
+== What works and what doesn't ==
+
+{| class="wikitable"
+|-
+! !! On >=sys-kernel/gentoo-sources-5.2
+|-
+| '''Suspend/Resume''' || untested
+|-
+| '''LAN''' || works
+|-
+| '''X''' || works
+|-
+| '''HDMI''' || works
+|-
+| '''Analog audio''' || no
+|-
+| '''HDMI-Audio''' || untested
+|-
+| '''GPU hardware acceleration''' || partial ([https://gitlab.freedesktop.org/lima/web/wikis/home Lima], WIP)
+|}
+
+== Installing Gentoo on eMMC ==
+
+The guide assumes that the current platform is a Gentoo Linux one. The majority of steps however can be performed from any distribution, just translate the Gentoo-specific way of doing things (such as installing software) to the other distribution's practices.
+{{Note|Throughout this guide this current platform will be referred to as the ''host system'' whereas the rk3328-roc-cc will be referred to as the ''target device''.}}
+
+=== Additional hardware requirements ===
+
+* USB-A male to male cable
+* USB drive (at least 2GB but not bigger than the eMMC)
+
+=== Installing required tools ===
+
+Install {{Package|sys-apps/dtc}}, {{Package|sys-apps/gptfdisk}} and {{Package|sys-block/parted}}:
+
+{{RootCmd
+|emerge –ask sys-apps/dtc sys-apps/gptfdisk sys-block/parted
+}}
+
+=== Preparing the disks ===
+
+{{Important|For further advice consult the Gentoo Handbook for AMD64 (there is none for ARM64). In large parts the installation instructions from the [[Handbook:Main_Page|Gentoo Handbooks]] are not too architecture specific. Nevertheless mind that discrepancy.}}
+
+This is the recommended partition layout:
+{| class="wikitable"
+|-
+! !! Purpose !! Start (Bytes) !! End (Bytes) !! Size (Bytes) !! Partition Offset<ref>[http://opensource.rock-chips.com/wiki_Partitions Default storage map], [http://opensource.rock-chips.com/wiki_Main_Page Rockchip wiki]. Retrieved on Jun 1st, 2019</ref>
+|-
+| /dev/sdX1 || preloader (miniloader or U-Boot SPL) || 32768 || 4128767 || 4096000 || 0x40
+|-
+| /dev/sdX2 || U-Boot || 8388608 || 12582911 || 4194304 || 0x4000
+|-
+| /dev/sdX3 || trusted OS (atf) || 12582912 || 16777215 || 4194304 || 0x6000
+|-
+| /dev/sdX4 || boot partition || 16777216 || 134217727 || 117440512 || 0x8000
+|-
+| /dev/sdX5 || root partition || 134217728 || arbitrary || depends || 0x40000
+|}
+
+Create the partitions on the installation media:
+
+{{Important|In the following commands the "X" in "sdX" needs to be replaced with the letter corresponding to the USB drive.}}
+
+{{Warning|This will delete all data on {{Path|/dev/sdX}}}}
+
+{{RootCmd
+|parted /dev/sdX mklabel gpt
+|parted -a optimal /dev/sdX unit b mkpart loader1 32768 4128767
+|parted -a optimal /dev/sdX unit b mkpart loader2 8388608 12582911
+|parted -a optimal /dev/sdX unit b mkpart atf 12582912 16777215
+|parted -a optimal /dev/sdX unit b mkpart boot 16777216 134217727
+|parted -a optimal /dev/sdX unit b mkpart rootfs 134217728 100%
+|parted set 4 boot on
+}}
+
+Due to upstream providing only an old and buggy version of u-boot the rootfs partition's GUID must be set to {{c|B921B045-1DF0-41C3-AF44-4C6F280D3FAE}}:
+
+{{RootCmd
+|gdisk /dev/sdX <<EOF
+|output=<pre>> x
+> c
+> 5
+> B921B045-1DF0-41C3-AF44-4C6F280D3FAE
+> w
+> y
+> EOF </pre>
+}}
+
+The boot partition must contain a {{c|FAT16}} filesystem. Create the appropriate file systems and mount the partitions:
+
+{{RootCmd
+|mkfs.fat -F 16 /dev/sdX4
+|mkfs.ext4 /dev/sdX5
+|mkdir /mnt/{newboot,newroot}
+|mount /dev/sdX4 /mnt/newboot
+|mount /dev/sdX5 /mnt/newroot
+}}
+
+=== Creating a cross-compiler ===
+
+{{Important|This section can be skipped if the host system's architecture is the same as the target device's. These steps are only necessary if the host system is '''not''' based on the same architecture as the target device.}}
+{{Note|The instructions for setting up a cross-compilation toolchain are very specific to Gentoo, i.e. if the host system runs a different Linux distribution the respective distribution’s documentation on cross-compilation should be consulted instead.}}
+
+Create a local overlay for the cross toolchain, cf. [[Custom_repository#Crossdev|Custom repository for crossdev]]:
+
+{{RootCmd
+|mkdir -p /usr/local/portage-crossdev/{profiles,metadata}
+|echo 'crossdev' > /usr/local/portage-crossdev/profiles/repo_name
+|echo 'masters {{=}} gentoo' > /usr/local/portage-crossdev/metadata/layout.conf
+|chown -R portage:portage /usr/local/portage-crossdev
+}}
+
+Then instruct Portage and {{Package|sys-devel/crossdev}} to use this overlay:
+
+{{FileBox|filename=/etc/portage/repos.conf/crossdev.conf|lang=ini|1=
+[crossdev]
+location = /usr/local/portage-crossdev
+priority = 10
+masters = gentoo
+auto-sync = no
+}}
+
+Install {{Package|sys-devel/crossdev}} and create the cross toolchain. Replace {{c|TUPLE}} with the [[Embedded_Handbook/Tuples|system tuple]] fitting the target architecture, i.e. {{c|aarch64-linux-gnu}} for the ARMv8-A based Libre Computer Renegade.
+
+{{RootCmd
+|emerge --ask sys-devel/crossdev
+|crossdev --stable --target TUPLE
+}}
+
+
+Finally prepare cross-compiling the kernel.
+
+Replace {{c|TARGETARCH}} with the target device's architecture, {{c|arm64}}.
+
+{{Cmd
+|export ARCH{{=}}TARGETARCH
+}}
+
+Replace {{c|TUPLE}} again with the system tuple fitting the target architecture, {{c|aarch64-linux-gnu}}. Mind the trailing "{{c|-}}".
+
+{{Cmd
+|export CROSS_COMPILE{{=}}TUPLE-
+}}
+
+=== Configuring the Linux kernel ===
+
+If all necessary drivers are built into the kernel (i.e. no loadable modules are needed to boot the target device) there's no need to have an initramfs, which keeps things simple. Especially if the host system's architecture differs from the target device's architecture creating an initramfs would at least involve cross-compiling busybox. With that in mind configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]].
+
+Build the kernel and device tree binaries:
+
+{{Cmd
+|make -j5 Image dtbs
+}}
+
+=== Installing the kernel ===
+
+From the kernel build directory, copy the Image and the target device's device tree binary to the desired working directory. Replace {{c|DTBINARY}} with the filename of the target device's device tree binary, {{c|rk3328-roc-cc.dtb}}.
+
+{{RootCmd
+|cp -a arch/arm/boot/Image /mnt/newboot/
+|cp -a arch/arm/boot/dts/rockchip/DTBINARY /mnt/newboot/
+}}
+
+Create directory "extlinux" on the boot partition
+
+{{RootCmd
+|mkdir /mnt/newboot/extlinux
+}}
+
+In this directory create the file {{Path|extlinux.conf}}
+
+{{FileBox|filename=extlinux.conf|lang=bash|1=
+label kernel-4.4
+    kernel /Image
+    fdt /rk3328-roc-cc.dtb
+    append  earlycon=uart8250,mmio32,0xff130000 rw root=PARTUUID=b921b045-1d rootwait rootfstype=ext4 init=/sbin/init
+}}
+
+Unmount the boot partition
+
+{{RootCmd
+|umount /mnt/newboot
+}}
+
+=== Creating a backup of the boot partition ===
+
+For example in case someday a kernel upgrade goes wrong, backup the new boot partition.
+
+{{Important|In the following command the "X" in "sdX" needs to be replaced with the letter corresponding to the USB drive.}}
+
+{{RootCmd
+|dd if{{=}}/dev/sdX4 of{{=}}/PATH/TO/ARBITRARY_BACKUP_LOCATION/rk3328-roc-cc-boot.img
+}}
+
+=== Installing the Gentoo base system ===
+
+As {{c|arm64}} is not yet officially supported, get a stage3 tarball from Gentoo's [https://gentoo.osuosl.org/experimental/arm64/ experimental repository] and extract it to {{Path|/mnt/newroot/}}
+
+{{RootCmd
+|tar xvpf /PATH/TO/STAGE3-TARBALL -C /mnt/newroot/
+}}
+
+Switch the new gentoo installation to unstable and adjust make.conf to utilize all four cores of the CPU. Replace {{c|TARGETARCH}} with the target device's architecture, {{c|arm64}}.
+
+{{RootCmd
+|echo "ACCEPT_KEYWORDS{{=}}\"~TARGETARCH\"" >> /mnt/newroot/etc/portage/make.conf
+|echo "MAKEOPTS{{=}}\"-j4\"" >> /mnt/newroot/etc/portage/make.conf
+}}
+
+Set the new installation’s root password to “gentoo”, cf. [[TrimSlice#Setting_the_default_root_password|Setting the default root password]]
+
+{{RootCmd
+|sed -i 's/root\:\*/root\:\$6\$I9Q9AyTL\$Z76H7wD8mT9JAyrp\/vaYyFwyA5wRVN0tze8pvM\.MqScC7BBm2PU7pLL0h5nSxueqUpYAlZTox4Ag2Dp5vchjJ0/' /mnt/newroot/etc/shadow
+}}
+
+Finish this step by unmounting the bootable media’s rootfs
+
+{{RootCmd
+|umount /mnt/newroot
+}}
+
+=== Installing the firmware ===
+
+Download Firefly's Linux SDK<ref>Firefly Team, [https://roc-rk3328-cc.readthedocs.io/en/latest/linux_compile_firmware.html Compiling linux firmware], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on May 31st, 2019</ref>:
+
+{{Cmd
+|git clone -b roc-rk3328-cc https://github.com/FireflyTeam/u-boot
+|git clone -b debian https://github.com/FireflyTeam/build
+|git clone -b master https://github.com/FireflyTeam/rkbin
+}}
+
+Assemble the firmware files {{Path|idbloader.img}}, {{Path|uboot.img}} and {{Path|trust.img}} and the DDR init binary {{Path|rk3328_loader_ddr786_v1.06.243.bin}} which is needed for flashing to the eMMC later on.
+
+{{Cmd
+|./build/mk-uboot.sh roc-rk3328-cc
+}}
+
+Finish the remaining partitions by copying the firmware files to the USB drive.
+
+{{Important|In the following commands the "X" in "sdX" needs to be replaced with the letter corresponding to the USB drive.}}
+
+{{RootCmd
+|dd if{{=}}out/u-boot/idbloader.img of{{=}}/dev/sdX1
+|dd if{{=}}out/u-boot/uboot.img of{{=}}/dev/sdX2
+|dd if{{=}}out/u-boot/trust.img of{{=}}/dev/sdX3
+}}
+
+=== Flashing to eMMC ===
+
+Download and install rkdeveloptool<ref>Firefly Team, [https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#rkdeveloptool Flashing to the eMMC - rkdeveloptool], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on Jun 1st, 2019</ref>
+
+{{Cmd
+|git clone https://github.com/rockchip-linux/rkdeveloptool
+|cd rkdeveloptool
+|autoreconf -i
+|./configure
+|make
+}}
+{{RootCmd
+|make install
+}}
+
+Force the Libre Computer Renegade into {{c|Maskrom Mode}}<ref>Firefly Team, [https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#maskrom-mode Flashing to the eMMC - Maskrom Mode], [https://roc-rk3328-cc.readthedocs.io/en/latest ROC-RK3328-CC Manual]. Retrieved on Jun 1st, 2019</ref>:
+
+*Pull all the USB cables (including micro USB cable and male to male USB cable) out of the board to keep the board powered off and if applicable pull out the SD card
+*Use a male to male USB cable to connect the host system and the USB OTG port (lower one of double-decker, white) of the target device, for pictures see the [https://roc-rk3328-cc.readthedocs.io/en/latest/flash_emmc.html#maskrom-mode ROC-RK3328-CC Manual]
+*Connect the eMMC {{c|CLK}} and {{c|GND}} pads with metal tweezers while plugging in the micro USB cable to power on the board. Wait about 1 second before breaking the connection of the two pads
+
+
+Finally flash the eMMC with the image of the USB drive.
+
+{{Important|In the following commands the "X" in "sdX" needs to be replaced with the letter corresponding to the USB drive.}}
+
+{{RootCmd
+|rkdeveloptool db      out/u-boot/rk3328_loader_ddr786_v1.06.243.bin
+|rkdeveloptool wl 0x0  /dev/sdX
+|rkdeveloptool rd
+}}
+
+=== Finalizing the installation ===
+
+Boot the Libre Computer Renegade and change the root password
+
+{{RootCmd
+|passwd
+}}
+
+Consult the Handbook for [[Handbook:AMD64/Installation/System|Configuring the system]], [[Handbook:AMD64/Installation/Tools|Installing system tools]] and [[Handbook:AMD64/Installation/Finalizing|Finalizing]] the new Gentoo installation.
+
+== Recovery ==
+
+If a kernel upgrade goes wrong the boot partition can be restored by forcing the device into {{c|Maskrom Mode}} and flashing the backup boot partition to the eMMC
+
+{{RootCmd
+|rkdeveloptool db         out/uboot/rk3328_loader_ddr786_v1.06.243.bin
+|rkdeveloptool wl 0x8000  /PATH/TO/ARBITRARY_BACKUP_LOCATION/rk3328-roc-cc-boot.img
+|rkdeveloptool rd
+}}
+
+== References ==
 
 [[Category:Embedded systems]]
