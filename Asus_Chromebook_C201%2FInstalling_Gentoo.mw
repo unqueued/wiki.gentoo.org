@@ -1,0 +1,263 @@
+This guide is about installing Gentoo on the eMMC of an [[Asus Chromebook C201]].
+
+== Additional hardware requirements ==
+
+* USB ethernet adapter
+
+{{Note|Gentoo’s ARMv7-A stage3 tarballs don’t include {{Package|net-wireless/wpa_supplicant}}. While it is possible to install Gentoo leveraging solely the built-in wifi, a USB ethernet adapter can spare a lot of effort. Otherwise {{Package|net-wireless/wpa_supplicant}} needs to be installed on the installation media which probably involves a bit of cross-compilation.}}
+
+== Obtaining installation media ==
+
+Consult the guide on [[Creating_bootable_media_for_depthcharge_based_devices|creating bootable media for depthcharge based devices]] for instructions on how to manually create the installation media.
+
+== Preparing the device ==
+
+To be able to boot from external media like USB drives, the Asus Chromebook C201 first needs to be switched into developer mode<ref>[https://libreboot.org/docs/depthcharge/#developer-mode-screen Developer mode screen], [https://libreboot.org/docs/depthcharge Libreboot documentation on depthcharge]. Retrieved on February 25th, 2019</ref>.
+
+This can be achieved by pressing {{Key|Esc}}+{{Key|Refresh}}+{{Key|Power}} when the device is switched off to enter the {{c|recovery mode screen}}.
+
+Pressing {{Key|Ctrl}}+{{Key|D}} and then following subsequent on-screen instructions enables the {{c|developer mode}}.
+
+Finally one of the {{c|verified boot}} parameters needs to be modified: Boot the device and enter Chrome OS' {{c|crosh}} shell, e.g. by opening Chromium Browser and hitting {{Key|Ctrl}}+{{Key|Alt}}+{{Key|T}}.
+Enable booting from external media:
+
+{{RootCmd
+|crossystem dev_boot_usb{{=}}1
+}}
+
+== Booting the installation media ==
+
+Power on and when the boot screen is displayed press {{Key|Ctrl}}+{{Key|U}} to boot from the installation media.
+Log in (in case the installation media was manually created following the instructions referred to above the username is ‘root’ and the password is ‘gentoo’).
+
+== Configuring the installation media ==
+
+{{Important|Throughout these instructions the Gentoo Handbook for AMD64 (there is none for ARM) will be referenced a lot. In large parts the installation instructions from the [[Handbook:Main_Page|Gentoo Handbooks]] are not too architecture specific. Nevertheless mind that discrepancy.}}
+
+Begin with [[Handbook:AMD64/Installation/Networking|configuring the network]].
+
+Once a network connection is established make sure Portage is set up:
+
+{{RootCmd
+|emerge-webrsync
+}}
+
+Now install required tools ({{Package|sys-block/parted}} and {{Package|sys-boot/vboot-utils}}):
+
+{{RootCmd
+|emerge --ask sys-block/parted sys-boot/vboot-utils
+}}
+
+== Creating a backup of the eMMC ==
+
+{{Note|This step is highly recommended, although optional.}}
+
+{{Important|The letter “X” in the following command needs to be replaced with the number corresponding to the internal eMMC storage.}}
+
+{{RootCmd
+|dd if{{=}}/dev/mmcblkX of{{=}}/PATH/TO/ARBITRARY_BACKUP_LOCATION/c201backup.img
+}}
+
+== Preparing the disks ==
+
+Cf. Handbook: [[Handbook:AMD64/Installation/Disks|Preparing the disks]]
+
+Recommended partition layout and size - a GUID Partition Table (GPT) is mandatory:
+{| class="wikitable"
+|-
+| /dev/mmcblkXp1 || kernel partition || 64MiB
+|-
+| /dev/mmcblkXp2 || root partition || available space
+|}
+
+{{Important|The letter “X” in the following commands needs to be replaced with the number corresponding to the internal eMMC storage.}}
+
+{{Warning|This will delete all data on {{Path|/dev/mmcblkX}}. Doublecheck e.g. with {{c|lsblk}} as on Google's 3.14 kernel, the eMMC storage is presented as mmcblk0, and the SD is presented as mmcblk2. On newer kernels, this can be reversed, with internal storage being mmcblk2.}}
+
+{{RootCmd
+|parted /dev/mmcblkX mklabel gpt
+|parted -a optimal /dev/mmcblkX unit mib mkpart Kernel 1 65
+|parted -a optimal /dev/mmcblkX unit mib mkpart root 65 100%
+}}
+
+{{Important|If applicable, [[Dm-crypt_full_disk_encryption|encrypt]] the root partition now. This makes an [[Asus_Chromebook_C201#Optional:_Creating_a_Custom_Initramfs|initramfs]] mandatory.}}
+
+Finish the preparation of the partitions by creating a filesystem on the root partition. Replace {{c|ROOTFS_TYPE}} with any suitable filesystem type, e.g. {{c|ext4}} or {{c|btrfs}}.
+
+{{RootCmd
+|mkfs.ROOTFS_TYPE /dev/mmcblkXp2
+}}
+
+Depthcharge, the chromebooks’ bootloader, requires some specific parameters to be set. These signal the bootloader the presence of a valid kernel partition:
+
+{{RootCmd
+|cgpt add -i 1 -t kernel -l Kernel -S 1 -T 5 -P 15 /dev/mmcblkX
+}}
+
+Mount the root partition:
+
+{{RootCmd
+|mkdir /mnt/gentoo
+|mount /dev/mmcblkXp2 /mnt/gentoo
+}}
+
+== Installing the Gentoo installation files ==
+
+Choose an {{c|ARMv7a{{!}}HardFP}} stage3 from the main website's [https://www.gentoo.org/downloads/#other-arches download section] or consider going for an {{c|armv7a_hardfp-musl}} stage3 from the [[Project:Hardened_musl#Goals|Hardened musl]] project.
+Follow [[Handbook:AMD64/Installation/Stage|Installing the Gentoo installation files]] from the Handbook.
+
+== Installing the Gentoo base system ==
+Skip "Mounting the boot partition", apart from that follow the Handbook for [[Handbook:AMD64/Installation/Base|Installing the Gentoo base system]].
+
+== Configuring the Linux kernel ==
+
+Install the tools required for deploying the kernel ({{Package|dev-embedded/u-boot-tools}}, {{Package|sys-apps/dtc}} and {{Package|sys-boot/vboot-utils}}):
+
+{{RootCmd
+|emerge --ask dev-embedded/u-boot-tools sys-apps/dtc sys-boot/vboot-utils
+}}
+
+Configure {{Package|sys-kernel/gentoo-sources}} as usual, cf. [[Handbook:AMD64/Installation/Kernel|Configuring the Linux kernel]]. Alternatively refer to the [https://github.com/Miouyouyou/RockMyy RockMyy repository] to include Mali GPU drivers.
+
+=== Building the kernel and device tree binaries ===
+
+{{Cmd
+|make -j5 zImage dtbs modules
+}}
+
+From the kernel build directory, copy the zImage and the target device's device tree binary to the desired working directory. Replace {{c|DTBINARY}} with the filename of the target device's device tree binary, e.g. {{c|rk3288-veyron-speedy.dtb}} for the Asus Chromebook C201 (which is based on Rockchip's RK3288 SoC and a board with the codename "Veyron Speedy").
+
+{{Cmd
+|cp -a arch/arm/boot/zImage /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+|cp -a arch/arm/boot/dts/DTBINARY /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+}}
+
+=== Optional: Creating a custom initramfs ===
+
+Follow instructions from the [[Custom Initramfs]] article.
+Embed the initramfs into the kernel or create it as a separate file (cf. [[Custom_Initramfs#Creating_a_separate_file|Custom Initramfs - Creating a separate file]]):
+{{Cmd
+|<nowiki>find /PATH/TO/INITRAMFS/ -print0 | cpio --null --create --verbose --format=newc | gzip --best > /PATH/TO/ARBITRARY_WORKING_DIRECTORY/initrd.img</nowiki>
+}}
+
+=== Creating the FIT image ===
+
+Change to the directory where the kernel, the device tree binary and (optionally) the initramfs are located:
+
+{{Cmd
+|cd /PATH/TO/ARBITRARY_WORKING_DIRECTORY
+}}
+
+Create the configuration file ("{{Path|gentoo.its}}") for the Flattened Image Tree (FIT)<ref>Joel A Fernandes, [https://elinux.org/images/f/f4/Elc2013_Fernandes.pdf Flattened Image Trees: A powerful kernel image format (PDF)], [https://elinux.org/Main_Page Embedded Linux Wiki], February 21, 2013. Retrieved on February 25th, 2019</ref> with the following content<ref>[https://wiki.debian.org/InstallingDebianOn/Asus/C201 Installing Debian On ASUS C201], [https://wiki.debian.org/InstallingDebianOn DebianOn]. Retrieved on February 26th, 2019</ref>. Again replace {{c|DTBINARY}} with the filename of the target device's device tree binary, e.g. {{c|rk3288-veyron-speedy.dtb}} for the Asus Chromebook C201.
+
+{{Important|If there is no need for an initramfs or it's embedded into the kernel, make sure to create the FIT configuration file without the {{c|ramdisk@1}} section and the following reference to that section.}}
+
+{{FileBox|filename=gentoo.its|lang=bash|1=
+/dts-v1/;
+
+/ {
+    description = "Linux kernel image with one or more FDT blobs";
+    #address-cells = <1>;
+    images {
+        kernel@1{
+            description = "vmlinuz";
+            data = /incbin/("zImage");
+            type = "kernel_noload";
+            arch = "arm";
+            os = "linux";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+        fdt@1{
+            description = "dtb";
+            data = /incbin/("DTBINARY");
+            type = "flat_dt";
+            arch = "arm";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+        ramdisk@1{
+            description = "initrd.img";
+            data = /incbin/("initrd.img");
+            type = "ramdisk";
+            arch = "arm";
+            os = "linux";
+            compression = "none";
+            hash@1{
+                algo = "sha1";
+            };
+        };
+    };
+    configurations {
+        default = "conf@1";
+        conf@1{
+            kernel = "kernel@1";
+            fdt = "fdt@1";
+            ramdisk = "ramdisk@1";
+        };
+    };
+};
+}}
+
+Pack the FIT image:
+
+{{Cmd
+|sync
+|mkimage -f gentoo.its gentoo.itb
+}}
+
+=== Preparing verified boot ===
+
+Create a file ("kernel.flags") for the CMDLINE parameters. Replace {{c|ROOTFS_TYPE}} with the root partition's filesystem type, e.g. {{c|ext4}} or {{c|btrfs}}.
+
+{{FileBox|filename=kernel.flags|lang=bash|1=
+console=tty1 root=/dev/mmcblkXp2 rootfstype=ROOTFS_TYPE  rootwait rw
+}}
+
+Sign and pack the kernel:
+
+{{Cmd
+|sync
+|futility --debug vbutil_kernel --arch arm --version 1 --keyblock /usr/share/vboot/devkeys/kernel.keyblock --signprivate /usr/share/vboot/devkeys/kernel_data_key.vbprivk --bootloader kernel.flags --config kernel.flags --vmlinuz gentoo.itb --pack vmlinuz.signed
+}}
+
+=== Installing the kernel ===
+
+Install the modules, keeping them small to save some space:
+{{RootCmd
+|make INSTALL_MOD_STRIP{{=}}1 modules_install
+}}
+
+{{Important|The letter “X” in the following command needs to be replaced with the number corresponding to the internal eMMC storage.}}
+
+Install the kernel image to the kernel partition:
+
+{{RootCmd
+|sync && dd if{{=}}vmlinuz.signed of{{=}}/dev/mmcblkXp1
+}}
+
+== Configuring the system ==
+
+Consult the Handbook again for [[Handbook:AMD64/Installation/System|Configuring the system]].
+
+== Installing system tools ==
+
+Stick with the Handbook: [[Handbook:AMD64/Installation/Tools|Installing system tools]] 
+
+{{Important|Skip the chapter '''Configuring the bootloader''' ([[Handbook:AMD64/Installation/Bootloader|this]] one) in the Handbook, as the bootloader (depthcharge) is part of the C201's system firmware.}}
+
+== Finalizing ==
+
+[[Handbook:AMD64/Installation/Finalizing|Finalize]] the new Gentoo installation according to the handbook. To use wifi remember to install {{Package|net-wireless/wpa_supplicant}}:
+
+{{RootCmd
+|emerge –ask net-wireless/wpa-supplicant
+}}
+
+Also keep in mind that the built-in wifi requires [[Asus_Chromebook_C201#Built-in_wifi|proprietary firmware]].
+
+== References ==
