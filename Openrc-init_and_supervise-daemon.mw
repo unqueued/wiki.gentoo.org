@@ -14,7 +14,7 @@ Openrc has developed itself and has gained some new features. In this article tw
 
 == Openrc-init ==
 Replacing sysvinit with openrc-init takes a few steps. The description that follows refers to grub.
-* Pass init=/sbin/openrc-init on the kernel's commandline. Update {{Path|/etc/default/grub}} as follows: {{FileBox|filename=/etc/default/grub|lang=ini|1=
+* Pass <code>init=/sbin/openrc-init</code> on the kernel's commandline. Update {{Path|/etc/default/grub}} as follows: {{FileBox|filename=/etc/default/grub|lang=ini|1=
 #GRUB_CMDLINE_LINUX_DEFAULT=""
 GRUB_CMDLINE_LINUX_DEFAULT="init=/sbin/openrc-init" }} 
 * Regenerate {{Path|/boot/grub/grub.cfg}}: {{RootCmd
@@ -26,9 +26,9 @@ GRUB_CMDLINE_LINUX_DEFAULT="init=/sbin/openrc-init" }}
 Be aware that commands like {{c|reboot}}, and {{c|shutdown}} are no longer working under openrc-init. Use {{c|openrc-shupdown -r now}}, or {{c|openrc-shutdown now}} instead.
 
 == Supervise-daemon ==
-Openrc traditionally uses {{c|start-stop-daemon}}, often called ''s-s-d'' for starting, and stopping programs. When s-s-d starts a process it saves the process' PID somewhere on permanent storage, and backgrounds (daemonizes) the process it started. When the time comes to stop, kill, or signal the daemon it uses the saved PID file to find the right process.
+Openrc traditionally uses {{c|start-stop-daemon}}, often called ''s-s-d'' for starting, and stopping programs. When s-s-d starts a process it saves the process' PID somewhere on permanent storage (typcally under {{Path|/run/}}), and backgrounds (daemonizes) the process it started. When the time comes to stop, kill, or signal the daemon it uses the saved PID file to find the right process.
 
-Supervising on the other hand usually keeps the started daemon as a child process of the supervisor. Backgrounding the daemon is therefore not needed, and not desired. An advantage of supervising a daemon is also that any terminal output sent to stdout and stderr can be caught by the supervisor, and sent to the system logger or to a file.
+Supervising on the other hand usually keeps the started daemon as a child process of the supervisor. Backgrounding the daemon is therefore not needed, and not desired. An advantage of supervising a daemon is also that any terminal output sent to stdout and stderr can be caught by the supervisor, and sent to the system logger or to a file. Pidfiles are not needed because the supervisor process remembers the pid.
 
 Bringing a service under supervision theoretically should be as easy as adding <code>supervisor="supervisor-daemon"</code> to its conf file in {{Path|/etc/conf.d}}. It turns out to be a little more complex in some cases.
 
@@ -60,7 +60,7 @@ root      2870  0.0  0.2   4732  2584 tty6     Ss+  Jun08   0:00 /sbin/agetty tt
 </pre>}}
 
 === acpid ===
-Reviewing the man page of {{c|acppid}} reveals:
+Reviewing the man page of {{c|acpid}} reveals:
 * ''.. will run as  background process ..''
 * ''.. -f, --foreground .. keeps acpid in the foreground by not forking at startup, and makes it log to stderr instead of syslog.''
 
@@ -115,7 +115,7 @@ Edit or create {{Path|/etc/conf.d/avahi-daemon}} as follows:
 supervisor="supervise-daemon"
 }}
 
-Avahi-daemon's init file {{Path|/etc/init.d/avahi-daemon}} does not make use s-s-d, but calls the binary {{Path|/usr/sbin/avahi-daemon}} directly and gives it the instruction to daemonize: <code>/usr/sbin/avahi-daemon -D</code> on startup. We can simply adjust that by defining the command variable as <code>command="/usr/sbin/avahi-daemon"</code>, and removing the start and stop functions from the file. 
+Avahi-daemon's init file {{Path|/etc/init.d/avahi-daemon}} does not make use of s-s-d, but calls the binary {{Path|/usr/sbin/avahi-daemon}} directly and gives it the instruction to daemonize: <code>/usr/sbin/avahi-daemon -D</code> on startup. This can be simply adjusted by defining the command variable as <code>command="/usr/sbin/avahi-daemon"</code>, and removing the start and stop functions from the file. 
 Edit {{Path|/etc/init.d/avahi-daemon}} as follows:
 {{CodeBox|title=/etc/init.d/avahi-daemon|lang=bash|1=
 #!/sbin/openrc-run
@@ -199,7 +199,9 @@ FCRON_OPTS="--foreground"
 supervisor="supervise-daemon"
 }}
 
-Fcron's init file has an few references to s-s-d, defines command_args so that we cannot adjust it in  {{Path|/etc/conf.d/fcron}}, and has a pidfile instruction that needs to be removed. The init file also does not honor any configuration option setting in the conf file. Edit {{Path|/etc/init.d/fcron}} as follows:
+Fcron's init file has an few references to s-s-d, defines command_args so that we cannot adjust it in  {{Path|/etc/conf.d/fcron}}, and it also has a pidfile instruction that needs to be removed. Last issue is that the init file does not honor any configuration option setting in the conf file. 
+
+Fix it by editting {{Path|/etc/init.d/fcron}} as follows:
 {{CodeBox|filename=/etc/init.d/fcron|lang=bash|1=
 #command_args="-c \"${FCRON_CONFIGFILE}\""
 command_args="-c \"${FCRON_CONFIGFILE}\" ${FCRON_OPTS}"
@@ -213,7 +215,7 @@ fcron                  | * Caching service dependencies ...                     
 fcron                  | * Starting fcron ...                                             [ ok ]
 </pre>}}
 
-And look that pids to confirm that fcron is now under supervisor-daemon:
+And look at the pids to confirm that fcron is now under supervisor-daemon:
 {{RootCmd |ps -ef {{!}} grep fcron |output=<pre>
 root     10097     1  0 16:30 ?        00:00:00 supervise-daemon fcron --start /usr/libexec/fcron -- -c /etc/fcron/fcron.conf --foreground
 root     10098 10097  0 16:30 ?        00:00:00 /usr/libexec/fcron -c /etc/fcron/fcron.conf --foreground
