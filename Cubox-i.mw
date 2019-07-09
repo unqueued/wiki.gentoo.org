@@ -143,6 +143,10 @@ Connecting to the serial console requires an application such as {{Package|app-m
 
 === Preparing the SD card ===
 
+==== Creating the partitions ====
+
+A single partition scheme can be used with mainline U-Boot when using an ext2/3/4 formatted root partition. However when using a Btrfs formatted root partition (or other unsupported filesystem), an ext2/3/4 or FAT32 formatted boot partition is required.
+
 {| class="table table-condensed table-striped"
 |-
 ! Partition
@@ -150,59 +154,93 @@ Connecting to the serial console requires an application such as {{Package|app-m
 ! Size
 ! Description
 |-
-| {{Path|/dev/mmcblk0p1}}
+| {{Path|/dev/mmcblk1p1}}
 | ext2
 | 100 MB
 | Boot partition
 |-
-| {{Path|/dev/mmcblk0p2}}
+| {{Path|/dev/mmcblk1p2}}
 | ext4
 | Rest of SD card
 | Root partition
 |}
 
-{{Note|With kernel 4.9.x or later use {{Path|/dev/mmcblk1}} instead of {{Path|/dev/mmcblk0}} (i.e. {{Path|/dev/mmcblk1p1}} will be the first partition on the SD card). The device names have changed to to accommodate another potential SD card.}}
+{{Note|With Linux 4.8.x or earlier use {{Path|/dev/mmcblk0}} instead of {{Path|/dev/mmcblk1}} (i.e. {{Path|/dev/mmcblk0p1}} will be the first partition on the SD card). The device names have changed to to accommodate boards such as the HummingBoard which have an eMMC.}}
 
-A single partition scheme can be used with mainline U-Boot when using an ext2/3/4 formatted root partition. However when using a Btrfs formatted root partition (or other unsupported filesystem), an ext2/3/4 or FAT32 formatted boot partition is required.
+{{Note|If a USB SD card reader is used the device names will be {{Path|/dev/sdX1}} and {{Path|/dev/sdX2}} respectively, where <code>X</code> represents the USB SD card reader.}}
 
-==== Extract stage 3 ====
+==== Creating filesystems ====
+
+Create the filesystems on the boot and root partitions:
+
+{{RootCmd
+|mkfs.ext2 /dev/mmcblk1p1
+|mkfs.ext4 /dev/mmcblk1p2
+}}
+
+{{Note|When using ext2, ext3, or ext4 on a small partition (less than 8 GB), then the filesystem must be created with <code>-T small</code> to reserve enough [[Wikipedia:Inodes|inodes]].}}
+
+==== Mounting the partitions ====
+
+Mount the boot and root partitions:
+
+{{RootCmd
+|mkdir /mnt/cubox
+|mount /dev/mmcblk1p2 /mnt/cubox
+|mkdir /mnt/cubox/boot
+|mount /dev/mmcblk1p1 /mnt/cubox/boot
+}}
+
+==== Unpacking the stage tarball ====
+
+Go to the mount point where the root filesystem is mounted:
+
+{{RootCmd|cd /mnt/cubox}}
 
 Get the latest [http://distfiles.gentoo.org/releases/arm/autobuilds/current-stage3-armv7a_hardfp/ stage 3] and extract it to the root partition:
 
-{{RootCmd
-|cd /mnt/sdcard-root
-|tar xvjpf /path/to/download/stage3-*.tar.bz2
+{{RootCmd|tar xpvf stage3-*.tar.bz2 --xattrs-include{{=}}'*.*' --numeric-owner}}
+
+==== Creating the fstab file ====
+
+Add the following entries to the fstab file:
+
+{{FileBox|filename=/mnt/cubox/etc/fstab|lang=text|1=
+/dev/mmcblk1p1          /boot           ext2            noauto,noatime  1 2
+/dev/mmcblk1p2          /               ext4            noatime         0 1
 }}
 
-==== Edit /etc/fstab ====
+==== Setting a default root password ====
 
-Edit on the root partition on the SD card {{Path|/etc/fstab}}:
+To be able to login after booting, set a default {{c|root}} password by creating a password hash and adding it to the shadow file:
 
-{{FileBox|filename=/etc/fstab|lang=text|1=
-/dev/mmcblk0p1          /boot           ext2            noauto,noatime  1 2
-/dev/mmcblk0p2          /               ext4            noatime         0 1
+{{RootCmd|openssl passwd -1|output=<pre>
+Password:
+Verifying - Password:
+$1$AK6NWKtp$U8EMq/wAGx0PT1vLOf9/u0
+</pre>}}
 
-#/dev/SWAP              none            swap            sw              0 0
-#/dev/cdrom             /mnt/cdrom      auto            noauto,ro       0 0
-#/dev/fd0               /mnt/floppy     auto            noauto          0 0
+In this example the password hash corresponds to the password "cubox".
+
+The default shadow entry for the {{c|root}} user will look like:
+
+{{FileBox|filename=/mnt/cubox/etc/shadow|1=
+root:*:10770:0:::::
 }}
 
-==== Set the root password ====
+Replace the <code>*</code> with the password hash from the {{c|openssl}} command above:
 
-To be able to login later we need to set a root password, we create password hash and edit it to the {{Path|/etc/shadow}}.
-
-{{RootCmd
-|openssl passwd -1
-|nano -w /mnt/sdcard-root/etc/shadow
+{{FileBox|filename=/mnt/cubox/etc/shadow|1=
+root:$1$AK6NWKtp$U8EMq/wAGx0PT1vLOf9/u0:10770:0:::::
 }}
 
-Replace the star or current hash of the root user with the output from the command above.
+{{Note|After booting the {{c|root}} password should be set again using {{c|passwd}} to create a secure SHA512 password hash. For more information, please refer to the [[Setting_a_default_root_password|Setting a default root password]] article.}}
 
-==== Enable the serial console ====
+==== Enabling the serial console ====
 
 To have a serial console available after booting, change the <code>s0</code> line to the following:
 
-{{FileBox|filename=/mnt/sdcard-root/etc/inittab|lang=text|1=
+{{FileBox|filename=/mnt/cubox/etc/inittab|1=
 s0:12345:respawn:/sbin/agetty -L 115200 ttymxc0 vt100
 }}
 
