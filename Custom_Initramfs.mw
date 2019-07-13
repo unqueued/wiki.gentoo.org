@@ -2,17 +2,15 @@
 
 ''initramfs'' is a root filesystem that is embedded into the kernel and loaded at an early stage of the boot process. It is [[Article description::the successor of ''initrd''. It provides early userspace which can do things the kernel can't easily do by itself during the boot process.]]
 
-Using ''initramfs'' is optional. By default, the kernel initializes hardware using built-in drivers, mounts the specified root partition, loads the [[init system]] of the installed Linux distribution. The init system then loads additional modules and starts services until it eventually allows you to log in. This is a good default behavior and sufficient for many users. ''initramfs'' is for users with advanced requirements; for users who need to do things as early as possible, even before the root partition is mounted.
+Using ''initramfs'' is optional. By default, the kernel initializes hardware using built-in drivers, mounts the specified root partition, loads the [[init system]] of the installed Linux distribution. The init system then loads additional modules and starts services until it eventually presents a log in dialog. This is a good default behavior and sufficient for many users. ''initramfs'' is for users with advanced requirements; for users who need to do things as early as possible, even before the root partition is mounted.
 
-Here are some examples of what you can do with ''initramfs'':
+Typically, an ''initramfs'' is not needed, but may be necessary for:
 
-* Mount the root partition (for encrypted, logical, and otherwise special partitions);
-* Provide a minimalistic rescue shell (if something goes wrong);
-* Customize the boot process (e.g. print a welcome message, boot splash, etc.);
-* Load modules (e.g. third party drivers);
-* Anything the kernel can't do (as long as you can do it in user space, e.g. by executing commands).
-
-If you don't have advanced requirements, you don't need ''initramfs''.
+* Mounting an encrypted, logical, or otherwise special root partition
+* Providing a minimalistic rescue shell (if something goes wrong)
+* Customize the boot process (e.g., print a welcome message)
+* Load modules necessary to boot (e.g., third party storage drivers)
+* Anything the kernel can't do that's usually handled in user space
 
 == Prerequisites ==
 
@@ -31,8 +29,7 @@ In this section you will learn the ''easy and straightforward way to initramfs c
 Create a basic ''initramfs'' directory structure that will later become your ''initramfs'' root. For consistency, we'll work in {{Path|/usr/src/initramfs}}, but any location would do. If you choose another location, please adapt accordingly.
 
 {{RootCmd
-|mkdir --parents /usr/src/initramfs/{bin,dev,etc,lib,lib64,mnt/root,proc,root,sbin,sys}
-}}
+|mkdir --parents /usr/src/initramfs/{bin,dev,etc,lib,lib64,mnt/root,proc,root,sbin,sys} }}
 
 ==== Device nodes ====
 
@@ -44,14 +41,12 @@ Which devices you need exactly depends entirely on what you are going to use ''i
 
 {{Note|More advanced approaches to device nodes are covered in the [[#Dynamic_devices|Dynamic devices]] section.}}
 
-=== Applications ===
-Any binary you want to execute at boot needs to be copied into your ''initramfs'' layout. You also need to copy any libraries that your binaries require. To see what libraries any particular binary requires, use the {{c|ldd}} tool. For example, the {{Package|dev-util/strace}} binary requires:
+=== Applications === Any binary you want to execute at boot needs to be copied into your ''initramfs'' layout. You also need to copy any libraries that your binaries require. To see what libraries any particular binary requires, use the {{c|ldd}} tool. For example, the {{Package|dev-util/strace}} binary requires:
 
 {{Cmd|ldd /usr/bin/strace|output=<pre>
     linux-vdso.so.1 (0x00007fff271ff000)
     libc.so.6 => /lib64/libc.so.6 (0x00007f5b954fe000)
-    /lib64/ld-linux-x86-64.so.2 (0x00007f5b958a9000)
-</pre>}}
+    /lib64/ld-linux-x86-64.so.2 (0x00007f5b958a9000) </pre>}}
 
 Here you see that for {{Path|/usr/bin/strace}} to work in your ''initramfs'', you not only need to copy {{Path|/usr/bin/strace}} to your {{Path|/usr/src/initramfs/bin}}, but also {{Path|/lib64/libc.so.6}} and {{Path|/lib64/ld-linux-x86-64.so.2}} to your {{Path|/usr/src/initramfs/lib64}}. The exception is {{Path|linux-vdso.so.1}} which is provided by the kernel.
 
@@ -63,8 +58,7 @@ Instead of collecting countless utilities and libraries (and never seeing the en
 
 {{RootCmd
 |USE{{=}}"static" emerge --ask --verbose sys-apps/busybox
-|cp --archive /bin/busybox /usr/src/initramfs/bin/busybox
-}}
+|cp --archive /bin/busybox /usr/src/initramfs/bin/busybox }}
 
 {{Note|Use {{c|ldd}} to verify that the binary is static.}}
 
@@ -77,23 +71,15 @@ The following example shows a minimalistic shell script, based on the {{c|busybo
 {{FileBox|filename=/usr/src/initramfs/init|title=minimalistic /init example|lang=bash|1=
 #!/bin/busybox sh
 
-# Mount the /proc and /sys filesystems.
-mount -t proc none /proc
-mount -t sysfs none /sys
+# Mount the /proc and /sys filesystems. mount -t proc none /proc mount -t sysfs none /sys
 
-# Do your stuff here.
-echo "This script just mounts and boots the rootfs, nothing else!"
+# Do your stuff here. echo "This script just mounts and boots the rootfs, nothing else!"
 
-# Mount the root filesystem.
-mount -o ro /dev/sda1 /mnt/root
+# Mount the root filesystem. mount -o ro /dev/sda1 /mnt/root
 
-# Clean up.
-umount /proc
-umount /sys
+# Clean up. umount /proc umount /sys
 
-# Boot the real thing.
-exec switch_root /mnt/root /sbin/init
-}}
+# Boot the real thing. exec switch_root /mnt/root /sbin/init }}
 
 This example needs some device nodes to work, mainly the root block device. Change the script and copy the corresponding {{Path|/dev/}} node to fit your needs.
 
@@ -109,10 +95,8 @@ Your ''initramfs'' now has to be made available to the kernel at boot time. This
 
 With either method, you need to enable Initial RAM filesystem and RAM disk (initramfs/initrd) support.
 
-{{KernelBox|title=CONFIG_BLK_DEV_INITRD{{=}}y|1=
-General setup  --->
-    [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support
-}}
+{{KernelBox|title=CONFIG_BLK_DEV_INITRD{{=}}y|1= General setup --->
+    [*] Initial RAM filesystem and RAM disk (initramfs/initrd) support }}
 
 {{Warning|Also enable all drivers, filesystems, compression methods and other settings that are required for booting and accessing your root partition. If you select such drivers as modules, you'll have to collect and integrate the module files into your ''initramfs'' and load them in your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}. Generally this means ''a lot'' of unnecessary extra work, so just use built-in drivers for now.}}
 
@@ -120,10 +104,8 @@ General setup  --->
 
 If you want the ''initramfs'' to be embedded into the kernel image, set ''Initramfs source file(s)'' to the root of your ''initramfs'', (e.g. {{Path|/usr/src/initramfs}}):
 
-{{KernelBox|title=CONFIG_INITRAMFS_SOURCE{{=}}"/usr/src/initramfs"|1=
-General setup  --->
-    (/usr/src/initramfs) Initramfs source file(s)
-}}
+{{KernelBox|title=CONFIG_INITRAMFS_SOURCE{{=}}"/usr/src/initramfs"|1= General setup --->
+    (/usr/src/initramfs) Initramfs source file(s) }}
 
 Now when you compile your kernel it will automatically put the files into a cpio archive and embed it into the kernel image. You will need to rebuild your kernel any time you make any changes to your ''initramfs''.
 
@@ -131,16 +113,14 @@ Now when you compile your kernel it will automatically put the files into a cpio
 
 If you want to use a standalone archive file, you need to adjust the kernel settings accordingly:
 
-{{KernelBox|title=Support inital ramdisk/ramfs compressed using <compression_method>|1=
-General setup  --->
+{{KernelBox|title=Support inital ramdisk/ramfs compressed using <compression_method>|1= General setup --->
     () Initramfs source file(s)
-    [*]   Support initial ramdisk/ramfs compressed using gzip 
-    []   Support initial ramdisk/ramfs compressed using bzip2
-    []   Support initial ramdisk/ramfs compressed using LZMA 
-    []   Support initial ramdisk/ramfs compressed using XZ   
-    []   Support initial ramdisk/ramfs compressed using LZO  
-    []   Support initial ramdisk/ramfs compressed using LZ4  
-}}
+    [*] Support initial ramdisk/ramfs compressed using gzip
+    [] Support initial ramdisk/ramfs compressed using bzip2
+    [] Support initial ramdisk/ramfs compressed using LZMA
+    [] Support initial ramdisk/ramfs compressed using XZ
+    [] Support initial ramdisk/ramfs compressed using LZO
+    [] Support initial ramdisk/ramfs compressed using LZ4 }}
 
 For this example {{c|gzip}} is sufficient.
 
@@ -150,8 +130,7 @@ You can create a standalone archive file by running the following commands:
 
 {{RootCmd
 |cd /usr/src/initramfs
-|find . -print0 {{!}} cpio --null --create --verbose --format{{=}}newc {{!}} gzip --best > /boot/custom-initramfs.cpio.gz
-}}
+|find . -print0 {{!}} cpio --null --create --verbose --format{{=}}newc {{!}} gzip --best > /boot/custom-initramfs.cpio.gz }}
 
 This will create a file called {{Path|custom-initramfs.cpio.gz}} in your {{Path|/boot}}. You now need to instruct your bootloader to load this file along with the kernel.
 
@@ -159,48 +138,29 @@ This will create a file called {{Path|custom-initramfs.cpio.gz}} in your {{Path|
 
 In case of GRUB, you do this with the '''initrd''' line:
 
-{{FileBox|filename=/boot/grub/grub.cfg|title=GRUB2 initrd example|1=
-linux 3.12.6-gentoo
-initrd custom-initramfs.cpio.gz
-}}
+{{FileBox|filename=/boot/grub/grub.cfg|title=GRUB2 initrd example|1= linux 3.12.6-gentoo initrd custom-initramfs.cpio.gz }}
 
 {{Warning|If you are unfamiliar with bootloader configuration, please refer to [[GRUB2]] or [[GRUB]].}}
 
 In order to make this usable with {{c|grub-mkconfig}}, the filename {{Path|custom-initramfs.cpio.gz}} must be included in the GRUB helper scripts:
 
-{{FileBox|filename=/etc/grub.d/10_linux|title=grub-mkconfig helper script|1=
-[...]
-initrd_real=
-for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" "custom-initramfs.cpio.gz" \
-     "initrd-${version}" "initramfs-${version}.img" \
-[...]
-}}
+{{FileBox|filename=/etc/grub.d/10_linux|title=grub-mkconfig helper script|1= [...] initrd_real= for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" "custom-initramfs.cpio.gz" \
+     "initrd-${version}" "initramfs-${version}.img" \ [...] }}
 
-{{FileBox|filename=/etc/grub.d/10_linux_xen|title=grub-mkconfig helper script|1=
-[...]
-initrd=
-for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" "custom-initramfs.cpio.gz" \
-   "initrd-${version}" "initramfs-${version}.img" \
-[...]
-}}
+{{FileBox|filename=/etc/grub.d/10_linux_xen|title=grub-mkconfig helper script|1= [...] initrd= for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" "custom-initramfs.cpio.gz" \
+   "initrd-${version}" "initramfs-${version}.img" \ [...] }}
 
 {{Note|It is also possible to use the variable <var>${version}</var> for the filename in the helper script. This means that the file itself has to be renamed as well. The variable content corresponds to the output of {{c|uname --kernel-release}}.}}
 
 After applying the changes, the file will be recognized running {{c|grub-mkconfig}}; the output may look like the following:
 
-{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg|output=
-<pre>
-Generating grub configuration file ...
-Found linux image: /boot/vmlinuz-4.14.83-gentoo
-Found initrd image: /boot/custom-initramfs.cpio.gz
-done
-</pre>}}
+{{RootCmd|grub-mkconfig -o /boot/grub/grub.cfg|output= <pre> Generating grub configuration file ... Found linux image: /boot/vmlinuz-4.14.83-gentoo Found initrd image: /boot/custom-initramfs.cpio.gz done </pre>}}
 
 ===== Using EFI stub kernel =====
 
 See [[EFI_stub_kernel#Optional:_Initramfs]]
 
-==== External file list ==== 
+==== External file list ====
 
 An external file list, or cpio list, describes files to be included into the ''initramfs''. This file list is processed by an utility that comes with the Linux kernel, {{c|usr/gen_init_cpio}}. It can be used for both embedded and standalone ''initramfs'', either by using it as {{c|INITRAMFS_SOURCE}} directly or by running the utility from a shell. This lets you build the ''initramfs'' dynamically, always using the latest files from your system, but compared to populating a real directory {{Path|/usr/src/initramfs}}, it is less intuitive and requires more knowledge in regards to ''device nodes'' and such. The command {{c|file}} will prove as very useful to get information from special ''block'' or ''character'' devices.
 
@@ -209,10 +169,7 @@ An external file list, or cpio list, describes files to be included into the ''i
 A minimalistic list may look like so:
 
 {{FileBox|filename=/usr/src/initramfs.list|title=cpio list example|1=
-# Custom Initramfs minimal example
-dir /dev 0755 0 0
-file /init /usr/src/initramfs/init 0755 0 0
-}}
+# Custom Initramfs minimal example dir /dev 0755 0 0 file /init /usr/src/initramfs/init 0755 0 0 }}
 
 Create the cpio archive, compress it and move it to {{Path|/boot}}:
 
@@ -220,34 +177,27 @@ Create the cpio archive, compress it and move it to {{Path|/boot}}:
 | cd /usr/src/linux
 | usr/gen_init_cpio ../initramfs.list > ../initramfs.cpio
 | gzip --best ../initramfs.cpio
-| mv ../initramfs.cpio.gz /boot
-}}
+| mv ../initramfs.cpio.gz /boot }}
 
 After that update the entries of your bootloader!
 
 Instead of creating the list manually, there is the possibility to let the cpio list and archive be generated and compressed by two tools, which are provided by the kernel source files. It might be needed to compile these first; this is documented [[Early Userspace Mounting#Requirements|here]].
 
-{{RootInvocation|/usr/src/linux/scripts/gen_initramfs_list.sh -h|output=<pre>
-Usage:
-scripts/gen_initramfs_list.sh [-o <file>] [-u <uid>] [-g <gid>] {-d | <cpio_source>} ...
-        -o <file>      Create compressed initramfs file named <file> using
+{{RootInvocation|/usr/src/linux/scripts/gen_initramfs_list.sh -h|output=<pre> Usage: scripts/gen_initramfs_list.sh [-o <file>] [-u <uid>] [-g <gid>] {-d | <cpio_source>} ...
+        -o <file> Create compressed initramfs file named <file> using
                        gen_init_cpio and compressor depending on the extension
-        -u <uid>       User ID to map to user ID 0 (root).
+        -u <uid> User ID to map to user ID 0 (root).
                        <uid> is only meaningful if <cpio_source> is a
-                       directory.  "squash" forces all files to uid 0.
-        -g <gid>       Group ID to map to group ID 0 (root).
+                       directory. "squash" forces all files to uid 0.
+        -g <gid> Group ID to map to group ID 0 (root).
                        <gid> is only meaningful if <cpio_source> is a
-                       directory.  "squash" forces all files to gid 0.
-        <cpio_source>  File list or directory for cpio archive.
+                       directory. "squash" forces all files to gid 0.
+        <cpio_source> File list or directory for cpio archive.
                        If <cpio_source> is a .cpio file it will be used
                        as direct input to initramfs.
-        -d             Output the default cpio list.
+        -d Output the default cpio list.
 
-All options except -o and -l may be repeated and are interpreted
-sequentially and immediately.  -u and -g states are preserved across
-<cpio_source> options so an explicit "-u 0 -g 0" is required
-to reset the root/group mapping.
-</pre>}}
+All options except -o and -l may be repeated and are interpreted sequentially and immediately. -u and -g states are preserved across <cpio_source> options so an explicit "-u 0 -g 0" is required to reset the root/group mapping. </pre>}}
 
 Using the before created directory structure in {{Path|/usr/src/initramfs}} it may be executed like the following:
 
@@ -256,14 +206,7 @@ Using the before created directory structure in {{Path|/usr/src/initramfs}} it m
 |scripts/gen_initramfs_list.sh -o ../custom-initramfs.cpio.gz /usr/src/initramfs
 |ls -l ..
 |collapse-output=true
-|output=<pre>
-total 1656
--rw-r--r--  1 root root 1675784 Dec  9 03:12 custom-initramfs.cpio.gz
-drwxr-xr-x 12 root root    4096 Dec  9 00:16 initramfs
-lrwxrwxrwx  1 root root      20 Nov 23 19:12 linux -> linux-4.14.83-gentoo
-drwxr-xr-x 26 root root    4096 Dec  9 00:58 linux-4.14.83-gentoo
--rw-r--r--  1 root root    4830 Dec  9 01:07 README
-</pre>}}
+|output=<pre> total 1656 -rw-r--r-- 1 root root 1675784 Dec 9 03:12 custom-initramfs.cpio.gz drwxr-xr-x 12 root root 4096 Dec 9 00:16 initramfs lrwxrwxrwx 1 root root 20 Nov 23 19:12 linux -> linux-4.14.83-gentoo drwxr-xr-x 26 root root 4096 Dec 9 00:58 linux-4.14.83-gentoo -rw-r--r-- 1 root root 4830 Dec 9 01:07 README </pre>}}
 
 The script creates a cpio list by analyzing all directories and files within {{Path|/usr/src/initramfs}}. It then executes {{Path|usr/gen_init_cpio}} to generate the cpio archive file and finally compresses it using {{c|gzip}}; according to the filename suffix. The directory has to be changed before, since the shell script uses a relative path to {{Path|gen_init_cpio}}.
 
@@ -278,39 +221,14 @@ In order to comprehend, all steps can be done manually:
 # /usr/src/initramfs
 # Last modified: 1544312413.9519881540
 
-dir /bin 755 0 0
-file /bin/busybox /usr/src/initramfs/bin/busybox 755 0 0
-dir /dev 755 0 0
-nod /dev/console 600 0 0 c 5 1
-nod /dev/null 666 0 0 c 1 3
-nod /dev/sda1 660 0 6 b 8 1
-nod /dev/tty 666 0 5 c 5 0
-dir /etc 755 0 0
-file /init /usr/src/initramfs/init 744 0 0
-dir /lib64 755 0 0
-dir /lib 755 0 0
-dir /mnt 755 0 0
-dir /mnt/root 755 0 0
-dir /proc 755 0 0
-dir /root 700 0 0
-dir /sbin 755 0 0
-dir /sys 755 0 0
-</pre>}}
+dir /bin 755 0 0 file /bin/busybox /usr/src/initramfs/bin/busybox 755 0 0 dir /dev 755 0 0 nod /dev/console 600 0 0 c 5 1 nod /dev/null 666 0 0 c 1 3 nod /dev/sda1 660 0 6 b 8 1 nod /dev/tty 666 0 5 c 5 0 dir /etc 755 0 0 file /init /usr/src/initramfs/init 744 0 0 dir /lib64 755 0 0 dir /lib 755 0 0 dir /mnt 755 0 0 dir /mnt/root 755 0 0 dir /proc 755 0 0 dir /root 700 0 0 dir /sbin 755 0 0 dir /sys 755 0 0 </pre>}}
 
 {{RootCmd
 |usr/gen_init_cpio ../initramfs.list > ../initramfs.cpio
 |gzip --best ../initramfs.cpio
 |ls -l ..
 |collapse-output=true
-|output=<pre>
-total 1660
-drwxr-xr-x 12 root root    4096 Dec  9 00:16 initramfs
--rw-r--r--  1 root root 1675800 Dec  9 03:44 initramfs.cpio.gz
--rw-r--r--  1 root root     593 Dec  9 03:31 initramfs.list
-lrwxrwxrwx  1 root root      20 Nov 23 19:12 linux -> linux-4.14.83-gentoo
-drwxr-xr-x 26 root root    4096 Dec  9 00:58 linux-4.14.83-gentoo
--rw-r--r--  1 root root    4830 Dec  9 01:07 README
-</pre>}}
+|output=<pre> total 1660 drwxr-xr-x 12 root root 4096 Dec 9 00:16 initramfs -rw-r--r-- 1 root root 1675800 Dec 9 03:44 initramfs.cpio.gz -rw-r--r-- 1 root root 593 Dec 9 03:31 initramfs.list lrwxrwxrwx 1 root root 20 Nov 23 19:12 linux -> linux-4.14.83-gentoo drwxr-xr-x 26 root root 4096 Dec 9 00:58 linux-4.14.83-gentoo -rw-r--r-- 1 root root 4830 Dec 9 01:07 README </pre>}}
 
 The file {{Path|initramfs.cpio.gz}} can now be moved to {{Path|/boot}}.
 
@@ -318,8 +236,7 @@ The file {{Path|initramfs.cpio.gz}} can now be moved to {{Path|/boot}}.
 
 {{Warning|Do not forget to update the bootloader entries afterwards!}}
 
-{{Note|In order to always have the latest binaries etc. in the initramfs, you might want to write a shell script which copies the files and calls the above tools; [https://gitlab.com/keks24/update-initramfs this example might be helpful]. Hardlinks do not work, as the inode will change when the original file gets overwritten, whereas the hardlink points to the old inode. Symbolic links do not work, as they will be recognised as ''slink'' and not as ''file'' when using {{Path|gen_initramfs_list.sh}}; this will render the initramfs '''unusable'''. <br/>
-Remember: Be '''absolutely''' sure that your binaries on your system are either compiled statically or have the needed libraries! Package-based USE flags can be set in {{Path|/etc/portage/package.use}}.}}
+{{Note|In order to always have the latest binaries etc. in the initramfs, you might want to write a shell script which copies the files and calls the above tools; [https://gitlab.com/keks24/update-initramfs this example might be helpful]. Hardlinks do not work, as the inode will change when the original file gets overwritten, whereas the hardlink points to the old inode. Symbolic links do not work, as they will be recognised as ''slink'' and not as ''file'' when using {{Path|gen_initramfs_list.sh}}; this will render the initramfs '''unusable'''. <br/> Remember: Be '''absolutely''' sure that your binaries on your system are either compiled statically or have the needed libraries! Package-based USE flags can be set in {{Path|/etc/portage/package.use}}.}}
 
 === Finalizing ===
 
@@ -333,18 +250,13 @@ Now that you've covered the ''initramfs'' basics, in this section you will learn
 
 If you want to be dropped to a rescue shell if an error occurs, you can add the following function to your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}} and call it when something goes wrong.
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Rescue shell functionality|lang=bash|1=
-rescue_shell() {
+{{FileBox|filename=/usr/src/initramfs/init|title=Rescue shell functionality|lang=bash|1= rescue_shell() {
     echo "Something went wrong. Dropping to a shell."
-    exec sh
-}
-}}
+    exec sh } }}
 
 In the example below, the {{Highlight|rescue_shell}} will be executed if the root partition fails to mount:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Invoking the rescue shell|lang=bash|1=
-mount -o ro /dev/sda1 /mnt/root {{!}}{{!}} rescue_shell
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Invoking the rescue shell|lang=bash|1= mount -o ro /dev/sda1 /mnt/root {{!}}{{!}} rescue_shell }}
 
 === Dynamic devices ===
 
@@ -354,33 +266,25 @@ For populating {{Path|/dev}} dynamically, you can use either devtmpfs or mdev. P
 
 Provided by the kernel, devtmpfs is designed to offer device nodes during early boot.
 
-{{KernelBox|title=CONFIG_DEVTMPFS{{=}}y|1=
-Device Drivers  --->
-    Generic Driver Options  --->
-        [*] Maintain a devtmpfs filesystem to mount at /dev
-}}
+{{KernelBox|title=CONFIG_DEVTMPFS{{=}}y|1= Device Drivers --->
+    Generic Driver Options --->
+        [*] Maintain a devtmpfs filesystem to mount at /dev }}
 
 You can include the following snippet in your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}} script to have it mount at boot:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=mount devtmpfs|lang=bash|1=
-mount -t devtmpfs none /dev
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=mount devtmpfs|lang=bash|1= mount -t devtmpfs none /dev }}
 
 Don't forget to unmount it again in the cleanup phase of the script:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=umount devtmpfs|lang=bash|1=
-umount /dev
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=umount devtmpfs|lang=bash|1= umount /dev }}
 
 ==== mdev ====
 
 Although devtmpfs is the preferred solution today, you can alternatively use mdev, the udev replacement of {{c|busybox}}.
 
-{{KernelBox|title=CONFIG_UEVENT_HELPER{{=}}y|1=
-Device Drivers  --->
-    Generic Driver Options  --->
-        [*] Support for uevent helper
-}}
+{{KernelBox|title=CONFIG_UEVENT_HELPER{{=}}y|1= Device Drivers --->
+    Generic Driver Options --->
+        [*] Support for uevent helper }}
 
 For mdev to work, you have to make {{Path|/sbin/mdev}} a symlink to {{Path|/bin/busybox}} in your ''initramfs''.
 
@@ -388,20 +292,14 @@ For mdev to work, you have to make {{Path|/sbin/mdev}} a symlink to {{Path|/bin/
 
 Then add the following snippet to your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}, after mounting {{Path|/proc}} and {{Path|/sys}}:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Adding mdev support to /init|lang=bash|1=
-echo /sbin/mdev > /proc/sys/kernel/hotplug
-mdev -s
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Adding mdev support to /init|lang=bash|1= echo /sbin/mdev > /proc/sys/kernel/hotplug mdev -s }}
 
 === Mount by UUID or label ===
 
 With [[#Dynamic_devices|Dynamic devices]] enabled, you might prefer to use UUID or label to mount the root partition instead of using a static device name. For that purpose, {{c|busybox}} comes with a utility called {{c|findfs}}.
 
-{{FileBox|filename=/usr/src/initramfs/init|title=mount using findfs|lang=bash|1=
-mount -o ro $(findfs UUID=845b2454-42a3-19ef-6ec5-238a358c365b) /mnt/root
-# or
-mount -o ro $(findfs LABEL=myroot) /mnt/root
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=mount using findfs|lang=bash|1= mount -o ro $(findfs UUID=845b2454-42a3-19ef-6ec5-238a358c365b) /mnt/root
+# or mount -o ro $(findfs LABEL=myroot) /mnt/root }}
 
 Doing it this way is simple, but it means that your UUID or label is hardcoded in the {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}. Alternatively, you can also use [[#Kernel_parameters|Kernel parameters]].
 
@@ -409,21 +307,16 @@ Doing it this way is simple, but it means that your UUID or label is hardcoded i
 
 If you want to use kernel parameters instead of hardcoding device names or UUIDs, you will have to parse {{Path|/proc/cmdline}}. There are many ways to do so, the following method is just an example to give you the general idea. It uses string manipulation of the shell and only supports <code>key=value</code> parameters. Add the following function to your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}} and call it whenever you need a kernel parameter.
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Adding a simple cmdline parser function|lang=bash|1=
-cmdline() {
+{{FileBox|filename=/usr/src/initramfs/init|title=Adding a simple cmdline parser function|lang=bash|1= cmdline() {
     local value
     value=" $(cat /proc/cmdline) "
     value="${value##* ${1}=}"
     value="${value%% *}"
-    [ "${value}" != "" ] && echo "${value}"
-}
-}}
+    [ "${value}" != "" ] && echo "${value}" } }}
 
 The function is called with the name of the kernel parameter you are interested in. In the example below, it uses the root parameter to mount the root partition.
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Mount rootfs by cmdline|lang=bash|1=
-mount -o ro $(findfs $(cmdline root)) /mnt/root
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Mount rootfs by cmdline|lang=bash|1= mount -o ro $(findfs $(cmdline root)) /mnt/root }}
 
 It works for both <code>root=/dev/sda1</code> and <code>root=UUID=845b2454</code> but will fail when the parameter is missing.
 
@@ -437,11 +330,7 @@ If your root partition is located on a logical volume, you need to include the L
 
 Now you can enable your LVM root partition in {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}. This example assumes that your volume group is called '''VG''', and your root volume is called '''root'''. Replace them with the names you chose when creating the volume.
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Setting up the root volume|lang=bash|1=
-lvm vgscan --mknodes # creates /dev/mapper/control
-lvm lvchange -a ly VG/root
-lvm vgscan --mknodes # creates /dev/mapper/VG-root and /dev/VG/root
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Setting up the root volume|lang=bash|1= lvm vgscan --mknodes # creates /dev/mapper/control lvm lvchange -a ly VG/root lvm vgscan --mknodes # creates /dev/mapper/VG-root and /dev/VG/root }}
 
 The root partition may then be called {{Path|/dev/VG/root}} or {{Path|/dev/mapper/VG-root}}.
 
@@ -454,29 +343,22 @@ Recent versions of {{Package|sys-fs/lvm2}} rely on {{Package|sys-fs/udev}} to cr
 * Build a LVM binary with the <code>-udev</code> USE flag (specifically for the ''initramfs'' only!)
 * Disable udev dependency by including a minimal {{Path|/etc/lvm/lvm.conf}} in the ''initramfs'':
 
-{{FileBox|filename=/usr/src/initramfs/etc/lvm/lvm.conf|title=Disable udev in lvm.conf|lang=bash|1=
-devices {
+{{FileBox|filename=/usr/src/initramfs/etc/lvm/lvm.conf|title=Disable udev in lvm.conf|lang=bash|1= devices {
     # Disable scanning udev for md/multipath components.
     # This is required with recent versions of lvm2, even if you use another solution for
     # your LV device nodes; without it lvm commands will stall for minutes waiting for udev.
     multipath_component_detection = 0
-    md_component_detection = 0
-}
-activation {
+    md_component_detection = 0 } activation {
     # Set to 0 to disable udev synchronisation (if compiled into the binaries).
     udev_sync = 0
     # Set to 0 to disable the udev rules installed by LVM2
-    udev_rules = 0
-}
-}}
+    udev_rules = 0 } }}
 
 === Software RAID ===
 
 Normally the Linux kernel will automatically scan for any "Linux raid autodetect" partitions and start as many software RAIDs as it can find. But if you use an ''initramfs'', the kernel will not automatically scan for RAIDs until it is told to. In the following example instructs the kernel to scan for software RAIDs and start as many as it can find. This will actually start all autodetected arrays, not just {{Path|/dev/md0}}:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Adding RAID autodetect support to /init|lang=bash|1=
-raidautorun /dev/md0
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Adding RAID autodetect support to /init|lang=bash|1= raidautorun /dev/md0 }}
 
 {{Note|[https://raid.wiki.kernel.org/index.php/RAID_superblock_formats#A_Note_about_kernel_autodetection_of_different_superblock_formats "Linux raid autodetect"] won't work for any recent setups, unless you specifically set up with partitions of type "fd" and used 0.90 metadata for your Software RAID.}}
 
@@ -488,17 +370,13 @@ Copy the binary {{Path|/sbin/mdadm}} and your {{Path|/etc/mdadm.conf}} into your
 
 {{RootCmd
 |cp --archive /sbin/mdadm /usr/src/initramfs/sbin
-|cp --archive /etc/mdadm.conf /usr/src/initramfs/etc
-}}
+|cp --archive /etc/mdadm.conf /usr/src/initramfs/etc }}
 
 {{Note|Use {{c|mdadm --detail --scan}} if you do not yet have a {{Path|mdadm.conf}}.}}
 
 Edit the {{Path|mdadm.conf}} in your ''initramfs'' to your liking. An example {{Path|mdadm.conf}} follows:
 
-{{FileBox|filename=/usr/src/initramfs/etc/mdadm.conf|title=mdadm.conf example|lang=bash|1=
-DEVICE /dev/sd?*
-ARRAY /dev/md0 UUID=627125a5:abce6b82:6c738e49:50adadae
-}}
+{{FileBox|filename=/usr/src/initramfs/etc/mdadm.conf|title=mdadm.conf example|lang=bash|1= DEVICE /dev/sd?* ARRAY /dev/md0 UUID=627125a5:abce6b82:6c738e49:50adadae }}
 
 This {{Path|mdadm.conf}} will scan all {{Path|/dev/sd?*}} devices and assemble the RAID device fitting the UUID 627125a5:abce6b82:6c738e49:50adadae.
 
@@ -506,9 +384,7 @@ This {{Path|mdadm.conf}} will scan all {{Path|/dev/sd?*}} devices and assemble t
 
 Now you can initialize your Software RAID in {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Assemble software RAIDs with mdadm|lang=bash|1=
-mdadm --assemble --scan
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Assemble software RAIDs with mdadm|lang=bash|1= mdadm --assemble --scan }}
 
 With this, you should be able to mount your root partition {{Path|/dev/md0}}.
 
@@ -523,50 +399,36 @@ Recompile the package {{Package|sys-fs/cryptsetup}} with the new USE flags. For 
 {{RootCmd
 |USE{{=}}"-gcrypt nettle static" emerge --ask --verbose sys-fs/cryptsetup
 |collapse-output=true
-|output=<pre>
-These are the packages that would be merged, in order:
+|output=<pre> These are the packages that would be merged, in order:
 
-Calculating dependencies... done!
-[ebuild   R    ] sys-fs/cryptsetup-1.7.5-r1::gentoo  USE="nettle* nls static* udev -gcrypt* -kernel -libressl -openssl -pwquality -python -reencrypt -static-libs -urandom" PYTHON_TARGETS="python2_7 python3_6 -python3_4 -python3_5 (-python3_7)" 0 KiB
+Calculating dependencies... done! [ebuild R ] sys-fs/cryptsetup-1.7.5-r1::gentoo USE="nettle* nls static* udev -gcrypt* -kernel -libressl -openssl -pwquality -python -reencrypt -static-libs -urandom" PYTHON_TARGETS="python2_7 python3_6 -python3_4 -python3_5 (-python3_7)" 0 KiB
 
 Total: 1 package (1 reinstall), Size of downloads: 0 KiB
 
-Would you like to merge these packages? [Yes/No]
-</pre>}}
+Would you like to merge these packages? [Yes/No] </pre>}}
 
 It might also be needed to compile the package {{Package|sys-fs/lvm2}} with the <code>static-libs</code> USE flag:
 
 {{RootCmd
 |USE{{=}}"static-libs" emerge --ask --verbose sys-fs/lvm2
 |collapse-output=true
-|output=<pre>
-These are the packages that would be merged, in order:
+|output=<pre> These are the packages that would be merged, in order:
 
-Calculating dependencies... done!
-[ebuild  N     ] sys-devel/autoconf-archive-2018.03.13::gentoo  635 KiB
-[ebuild  N     ] dev-libs/libaio-0.3.110::gentoo  USE="static-libs -test" ABI_X86="(64) -32 (-x32)" 42 KiB
-[ebuild  N     ] dev-util/boost-build-1.65.0::gentoo  USE="-examples -python -test" PYTHON_TARGETS="python2_7" 80,662 KiB
-[ebuild  N     ] dev-libs/boost-1.65.0:0/1.65.0::gentoo  USE="nls static-libs threads -context -debug -doc -icu -mpi -python -tools" ABI_X86="(64) -32 (-x32)" PYTHON_TARGETS="python2_7 python3_6 -python3_4 -python3_5" 0 KiB
-[ebuild  N     ] sys-block/thin-provisioning-tools-0.7.0::gentoo  USE="-static -test" 226 KiB
-[ebuild  N     ] sys-fs/lvm2-2.02.145-r2::gentoo  USE="readline static-libs thin udev (-clvm) (-cman) -corosync -device-mapper-only -lvm1 -lvm2create_initrd -openais (-selinux) -static -systemd" 0 KiB
+Calculating dependencies... done! [ebuild N ] sys-devel/autoconf-archive-2018.03.13::gentoo 635 KiB [ebuild N ] dev-libs/libaio-0.3.110::gentoo USE="static-libs -test" ABI_X86="(64) -32 (-x32)" 42 KiB [ebuild N ] dev-util/boost-build-1.65.0::gentoo USE="-examples -python -test" PYTHON_TARGETS="python2_7" 80,662 KiB [ebuild N ] dev-libs/boost-1.65.0:0/1.65.0::gentoo USE="nls static-libs threads -context -debug -doc -icu -mpi -python -tools" ABI_X86="(64) -32 (-x32)" PYTHON_TARGETS="python2_7 python3_6 -python3_4 -python3_5" 0 KiB [ebuild N ] sys-block/thin-provisioning-tools-0.7.0::gentoo USE="-static -test" 226 KiB [ebuild N ] sys-fs/lvm2-2.02.145-r2::gentoo USE="readline static-libs thin udev (-clvm) (-cman) -corosync -device-mapper-only -lvm1 -lvm2create_initrd -openais (-selinux) -static -systemd" 0 KiB
 
 Total: 6 packages (6 new), Size of downloads: 81,563 KiB
 
-Would you like to merge these packages? [Yes/No]
-</pre>}}
+Would you like to merge these packages? [Yes/No] </pre>}}
 
 After that copy over the binary files:
 
 {{RootCmd
 |cp --archive /dev/{urandom,random} /usr/src/initramfs/dev
-|cp --archive /sbin/cryptsetup /usr/src/initramfs/sbin/cryptsetup
-}}
+|cp --archive /sbin/cryptsetup /usr/src/initramfs/sbin/cryptsetup }}
 
 Now you can unlock your encrypted root partition in {{Path|{{Highlight|color=darkgreen|'''/init'''}}}}:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Setting up LUKS encryption in /init|lang=bash|1=
-cryptsetup --tries 5 luksOpen /dev/sda1 luksroot
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Setting up LUKS encryption in /init|lang=bash|1= cryptsetup --tries 5 luksOpen /dev/sda1 luksroot }}
 
 Once you entered your passphrase, your root partition will be available as {{Path|/dev/mapper/luksroot}}.
 
@@ -585,21 +447,16 @@ The following example creates a random 512 byte key, encrypted with LUKS, and ad
 |cryptsetup --align-payload{{=}}1 luksFormat /usr/src/initramfs/root/key.luks
 |cryptsetup open --type luks /usr/src/initramfs/root/key.luks lukskey
 |dd if{{=}}/dev/urandom of{{=}}/dev/mapper/lukskey
-|cryptsetup luksAddKey /dev/sda1 /dev/mapper/lukskey
-}}
+|cryptsetup luksAddKey /dev/sda1 /dev/mapper/lukskey }}
 
 Unlocking the root device using this key in your {{Path|{{Highlight|color=darkgreen|'''/init'''}}}} can then be done like this:
 
 {{FileBox|filename=/usr/src/initramfs/init|title=LUKS encryption with keyfiles|lang=bash|1=
-# Obtain the key
-cryptsetup --tries 5 luksOpen /root/key.luks lukskey
+# Obtain the key cryptsetup --tries 5 luksOpen /root/key.luks lukskey
 
-# Unlock the root partition
-cryptsetup --key-file /dev/mapper/lukskey open --type luks /dev/sda1 luksroot
+# Unlock the root partition cryptsetup --key-file /dev/mapper/lukskey open --type luks /dev/sda1 luksroot
 
-# Clean up the key
-cryptsetup close lukskey
-}}
+# Clean up the key cryptsetup close lukskey }}
 
 As before, your root partition should then be available as {{Path|/dev/mapper/luksroot}}.
 
@@ -611,10 +468,7 @@ If you need networking in your ''initramfs'', all required network related drive
 
 If your network situation allows you to use a static network IP, you can set it up using the {{c|ifconfig}} and {{c|route}} commands, both of which are included in Busybox. This is by far the easiest solution, so if it's at all possible, go for it.
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Static network IP setup in /init|lang=bash|1=
-ifconfig eth0 10.0.2.15
-route add default gw 10.0.2.2
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Static network IP setup in /init|lang=bash|1= ifconfig eth0 10.0.2.15 route add default gw 10.0.2.2 }}
 
 ==== DHCP ====
 
@@ -624,8 +478,7 @@ Copy the script to your ''initramfs'' and make it executable.
 
 {{RootCmd
 |cp simple.script /usr/src/initramfs/bin
-|chmod +x /usr/src/initramfs/bin/simple.script
-}}
+|chmod +x /usr/src/initramfs/bin/simple.script }}
 
 Edit the script's first line to read {{Highlight|color=darkred|#!/bin/busybox sh}} or create a symlink for {{Path|/bin/sh}}:
 
@@ -633,10 +486,7 @@ Edit the script's first line to read {{Highlight|color=darkred|#!/bin/busybox sh
 
 Now, you can obtain a dynamic IP address for eth0 using DHCP:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Network setup using DHCP|lang=bash|1=
-ifconfig eth0 up
-udhcpc -t 5 -q -s /bin/simple.script
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Network setup using DHCP|lang=bash|1= ifconfig eth0 up udhcpc -t 5 -q -s /bin/simple.script }}
 
 ==== DNS ====
 
@@ -648,20 +498,7 @@ This is because {{Package|sys-libs/glibc}} itself dynamically includes additiona
 
 This is a good chance to demonstrate how to use ({{Package|dev-util/strace}}) to reveal hidden dependencies.
 
-{{Cmd|strace busybox ping wiki.gentoo.org 2>&1 {{!}} grep open|output=<pre>
-open("/etc/nsswitch.conf", O_RDONLY|O_CLOEXEC) = 3
-open("/etc/host.conf", O_RDONLY|O_CLOEXEC) = 3
-open("/etc/resolv.conf", O_RDONLY|O_CLOEXEC) = 3
-open("/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
-open("/lib64/libnss_files.so.2", O_RDONLY|O_CLOEXEC) = 3
-open("/lib64/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
-open("/lib64/ld-linux-x86-64.so.2", O_RDONLY|O_CLOEXEC) = 3
-open("/etc/hosts", O_RDONLY|O_CLOEXEC)  = 3
-open("/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
-open("/lib64/libnss_dns.so.2", O_RDONLY|O_CLOEXEC) = 3
-open("/lib64/libresolv.so.2", O_RDONLY|O_CLOEXEC) = 3
-open("/etc/resolv.conf", O_RDONLY|O_CLOEXEC) = 3
-</pre>}}
+{{Cmd|strace busybox ping wiki.gentoo.org 2>&1 {{!}} grep open|output=<pre> open("/etc/nsswitch.conf", O_RDONLY|O_CLOEXEC) = 3 open("/etc/host.conf", O_RDONLY|O_CLOEXEC) = 3 open("/etc/resolv.conf", O_RDONLY|O_CLOEXEC) = 3 open("/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3 open("/lib64/libnss_files.so.2", O_RDONLY|O_CLOEXEC) = 3 open("/lib64/libc.so.6", O_RDONLY|O_CLOEXEC) = 3 open("/lib64/ld-linux-x86-64.so.2", O_RDONLY|O_CLOEXEC) = 3 open("/etc/hosts", O_RDONLY|O_CLOEXEC) = 3 open("/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3 open("/lib64/libnss_dns.so.2", O_RDONLY|O_CLOEXEC) = 3 open("/lib64/libresolv.so.2", O_RDONLY|O_CLOEXEC) = 3 open("/etc/resolv.conf", O_RDONLY|O_CLOEXEC) = 3 </pre>}}
 
 As you can see, the command accesses quite a lot of files, some of which are mandatory for it to work.
 
@@ -679,13 +516,12 @@ With this, DNS lookups should now work for you.
 
 === Custom keyboard layout ===
 
-Busybox provides ''loadkmap'' to set your keyboard layout. Since it only accepts binary keymaps, you have to convert it first. 
+Busybox provides ''loadkmap'' to set your keyboard layout. Since it only accepts binary keymaps, you have to convert it first.
 
 {{RootCmd
 |cp /usr/share/keymaps/path/to/your/prefered/keymap.map.gz .
 |gzip -d keymap.map.gz
-|loadkeys -b keymap.map > /usr/src/initramfs/keymap.bmap
-}}
+|loadkeys -b keymap.map > /usr/src/initramfs/keymap.bmap }}
 
 Clean up:
 
@@ -693,9 +529,7 @@ Clean up:
 
 Now you only have to update your init-script:
 
-{{FileBox|filename=/usr/src/initramfs/init|title=Change keyboard layout|lang=bash|1=
-loadkmap < /keymap.bmap
-}}
+{{FileBox|filename=/usr/src/initramfs/init|title=Change keyboard layout|lang=bash|1= loadkmap < /keymap.bmap }}
 
 == Troubleshooting ==
 
@@ -713,8 +547,7 @@ You can check whether or not a binary is static by using the {{c|ldd}} command. 
 
 {{Note|
 * See [[#Applications|Applications]] for a {{c|ldd}} usage example.
-* See [[#DNS|DNS]] for a {{c|strace}} usage example.
-}}
+* See [[#DNS|DNS]] for a {{c|strace}} usage example. }}
 
 Including libraries into your ''initramfs'' in order to make a dynamic executable work is a last resort only. It makes the ''initramfs'' much larger than necessary and harder to maintain, as the dependencies might change with every update of the program in question.
 
@@ -725,8 +558,7 @@ If you decide to go with dynamic binaries, {{Package|app-misc/pax-utils}} comes 
 {{Note|If the {{c|--copy-to-tree}} option is missing, enable the <code>python</code> useflag.}}
 
 {{RootCmd
-|lddtree --copy-to-tree /usr/src/initramfs /usr/bin/nano
-}}
+|lddtree --copy-to-tree /usr/src/initramfs /usr/bin/nano }}
 
 That will copy the binary and all its libraries to your ''initramfs'' structure - but not any of the runtime dependencies. For more details refer to {{c|lddtree --help}}.
 
@@ -750,8 +582,7 @@ While working with ''initramfs'', especially the [[#Rescue_shell|Rescue shell]],
 
 The lack of job control is usually not a problem, since {{Path|{{Highlight|color=darkgreen|'''/init'''}}}} is not supposed to be interactive. However, if you want to work with the Busybox shell on a regular basis, being unable to control programs with {{Key|Ctrl}}+{{Key|C}} or {{Key|Ctrl}}+{{Key|Z}} can easily become a huge issue. In worst case, if job control is not available, and a program refuses to quit, you have to reboot.
 
-The [https://www.busybox.net/FAQ.html#job_control job control section in the Busybox FAQ] offers some help here. 
-You can either use
+The [https://www.busybox.net/FAQ.html#job_control job control section in the Busybox FAQ] offers some help here. You can either use
 
 {{RootCmd|setsid sh -c 'exec sh </dev/tty1 >/dev/tty1 2>&1'}}
 
@@ -771,23 +602,13 @@ You can skip this step if your ''initramfs'' is a separate cpio archive already.
 
 The utility of choice when dismantling kernel images is {{Package|app-misc/binwalk}}. It analyzes arbitrary files for known signatures, and prints their offsets. While there are usually a bunch of false matches in the output, it should be easy to pick the correct ones.
 
-{{Cmd|binwalk bzImage|output=<pre>
-DECIMAL     HEX         DESCRIPTION
--------------------------------------------------------------------------------------------------------------------
-15949       0x3E4D      bzip2 compressed data, block size = 900k
-3042172     0x2E6B7C    LZMA compressed data, properties: 0x9A, dictionary size: 4194304 bytes, uncompressed size: 9439488 bytes
-4433597     0x43A6BD    LZMA compressed data, properties: 0xD8, dictionary size: 16777216 bytes, uncompressed size: 4213785 bytes
-8530175     0x8228FF    ELF (NetBSD)
-</pre>}}
+{{Cmd|binwalk bzImage|output=<pre> DECIMAL HEX DESCRIPTION ------------------------------------------------------------------------------------------------------------------- 15949 0x3E4D bzip2 compressed data, block size = 900k 3042172 0x2E6B7C LZMA compressed data, properties: 0x9A, dictionary size: 4194304 bytes, uncompressed size: 9439488 bytes 4433597 0x43A6BD LZMA compressed data, properties: 0xD8, dictionary size: 16777216 bytes, uncompressed size: 4213785 bytes 8530175 0x8228FF ELF (NetBSD) </pre>}}
 
 {{Note|Newer versions also support {{c|binwalk --extract}} which will extract all found offsets directly.}}
 
 A less sophisticated method would be to use {{c|grep}} to search for signatures. For bzip2, this is '''BZh'''. For gzip, use '''<nowiki>$'\x1f'$'\x8b'</nowiki>'''.
 
-{{Cmd|grep --text --byte-offset --only-matching BZh bzImage|output=<pre>
-15949:BZh
-3946909:BZh
-</pre>}}
+{{Cmd|grep --text --byte-offset --only-matching BZh bzImage|output=<pre> 15949:BZh 3946909:BZh </pre>}}
 
 In this case the offset we are looking for is '''15949''' bytes. Now you can extract the compressed kernel image:
 
@@ -797,8 +618,7 @@ Now, you have the uncompressed kernel image. Somewhere within this image resides
 
 {{Cmd
 |binwalk Image
-|grep --text --byte-offset --only-matching BZh Image
-}}
+|grep --text --byte-offset --only-matching BZh Image }}
 
 Suppose the offset is 171424 bytes this time. Now you can extract the ''initramfs'' cpio archive:
 
@@ -806,9 +626,7 @@ Suppose the offset is 171424 bytes this time. Now you can extract the ''initramf
 
 If you want to verify that you actually got a cpio archive from that, use the {{c|file}} command:
 
-{{Cmd|file initramfs.cpio|output=<pre>
-initramfs.cpio: ASCII cpio archive (SVR4 with no CRC)
-</pre>}}
+{{Cmd|file initramfs.cpio|output=<pre> initramfs.cpio: ASCII cpio archive (SVR4 with no CRC) </pre>}}
 
 ==== Extracting the cpio archive ====
 
@@ -839,55 +657,37 @@ In Gentoo, busybox is configured as standalone shell by default, which allows bu
 {{FileBox|filename=/usr/src/initramfs/init|title=Install Busybox symlinks to /init|lang=bash|1=
 #!/bin/busybox sh
 
-# Install symlinks to all busybox applets first.
-/bin/busybox mkdir -p /usr/sbin /usr/bin /sbin /bin
-/bin/busybox --install -s
+# Install symlinks to all busybox applets first. /bin/busybox mkdir -p /usr/sbin /usr/bin /sbin /bin /bin/busybox --install -s
 
-# ...everything else below...
-}}
+# ...everything else below... }}
 
 Alternatively, you can create the symlinks directly in {{Path|/usr/src/initramfs}} so they will already be included in your ''initramfs''.
 
 {{RootCmd
 |mkdir -p /usr/src/initramfs/{usr/sbin,usr/bin,sbin,bin}
-|chroot /usr/src/initramfs /bin/busybox --install -s
-}}
+|chroot /usr/src/initramfs /bin/busybox --install -s }}
 
 === Disappearing root ===
 
 If your encrypted root (with cryptsetup/LUKS), for example {{Path|/dev/mapper/gentoo-root}}, is disappearing after the {{c|switch_root}} command you can recreate the device by entering:
 
 {{RootCmd
-|dmsetup mknodes
-}}
+|dmsetup mknodes }}
 
 === Variations for switch_root ===
 
-Some init setups require proc, sys and dev to be mounted before starting up. If you find you are having trouble with {{c|switch_root}} in your initramfs setup try replacing the {{c|umount}} command with a {{c|mount --move}} in your init script. 
+Some init setups require proc, sys and dev to be mounted before starting up. If you find you are having trouble with {{c|switch_root}} in your initramfs setup try replacing the {{c|umount}} command with a {{c|mount --move}} in your init script.
 
-For example, replace this.
-{{FileBox|filename=/usr/src/initramfs/init|title=umount commands|lang=bash|1=
-# Clean up
-umount /proc
-umount /sys
-umount /dev
+For example, replace this. {{FileBox|filename=/usr/src/initramfs/init|title=umount commands|lang=bash|1=
+# Clean up umount /proc umount /sys umount /dev
 
-# Boot the real thing
-exec switch_root /newroot /sbin/init
-}}
+# Boot the real thing exec switch_root /newroot /sbin/init }}
 
-With this.
-{{FileBox|filename=/usr/src/initramfs/init|title=mount --move commands|lang=bash|1=
-# Clean up
-mount --move /proc /newroot/proc
-mount --move /sys /newroot/sys
-mount --move /dev /newroot/dev
+With this. {{FileBox|filename=/usr/src/initramfs/init|title=mount --move commands|lang=bash|1=
+# Clean up mount --move /proc /newroot/proc mount --move /sys /newroot/sys mount --move /dev /newroot/dev
 
-# Boot the real thing
-exec switch_root /newroot /sbin/init
-}}
- 
-{{Important| umount is used to ensure that "real" init systems, like OpenRC, start in a clean state. You should ideally use umount if it is possible in this circumstance. }}
+# Boot the real thing exec switch_root /newroot /sbin/init }}
+  {{Important| umount is used to ensure that "real" init systems, like OpenRC, start in a clean state. You should ideally use umount if it is possible in this circumstance. }}
 
 == Examples ==
 
@@ -902,5 +702,4 @@ See [[Custom_Initramfs/Examples]] for fully functional examples of finished {{Pa
 
 * Official initramfs documentation locally (<kbd>less {{Path|/usr/src/linux/Documentation/filesystems/ramfs-rootfs-initramfs.txt}}</kbd>) or [https://www.kernel.org/doc/Documentation/filesystems/ramfs-rootfs-initramfs.txt online at kernel.org]
 * [http://www.linuxfromscratch.org/blfs/view/stable/postlfs/initramfs.html Linux® From Scratch - About initramfs]
-* [https://gitlab.com/keks24/update-initramfs Update your initramfs using pure Bash]
-[[Category:Initramfs]]
+* [https://gitlab.com/keks24/update-initramfs Update your initramfs using pure Bash] [[Category:Initramfs]]
