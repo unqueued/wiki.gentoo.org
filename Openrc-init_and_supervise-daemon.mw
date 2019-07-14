@@ -86,9 +86,8 @@ Reviewing the man page of {{c|acpid}} reveals:
 Edit {{Path|/etc/conf.d/acpid}} as follows to make acpid run under supervise-daemon:
 
 {{FileBox|filename=/etc/conf.d/acpid|lang=ini|1=
-#ACPID_ARGS=""
-ACPID_ARGS="--foreground"
 supervisor="supervise-daemon"
+command_args_foreground="--foreground"
 }}
 
 Start up the service:
@@ -221,10 +220,11 @@ Dnsmasq, provided by package {{Package|net-dns/dnsmasq}}, is a lightweight DHCP 
 
 Edit {{Path|/etc/init.d/dnsmasq}} as follows:
 {{CodeBox|filename=/etc/init.d/dnsmasq|lang=bash|1=
-pidfile="/var/run/dnsmasq.pid"
+#pidfile="/var/run/dnsmasq.pid"
 command="/usr/sbin/dnsmasq"
 #command_args="-x ${pidfile} ${DNSMASQ_OPTS}"
-command_args="${DNSMASQ_OPTS} --keep-in-foreground"
+command_args="${DNSMASQ_OPTS}"
+command_args_foreground="--keep-in-foreground"
 supervisor="supervise-daemon"
 retry="TERM/3/TERM/5"
 
@@ -256,18 +256,34 @@ rotate() {
 }
 }}
 
+
 === fcron ===
 
-{{Package|sys-process/fcron}} is a cron daemon implementation.
+{{Package|sys-process/fcron}} is a cron daemon implementation. To get it supervised it is needed to:
+* remove the s-s-d references, 
+* remove the pidfile declaration,
+* define the supervisor
+* tell the supervisor how to get the daemon to run in foreground
+* change the reload function to use supervise-daemon instead of s-s-d.
 
 Edit {{Path|/etc/init.d/fcron}} as follows:
-
 {{CodeBox|title=/etc/init.d/fcron|lang=bash|1=
-#command_args="-c \"${FCRON_CONFIGFILE}\""
-command_args="-c \"${FCRON_CONFIGFILE}\" ${FCRON_OPTS} --foreground"
+command="/usr/libexec/fcron"
+command_args="-c \"${FCRON_CONFIGFILE}\" ${FCRON_OPTS}"
 #start_stop_daemon_args=${FCRON_SSDARGS:-"--wait 1000"}
 #pidfile="$(getconfig pidfile /run/fcron.pid)"
+fcrontabs="$(getconfig fcrontabs /var/spool/fcron)"
+fifofile="$(getconfig fifofile /run/fcron.fifo)"
+required_files="${FCRON_CONFIGFILE}"
 supervisor="supervise-daemon"
+command_args_foreground="--foreground"
+
+extra_started_commands="reload"
+
+reload() {
+#        start-stop-daemon --signal HUP --pidfile "${pidfile}"
+         ${supervisor} "${SVCNAME}" --signal HUP
+}
 }}
 
 === iwd ===
@@ -290,9 +306,10 @@ The network time protocol daemon ''ntpd'', from package {{Package|net-misc/ntp}}
 #pidfile="/var/run/ntpd.pid"
 command="/usr/sbin/ntpd"
 #command_args="-p ${pidfile} ${NTPD_OPTS}"
-command_args="-n ${NTPD_OPTS}"
+command_args="${NTPD_OPTS}"
 #start_stop_daemon_args="--pidfile ${pidfile}"
 supervisor="supervise-daemon"
+command_args_foreground="-n"
 }}
 
 === sshd ===
@@ -359,12 +376,29 @@ With the standard init scripts syslog-ng writes a pid file. This interferes with
 
 {{CodeBox|title=/etc/init.d/syslog-ng|lang=ini|1=
 #command_args="--cfgfile \"${SYSLOG_NG_CONFIGFILE}\" --control \"${SYSLOG_NG_CONTROLFILE}\" --persist-file \"${SYSLOG_NG_STATEFILE}\" --pidfile \"${SYSLOG_NG_PIDFILE}\" ${SYSLOG_NG_OPTS}"
-command_args="--cfgfile \"${SYSLOG_NG_CONFIGFILE}\" --control \"${SYSLOG_NG_CONTROLFILE}\" --persist-file \"${SYSLOG_NG_STATEFILE}\" ${SYSLOG_NG_OPTS} --foreground --process-mode=foreground"
-command_user="${SYSLOG_NG_USER}:${SYSLOG_NG_GROUP}"
+command_args="--cfgfile \"${SYSLOG_NG_CONFIGFILE}\" --control \"${SYSLOG_NG_CONTROLFILE}\" --persist-file \"${SYSLOG_NG_STATEFILE}\" ${SYSLOG_NG_OPTS}"
+supervisor="supervise-daemon"
 extra_commands="checkconfig"
 extra_started_commands="reload"
 #pidfile="${SYSLOG_NG_PIDFILE}"
-supervisor="supervise-daemon"
+description="Syslog-ng is a syslog replacement with advanced filtering features."
+description_checkconfig="Check the configuration file that will be used by \"start\""
+description_reload="Reload the configuration without exiting"
+required_files="${SYSLOG_NG_CONFIGFILE}"
+required_dirs="${SYSLOG_NG_PIDFILE_DIR}"
+command_args_foreground="--foreground --process-mode=foreground"
+command_user="${SYSLOG_NG_USER}:${SYSLOG_NG_GROUP}"
+}}
+
+At the end of the file, the reload function needs to be changed to use the supervisor instead of s-s-d:
+{{CodeBox|title=/etc/init.d/syslog-ng|lang=ini|1=
+reload() {
+        checkconfig {{!}}{{!}} return 1
+        ebegin "Reloading configuration and re-opening log files"
+#       start-stop-daemon --signal HUP --pidfile "${pidfile}"
+        ${supervisor} ${RC_SVCNAME} --signal HUP
+        eend $?
+}
 }}
 
 == Services which won't run under a supervisor ==
