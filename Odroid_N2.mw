@@ -1,9 +1,9 @@
 
 {{Warning|This article is incomplete an unfinished}}
-{{Note|Btrfs crashes the kernel in current hardkernel's kernel version 4.9.170+ but there is some effort to get basic Odroid-N2 support into 5.2 mainline kernel.}}
+{{Note|Since 5.2.0-next-20190718 mainline is bootable.}}
 
 
-This Page describes the necessary steps to take to install gentoo on an [https://www.hardkernel.com/blog-2/odroid-n2/ ODROID-N2] by [https://www.hardkernel.com Hardkernel Co., LTD.]. It's a small ARM based single board computer with 6 cores and 2 or 4 GB of RAM. 
+This Page describes the necessary steps to take to install gentoo with a recent mainline kernel on an [https://www.hardkernel.com/blog-2/odroid-n2/ ODROID-N2] by [https://www.hardkernel.com Hardkernel Co., LTD.]. It's a small ARM based single board computer with 6 cores and 2 or 4 GB of RAM. As it has a 64-bit CPU the experimental aarch64 gentoo is used.
 
 == Prerequisites ==
 
@@ -175,8 +175,7 @@ todo
 
 {{cmd|mkdir -p /mnt/odroid/root/usr/src
 |cd /mnt/odroid/root/usr/src
-|git clone --depth 1 https://github.com/hardkernel/linux.git -b odroidn2-4.9.y}}
-
+|git clone --depth 1 --branch master https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git linux}}
 {{cmd
 |mkdir -p /tmp/toolchain
 |cd /tmp/toolchain
@@ -196,25 +195,51 @@ gcc version 6.3.1 20170109 (Linaro GCC 6.3-2017.02)</pre>}}
 
 {{cmd
 |cd /mnt/odroid/root/usr/src/linux/
-|make odroidn2_defconfig
+|make defconfig
 |output=<pre>
 #
 # configuration written to .config
 #</pre>}}
 
+Disable all unneeded architectures and DEBUG/NOUVEAU drivers as they are not needed.
+{{cmd
+|perl -pi -e 's/CONFIG_ARCH_[^_]*{{=}}y{|}.*(DEBUG{|}NOUVEAU).*//g' .config
+|make olddefconfig}}
+
+Enable Amlogic architecture and multiplexer. Mark btrfs to be compiled into the kernel as the root filesystem is btrfs.
 {{cmd|make menuconfig}}
 {{KernelBox|
+Platform selection --->
+  [*] Amlogic Platforms
 File systems --->
   <*> Btrfs filesystem support
+Device Drivers --->
+  [*] Network device support --->
+    -*- MDIO bus device drivers --->
+      <*> Amlogic G12a based MDIO bus multiplexer
 }}
 
+Compile the kernel.
 {{cmd
-|make -j4 Image modules dtbs}}
+|make -j4}}
 
+Write a uboot readable uImage with the mkimage tool from dev-embedded/u-boot-tools.
 {{cmd
-|cp arch/arm64/boot/Image arch/arm64/boot/dts/amlogic/meson64_odroidn2.dtb /mnt/odroid/boot/
+| mkimage -A arm64 -O linux -T kernel -C none -a "0x1080000" -e "0x1080000" -n "$(make kernelrelease)" -d arch/arm64/boot/Image /mnt/odroid/boot/uImage
+|output=<pre>
+Image Name:   5.2.0-rc7-gdacac3759
+Created:      Sat Jul 13 22:37:43 2019
+Image Type:   AArch64 Linux Kernel Image (uncompressed)
+Data Size:    22278656 Bytes = 21756.50 KiB = 21.25 MiB
+Load Address: 01080000
+Entry Point:  01080000</pre>}}
+
+Copy the device tree blob to the boot partition.
+{{cmd
+|cp arch/arm64/boot/dts/amlogic/meson-g12b-odroid-n2.dtb /mnt/odroid/boot/
 }}
 
+Install the modules to the root partition
 {{cmd
 |make modules_install ARCH{{=}}arm64 INSTALL_MOD_PATH{{=}}/mnt/odroid/root
 }}
@@ -228,6 +253,19 @@ mmcblk0
 ├─mmcblk0p2 swap                536be908-9479-42fc-a45f-bdc109a90984                
 └─mmcblk0p3 btrfs       sd_pool ef4e6022-44bf-4581-a219-ca82beb198b9   24,8G     0% /mnt/odroid/sd_pool
 </pre>}}
+
+{{FileBox|filename=/mnt/odroid/boot/boot.ini|1=
+ODROIDN2-UBOOT-CONFIG
+
+setenv bootargs "root=/dev/mmcblk1p3 rootwait rw console=ttyAML0,115200 clk_ignore_unused"
+setenv dtb_loadaddr "0x1000000"
+fatload mmc ${devno}:1 ${dtb_loadaddr} meson-g12b-odroid-n2.dtb
+fatload mmc ${devno}:1 0x01080000 uImage
+bootm 0x1080000 - ${dtb_loadaddr}
+
+}}
+
+{{Info|clk_ignore_unused is required (right now) otherwise boot hangs}}
 
 {{FileBox|filename=/mnt/odroid/boot/boot.ini|1=
 # Boot Args
@@ -254,8 +292,32 @@ booti ${loadaddr} - ${dtb_loadaddr}
 
 {{cmd
 |cd /mnt/odroid/root
-|wget http://distfiles.gentoo.org/releases/arm/autobuilds/20180831/stage3-armv7a_hardfp-20180831.tar.bz2
-|tar -xjf stage3-armv7a_hardfp-20180831.tar.bz2}}
+|wget http://distfiles.gentoo.org/experimental/arm64/stage3-arm64-systemd-20190428.tar.bz2
+|tar -xjf stage3-arm64-systemd-20190428.tar.bz2}}
+
+{{FileBox|filename=/mnt/odroid/root/etc/fstab|1=
+...
+
+/dev/mmcblk1p3      /         btrfs      defaults,auto,noatime,nodiratime      0 0
+/dev/mmcblk1p1      /boot     vfat       noauto,noatime                        1 2
+/dev/mmcblk1p2      none      swap       sw                                    0 0
+
+...
+}}
+
+Remove * from root user to reset root password to empty. 
+
+{{Warning|First thing on first login should be to set a root password with passwd}}
+
+{{FileBox|filename=/mnt/odroid/root/etc/shadow|1=
+root::17941:0:::::
+...
+}}
+
+
+
+
+edit 
 == Ressources ==
 
 * [https://wiki.odroid.com/odroid-n2/odroid-n2 Official ORDOID-N2 wiki]
