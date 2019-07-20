@@ -1,0 +1,159 @@
+= GSoC2019/Gentoo: BLAS/LAPACK Runtime Switch =
+
+Table of Contents
+
+# BLAS/LAPACK Runtime Switch: User Guide
+# BLAS/LAPACK Runtime Switch: Developer Guide
+# Implementation Details
+# Frequently Asked Questions
+
+= BLAS/LAPACK Runtime Switch: User Guide =
+
+== Disabling The Feature ==
+
+This feature is disabled by default, which means users who don’t care about it could simply ignore the <code>eselect-ldso</code> USE flag as if it doesn’t exist and install things under the default settings like before. Users who don’t read any documentation at all won’t fall into trouble with this default setting.
+
+== Enabling The Feature ==
+
+First install the skeleton of the mechanism:
+
+<pre># USE=eselect-ldso emerge --ask &gt;=virtual/blas-3.8 &gt;=virtual/lapack-3.8</pre>
+These virtual packages will pull in the reference BLAS/LAPACK implementation and the customized eselect modules for BLAS and LAPACK, i.e. (<code>&gt;=sci-libs/lapack-3.8.0</code>, <code>&gt;=app-eselect/eselect-blas-0.2</code>, <code>&gt;=app-eselect/eselect-lapack-0.2</code>). After finishing the installation, the user should be able to check the status of BLAS/LAPACK selections:
+
+<pre># eselect blas list
+Available BLAS/CBLAS (lib64) candidates:
+  [1]   reference *
+# eselect lapack list
+Available LAPACK (lib64) candidates:
+  [1]   reference *</pre>
+That means all binaries linked against <code>libblas.so.3</code> or <code>libcblas.so.3</code> will use the <code>reference</code> BLAS implementation; those linked against <code>liblapack.so.3</code> will use the <code>reference</code> LAPACK implementation.
+
+The reference implementation is very slow, and for some users (e.g. scientific computing users) this is unacceptable. In Gentoo’s main repo there are several typical optimized BLAS/LAPACK implementations available, for example BLIS and OpenBLAS. They could be automatically registered in the mechanism as long as the <code>eselect-ldso</code> USE flag is toggled during installation. For example:
+
+<pre># USE=eselect-ldso emerge --ask &gt;=sci-libs/blis-0.6.0
+# USE=eselect-ldso emerge --ask &gt;=sci-libs/openblas-0.3.5</pre>
+Note that without the <code>eselect-ldso</code> flag, these packages won’t be registered in the mechanism and won’t install extra libraries at all. After installation with the feature enabled, we could switch the BLAS/LAPACK implementation like so:
+
+<pre># eselect blas set openblas
+# eselect lapack set openblas</pre>
+Directly run your program again and see if it’s running faster. No any re-compilation is required thanks to this mechanism. For more details about the <code>eselect blas</code> or <code>eselect-lapack</code> usage please look up the manual page or the help messages.
+
+== Side Notes ==
+
+List of BLAS/LAPACK providers (<code>eselect-ldso</code>):
+
+* <code>sci-libs/lapack</code>: the reference blas/cblas/lapack/lapacke, only supports serial mode.
+* <code>sci-libs/blis</code>: optimized blas/cblas implementation.
+* <code>sci-libs/openblas</code>: optimized blas/cblas + partially optimized lapack/lapacke.
+* <code>sci-libs/mkl-rt</code>: Intel’s math kernel library. optimized blas/cblas/lapack/lapcke/etc implementation.
+
+Here are some recommended combinations for your choice:
+
+<pre>* blas=openblas  lapack=openblas   (priority: high)
+* blas=blis      lapack=reference  (priority: medium)
+* blas=reference lapack=reference  (priority: low)
+* blas=mkl-rt    lapack=mkl-rt     (priority: high but non-free)</pre>
+Note the following combinations are discouraged:
+
+<pre>* blas=blis      lapack=openblas</pre>
+In case of package confliction (Block) during transition:
+
+<pre>* Keep &gt;=virtual/{blas,cblas,lapack}-3.8
+* Keep &gt;=sci-libs/lapack-3.8 as it replaces all the
+  sci-lib/{blas,cblas,lapack,lapacke}-reference packages.
+  The *-reference packages should be unmerged.
+* Keep &gt;=app-eselect/eslect-{blas,lapack}-0.2 .
+  app-eselect/eselect-cblas-* has been deprecated.</pre>
+== Pitfalls ==
+
+# Please don’t use pthread and openmp at the same time since it may incur significant performance drop due to excessive thread creation. This may happen when some libraries linked against an application use OpenMP threading, whiles some other use pthread.
+# Please don’t use GNU OpenMP (<code>libgomp.so</code>) and (<code>libiomp.so</code>) at the same time as the symbol clash between them may lead to silent computation error. This may happen when MKL uses Intel/LLVM OpenMP while some other libraries linked against the same application use GNU OpenMP.
+
+= BLAS/LAPACK Runtime Switch: Developer Guide =
+
+== BLAS/LAPACK Providers ==
+
+It must be pointed out that for any BLAS/LAPACK implementation, providing extra shared object with proper SONAMEs is necessary. For example, we cannot use <code>libopenblas.so.0 (SONAME=libopenblas.so.0)</code> as the BLAS/CBLAS provider by simply symlinking it into <code>libblas.so{,.3}</code> and <code>libcblas.so{,.3}</code> because any program to be linked against BLAS (<code>-lblas</code>) or CBLAS (<code>-lcblas</code>) will be eventually linked against <code>libopenblas.so.0</code> (you can verify this with <code>readelf -d foobar</code>), which will clearly break the runtime switching mechanism. The current solution is to patch upstream build systems and build customized shared objects with proper SONAMEs.
+
+To package a BLAS/LAPACK provider with the runtime switching feature enabled, the maintainer should pay attention to the following points:
+
+# Patch upstream build systems and provide extra shared objects in a private library directory. Specifially, a new BLAS/CBLAS implementation, say “myblas”, should install 4 files to the <code>/usr/lib64/blas/&lt;myblas&gt;/</code> directory:
+
+# <code>libblas.so.3</code> (ELF shared object, providing the fortran BLAS ABI, SONAME=<code>libblas.so.3</code>); (2) <code>libblas.so</code> (symlink pointing to <code>libblas.so.3</code>);
+# <code>libcblas.so.3</code> (ELF shared object, providing the C BLAS ABI, SONAME=<code>libcblas.so.3</code>); (4) <code>libcblas.so</code> (symlink pointing to <code>libcblas.so.3</code>). Similarly, a new LAPACK implementation, say “mylapack” should install 2 files to the <code>/usr/lib64/blas/&lt;mylapack&gt;</code> directory: (1) <code>liblapack.so.3</code> (ELF shared object, providing the fortran LAPACK ABI, SONAME=<code>liblapack.so.3</code>); (2) <code>liblapack.so</code> (symlink pointing to <code>liblapack.so</code>).
+
+<ol start="2" style="list-style-type: decimal;">
+<li><p>Register an alternative with <code>eselect blas add ...</code> during postinst.</p></li>
+<li><p>Remove an alternative with <code>eselect blas validate</code> during postrm.</p></li>
+<li><p>Guard the code associated with all the above points with the <code>eselect-ldso</code> USE flag.</p></li></ol>
+
+For real example please see ebuild files for <code>&gt;=sci-libs/lapack-3.8.0</code>, <code>&gt;=sci-libs/blis-0.5.2</code>, <code>&gt;=sci-libs/openblas-0.3.5</code>.
+
+== BLAS/LAPACK Reverse Dependencies ==
+
+If a package needs to be linked against the reference (aka. netlib) BLAS and LAPACK, it should declare virtual packages dependency, i.e. <code>virtual/{blas,cblas,lapack,lapacke}</code> instead of a specific implementation. In this case the package must assume a standard (reference) API and ABI from the virtual package. Otherwise, please write a specific implementation in the dependency list and avoid linking against <code>-l{,c}blas</code> or <code>-llapack</code>.
+
+= Implementation Details =
+
+The core part of the implementation involves <code>&gt;=sci-libs/lapack-3.8.0</code>, <code>&gt;=eselect-blas-0.2</code> and <code>&gt;=eselect-lapack-0.2</code>, where the former one controls both (fortran) BLAS and CBLAS alternatives at the same time.
+
+The <code>sci-libs/lapack</code> is codebase of the reference (or standard) BLAS, CBLAS, LAPACK, and LAPACKE. BLAS and LAPACK are a set of stable Fortran API / ABI. CBLAS and LAPACKE are thin wrappers around BLAS and LAPACK respectively, providing the C API / ABI. In our BLAS/LAPACK runtime switching mechanism, every candidate must provide every API / ABI that the reference implementation provides. Taking advantage of the API/ABI stability, we can change the backend libraries (e.g. <code>libblas.so.3</code>) without recompiling applications as long as the new one provides a compatible set of ABI.
+
+The users could easily switch the libraries by adjusting the <code>LD_LIBRARY_PATH</code> environment variables as a temporary solution. For system level library switching, two custom eselect modules (<code>eselect-blas</code>, <code>eselect-lapack</code>) are provided. They manipulates configuration files under the <code>/etc/ld.so.conf.d/</code> directory, hinting <code>ld.so</code> on the places to find the BLAS/LAPACK libraries.
+
+As a side effect, this solution depends on the <code>ld.so.conf</code> support from the system C standard library. Besides, It’s recommended to read the code if you need even more details.
+
+= Frequently Asked Questions =
+
+'''Q: I disabled this feature when installing a bunch of packages, but now I regret and want to enable the runtime switching feature. How should I do?'''
+
+A: Simply reinstall the virtual packages and your favorate BLAS/LAPACK providers with the <code>eselect-ldso</code> flag toggled. The whole dependency tree doesn’t need to be rebuilt as a rebuild is expected to make no difference.
+
+'''Q: Some BLAS/LAPACK implementations support 64-bit array indexing, which provides functions such as <code>sasum(int64_t N, float* X, int64_t INCX)</code>. How does this mechanism deal with such feature?'''
+
+A: The “BLAS64” or “BLAS-ILP64” ABI is different from the “BLAS32” or “BLAS-LP64” ABI. Mixing them together will lead to unpredictable results, hence the “BLAS64” feature is not integrated into the mechanism. Currently we only provide this feature in the <code>sci-libs/openblas</code> package for Julia’s use. Besides, the generic switching mechanism for BLAS64/LAPACK64 is still being experimented in Debian. When the demand on “BLAS64” is common enough or the experiment in Debian was successful, we could start to provide it in Gentoo.
+
+'''Q: How do I add a customized implementation into this mechanism?'''
+
+A: Taking MKL as an example. We first install MKL to <code>/path/to/mkl</code>, and symlink <code>/path/to/mkl/libmkl_rt.so</code> to <code>/path/to/mkl/lib{,c}blas.so{,.3}</code>. Then register it with <code>eselect blas add lib64 /path/to/mkl/ mkl</code>. Note that building programs when MKL is selected is discouraged. The reason could be found in the developer guide part.
+
+A real example about adding and setting Intel MKL as the backend library:
+
+<pre># pip install mkl --user
+# cd ~/.local/lib/
+# ln -s libmkl_rt.so libblas.so.3
+# ln -s libmkl_rt.so libblas.so  
+# ln -s libmkl_rt.so libcblas.so.3
+# ln -s libmkl_rt.so libcblas.so  
+# eselect blas add lib64 $(pwd) mkl
+# ln -s libmkl_rt.so liblapack.so.3
+# ln -s libmkl_rt.so liblapack.so  
+# eselect lapack add lib64 $(pwd) mkl
+# eselect blas set mkl
+# eselect lapack set mkl</pre>
+To remove the MKL candidate or any other customized library, just remove the corresponding files under <code>/etc/env.d/blas/</code> and <code>/etc/env.d/lapack/</code> directories, then select some other candidates. Note, the <code>sci-libs/mkl-rt::gentoo</code> can do all the above steps for you.
+
+= Reference =
+
+# [gentoo-science] GSoC Proposal: Improvements to the BLAS / LAPACK and their reverse-dependencies https://archives.gentoo.org/gentoo-science/message/4d0186acdce6df538a2740e0f1146ae6
+# [gentoo-dev] RFC: BLAS and LAPACK runtime switching https://archives.gentoo.org/gentoo-dev/message/d917547f7a9e1226fca63632a1e02026
+# [gentoo-dev] [PATCH 0/2] RFC: Introducing ldso switching to BLAS/LAPACK https://archives.gentoo.org/gentoo-dev/message/95beba3dc1c0f684ce1ec82d51988fc8
+# [gentoo-science] On BLAS and LAPACK int64 ABI https://archives.gentoo.org/gentoo-science/message/8e3b9567297de5a1809feb28c62be633
+# hsntgm (Github user) wrote an “openblas” script for similar switching purpose. However the implementation is neither generic nor simple enough. See https://github.com/gentoo/gentoo/pull/11700/files
+
+= Authors, Acknowledgement, Credits =
+
+Author: Mo Zhou [mailto:lumin@debian.org lumin@debian.org] GSoC Mentor: Benda Xu [mailto:heroxbd@gentoo.org heroxbd@gentoo.org]
+
+This work is supported by Google through Google Summer of Code. [https://summerofcode.withgoogle.com/projects/#6268942782300160 Project Link]
+
+Thanks to Zongyu Zhang who [https://github.com/gentoo/gentoo/commit/f5c71a4aa9615c8c14caa8e7076519ab2a4b9824#diff-e86a27d02ab70b6118a6b04d18ff075e fixed a bug in numpy ebuild] so that numpy could make use of the switching mechanism correctly.
+
+= User Feedbacks =
+
+Positive ones:
+
+* https://github.com/gentoo/sci/issues/805#issuecomment-510469206
+* https://github.com/gentoo/sci/issues/805#issuecomment-512097570
+
+Negative ones: None yet.
