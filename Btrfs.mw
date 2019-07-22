@@ -246,25 +246,92 @@ zlib        16%      532M         3.2G         3.2G
 === Multiple devices (RAID) === <!--T:56-->
 
 <!--T:57-->
-Btrfs can be used with multiple devices in order to create RAIDs. Using Btrfs to create filesystems that span multiple devices is much easier than creating using {{c|mdadm}}; there is no initialization time needed for creation.
+Btrfs can be used with multiple block devices in order to create RAIDs. Using Btrfs to create filesystems that span multiple devices is much easier than creating using {{c|mdadm}} since there is no initialization time needed for creation.
+
+BTRFS handles data and metadata separately. This is an important factor to keep in mind when using a multi-device filesystem. It is possible to use separate profiles for data and metadata block groups. For example, metadata could be configured across multiple devices in RAID1, while data could be configured to RAID5. This is profile possible when using three or more block devices, since RAID5 requires a minimum of 3 block devices. 
+
+This type of profile profile offers the benefit of redundancy for metadata on each device and striping for data across devices, which increases read speeds. The drawback of this profile is more space than necessary is used for metadata, and write speeds are reduced for data blocks, since RAID5 uses a parity bit.
+
+==== Creation ====
 
 <!--T:58-->
-The simplest method is to use the entirety of the unpartitioned block device to create a filesystem that spans multiple devices. For example, to create a filesystem in RAID1 mode across two devices:
+The simplest method is to use the entirety of unpartitioned block devices to create a filesystem spanning multiple devices. For example, to create a filesystem in RAID1 mode across two devices:
 
 <!--T:59-->
 {{RootCmd|mkfs.btrfs -m raid1 ''<device1>'' ''<device2>'' -d raid1 ''<device1>'' ''<device2>''}}
 
+==== Conversion ====
+
 <!--T:133-->
-Converting between RAID modes is possible with the balance sub-command. For example, say a multiple device RAID 1 is mounted at {{Path|/srv}}. It is possible to convert this RAID1 to RAID0 with using the following command:
+Converting between RAID profiles is possible with the balance sub-command. For example, say three block devices are presently configured for RAID1 and mounted at {{Path|/srv}}. It is possible to convert the data in this profile from RAID1 to RAID5 with using the following command:
 
 <!--T:134-->
-{{RootCmd|btrfs balance start -dconvert{{=}}raid0 -mconvert{{=}}raid0 --force /srv}}
+{{RootCmd|btrfs balance start -dconvert{{=}}raid5 --force /srv}}
 
 <!--T:135-->
-RAID mode conversion can be performed while the filesystem is online and in use. Possible RAID modes in btrfs include RAID0, RAID1, RAID5, RAID6, and RAID10. See the [https://btrfs.wiki.kernel.org/index.php/Using_Btrfs_with_Multiple_Devices upstream BTRFS wiki] for more information.
+Conversion can be performed while the filesystem is online and in use. Possible RAID modes in btrfs include RAID0, RAID1, RAID5, RAID6, and RAID10. See the [https://btrfs.wiki.kernel.org/index.php/Using_Btrfs_with_Multiple_Devices upstream BTRFS wiki] for more information.
 
 <!--T:60-->
 {{Warning|It is currently not safe to use the RAID 5 or 6 modes<ref>[https://btrfs.wiki.kernel.org/index.php/RAID56 Article mentioning that parity RAID code has multiple serious data-loss bugs], [https://btrfs.wiki.kernel.org Btrfs wiki]. Retrieved on January 1st, 2017.</ref>. RAID 5 and 6 modes have seen some fixes<ref>Michael Larabel, [http://www.phoronix.com/scan.php?page=news_item&px=Linux-4.12-Btrfs-RAID-Mostly-OK Btrfs RAID56 "Mostly OK"], Phoronix. July 8, 2017.</ref> in Linux 4.12, but overall status is still marked as '''unstable'''.<ref>[https://git.kernel.org/pub/scm/linux/kernel/git/mason/linux-btrfs.git/commit/?h{{=}}for-linus-4.12&id{{=}}28d70e237dac905cd8d1896af10216b7d2bced24 btrfs: scrub: Fix RAID56 recovery race condition], source commit, April 18th 2017.</ref><ref>[http://lkml.iu.edu/hypermail/linux/kernel/1705.1/01197.html GIT PULL Btrfs from Chris Mason], [http://lkml.iu.edu/hypermail/linux/kernel/index.html Linux kernel mailinglist], May 9th 2017.</ref>. Users who want to use RAID5 or RAID6 functionality of btrfs are encouraged to check the [https://btrfs.wiki.kernel.org/index.php/Status btrfs status page] for stability status of said modes before utilizing the modes.}}
+
+==== Removal ====
+
+===== By device path =====
+
+Block devices (disks) can be removed from multi-device filesystems using the btrfs device remove subcommand:
+
+{{RootCmd|sudo btrfs device remove /dev/sde /srv}}
+
+===== By device ID =====
+
+Use the usage subcommand to determine the device IDs:
+
+{{RootCmd|btrfs device usage /srv|collapse-output=true|output=
+/dev/sdb, ID: 3
+   Device size:             1.82TiB
+   Device slack:              0.00B
+   Data,RAID1:             25.00GiB
+   Data,RAID5:            497.00GiB
+   Data,RAID5:              5.00GiB
+   Metadata,RAID5:         17.00GiB
+   Metadata,RAID5:        352.00MiB
+   System,RAID5:           32.00MiB
+   Unallocated:             1.29TiB
+
+/dev/sdc, ID: 1
+   Device size:             1.82TiB
+   Device slack:              0.00B
+   Data,RAID1:             25.00GiB
+   Data,RAID5:            497.00GiB
+   Data,RAID5:              5.00GiB
+   Metadata,RAID5:         17.00GiB
+   Metadata,RAID5:        352.00MiB
+   System,RAID5:           32.00MiB
+   Unallocated:             1.29TiB
+
+/dev/sdd, ID: 4
+   Device size:             1.82TiB
+   Device slack:              0.00B
+   Data,RAID1:             25.00GiB
+   Data,RAID5:            497.00GiB
+   Data,RAID5:              5.00GiB
+   Metadata,RAID5:         17.00GiB
+   Metadata,RAID5:        352.00MiB
+   System,RAID5:           32.00MiB
+   Unallocated:             1.29TiB
+
+/dev/sde, ID: 5
+   Device size:               0.00B
+   Device slack:              0.00B
+   Data,RAID1:             75.00GiB
+   Data,RAID5:              5.00GiB
+   Metadata,RAID5:        352.00MiB
+   Unallocated:             1.74TiB
+}}
+
+Next use the device ID to remove the device, in this case {{c|/dev/sde}} will be removed:
+
+{{RootCmd|sudo btrfs device remove 5 /srv}}
 
 === Subvolumes === <!--T:61-->
 
