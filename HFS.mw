@@ -1,0 +1,80 @@
+<languages />
+{{InfoBox stack
+| {{InfoBox wikipedia|Hierarchical_File_System|header=true}}
+}}
+
+The Hierarchical File System (HFS) is [[Article description::the native filesystem of the Apple Macintosh and its operating system up to Mac&nbsp;OS&nbsp;8]]. It was the primary base [[filesystem]] of the Macintosh on the Motorola 68000 architecture. Its successor is [[HFS+]] and became the standard base filesystem in Mac&nbsp;OS 8.1 on PowerPC as well as Mac&nbsp;OS&nbsp;X on PowerPC and Intel x86. However, on PowerPC-based Macs a HFS partition is still used for the bootstrap partition.
+
+== Installation ==
+=== Kernel ===
+{{KernelBox|title=Enable HFS support (<var>CONFIG_HFS_FS</var>)|1=
+File systems  --->
+   Miscellaneous Filesystems  --->
+      <M> Apple Macintosh file system support
+      < > Apple Extended HFS file system support
+   -*- Native language support  --->
+      (utf8) Default NLS Option
+      <M>   Codepage macroman
+      {*}   NLS UTF-8
+}}
+
+=== Emerge ===
+The {{Package|sys-fs/hfsutils}} package traditionally provides means to access the Hierarchical File System on m68k and ppc/ppc64 Macs. The included utilities provide limited access to a filesystem on a selected partition.
+{{Emerge|sys-fs/hfsplusutils}}
+
+Instead of mounting the filesystem as a subfolder under the root directory {{Path|/}}, the various utilities of package {{Package|sys-fs/hfsutils}} access the filesystem directly. hmount selects the partition for theese utilities and humount releases it again. The use of {{Package|sys-fs/mac-fdisk}} is highly recommended.
+{{Emerge|sys-fs/mac-fdisk}}
+{{Note|Package {{Package|sys-block/parted}} can also create Apple Partition Map (APM) style partitions. However, it is not as verbose about partition types.}}
+
+{{RootCmd|mac-fdisk -l /dev/sda |collapse-output=true |output=<pre>/dev/sda
+        #                    type name                  length   base      ( size )  system
+/dev/sda1     Apple_partition_map Apple                     63 @ 1         ( 31.5k)  Partition map
+/dev/sda2              Apple_Boot NewWorld Bootblock   1286080 @ 64        (628.0M)  Unknown
+/dev/sda3              Apple_Free Extra                1073152 @ 1286144   (524.0M)  Free space
+/dev/sda4               Apple_HFS Tiger              209715200 @ 2359296   (100.0G)  HFS
+...</pre>}}
+{{Note|On PowerPC Macs with Apple Partition Map, both HFS and HFS+ filesystems are type Apple_HFS. Special partitions, such as case-sensitive HFS+ or SoftwareRAID partitions, will be Apple_HFSX and are always HFS+.}}
+{{Important|Some [[HFS+]] partitions feature a HFS wrapper partition for compatibility reasons which '''cannot be used.''' If a partition of this kind is mounted as HFS, not HFS+, it contains one single file identifying it as HFS wrapper partition. Starting with Mac&nbsp;OS&nbsp;X 10.3 ''Panther'' Apple tools will no longer create such a wrapper partition.}}
+{{Note|The terms "partition" and "volume" are used synonymous in this context, since Mac&nbsp;OS calls a partition with a mountable filesystem a volume.}}
+
+Select the partition with hmount.
+{{RootCmd|hmount /dev/sda4}}
+
+On the selected partition, the commands h[format|vol|fsck|ls|dir|pwd|mkdir|cd|rmdir|attrib|copy|rename|del] can be used for file and filesystem operations.
+{{RootCmd|hls|output=<pre>Apple Extras     Desktop Folder   Develop</pre>}}
+{{Important|Instead of the Unix "/" for directories the colon ":" has to be used. E.g. instead of {{Path|/dir/to/file}}, for the provided utilities {{Path|<nowiki>:dir:to:file</nowiki>}} has to be used.}}
+{{RootCmd|hcp /path/to/source_file_from_linux_filesystem <nowiki>:path:to:target_file_on_hfs_volume</nowiki>|hcp <nowiki>:path:to:source_file_on_hfs_volume</nowiki> /path/to/target_file_from_linux_filesystem}}
+This will copy a file from the Linux filesystem to the HFS volume. The utilities will automatically determain if the source or target is on the HFS volume or the Linux filesystem, thus the pathname should be unambiguous and use the slash "/" for linux and the colon ":" for HFS. 
+
+The partition is released with the humount utility.
+{{RootCmd|humount /dev/sda4}}
+
+{{Note|Please refer to the manpages of each single utility for further information: {{Man|hattrib|1}}, {{Man|hcd|1}}, {{Man|hcopy|1}}, {{Man|hdel|1}}, {{Man|hdir|1}}, {{Man|hformat|1}}, {{Man|hfsutils|1}}, {{Man|hls|1}}, {{Man|hmkdir|1}}, {{Man|hmount|1}}, {{Man|hpwd|1}}, {{Man|hrename|1}}, {{Man|hrmdir|1}}, {{Man|humount|1}} and {{Man|hvol|1}}.}}
+
+=== NewWorld Bootblock ===
+A specialty of the PowerPC-based NewWorld Macs is the use of a NewWorld Bootblock for yaboot or GRUB. NewWorld Macs are PowerPC-based Macs with Open Firmware version 3.0 (OF3) or later. OF3+ will automatically look for bootable partitions, like those of the type Apple_Boot. When such a partition contains a filesystem of the type HFS, and this filesystem contains a "blessed" file, this file will be selectable as a boot option from OF3+.
+
+First, a NewWorld Bootblock has to be created using mac-fdisk:
+{{RootCmd|mac-fdisk /dev/sda}}
+At the interactive command prompt this partition can either be created manually e.g. by using the C command for "create new partition, specifying the partition type", or semi-automatic by using the b command for "create new 800k Apple_Bootstrap partition (used by yaboot)". Either way you should get a bootable HFS partition of either the type Apple_Boot or Apple_Bootstrap.
+ 
+Assuming this partition is /dev/sda2, to bless a bootloader such as yaboot or GRUB, hattrib can be used.
+{{RootCmd|hformat -l "NewWorld Bootblock" /dev/sda2|hmount /dev/sda2|hcopy /boot/grub/powerpc-ieee1275/core.elf :core.elf|hattrib -c UNIX -t tbxi :core.elf|hattrib -b :|humount /dev/sda2}}
+{{Important|You should '''not''' boot core.elf from {{Path|/boot/grub/powerpc-ieee1275/core.elf}} directly, since this is only the GRUB core program without extensions such as filesystem drivers. It will not be able to access the Linux {{Path|/boot}} directory. Use grub-mkimage to create a bootable GRUB bootloader which will be able to boot Linux and other operating systems.}}
+
+{{Note|yaboot provides the installer ybin, which will do the above automatically on the in {{Path|/etc/yaboot.conf}} preconfigured partition.}}
+
+== See also ==
+* {{See also|HFS+}}
+* {{See also|filesystem}}
+* {{See also|mount}}
+* {{See also|removable media}}
+* {{See also|fstab}}
+
+== External resources ==
+* [https://wiki.archlinux.org/index.php/HFS+ HFS+] - from the Arch Linux wiki
+
+== References ==
+{{reflist}}
+
+[[Category:Filesystems]]
