@@ -1,0 +1,526 @@
+{{InfoBox stack
+|{{InfoBox header|supervise-daemon}}
+|{{InfoBox homepage|https://github.com/OpenRC/openrc/blob/master/supervise-daemon-guide.md}}
+|{{InfoBox manpage|http://manpages.org/supervise-daemon/8|raw=true}}
+|{{InfoBox package|sys-apps/openrc}}
+}}
+
+OpenRC-0.21 introduces its own daemon supervisor, '''supervise-daemon'''. 
+
+{{Warning|In the source code of the current version of supervise-daemon it is still stated that it is '''experimental'''. Use supervise-daemon at own risk.}}
+
+== Introduction ==
+
+OpenRC traditionally uses {{c|start-stop-daemon}}, often called ''s-s-d'' for starting, and stopping programs. When s-s-d starts a process it saves the process' PID somewhere on permanent storage (typically under {{Path|/run/}}), and backgrounds (daemonizes) the process it started. When the time comes to stop, kill, or signal the daemon it uses the saved PID file to find the right process.
+
+Supervising on the other hand usually keeps the started daemon as a child process of the supervisor. Backgrounding the daemon is therefore not needed, and not desired. An advantage of supervising a daemon is also that any terminal output sent to stdout and stderr can be caught by the supervisor, and sent to the system logger or to a file. Pidfiles are not needed because the supervisor process remembers the pid.
+
+This article aims to provide help how to bring services under its supervision.
+
+== Instructions per service ==
+Gentoo's init files do not yet by default use supervise-daemon. At this moment it is still left to early adopters to adapt the init files.
+
+=== acpid ===
+
+Reviewing the man page of {{c|acpid}} reveals:
+* ''.. will run as  background process ..''
+* ''.. -f, --foreground .. keeps acpid in the foreground by not forking at startup, and makes it log to stderr instead of syslog.''
+
+Edit {{Path|/etc/init.d/acpid}} as follows to make acpid run under supervise-daemon:
+* add the superisor definition
+* add the arguments to make acpid run in foreground
+* rewrite the s-s-d command to a supervisor-daemon command
+
+At the top of the file:
+{{FileBox|filename=/etc/init.d/acpid|lang=ini|1=
+supervisor="supervise-daemon"
+command_args_foreground="--foreground"
+}}
+
+At the end of the file:
+{{FileBox|filename=/etc/init.d/acpid|lang=ini|1=
+reload() {
+        ebegin "Reloading acpid configuration"
+#       start-stop-daemon --exec $command --signal HUP
+        ${supervisor} ${RC_SVCNAME} --signal HUP
+        eend $?
+}
+}}
+
+Start up the service:
+{{RootCmd|rc-service acpid start|output=<pre>
+acpid                  | * Starting acpid ...                           [ ok ]
+</pre>
+}}
+
+Verify if acpid is now running under supervise-daemon:
+
+{{RootCmd|ps -ef {{!}}  grep acpid 
+|output=<pre>
+root      7450     1  0 15:32 ?        00:00:00 supervise-daemon acpid --start /usr/sbin/acpid -- --foreground
+root      7454  7450  0 15:32 ?        00:00:01 /usr/sbin/acpid --foreground
+</pre>}}
+
+Check the logs as well:
+
+{{RootCmd|tail /var/log/messages|output=<pre>
+Jun 10 09:10:27 [supervise-daemon] Supervisor command line: supervise-daemon acpid --start /usr/sbin/acpid -- --foreground
+Jun 10 09:10:27 [supervise-daemon] Child command line: /usr/sbin/acpid --foreground
+</pre>}}
+
+And when you create an acpid event, it will be logged:
+
+{{RootCmd|tail /var/log/messages|output=<pre>
+Jun 10 09:15:08 [user] ACPI event unhandled: button/mute MUTE 00000080 00000000 K
+</pre>}}
+
+Lastly, check if supervise-daemon will restart acpid when it terminates:
+
+{{RootCmd |kill 7454 |tail /var/log/messages|output=<pre>
+Jun 10 09:54:20 [supervise-daemon] /usr/sbin/acpid, pid 7454, exited with return code 0
+Jun 10 09:54:20 [supervise-daemon] Child command line: /usr/sbin/acpid --foreground 
+</pre>}}
+
+{{RootCmd|ps -ef {{!}}  grep acpid |output=<pre>
+root      7450     1  0 15:32 ?        00:00:00 supervise-daemon acpid --start /usr/sbin/acpid -- --foreground
+root      8931  7450  0 15:32 ?        00:00:01 /usr/sbin/acpid --foreground
+</pre>}}
+
+Notice the different PID.
+
+=== avahi-daemon ===
+
+{{Package|net-dns/avahi}} contains a service ''avahi-daemon'' for service discovery. Its init file {{Path|/etc/init.d/avahi-daemon}} does not make use of s-s-d, but calls the binary {{Path|/usr/sbin/avahi-daemon}} directly and gives it the instruction to daemonize: <code>/usr/sbin/avahi-daemon -D</code> on startup. This can be simply adjusted by defining the command variable as <code>command="/usr/sbin/avahi-daemon"</code>, and removing the start and stop functions from the file. Of course it is also needed to specify the supervisor.
+
+Edit {{Path|/etc/init.d/avahi-daemon}} as follows:
+
+{{CodeBox|title=/etc/init.d/avahi-daemon|lang=bash|1=
+#!/sbin/openrc-run
+# Copyright 1999-2016 Gentoo Foundation
+# Distributed under the terms of the GNU General Public License v2
+
+extra_started_commands="reload"
+command="/usr/sbin/avahi-daemon"
+supervisor="supervise-daemon"
+
+depend() {
+        before netmount nfsmount
+        use net
+        need dbus
+}
+
+#start() {
+#       ebegin "Starting avahi-daemon"
+#       /usr/sbin/avahi-daemon -D
+#       eend $?
+#}
+#
+#stop() {
+#       ebegin "Stopping avahi-daemon"
+#       /usr/sbin/avahi-daemon -k
+#       eend $?
+#}
+
+reload() {
+       ebegin "Reloading avahi-daemon"
+#      /usr/sbin/avahi-daemon -r
+       ${command} -r
+       eend $?
+}
+}}
+
+Start the service back up:
+
+{{RootCmd|rc-service avahi-daemon start|output=<pre>
+avahi-daemon           | * Caching service dependencies ...                              [ ok ]
+avahi-daemon           | * Starting avahi-daemon ...                                     [ ok ]
+</pre>}}
+
+Verify that the service is now supervised:
+
+{{RootCmd |ps -ef {{!}} grep avahi|output=<pre>
+root     27390     1  0 10:30 ?        00:00:00 supervise-daemon avahi-daemon --start /usr/sbin/avahi-daemon --
+avahi    27392 27390  0 10:30 ?        00:00:00 avahi-daemon: running [e485.local]
+avahi    27397 27392  0 10:30 ?        00:00:00 avahi-daemon: chroot helper
+</pre>}}
+
+=== bluetoothd ===
+
+{{Package|net-wireless/bluez}} provides [[Bluetooth]] services. The recipe to bring it under supervise-daemon is as follows:
+
+* remove the pidfile reference
+* remove the background instruction
+* define the supervisor
+
+Edit {{Path|/etc/init.d/bluetooth}} as follows:
+
+{{CodeBox|title=/etc/init.d/bluetooth|lang=bash|1=
+#pidfile="/run/bluetoothd.pid"
+command="/usr/libexec/bluetooth/bluetoothd"
+#command_background=1
+supervisor="supervise-daemon"
+}}
+
+=== cupsd ===
+
+[[CUPS]] is the well known printing system of Linux. Its daemon ''cupsd'' is provided by {{Package|net-print/cups}}.
+
+Remove the pidfile and s-s-d instructions from {{Path|/etc/init.d/cupsd}} by commenting them out, and add the supervisor declaration to bring it under supervision:
+
+{{CodeBox|title=/etc/init.d/cupsd|lang=bash|1=
+#pidfile="/var/run/cupsd.pid"
+#start_stop_daemon_args="-b -m --pidfile ${pidfile}"
+supervisor="supervise-daemon"
+}}
+
+=== cups-browsed ===
+Cups-browsed is a daemon  for  browsing  the  Bonjour  broadcasts of shared, remote CUPS printers.
+
+Bring it under supervision by removing the background instruction and declaring the supervisor:
+{{CodeBox|title=/etc/init.d/cups-browsed|lang=bash|1=
+#command_background="true"
+supervisor="supervise-daemon"
+}}
+
+=== dbus-daemon ===
+
+[[D-Bus]] is a message bus system, a simple way for applications to talk to one another. It can be brought under supervise-daemon like any other service.
+
+{{Warning|When D-BUS is stopped the system or desktop may become unstable. Best to restart the system after editing the init file.}}
+
+Edit {{Path|/etc/init.d/dbus}} as follows:
+
+{{CodeBox|title=/etc/init.d/dbus|lang=bash|1=
+description="An IPC message bus daemon"
+#pidfile="/run/dbus.pid"
+command="/usr/bin/dbus-daemon"
+command_args="--system"
+dbus_socket="/run/dbus/system_bus_socket"
+supervisor="supervise-daemon"
+command_args_foreground="--nofork"
+}}
+
+=== dhcpcd ===
+
+DHCPCD, the Dynamic Host Configuration Protocol Client Daemon is a popular DHCP client capable of handling both IPv4 and IPv6 configurations. 
+
+Take the following steps to have it run under supervise daemon:
+
+* remove the pidfile defintion
+* define the supervisor
+* pass the dhcpcd process option <code>--nobackground</code> to prevent it from backgrounding.
+
+Edit {{Path|/etc/init.d/dhcpcd}} as follows:
+
+{{CodeBox|title=/etc/init.d/dhcpcd|lang=bash|1=
+command=/sbin/dhcpcd
+#pidfile=/var/run/dhcpcd.pid
+command_args=-q
+name="DHCP Client Daemon"
+supervisor="supervise-daemon"
+command_args_foreground="--nobackground"
+}}
+
+=== dnsmasq ===
+
+[[Dnsmasq]], provided by package {{Package|net-dns/dnsmasq}}, is a lightweight DHCP and caching DNS server. 
+Dnsmasq's init file contains references to s-s-d, and pidfiles. The daemon needs to be configured to run in foreground. 
+
+Edit {{Path|/etc/init.d/dnsmasq}} as follows:
+{{CodeBox|title=/etc/init.d/dnsmasq|lang=bash|1=
+#pidfile="/var/run/dnsmasq.pid"
+command="/usr/sbin/dnsmasq"
+#command_args="-x ${pidfile} ${DNSMASQ_OPTS}"
+command_args="${DNSMASQ_OPTS}"
+command_args_foreground="--keep-in-foreground"
+supervisor="supervise-daemon"
+retry="TERM/3/TERM/5"
+
+depend() {
+        provide dns
+        need localmount net
+        after bootmisc
+        use logger
+}
+
+start_pre() {
+        checkpath --owner dnsmasq:dnsmasq \
+                --mode 0644 \
+                --file /var/lib/misc/dnsmasq.leases
+}
+
+reload() {
+        ebegin "Reloading ${RC_SVCNAME}"
+#       start-stop-daemon --signal HUP --pidfile "${pidfile}"
+        ${supervisor} ${RC_SVCNAME} --signal HUP
+        eend $?
+}
+
+rotate() {
+        ebegin "Reopening ${RC_SVCNAME} log file"
+#       start-stop-daemon --signal USR2 --pidfile "${pidfile}"
+        ${supervisor} ${RC_SVCNAME}  --signal USR2
+        eend $?
+}
+}}
+
+=== fcron ===
+
+{{Package|sys-process/fcron}} is a cron daemon implementation. To get it supervised it is needed to:
+
+* remove the s-s-d references, 
+* remove the pidfile declaration,
+* define the supervisor
+* tell the supervisor how to get the daemon to run in foreground
+* change the reload function to use supervise-daemon instead of s-s-d.
+
+Edit {{Path|/etc/init.d/fcron}} as follows:
+
+{{CodeBox|title=/etc/init.d/fcron|lang=bash|1=
+command="/usr/libexec/fcron"
+command_args="-c \"${FCRON_CONFIGFILE}\" ${FCRON_OPTS}"
+#start_stop_daemon_args=${FCRON_SSDARGS:-"--wait 1000"}
+#pidfile="$(getconfig pidfile /run/fcron.pid)"
+fcrontabs="$(getconfig fcrontabs /var/spool/fcron)"
+fifofile="$(getconfig fifofile /run/fcron.fifo)"
+required_files="${FCRON_CONFIGFILE}"
+supervisor="supervise-daemon"
+command_args_foreground="--foreground"
+
+extra_started_commands="reload"
+
+reload() {
+#        start-stop-daemon --signal HUP --pidfile "${pidfile}"
+         ${supervisor} "${SVCNAME}" --signal HUP
+}
+}}
+
+=== iwd ===
+
+iwd (iNet wireless daemon) is provided by {{Package|net-wireless/iwd}} and aims to replace {{Package|net-wireless/wpa_supplicant}}. Remove the backgrounding instruction and define the supervisor to bring ''iwd'' under supervision:
+
+Edit {{Path|/etc/init.d/iwd}} as follows:
+
+{{CodeBox|title=/etc/init.d/iwd|lang=ini|1=
+#command_background="yes"
+supervisor="supervise-daemon"
+}}
+
+=== ntpd ===
+
+The network time protocol daemon ''ntpd'', from package {{Package|net-misc/ntp}} can be brought under supervision by editing the init file to:
+
+* remove the pidfile references, 
+* prevent forking to background by adding "-n" to the command line to  of the ntpd daemon, 
+* remove the s-s-d instruction,
+* define the supervisor.
+
+{{CodeBox|title=/etc/init.d/ntpd|lang=ini|1=
+#pidfile="/var/run/ntpd.pid"
+command="/usr/sbin/ntpd"
+#command_args="-p ${pidfile} ${NTPD_OPTS}"
+command_args="${NTPD_OPTS}"
+#start_stop_daemon_args="--pidfile ${pidfile}"
+supervisor="supervise-daemon"
+command_args_foreground="-n"
+}}
+
+=== rngd ===
+Rngd is the daemon belonging to {{Package|sys-apps/rng-tools}}. It is meant to check and feed random data from a hardware device to  the kernel random device.
+
+Edit {{Path|/etc/init.d/rngd}} to bring it under supervision as follows:
+{{CodeBox|title=/etc/init.d/rngd|lang=ini|1=
+
+command=/usr/sbin/rngd
+
+#pidfile="/var/run/${SVCNAME}.pid"
+#command_args="--pid-file ${pidfile} --background --random-step ${STEP:-64} ${NO_TPM:+--no-tpm=1} \
+#       ${NO_DRNG:+--no-drng=1} --fill-watermark ${WATERMARK} ${DEVICE:+--rng-device ${DEVICE} }"
+#start_stop_daemon_args="--wait 1000"
+#retry="SIGKILL/5000"
+
+command_args="--random-step ${STEP:-64} ${NO_TPM:+--no-tpm=1} \
+        ${NO_DRNG:+--no-drng=1} --fill-watermark ${WATERMARK} ${DEVICE:+--rng-device ${DEVICE} }"
+supervisor="supervise-daemon"
+command_args_foreground="--foreground"
+}}
+
+=== sshd ===
+
+sshd (Secure Shell Daemon) does not have a specific commandline option to run in foreground, instead it is needed to use the <code>-D</code> debug option. There may be some more text logged.
+
+Edit {{Path|/etc/init.d/sshd}} at the beginning of the file as follows:
+
+{{CodeBox|title=/etc/init.d/sshd|lang=ini|1=
+#pidfile="${SSHD_PIDFILE}"
+#command_args="${SSHD_OPTS} -o PidFile=${pidfile} -f ${SSHD_CONFIG}"
+command_args="${SSHD_OPTS} -f ${SSHD_CONFIG} -D"
+supervisor="supervise-daemon"
+
+# Wait one second (length chosen arbitrarily) to see if sshd actually
+# creates a PID file, or if it crashes for some reason like not being
+# able to bind to the address in ListenAddress (bug 617596).
+#: ${SSHD_SSD_OPTS:=--wait 1000}
+#start_stop_daemon_args="${SSHD_SSD_OPTS}"
+}}
+
+All the way at the bottom of the file there is the reload function in which the s-s-d instruction should be changed to a supervise-daemon instruction:
+
+{{CodeBox|title=/etc/init.d/sshd|lang=ini|1=
+
+reload() {
+        checkconfig {{!}}{{!}} return $?
+        ebegin "Reloading ${SVCNAME}"
+#       start-stop-daemon --signal HUP --pidfile "${pidfile}"
+        ${supervisor} ${SVCNAME} --signal HUP
+        eend $?
+}
+
+}}
+
+=== syslog-ng ===
+
+{{Package|app-admin/syslog-ng}} is an interesting case. Without any change, running syslog-ng under s-s-d it looks like this:
+
+{{RootCmd|ps -ef {{!}} grep syslog-ng|output=<pre>
+root      7800     1  0 09:16 ?        00:00:00 supervising syslog-ng
+root      7802  7800  4 09:16 ?        00:03:56 /usr/sbin/syslog-ng --cfgfile /etc/syslog-ng/syslog-ng.conf --control /run/syslog-ng.ctl --persist-file /var/lib/syslog-ng/syslog-ng.persist --pidfile /run/syslog-ng.pid
+</pre>}}
+
+There is a process with in this case PID 7800 'supervising syslog-ng' with a parent-PID (PPID) of 1, which means its parent is the init process. There is also the process with PID 7802, which looks more like what we might expect, referencing the binary. This process' PPID is 7800, i.e. the supervising process. 
+
+The ''supervising syslog-ng'' process is actually also the same binary of syslog-ng:
+
+{{RootCmd|pgrep -lf syslog
+|output=<pre>
+7800 syslog-ng
+7802 syslog-ng
+</pre>}}
+
+Syslog-ng appears to be supervising itself. What it does after startup is:
+
+* fork, to become a background daemon process (PID 7800) and get it to be adopted by the init process (PID 1);
+* fork again to create the worker process (PID 7802) as it's child process;
+* rename the process (PID 7800) to "supervise syslog-ng", in the parent process, and supervise its child (PID 7802).
+If and when "supervise syslog-ng" detects that it's worker process (PID 7802) has terminated it will restart it.
+Syslog-ng calls this process mode "safe-background".
+
+In order to get syslog-ng to work well under supervise-daemon it needs to run in the foreground though. There are two commandline options that will make that happen <code>--foreground</code> and <code>--process-mode=foreground</code>.
+
+With the standard init scripts syslog-ng writes a pid file. This interferes with the operation of supervise-daemon so will have to be removed. Edit {{Path|/etc/init.d/syslog-ng}} to remove the --pidfile option in the command_args, and comment out the pidfile variable:
+
+{{CodeBox|title=/etc/init.d/syslog-ng|lang=ini|1=
+#command_args="--cfgfile \"${SYSLOG_NG_CONFIGFILE}\" --control \"${SYSLOG_NG_CONTROLFILE}\" --persist-file \"${SYSLOG_NG_STATEFILE}\" --pidfile \"${SYSLOG_NG_PIDFILE}\" ${SYSLOG_NG_OPTS}"
+command_args="--cfgfile \"${SYSLOG_NG_CONFIGFILE}\" --control \"${SYSLOG_NG_CONTROLFILE}\" --persist-file \"${SYSLOG_NG_STATEFILE}\" ${SYSLOG_NG_OPTS}"
+supervisor="supervise-daemon"
+extra_commands="checkconfig"
+extra_started_commands="reload"
+#pidfile="${SYSLOG_NG_PIDFILE}"
+description="Syslog-ng is a syslog replacement with advanced filtering features."
+description_checkconfig="Check the configuration file that will be used by \"start\""
+description_reload="Reload the configuration without exiting"
+required_files="${SYSLOG_NG_CONFIGFILE}"
+required_dirs="${SYSLOG_NG_PIDFILE_DIR}"
+command_args_foreground="--foreground --process-mode=foreground"
+command_user="${SYSLOG_NG_USER}:${SYSLOG_NG_GROUP}"
+}}
+
+At the end of the file, the reload function needs to be changed to use the supervisor instead of s-s-d:
+
+{{CodeBox|title=/etc/init.d/syslog-ng|lang=ini|1=
+reload() {
+        checkconfig {{!}}{{!}} return 1
+        ebegin "Reloading configuration and re-opening log files"
+#       start-stop-daemon --signal HUP --pidfile "${pidfile}"
+        ${supervisor} ${RC_SVCNAME} --signal HUP
+        eend $?
+}
+}}
+
+=== vixie-cron ===
+The cron implementation offered by {{Package|sys-process/vixie-cron}} can be brought under supervision by editing {{Path|/etc/init.d/vixie-cron}} to remove the pid instruction, and pass it ''-n'' to make it run in foreground:
+
+{{CodeBox|title=/etc/init.d/vixie-cron|lang=ini|1=
+command=/usr/sbin/cron
+#pidfile=/var/run/cron.pid
+supervisor="supervise-daemon"
+command_args_foreground="-n"
+}}
+
+== Services which won't run under a supervisor ==
+
+Unfortunately not all services are easy to run under supervisor-daemon, or other supervisors. The requirement that the daemon needs to run in foreground is not satisfied with all daemons, or it simply does not work. Sometimes there are alternatives available.
+
+=== One shot services ===
+Some of the scripts in {{Path|/etc/init.d/}} that are started by OpenRC, do not start daemons. Instead they run a program that terminates when it has performed its function, or they do a configuration setting. 
+
+Examples of such, with the action at boot / shutdown, are:
+* alsasound: loads / saves volume settings for audio
+* localmount: mounts / unmounts file systems as per {{Path|/etc/fstab}}
+* loopback: creates the loopback interface
+* swap: activates / deactivates swap devices
+* urandom: loads random seed and initializes {{Path|/dev/urandom}} / saves random seed
+* zram-init: creates / destroys zram devices.
+
+There is no need to run such services under a supervisor.
+
+=== netifrc ===
+The default Gentoo networking scripts belonging to {{Package|net-misc/netifrc}} call s-s-d from under the hood. The scripts can start/stop services like dhcpcd, dhclient, pppd, wpa_supplicant when needed, and they use s-s-d for it. 
+{{Warning|Be careful not to mix and match different network management methodes because the results are unpredictable}}
+
+=== dcron ===
+{{Package|sys-process/dcron}} version 4.5-r1 crashes without an error message when it is run under a supervisor. Consider an alternative like {{Package|sys-process/fcron}}.
+
+== Tips 'n tricks ==
+A system under openrc-init and supervise-daemon behaves a little different. This chapter shows some of the differences and how to take advantage of it.
+
+=== rc-status ===
+rc-status shows the time when supervised services were started, and the number of restarts:
+
+{{RootCmd|rc-status|output=<pre>
+Runlevel: default
+ device-mapper                                                   [  started  ]
+ syslog-ng                                           [  started 18:22:43 (0) ]
+ dnsmasq                                             [  started 18:22:42 (0) ]
+ sshd                                                [  started 00:00:27 (1) ]
+ dbus                                                            [  started  ]
+ alsasound                                                       [  started  ]
+ bluetooth                                           [  started 18:09:29 (0) ]
+ ntpd                                                [  started 17:06:48 (0) ]
+ acpid                                               [  started 11:53:26 (0) ]
+ avahi-daemon                                        [  started 11:51:00 (0) ]
+ zram-init                                                       [  started  ]
+ cupsd                                                           [  stopped  ]
+ laptop_mode                                                     [  started  ]
+ libvirtd                                                        [  started  ]
+ libvirt-guests                                                  [  started  ]
+ distccd                                                         [  started  ]
+ busybox-httpd                                                   [  started  ]
+ lxc-bridge                                                      [  started  ]
+ fcron                                               [  started 18:22:42 (0) ]
+ iwd                                                 [  started 18:22:42 (0) ]
+ netmount                                                        [  started  ]
+ local                                                           [  started  ]
+ agetty.tty2                                         [  started 18:22:41 (0) ]
+ agetty.tty3                                         [  started 18:22:41 (0) ]
+ agetty.tty4                                         [  started 18:22:41 (0) ]
+ agetty.tty5                                         [  started 18:22:41 (0) ]
+ agetty.tty6                                         [  started 18:22:41 (0) ]
+ agetty-autologin.tty1                               [  started 18:22:41 (0) ]
+Dynamic Runlevel: hotplugged
+Dynamic Runlevel: needed/wanted
+ dhcpcd                                                          [  started  ]
+ virtlogd                                                        [  started  ]
+Dynamic Runlevel: manual
+</pre>}}
+
+Note the line for sshd, which shows that it was recently restarted by its supervisor. 
+With {{c|rc-status -S}} only supervised services are displayed.
+
+
+== External resources ==
+* [https://jdebp.eu/FGA/unix-daemon-design-mistakes-to-avoid.html Mistakes to avoid when designing Unix dæmon programs]
+* [http://cloud9.hedgee.com./scribbles/daemon How to make daemons that will maximize sysadmin hatred]
+
+[[Category:OpenRC]]
+[[Category:Process_Supervision]]
