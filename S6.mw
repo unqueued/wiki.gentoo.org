@@ -1144,182 +1144,10 @@ up (pid 4634) 16 seconds, normally down, ready 6 seconds
 
 This confirms that {{C|test-daemon}} up and ready. It became ready approximately 10 seconds after it was started.
 
-{{anchor|superserver}}
 === The UNIX domain super-server and related tools ===
 
-s6 provides two programs, {{C|s6-ipcserver-socketbinder}} and {{C|s6-ipcserverd}}, that together implement a UNIX domain super-server. A ''UNIX domain super-server'' creates a listening sream mode UNIX domain socket (i.e. a <code>SOCK_STREAM</code> socket for address family <code>AF_UNIX</code>) and spawns a ''server program'' to handle each incoming connection after accepting it, so that from there on, the client communicates over the connection with the spawned server. This a UNIX domain equivalent of a TCP/IP super-server, such as xinetd ({{Package|sys-apps/xinetd}}) or ipsvd ({{Package|net-misc/ipsvd}}).
+See [[S6/UNIX domain super-server|here]].
 
-More specifically, what {{C|s6-ipcserver-socketbinder}} and {{C|s6-ipcserverd}} implement together is an ''IPC UCSPI super-server'', i.e. a super-server that adheres to the server side of Daniel J. Bernstein's ''UNIX Client-Server Program Interface'' (UCSPI) and supports the IPC UCSPI protocol<ref>Jonathan de Boyne Pollard, [https://jdebp.eu/FGA/UCSPI.html The gen on the UNIX Client-Server Program Interface]. Retrieved on July 22th, 2017.</ref>. The UCSPI defines an interface for client-server communications tools; ''UCSPI tools'' are executable programs that accept options, a protocol-specific ''address'', an ''application'' name and its arguments. Tools can be either clients or servers, clients communicate with servers using a ''connection''. If the UCSPI tool is a server, the application is invoked with the supplied arguments each time there is an incoming connection to the specified address, with file descriptor 0 opened for reading from the connection, file descriptor 1 opened for writing to the connection, and environment variables set to defined values. If the UCSPI tool is a client, a connection is made to the specified address and, if successful, the application is invoked with the supplied arguments, with file descriptor 6 opened for reading from the connection, file descriptor 7 opened for writing to the connection, and environment variables set to defined values. One of the application environment variables set by both UCSPI clients and servers is <var>PROTO</var>, with the name of the supported protocol as its value. The protocol implemented by the s6 programs is the ''IPC UCSPI protocol'', for which the ''address'' specified to UCSPI tools is defined to be a UNIX domain socket pathname, and the value of <var>PROTO</var> is defined to be 'IPC'.
-
-{{C|s6-ipcserver-socketbinder}} is [[daemontools-encore#changingstate|a chain loading program]] that accepts options and a pathname. It creates a UNIX domain socket, binds it to the specified pathname and prepares it to accept connections with the POSIX <code>listen()</code> call. The next program in the chain will have its standard input connected to the listening socket, which will be '''non-blocking'''(<code>O_NONBLOCK</code>). The number of ''backlog connections'', i.e. the number of outstanding connections in the socket's listen queue, can be set with the <code>-b</code> option; additional connection attempts will be rejected by the kernel. If {{C|s6-ipcserver-socketbinder}} is invoked with a <code>-b 0</code> argument, the socket will be created but won't be listening, i.e. <code>listen()</code> won't be called. If it is invoked with the <code>-m</code> option, the created socket will be a datagram mode socket (<code>SOCK_DGRAM</code>), which also requires specifying a <code>-b 0</code> argument. If it is invoked without the <code>-m</code> option, or with the <code>-M</code> option, the created socket will be a stream mode socket (<code>SOCK_STREAM</code>).
-
-{{C|s6-ipcserverd}} is a program that must have its standard input redirected to a bound and listening stream mode UNIX domain socket, and accepts a program name and its arguments. For each connection made to the socket, {{C|s6-ipcserverd}} executes the program with the supplied arguments as a child process, that has its file descriptors 0 and 1 redirected, on Gentoo, to the socket returned by a Linux <code>accept4()</code> with the listening socket's file descriptor as an argument, and the following environment variables set to the appropriate values (see [[#Environment_variables|environment variables]]): <var>PROTO</var>, <var>IPCREMOTEPATH</var>, <var>IPCREMOTEEUID</var>, <var>IPCREMOTEEGID</var> and <var>IPCCONNNUM</var>. On Gentoo, the variables <var>IPCREMOTEEUID</var>, <var>IPCREMOTEEGID</var> are set with information obtained from a POSIX <code>getsockopt()</code> call with the Linux <code>SO_PEERCRED</code> option; this is called ''credentials lookup''. If {{C|s6-ipcserverd}} is invoked with a <code>-P</code> option, credentials lookup will be disabled, and <var>IPCREMOTEEUID</var> and <var>IPCREMOTEEGID</var> will be unset. If it is invoked without a <code>-P</code> option, or with a <code>-p</code> option, credentials lookup will be enabled. {{C|s6-ipcserverd}} supports the [[#s6readiness|s6 readiness protocol]], and if it is invoked with a <code>-1</code> option, it will turn readiness notification on, with file descriptor 1 (i.e. its standard output) as the notification channel's file descriptor. If it receives a <code>SIGTERM</code> signal it will exit, but its children will continue running. If it receives a <code>SIGQUIT</code> signal, it will send its children a <code>SIGTERM</code> signal followed by a <code>SIGCONT</code> signal and then exit, and if it receives a <code>SIGABRT</code> signal, it will send its children a <code>SIGKILL</code> signal and then exit. It is possible to make {{C|s6-ipcserverd}} kill its children without exiting (with a <code>SIGTERM</code> signal followed by a <code>SIGCONT</code> signal), by sending it a <code>SIGHUP</code> signal.
-
-{{C|s6-ipcserver}} is a helper program that accepts options, a UNIX domain socket pathname, a program name and its arguments, and invokes {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-ipcserverd}}, or {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-applyuidgid}}, chained to {{C|s6-ipcserverd}}, depending on the options. The socket pathname is passed to {{C|s6-ipcserver-socketbinder}}, and the program name and its arguments, to {{C|s6-ipcserverd}}. {{C|s6-ipcserver}} options specify corresponding {{C|s6-ipcserver-socketbinder}}, {{C|s6-applyuidgid}} and {{C|s6-ipcserverd}} options. The created socket is a stream mode socket. For further information about {{C|s6-ipcserver}}, {{C|s6-ipcserver-socketbinder}} or {{C|s6-ipcserverd}} please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
-
-s6 also provides an IPC UCSPI client, {{C|s6-ipcclient}}, and an access control tool for UNIX domain sockets, {{C|s6-ipcserver-access}}. {{C|s6-ipcclient}} is a chain loading program that accepts options and a UNIX domain socket pathname. It creates a stream mode socket, makes a connection to the socket specified by the supplied pathname, and executes the next program in the chain with file descriptors 6 and 7 redirected to the local connected socket, and the environment variables <var>PROTO</var> and <var>IPCLOCALPATH</var> set to the appropriate values (see [[#Environment_variables|environment variables]]). If {{C|s6-ipcclient}} is invoked with a <code>-p pathname</code> argument, it will bind the created socket to ''pathname'' (using the POSIX <code>bind()</code> call) before initiating the connection to the remote socket. If it is invoked with a <code>-l value</code> argument, it will set <var>IPCLOCALPATH</var> to ''value'' instead of setting it with information obtained from a POSIX <code>getsockname()</code> call. {{C|s6-ipcserver-access}} is a chain loading program that must be spawned by a UCSPI server (like {{C|s6-ipcserverd}}) that appropriately sets the <var>PROTO</var>, <var>${PROTO}REMOTEEUID</var> and <var>${PROTO}REMOTEEGID</var> environment variables, where ''${PROTO}'' is the value of the <var>PROTO</var> variable. It decides whether or not to execute the next program in the chain, or to execute a completely different program instead, based on either a ''rules directory'' or a ''rules file''. The <code>-i</code> option specifies the pathname of a rules directory and the <code>-x</code> option specifies the pathname of a rules file. A rules file is a [https://cr.yp.to/cdb/cdb.txt constant database (CDB) file] created from a rules directory using the {{C|s6-accessrules-cdb-from-fs}} program.
-
-When a rules directory '''R''' is specified to {{C|s6-ipcserver-access}}:
-
-* On program invocation, {{C|s6-ipcserver-access}} searches the {{Path|R/uid}} directory for a subdirectory with a name that matches the value of the <var>${PROTO}REMOTEEUID</var> variable, which must be a numeric user ID. If it finds a matching subdirectory, and it contains a file named {{Path|allow}}, {{C|s6-ipcserver-access}} executes the next program in the chain. If the subdirectory does not contain a file named {{Path|allow}}, but contains a file named {{Path|deny}}, or does not contain any of those files, it exits with exit code 1, and the next program in the chain is not executed.
-* If {{Path|R/uid}} does not contain a subdirectory with a matching name, {{C|s6-ipcserver-access}} will then search the {{Path|R/gid}} directory for a subdirectory with a name that matches the value of the <var>${PROTO}REMOTEEGID</var> variable, which must be a numeric group ID. If it finds finds a matching subdirectory, it follows the procedure described for the {{Path|R/uid}} directory.
-* If {{Path|R/gid}} does not contain a subdirectory with a matching name, {{C|s6-ipcserver-access}} will finally search for an {{Path|R/default}} directory. If the directory exists, it follows the procedure described for the {{Path|R/uid}} directory. If it doesn't, it exits with exit code 1, and the next program in the chain is not executed.
-* If the next program in the chain is executed, and if the matching directory '''M''' contains a subdirectory named {{Path|env}}, {{C|s6-ipcserver-access}} will modify its environment as if an <kbd>s6-envdir M/env</kbd> command had been used.
-* If the next program in the chain is executed, {{C|s6-ipcserver-access}} will also set the <var>IPCLOCALPATH</var> environment variable (see [[#Environment_variables|environment variables]]), unless it was invoked with an <code>-E</code> option. If {{C|s6-ipcserver-access}} is invoked without a <code>-E</code> option, or with a <code>-e</code> option, <var>IPCLOCALPATH</var> will be set.
-* If the next program in the chain is executed, and {{C|s6-ipcserver-access}} was invoked with an <code>-E</code> option, it will also unset environment variables <var>PROTO</var>, <var>${PROTO}REMOTEPATH</var>, <var>${PROTO}REMOTEEUID</var>, <var>${PROTO}REMOTEEGID</var> and <var>${PROTO}CONNNUM</var>.
-* If the next program in the chain would otherwise be executed, but the matching directory '''M''' contains a regular file named {{Path|exec}}, {{C|s6-ipcserver-access}} will execute a different program instead, as if an <kbd>execlineb -c contents</kbd> command had been used, where ''contents'' is the contents of the {{Path|M/exec}} file (e.g. the name of a program that can be found via <var>PATH</var> search plus its arguments).
-
-If {{C|s6-ipcserver-access}} is invoked with neither the <code>-i</code> option nor the <code>-x</code> option, it will execute the next program in the chain, i.e. it will unconditionally grant access.
-
-A rules directory can be re-created from a rules CDB file using the {{C|s6-accessrules-fs-from-cdb}} program. For the full description of {{C|s6-ipcclient}}'s, {{C|s6-accessrules-cdb-from-fs}}'s, {{C|s6-accessrules-fs-from-cdb}}'s and {{C|s6-ipcserver-access}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
-
-Finally, s6 also provides the {{C|s6-connlimit}} program, a chain loading program that limits connections from the same client to an UCSPI server based on the <var>PROTO</var>, <var>${PROTO}CONNNUM</var>, <var>${PROTO}CONNMAX</var> environment variables (see [[#Environment_variables|environment variables]]), where ''${PROTO}'' is the value of the <var>PROTO</var> variable, and {{C|s6-ioconnect}}, a program that performs data transmission from file descriptor 0 to file descriptor 7, and from file descriptor 6 to file descriptor 1, all of them assumed to be open at program startup. That is, {{C|s6-ioconnect}} performs full-duplex data transmission. For the full description of {{C|s6-connlimit}}'s and {{C|s6-ioconnect}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
-
-{{FileBox|lang=cpp|filename=test-server.cxx|title=Example C++ aplication to be executed by a IPC UCSPI server|
-1=#include <cerrno>
-#include <cinttypes>
-#include <cstring>
-#include <iostream>
-#include <pwd.h>
-#include <sstream>
-#include <string>
-#include <unistd.h>
-
-const int ucspi_server_read = 0;
-const int ucspi_server_write = 1;
-
-extern "C" void ignore_sigpipe();
-
-void read_from_socket(char *buffer, const size_t buffer_size) {
-   size_t n = 0;
-   while (ssize_t r = read(ucspi_server_read, buffer + n, buffer_size - n)) {
-      if (r < 0) throw errno;
-      n += r;
-      if (n == buffer_size) break;
-   }
-   buffer[n] = 0;
-}
-
-void write_to_socket() {
-   std::ostringstream out;
-   const char *env_uid = getenv("IPCREMOTEEUID");
-   const passwd *acct = env_uid? getpwuid(static_cast<uid_t>(std::strtoimax(env_uid, 0, 10))): nullptr;
-   out << "Server process created with PID " << getpid() <<
-      ", client is \"" << (acct? acct->pw_name: "&lt;unavailable&gt;") << "\"\n";
-   if (write(ucspi_server_write, out.str().data(), out.str().length()) < 0) throw errno;
-}
-
-int main(){
-try {
-   ignore_sigpipe();
-   char buffer[] = "Hello!";
-   const std::string greeting(buffer);
-   read_from_socket(buffer, greeting.length());
-   if (greeting == buffer) write_to_socket();
-   sleep(10);
-   return 0;
-}
-catch (int err) {
-   std::cerr << "test-server: fatal: " << std::strerror(err) << '\n';
-   return 1;
-}
-catch (...) {
-   return 1;
-}
-} }}
-
-The application reads from the open file descriptor supplied by the UCSPI server, expecting to receive a 'Hello!' message from the client, and if it does, it sends a response that contains the application's process ID and the account database username corresponding to the client's user ID, supplied by the UCSPI server via the <var>IPCREMOTEEGID</var> environment variable. The application then waits for 10 seconds, and finally exits. Because a <code>write()</code> call on a socket file descriptor can fail with a 'broken pipe' error (<code>errno == EPIPE</code>), and because the kernel will send a <code>SIGPIPE</code> signal to the process if it does, an external <code>ignore_sigpipe()</code> function assumed to be available to the program is called, that makes the process ignore the signal using the POSIX <code>sigaction()</code> call.
-
-{{FileBox|lang=cpp|filename=test-client.cxx|title=Example C++ aplication to be executed by a IPC UCSPI client|
-1=#include <cerrno>
-#include <cstring>
-#include <iostream>
-#include <string>
-#include <unistd.h>
-
-const int ucspi_client_read = 6;
-const int ucspi_client_write = 7;
-
-extern "C" void ignore_sigpipe();
-
-void read_from_socket(std::string &in) {
-   const int buffer_size(100);
-   char buffer[buffer_size];
-   while (ssize_t r = read(ucspi_client_read, buffer, buffer_size)) {
-      if (r < 0) throw errno;
-      char *p = static_cast<char *>(std::memchr(buffer, '\n', buffer_size));
-      in.append(buffer, p? p + 1: buffer + r);
-      if (p) break;
-   }
-}
-
-inline void write_to_socket(const char *greeting) {
-   if (write(ucspi_client_write, greeting, std::strlen(greeting)) < 0) throw errno;
-}
-
-int main() {
-try {
-   ignore_sigpipe();
-   std::cout << "Connecting to server...\n";
-   std::cout.flush();
-   const char greeting[] = "Hello!";
-   write_to_socket(greeting);
-   std::string in;
-   read_from_socket(in);
-   if (!in.empty()) std::cout << in;
-   return 0;
-}
-catch (int err) {
-   std::cerr << "test-client: fatal: " << std::strerror(err) << '\n';
-   return 1;
-}
-catch (...) {
-   return 1;
-}
-} }}
-
-The application prints 'Connecting to server...' to its standard output, sends a 'Hello!' message to the server using the open file descriptor supplied by the UCSPI client, and waits for a reply, which is printed to its standard output. The application then exits.
-
-Starting the UCSPI super-server:
-{{Cmd|prompt=user1 $ |s6-ipcserver test-socket ./test-server &|ls -l test-socket|
-output=<pre>srwxrwxrwx 1 user1 user1 0 Aug  4 12:00 test-socket</pre>}}
-
-This shows that a socket named {{Path|test-socket}} has been created in the current working directory. Starting a UCSPI client to connect to the socket three times:
-{{Cmd|prompt=user1 $ |s6-ipcclient test-socket ./test-client|
-output=<pre>Connecting to server...
-Server process created with PID 1992, client is "user1"</pre>}}
-
-{{Cmd|prompt=user1 $ |s6-ipcclient test-socket ./test-client|
-output=<pre>Connecting to server...
-Server process created with PID 1994, client is "user1"</pre>}}
-
-{{Cmd|prompt=user1 $ |s6-ipcclient test-socket ./test-client|
-output=<pre>Connecting to server...
-Server process created with PID 1996, client is "user1"</pre>}}
-
-{{Cmd|prompt=user1 $ |ps f -o pid,ppid,args|
-output=<pre> PID  PPID COMMAND
-...
-1977  1974 \_ bash
-1985  1977     \_ s6-ipcserverd -- ./test-server
-1992  1985         \_ ./test-server
-1994  1985         \_ ./test-server
-1996  1985         \_ ./test-server
-...</pre>}}
-
-This shows that the super-server spawned three {{C|test-server}} processes to handle each connection, and set the <var>IPCREMOTEEUID</var> environment variable to user1's user ID. <kbd>s6-ipcserver test-socket ./test-server</kbd> is equivalent to <kbd>s6-ipcserver-socketbinder test-socket s6-ipcserverd ./test-server</kbd>, but shorter. Starting a UCSPI client with effective user ''user2'':
-{{Cmd|prompt=user2 $ |s6-ipcclient test-socket ./test-client|
-output=<pre>Connecting to server...
-Server process created with PID 2009, client is "user2"</pre>}}
-
-This shows that the super-server set the <var>IPCREMOTEEUID</var> environment variable to user2's user ID. Starting the super-server with the <code>-P</code> option, and a client to connect to {{Path|test-socket}}:
-{{Cmd|prompt=user1 $ |s6-ipcserver -P test-socket ./test-server|s6-ipcclient test-socket ./test-client|
-output=<pre>Connecting to server...
-Server process created with PID 2021, client is "<unavailable>"</pre>}}
-
-<kbd>s6-ipcserver -P test-socket ./test-server</kbd> is equivalent to <kbd>s6-ipcserver-socketbinder test-socket s6-ipcserverd -P ./test-server</kbd>, but shorter. This shows that since credentials lookup was disabled, environment variable <var>IPCREMOTEEGID</var> is unset, and {{C|test-server}} displays '&lt;unavailable&gt;' in place of a username.
-
-See the [[#s6sudo|suidless privilege gain]] section for {{C|s6-ipcserver-access}} usage examples.
 {{anchor|s6sudo}}
 === Suidless privilege gain tools ===
 
@@ -1329,7 +1157,7 @@ s6 provides two programs, {{C|s6-sudoc}} and {{C|s6-sudod}}, that can be used to
 
 {{C|s6-sudo}} is a helper program that accepts options, a UNIX domain socket pathname and an {{C|s6-sudoc}} argument sequence, and invokes {{C|s6-ipcclient}} chained to {{C|s6-sudoc}}. The socket pathname is passed to {{C|s6-ipcclient}}, and the argument sequence, to {{C|s6-sudoc}}. {{C|s6-sudo}} options specify corresponding {{C|s6-ipcserver-socketbinder}} and {{C|s6-sudoc}} options. For the full description of {{C|s6-sudo}}'s, {{C|s6-sudoc}}'s and {{C|s6-sudod}}'s functionality please consult the HTML documentation in the package's {{Path|/usr/share/doc}} subdirectory.
 
-Standard permissions settings on {{C|s6-sudo}}'s listening socket can be used to implement some access control, and credentials passing over a UNIX domain socket also allows finer-grained control. [[#superserver|The {{C|s6-ipcserver-access}} program]] can be used to take advantage of credentials passing.
+Standard permissions settings on {{C|s6-sudo}}'s listening socket can be used to implement some access control, and credentials passing over a UNIX domain socket also allows finer-grained control. [[s6/UNIX domain super-server#ipcserverd|The {{C|s6-ipcserver-access}} program]] can be used to take advantage of credentials passing.
 
 {{Important|If {{C|s6-sudoc}} is killed, or exits while {{C|s6-sudod}}'s child process is still running, {{C|s6-sudod}} will send a <code>SIGTERM</code> followed by a <code>SIGCONT</code> signal to its child, and then exit 1. However, sending a <code>SIGTERM</code> to the child does not guarantee that it will die, and if it keeps running, it might still read from the file descriptor that was {{C|s6-sudoc}}'s standard input, or write to the file descriptors that were {{C|s6-sudoc}}'s standard output or error. '''This is a potential security risk.''' Administrators should audit their server programs to make sure this does not happen.
 
@@ -1404,7 +1232,7 @@ Comparing to the output of the script when run directly by user1, this shows tha
 
 The Linux kernel allows one process to send a copy if its open file descriptors to a different process. This is done by transmitting <code>SCM_RIGHTS</code> control messages with an array of file descriptors from one process to the other over a UNIX domain socket as ancillary data (i.e. over a socket for address family <code>AF_UNIX</code> as the object pointed to by the <code>msg_control</code> field of a <code>struct msghdr</code> object) using the POSIX <code>sendmsg()</code> and <code>recvmsg()</code> calls. This works like POSIX <code>dup2()</code> does for a single process, and in s6's documentation, this is called ''fd-passing''. A ''file descriptor holder'' (of ''fd-holder'') is a process that receives file descriptors from others via fd-passing and ''holds'' them, for later retrieval either from the same process or from a different one. The fd-holder doesn't do anything with the file descriptors, it only keeps them open. For some possible uses of this feature, see later.
 
-s6 provides a program implementing fd-holder functionality, named {{C|s6-fdholderd}}. It must have its standard input redirected to a bound and listening stream mode UNIX domain socket (i.e. a <code>SOCK_STREAM</code> socket), and accepts a set of options that control its behaviour. It has builtin access control features, and all operations requested to it must be explicitly granted to the requesting client. For this purpose, it accepts either an <code>-i</code> option specifying the pathname of a rules directory, or an <code>-x</code> option specifying the pathname of a rules file, [[#superserver|just like {{C|s6-ipcserver-access}}]]. {{C|s6-fdholderd}} will exit with an error status if neither of these options is supplied. The environment specified via appropriate {{Path|env}} subdirectories in a rules directory controls which operations supported by {{C|s6-fdholderd}} are allowed to which clients. {{C|s6-fdholderd}} ignores {{Path|exec}} files in a rules directory.
+s6 provides a program implementing fd-holder functionality, named {{C|s6-fdholderd}}. It must have its standard input redirected to a bound and listening stream mode UNIX domain socket (i.e. a <code>SOCK_STREAM</code> socket), and accepts a set of options that control its behaviour. It has builtin access control features, and all operations requested to it must be explicitly granted to the requesting client. For this purpose, it accepts either an <code>-i</code> option specifying the pathname of a rules directory, or an <code>-x</code> option specifying the pathname of a rules file, [[s6/UNIX domain super-server#ipcserverd|just like {{C|s6-ipcserver-access}}]]. {{C|s6-fdholderd}} will exit with an error status if neither of these options is supplied. The environment specified via appropriate {{Path|env}} subdirectories in a rules directory controls which operations supported by {{C|s6-fdholderd}} are allowed to which clients. {{C|s6-fdholderd}} ignores {{Path|exec}} files in a rules directory.
 
 {{C|s6-fdholderd}} runs until told to exit with a <code>SIGTERM</code> signal; after that it can keep running for limited time to allow connected clients to finish their ongoing operations. This is called the ''lame duck timeout'', which can be specified with a <code>-T</code> option followed by a time value in milliseconds. If {{C|s6-fdholderd}} is invoked with a <code>-T 0</code> argument or no <code>-T</code> option, the lame duck timeout is infinite: after receiving the signal, it will wait until all clients disconnect before exiting. {{C|s6-fdholderd}} supports the [[#s6readiness|s6 readiness protocol]], and if it is invoked with a <code>-1</code> option, it will turn readiness notification on, with file descriptor 1 (i.e. its standard output) as the notification channel's file descriptor. If {{C|s6-fdholderd}} was invoked with a rules file (<code>-x</code>) and receives a <code>SIGHUP</code> signal, it will re-read it. If {{C|s6-fdholderd}} was invoked with a rules directory (<code>-i</code>), changes are picked up automatically so <code>SIGHUP</code> isn't needed.
 
@@ -1650,7 +1478,7 @@ s6-fdholder-store /home/user/fdholder-socket unix:/home/user/test-socket}}
 {{FileBox|lang=bash|filename=test-server-setup/down|
 1=s6-fdholder-delete /home/user/fdholder-socket unix:/home/user/test-socket}}
 
-Service {{Path|test-server-setup}}, a oneshot, pre-opens a listening UNIX domain socket bound to {{Path|/home/user/test-socket}} [[#superserver|using {{C|s6-ipcserver-socketbinder}}]], and stores the corresponding file descriptor in the fd-holder using identifier ''unix:/home/user/test-socket''. The dependency on service {{Path|test-fdholder}} ensures that <kbd>s6-rc -u change</kbd> will start {{C|s6-fdholderd}} before trying to store to it. When {{Path|test-server-setup}} transitions to the down state, it will delete the held file descriptor.
+Service {{Path|test-server-setup}}, a oneshot, pre-opens a listening UNIX domain socket bound to {{Path|/home/user/test-socket}} [[s6/UNIX domain super-server#ipcserverd|using {{C|s6-ipcserver-socketbinder}}]], and stores the corresponding file descriptor in the fd-holder using identifier ''unix:/home/user/test-socket''. The dependency on service {{Path|test-fdholder}} ensures that <kbd>s6-rc -u change</kbd> will start {{C|s6-fdholderd}} before trying to store to it. When {{Path|test-server-setup}} transitions to the down state, it will delete the held file descriptor.
 {{FileBox|filename=test-server-heldfd/type|1=longrun}}
 
 {{FileBox|filename=test-server-heldfd/dependencies|1=test-server-setup}}
@@ -1660,7 +1488,7 @@ Service {{Path|test-server-setup}}, a oneshot, pre-opens a listening UNIX domain
 s6-fdholder-retrieve /home/user/fdholder-socket unix:/home/user/test-socket
 s6-ipcserverd test-server}}
 
-Service {{Path|test-server-heldfd}}, a longrun, retrieves the listening socket's file descriptor from the fd-holder, and invokes super-server {{C|s6-ipcserverd}} to handle incoming connections, spawning a {{C|test-server}} process for each one. {{C|test-server}} is the same program used in the example contained in section [[#superserver|"The UNIX domain super-server and related tools"]]. The dependency on service {{Path|test-server-setup}} ensures that <kbd>s6-rc -u change</kbd> will have stored the listening socket's file descriptor first in the fd-holder with the appropriate identifier. Starting the {{Path|test-server-setup}} service:
+Service {{Path|test-server-heldfd}}, a longrun, retrieves the listening socket's file descriptor from the fd-holder, and invokes super-server {{C|s6-ipcserverd}} to handle incoming connections, spawning a {{C|test-server}} process for each one. {{C|test-server}} is the same program used in the example contained [[s6/UNIX domain super-server#examples|here]]. The dependency on service {{Path|test-server-setup}} ensures that <kbd>s6-rc -u change</kbd> will have stored the listening socket's file descriptor first in the fd-holder with the appropriate identifier. Starting the {{Path|test-server-setup}} service:
 {{Cmd|s6-rc -l ../live -v 2 -u change test-server-setup|
 output=<pre>s6-rc: info: processing service test-fdholder: starting
 s6-rc: info: processing service s6rc-oneshot-runner: starting
@@ -1673,7 +1501,7 @@ s6-rc: info: service test-server-setup started successfully</pre>}}
 {{Cmd|s6-ipcclient ../test-socket test-client &|
 output=<pre>Connecting to server...</pre>}}
 
-{{C|test-client}} is the same program used in the example contained in section [[#superserver|"The UNIX domain super-server and related tools"]]. This shows that {{C|test-client}} has been launched with a connection to the server's listening socket, but because its file descriptor is held by {{C|s6-fdholderd}} and no server program is currently running, it blocks on an I/O operation.
+{{C|test-client}} is the same program used in the example contained [[s6/UNIX domain super-server#examples|here]]. This shows that {{C|test-client}} has been launched with a connection to the server's listening socket, but because its file descriptor is held by {{C|s6-fdholderd}} and no server program is currently running, it blocks on an I/O operation.
 {{Cmd|s6-fdholder-list ../fdholder-socket|output=<pre>unix:/home/user/test-socket</pre>}}
 
 This shows that {{C|s6-fdholderd}} is holding the listening socket's file descriptor.
