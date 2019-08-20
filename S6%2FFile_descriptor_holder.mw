@@ -1,0 +1,340 @@
+The Linux kernel allows one process to send a copy if its open file descriptors to a different process. This is done by transmitting <code>SCM_RIGHTS</code> control messages that contain an array of file descriptors from one process to the other, over a UNIX domain socket, as ancillary data (i.e. over a socket for address family <code>AF_UNIX</code> as the object pointed to by the <code>msg_control</code> field of a <code>struct msghdr</code> object) using the POSIX <code>sendmsg()</code> and <code>recvmsg()</code> calls. This works like POSIX <code>dup2()</code> does for a single process, and in s6's documentation, this is called ''fd-passing''. A ''file descriptor holder'' (of ''fd-holder'') is a process that receives file descriptors from others via fd-passing and ''holds'' them, for later retrieval either from the same process or from a different one. The fd-holder doesn't do anything with the file descriptors, it only keeps them open.
+
+This article [[Article description::describes [[s6]]'s file descriptor holder and related tools.]]
+
+== Configuration ==
+
+=== Environment variables ===
+
+* <var>S6_FD#</var> — Number of file descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}.
+* <var>S6_FD_0</var>, <var>S6_FD_1</var>, ... — File descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}.
+* <var>S6_FDID_0</var>, <var>S6_FDID_1</var>, ... — Identifiers of the file descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}.
+* <var>S6_FDLIMIT_0</var>, <var>S6_FDLIMIT_1</var>, ... — Expiration times, or remaining time until expiration, of the file descriptors transferred to or from an {{C|s6-fdholderd}} process by {{C|s6-fdholder-setdumpc}} or {{C|s6-fdholder-getdumpc}}, respectively, as a timestamp in [https://cr.yp.to/libtai/tai64.html external TAI64N format].
+
+== Usage ==
+
+{{anchor|fdholder}}
+=== The fd-holder daemon ===
+
+==== s6-fdholderd ====
+s6 provides a daemon that implements fd-holder functionality, named {{C|s6-fdholderd}}. It must have its standard input redirected to a bound and listening stream mode UNIX domain socket (i.e. a <code>SOCK_STREAM</code> socket), and accepts a set of options that control its behaviour. It has builtin access control features, and all operations requested to it must be explicitly granted to the requesting client. For this purpose, it accepts either an <code>-i</code> option specifying the pathname of a ''rules directory'', or an <code>-x</code> option specifying the pathname of a ''rules file'', [[s6/UNIX domain super-server#rulesdir|just like {{C|s6-ipcserver-access}}]]. {{C|s6-fdholderd}} will exit with an error status if neither of these options is supplied. The environment specified via appropriate {{Path|{uid/*,gid/*,default}/env}} subdirectories in a rules directory controls which operations supported by {{C|s6-fdholderd}} are allowed to clients. {{C|s6-fdholderd}} ignores {{Path|{uid/*,gid/*,default}/exec}} files in a rules directory.
+
+{{C|s6-fdholderd}} runs until told to exit with a <code>SIGTERM</code> signal; after that, it can keep running for limited time to allow connected clients to finish their ongoing operations. This is called the ''lame duck timeout'', which can be specified with a <code>-T</code> option followed by a time value in milliseconds. If {{C|s6-fdholderd}} is invoked with a <code>-T 0</code> option, or no <code>-T</code> option, the lame duck timeout is infinite: after receiving the signal, it will wait until all clients disconnect before exiting. {{C|s6-fdholderd}} supports the [[s6#s6readiness|s6 readiness protocol]], and if it is invoked with a <code>-1</code> option, it will turn readiness notification on, with file descriptor 1 (i.e. its standard output) as the notification channel's file descriptor. If {{C|s6-fdholderd}} was invoked with a rules file (<code>-x</code>) and receives a <code>SIGHUP</code> signal, it will re-read it. If {{C|s6-fdholderd}} was invoked with a rules directory (<code>-i</code>), changes are picked up automatically so <code>SIGHUP</code> isn't needed.
+
+{{C|s6-fdholder-daemon}} is a helper program that accepts options and a UNIX domain socket pathname, and invokes {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-fdholderd}}, or {{C|s6-ipcserver-socketbinder}} chained to {{C|s6-applyuidgid}}, chained to {{C|s6-fdholderd}}, depending on the options. The socket pathname is passed to {{C|s6-ipcserver-socketbinder}}. {{C|s6-fdholder-daemon}} options specify corresponding {{C|s6-ipcserver-socketbinder}}, {{C|s6-applyuidgid}} and {{C|s6-fdholderd}} options.
+
+For further information about {{C|s6-fdholder-daemon}} or {{C|s6-fdholderd}} please consult the HTML documentation in the s6 package's {{Path|/usr/share/doc}} subdirectory.
+
+==== fd-holder operations ====
+
+The operations supported by {{C|s6-fdholderd}} are ''store'', ''retrieve'', ''list'', ''delete'', ''get dump'' and ''set dump''. To store, retrieve or delete a file descriptor, {{C|s6-fdholderd}} uses ''identifiers'' to refer to them. An identifier is a character string containing 1 to 255 characters; any non-null character can be used in an identifier, however it is recommended to only use reasonable characters. For file descriptor identifiers associated with UNIX domain sockets, it is conventional to adhere to the <code>unix:$path</code> format, where ''$path'' is a placeholder for the socket's absoulte pathname, and for file descriptor identifiers associated with TCP or UDP sockets, it is conventional to adhere to the <code>$protocol:$address:$port</code> or <code>$protocol:$host:$port</code> format, where ''$protocol'' is 'tcp' or 'udp', ''$address'' is is a placeholder for an IPv4 or IPv6 address, ''$host'' is is a placeholder for a domain name, and ''$port'' is is a placeholder for the TCP or UDP port number. If an identifier is currently in use by {{C|s6-fdholderd}}, it cannot be reused to store a new file descriptor until the one currently using the identifier is deleted or has expired.
+
+* A store operation transfers a file descriptor from a client to the fd-holder, specifying an identifier for it, and optionally an expiration time. When a file descriptor has been held for a period of time equal to the expiration time, the fd-holder closes it and frees its identifier. To allow store operations, a file named {{Path|S6_FDHOLDER_STORE_REGEX}} must exist in the appropriate {{Path|{uid/*,gid/*,default}/env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory, containing a POSIX extended regular expression (i.e those accepted by the {{C|grep -E}} command). A store operation must specify an identifier that matches the regular expression.
+* A retrieve operation transfers a file descriptor from the fd-holder to a client, specifying its corresponding identifier. To allow retrieve operations, a file named {{Path|S6_FDHOLDER_RETRIEVE_REGEX}} must exist in the appropriate {{Path|{uid/*,gid/*,default}/env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory, containing a POSIX extended regular expression. A retrieve operation must specify an identifier that matches the regular expression.
+* A delete operation requests the fd-holder to close a currently held file descriptor, specifying its corresponding identifier, which is then freed. A delete operation is allowed if a store operation specifying the same identifier would be allowed.
+* A list operation requests the fd-holder a list of the identifiers of all currently held file descriptors. To allow list operations, a nonempty file named {{Path|S6_FDHOLDER_LIST}} must exist in the appropriate {{Path|{uid/*,gid/*,default}/env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory.
+* A get dump operation requests the fd-holder to transfer to a client all currently held file descriptors. The transfered file descriptors are not deleted. To allow get dump operations, a nonempty file named {{Path|S6_FDHOLDER_GETDUMP}} must exist in the appropriate {{Path|{uid/*,gid/*,default}/env}} subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory.
+* A set dump operation transfers a subset of a client's file descriptors to the fd-holder, under the control of environment variables. To allow set dump operations, a nonempty file named {{Path|S6_FDHOLDER_SETDUMP}} must exist in the appropriate {{Path|{uid/*,gid/*,default}/env}}subdirectory of {{C|s6-fdholderd}}'s rules directory, or rules file created from a rules directory.
+
+=== fd-holder clients ===
+
+s6 provides a client program for each supported fd-holder operation, that invokes, using a POSIX <code>execve()</code> call, {{C|s6-ipcclient}} chained to an operation-specific program that handles communications with {{C|s6-fdholderd}}, using the connection set up by {{C|s6-ipcclient}}. They all accept options, a UNIX domain socket pathname, and client-specific arguments. The socket pathname is passed to {{C|s6-ipcclient}}, and everything else, to the operation-specific program. All operation-specific programs accept a <code>-t</code> option followed by a time value in millisecond; if the requested operation is not processed after the specified time elapses, they fail with an error message.
+
+==== Store, retrieve, list and delete operations ====
+
+The client program that performs store operations is {{C|s6-fdholder-store}}. It invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-storec}} program. {{C|s6-fdholder-store}} accepts a <code>-d</code> option followed by an unsigned integer value that specifies the file descriptor to store. If it is invoked without a <code>-d</code> option, it will store its standard input (file descriptor 0). {{C|s6-fdholder-store}} copies the file descriptor specified by the <code>-d</code> option to its standard input before replacing itself with {{C|s6-ipcclient}}. {{C|s6-fdholder-storec}} accepts options and a file descriptor identifier; it makes the store request, transferring the specified identifier over the connection to the server, and file descriptor 0 via fd-passing. If it is invoked with a <code>-T</code> option followed by a time value in milliseconds, the file descriptor's expiration time is set to that value in the fd-holder. If it is invoked with a <code>-T 0</code> option or no <code>-T</code> option, the held file descriptor does not expire. 
+
+The client program that performs retrieve operations is {{C|s6-fdholder-retrieve}}. It invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-retrievec}} program, chained to the execline package's {{C|fdclose}} program ({{Package|dev-lang/execline}}). {{C|s6-fdholder-retrievec}} is a [[daemontools-encore#changingstate|a chain loading program]] that accepts options and a file descriptor identifier; it makes the retrieve request, transferring the specified identifier over the connection to the server, and receiving the corresponding file descriptor via fd-passing. {{C|fdclose}} is used to close UCSPI socket file descriptors 6 and 7 inherited from {{C|s6-ipcclient}}; its standard input will be a copy of the descriptor received from {{C|s6-fdholderd}}, which will be passed to the next program in the chain. If {{C|s6-fdholder-retrievec}} is invoked with a <code>-D</code> option, it will also request a delete operation for the file descriptor after retrieving it.
+
+The client program that performs delete operations is {{C|s6-fdholder-delete}}. It invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-deletec}} program. {{C|s6-fdholder-deletec}} accepts a file descriptor identifier; it makes the delete request, transferring the specified identifier over the connection to the server.
+
+The client program that performs list operations is {{C|s6-fdholder-list}}. It invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-listc}} program. {{C|s6-fdholder-listc}} makes the list request over the connection to the server, and prints the identifier list received from {{C|s6-fdholderd}} to its standard output.
+
+For further information about all described fd-holder clients please consult the HTML documentation in the s6 package's {{Path|/usr/share/doc}} subdirectory.
+
+==== Dump operations ====
+
+Dump operations are controlled by [[#Environment_variables|environment variables]]. For each file descriptor transfered to or from an {{C|s6-fdholderd}} process, there are three corresponding variables: <var>S6_FD_${n}</var>, <var>S6_FDID_${n}</var> and <var>S6_FDLIMIT_${n}</var>, where ''${n}'' is a placeholder for an unsigned integer value between 0 and N - 1, and '''N''' represents the value of environment variable <var>S6_FD#</var>. The value of <var>S6_FD_${n}</var> specifies the file descriptor as an unsigned integer value, the value of <var>S6_FDID_${n}</var> specifies the file descriptor's identifier, and the value of <var>S6_FDLIMIT_${n}</var> specifies the file descriptor's expiration time for set dump operations, or the file descriptor's remaining time until expiration for get dump operations.
+
+The client program that performs get dump operations is {{C|s6-fdholder-getdump}}. It invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-getdumpc}} program, chained to the execline package's {{C|fdclose}} program. {{C|s6-fdholder-getdumpc}} is [[daemontools-encore#changingstate|a chain loading program]]; it makes the get dump request over the connection to the server, receiving all file descriptors held by {{C|s6-fdholderd}} via fd-passing, and sets all dump environment variables to appropriate values. {{C|fdclose}} is used to close UCSPI socket file descriptors 6 and 7 inherited from {{C|s6-ipcclient}}, and passes the received file descriptors and dump environment variables to the next program in the chain.
+
+The client program that performs set dump operations is {{C|s6-fdholder-setdump}}. It invokes {{C|s6-ipcclient}} chained to the {{C|s6-fdholder-setdumpc}} program. {{C|s6-fdholder-setdumpc}} makes the set dump request over the connection to the server, transferring a subset of its file descriptors via fd-passing as specified by the dump environment variables, which are expected to be set to appropriate values.
+
+For further information about all described fd-holder clients please consult the HTML documentation in the s6 package's {{Path|/usr/share/doc}} subdirectory.
+
+=== File descriptor transfers ===
+
+s6 also provides an {{C|s6-fdholder-transferdumpc}} program, and a helper program, {{C|s6-fdholder-transferdump}}, that allow transferring all currently held file descriptors in one {{C|s6-fdholderd}} process to a another one. The transferred set of file descriptors are added in the destination process to the currently held ones. This is implemented by performing a get dump operation with the source process, followed by a set dump operation with the destination process, so these operations must be allowed by the corresponding fd-holder's access control policy.
+
+{{C|s6-fdholder-transferdumpc}} handles communications with the fd-holders to make the get dump and set dump requests; its standard input must be redirected to the source {{C|s6-fdholderd}} process' socket, and its standard output, to the destination {{C|s6-fdholderd}} process' socket. It accepts <code>-t</code> and <code>-T</code> options followed by a time value in milliseconds, for the source and destination fd-holder processes, respectively; if if the corresponding dump operations are not processed after the specified time elapses, {{C|s6-fdholder-transferdumpc}} fails with an error message.
+
+{{C|s6-fdholder-transferdump}} accepts the socket pathnames of the source and destinations fd-holders, and invokes, using a POSIX <code>execve()</code> call, a chain of programs that include {{C|s6-ipcclient}}, the execline package's {{C|fdmove}} and {{C|fdclose}} programs, and {{C|s6-fdholder-transferdumpc}}. The socket pathnames are passed to {{C|s6-ipcclient}}. If a <code>-t</code> option is specified, it is used to construct <code>-t</code> and <code>-T</code> options for {{C|s6-fdholder-transferdumpc}}. {{C|fdmove}} and {{C|fdclose}} are used to move the fd-holder socket file descriptors inherited from {{C|s6-ipcclient}} to {{C|s6-fdholder-transferdumpc}}'s standard input and output, and close the unused ones.
+
+For further information about {{C|s6-fdholder-transferdump}} and {{C|s6-fdholder-transferdumpc}} please consult the HTML documentation in the s6 package's {{Path|/usr/share/doc}} subdirectory.
+
+=== Examples ===
+
+Example [[s6-rc]] service definitions in {{C|s6-rc-compile}} source format for holding the reading end of a FIFO:
+{{Cmd|ls -l *|
+output=<pre>fifo-reader:
+total 8
+-rwxr-xr-x 1 user user 117 Aug  1 12:00 run
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+
+fifo-reader-heldfd:
+total 12
+-rw-r--r-- 1 user user  18 Aug  1 12:00 dependencies
+-rwxr-xr-x 1 user user 157 Aug  1 12:00 run
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+
+fifo-reader-setup:
+total 16
+-rw-r--r-- 1 user user  14 Aug  1 12:00 dependencies
+-rw-r--r-- 1 user user  90 Aug  1 12:00 down
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+-rw-r--r-- 1 user user 143 Aug  1 12:00 up
+
+fifo-writer:
+total 8
+-rwxr-xr-x 1 user user 84 Aug  1 12:00 run
+-rw-r--r-- 1 user user  8 Aug  1 12:00 type
+
+test-fdholder:
+total 16
+drwxr-xr-x 2 user user 4096 Aug  1 12:00 data
+-rw-r--r-- 1 user user    2 Aug  1 12:00 notification-fd
+-rwxr-xr-x 1 user user  101 Aug  1 12:00 run
+-rw-r--r-- 1 user user    8 Aug  1 12:00 type</pre>}}
+
+{{FileBox|filename=fifo-writer/type|1=longrun}}
+
+{{FileBox|lang=bash|filename=fifo-writer/run|
+1=#!/bin/execlineb -P
+redirfd -w 1 /home/user/test-fifo
+test-daemon}}
+
+{{C|test-daemon}} is assumed to be a program that prints to its standard output a message of the form "Message #n", with an incrementing number '''n''' between 0 and 9, each time it receives a <code>SIGHUP</code> signal. Service {{Path|fifo-writer}}, a longrun, is a {{C|test-daemon}} process with its standard output redirected to the {{Path|/home/user/test-fifo}} FIFO.
+{{FileBox|filename=fifo-reader/type|1=longrun}}
+
+{{FileBox|lang=bash|filename=fifo-reader/run|
+1=#!/bin/execlineb -P
+redirfd -r 0 /home/user/test-fifo
+s6-log t /home/user/logdir}}
+
+Service {{Path|fifo-reader}}, a longrun, is an {{C|s6-log}} process that reads from the {{Path|/home/user/test-fifo}} FIFO and logs to the {{Path|/home/user/logdir}} logging directory. Creating the FIFO:
+{{Cmd|mkfifo -m ug{{=}}rw,o{{=}} test-fifo|ls -l test-fifo|
+output=<pre>prw-rw---- 1 user user 0 Aug  5 22:00 test-fifo</pre>}}
+
+Starting both services, assuming that {{C|s6-rc-compile}} has been called on the service definitions set to create a compiled services database, that {{C|s6-rc-init}} has been called after {{C|s6-svscan}}, and that the s6 scan directory and the s6-rc live state directory (named {{Path|live}}) are both in the same directory:
+{{Cmd|s6-rc -l ../live -v 2 -u change fifo-writer fifo-reader|
+output=<pre>s6-rc: info: processing service fifo-writer: starting
+s6-rc: info: processing service fifo-reader: starting
+s6-rc: info: service fifo-writer started successfully
+s6-rc: info: service fifo-reader started successfully</pre>}}
+
+{{C|s6-rc}}'s <code>-v 2</code> argument increments its verbosity level. Sending three <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 1 2 3; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:06:37.556779100 Message #1
+2017-08-05 22:06:37.557858265 Message #2
+2017-08-05 22:06:37.558856806 Message #3</pre>}}
+
+This shows that {{C|test-daemon}}'s messages were sent over the FIFO to {{C|s6-log}} and logged. Stopping momentarily the {{Path|fifo-reader}} service:
+{{Cmd|s6-rc -l ../live -v 2 -d change fifo-reader|
+output=<pre>s6-rc: info: processing service fifo-reader: stopping
+s6-rc: info: service fifo-reader stopped successfully</pre>}}
+
+Sending three more <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 4 5 6; do s6-svc -h fifo-writer; done|
+output=<pre>test-daemon: warning: Got SIGPIPE
+test-daemon: warning: Got SIGPIPE
+test-daemon: warning: Got SIGPIPE</pre>}}
+
+Since the FIFO no longer has any reader, writing to it makes the kernel send a <code>SIGPIPE</code> signal to the {{C|test-daemon}} process. Restarting the {{Path|fifo-reader}} service and sending three final <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|s6-rc -l ../live -u change fifo-reader|for i in 7 8 9; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:06:37.556779100 Message #1
+2017-08-05 22:06:37.557858265 Message #2
+2017-08-05 22:06:37.558856806 Message #3
+2017-08-05 22:10:58.036594559 Message #7
+2017-08-05 22:10:58.037747723 Message #8
+2017-08-05 22:10:58.038749083 Message #9</pre>}}
+
+This shows that the messages sent by {{C|test-daemon}} when {{C|s6-log}} was not running are effectively lost. This can be avoided by modifying the services so that the reading end of the FIFO is held by an fd-holder process.
+{{FileBox|filename=test-fdholder/type|1=longrun}}
+
+{{FileBox|lang=bash|filename=test-fdholder/run|
+1=#!/bin/execlineb -P
+s6-fdholder-daemon -1 -x data/rules /home/user/fdholder-socket}}
+
+{{FileBox|filename=test-fdholder/notification-fd|1=1}}
+
+Service {{Path|test-fdholder}}, a longrun, is an {{C|s6-fdholderd}} process bound to socket {{Path|/home/user/fdholder-socket}}, with readiness notification enabled (<code>-1</code>), and using rules file {{Path|rules}} in the {{Path|data}} subdirectory of its compiled s6 service directory. <kbd>s6-fdholder-daemon -1 -x data/rules /home/user/fdholder-socket</kbd> is equivalent to <kbd>s6-ipcserver-socketbinder /home/user/fdholder-socket s6-fdholderd -1 -x data/rules</kbd>, but shorter. The rules file is created from the following rules directory using a <kbd>s6-accessrules-cdb-from-fs test-fdholder/data/rules ../rules.d</kbd> command:
+{{Cmd|ls -l ../rules.d/*/*|
+output=<pre>../rules.d/uid/1000:
+total 4
+-rw-r--r-- 1 user user    0 Aug  1 12:00 allow
+drwxr-xr-x 2 user user 4096 Aug  1 12:00 env
+
+../rules.d/uid/default:
+total 0
+-rw-r--r-- 1 user user 0 Aug  1 12:00 deny</pre>}}
+
+{{Cmd|ls -l ../rules.d/uid/1000/env|
+output=<pre>total 8
+-rw-r--r-- 1 user user  1 Aug  1 12:00 S6_FDHOLDER_LIST
+lrwxrwxrwx 1 user user 23 Aug  1 12:00 S6_FDHOLDER_RETRIEVE_REGEX -> S6_FDHOLDER_STORE_REGEX
+-rw-r--r-- 1 user user 32 Aug  1 12:00 S6_FDHOLDER_STORE_REGEX</pre>}}
+
+{{FileBox|filename=S6_FDHOLDER_STORE_REGEX|1=^(unix{{!}}fifo):/home/user/test-}}
+
+This rules directory allows ''user'' (assumed to have user ID 1000) to perform store (and therefore delete), retrieve and list operations. The {{Path|S6_FDHOLDER_LIST}} file contains a single empty line.
+{{FileBox|filename=fifo-reader-setup/type|1=oneshot}}
+
+{{FileBox|filename=fifo-reader-setup/dependencies|1=test-fdholder}}
+
+{{FileBox|lang=bash|filename=fifo-reader-setup/up|
+1=redirfd -rnb 0 /home/user/test-fifo
+s6-fdholder-store /home/user/fdholder-socket fifo:/home/user/test-fifo}}
+
+{{FileBox|lang=bash|filename=fifo-reader-setup/down|
+1=s6-fdholder-delete /home/user/fdholder-socket fifo:/home/user/test-fifo}}
+
+Service {{Path|fifo-reader-setup}}, a oneshot, opens FIFO {{Path|/home/user/test-fifo}} for reading (in non-blocking mode that is changed to blocking afterwards, using execline's {{C|redirfd}} program with options <code>-n</code> and <code>-b</code>) and stores the corresponding file descriptor in the fd-holder using identifier ''fifo:/home/user/test-fifo''. <kbd>s6-fdholder-store /home/user/fdholder-socket fifo:/home/user/test-fifo</kbd> and <kbd>s6-fdholder-delete /home/user/fdholder-socket fifo:/home/user/test-fifo</kbd> are equivalent to <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-storec fifo:/home/user/test-fifo</kbd> and <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-deletec fifo:/home/user/test-fifo</kbd>, respectively, but shorter. The dependency on service {{Path|test-fdholder}} ensures that {{C|s6-rc -u change}} will start {{C|s6-fdholderd}} before trying to store to it. When {{Path|fifo-reader-setup}} transitions to the down state, it will delete the held file descriptor.
+{{FileBox|filename=fifo-reader-heldfd/type|1=longrun}}
+
+{{FileBox|filename=fifo-reader-heldfd/dependencies|1=fifo-reader-setup}}
+
+{{FileBox|lang=bash|filename=fifo-reader-heldfd/run|
+1=#!/bin/execlineb -P
+s6-fdholder-retrieve /home/user/fdholder-socket fifo:/home/user/test-fifo
+s6-log t /home/user/logdir}}
+
+Service {{Path|fifo-reader-heldfd}}, a longrun, is a modified version of {{Path|fifo-reader}} that retrieves the FIFO's reading end from the fd-holder. <kbd>s6-fdholder-retrieve /home/user/fdholder-socket fifo:/home/user/test-fifo</kbd> is equivalent to <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-retrievec fifo:/home/user/test-fifo fdclose 6 fdclose 7</kbd>, but shorter. The dependency on service {{Path|fifo-reader-setup}} ensures that {{C|s6-rc -u change}} will have stored the FIFO's reading end first in the fd-holder with the appropriate identifier. Starting the {{Path|fifo-writer}} and {{Path|fifo-reader-heldfd}} services:
+{{Cmd|s6-rc -l ../live -v 2 -u change fifo-writer fifo-reader-heldfd|
+output=<pre>s6-rc -l ../live -v 2 -u change fifo-writer fifo-reader-heldfd
+s6-rc: info: processing service fifo-writer: starting
+s6-rc: info: processing service test-fdholder: starting
+s6-rc: info: processing service s6rc-oneshot-runner: starting
+s6-rc: info: service fifo-writer started successfully
+s6-rc: info: service test-fdholder started successfully
+s6-rc: info: service s6rc-oneshot-runner started successfully
+s6-rc: info: processing service fifo-reader-setup: starting
+s6-rc: info: service fifo-reader-setup started successfully
+s6-rc: info: processing service fifo-reader-heldfd: starting
+s6-rc: info: service fifo-reader-heldfd started successfully</pre>}}
+
+Sending three <code>SIGHUP</code> signals to {{C|test-daemon}}, stopping momentarily the {{Path|fifo-reader-heldfd}} service, sending three more <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 1 2 3; do s6-svc -h fifo-writer; done|s6-rc -l ../live -v 2 -d change fifo-reader-heldfd|
+output=<pre>s6-rc: info: processing service fifo-reader-heldfd: stopping
+s6-rc: info: service fifo-reader-heldfd stopped successfully</pre>}}
+
+{{Cmd|for i in 4 5 6; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:29:45.042414497 Message #1
+2017-08-05 22:29:45.043441185 Message #2
+2017-08-05 22:29:45.044699928 Message #3</pre>}}
+
+{{Cmd|s6-fdholder-list ../fdholder-socket|output=<pre>fifo:/home/user/test-fifo</pre>}}
+
+This shows that no more messages are being logged as a consequence, but because there is still an open file descriptor held by {{C|s6-fdholderd}}), there is no <code>SIGPIPE</code> signal this time. <kbd>s6-fdholder-list /home/user/fdholder-socket</kbd> is equivalent to <kbd>s6-ipcclient -l 0 /home/user/fdholder-socket s6-fdholder-listc</kbd>, but shorter. Restarting the {{Path|fifo-reader-heldfd}} service:
+{{Cmd|s6-rc -l ../live -u change fifo-reader-heldfd|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:29:45.042414497 Message #1
+2017-08-05 22:29:45.043441185 Message #2
+2017-08-05 22:29:45.044699928 Message #3
+2017-08-05 22:33:07.907057008 Message #4
+2017-08-05 22:33:07.907113023 Message #5
+2017-08-05 22:33:07.907114734 Message #6</pre>}}
+
+This shows that once the file descriptor is retrieved for {{C|s6-log}}, all pending messages are delivered and logged. Sending three final <code>SIGHUP</code> signals to {{C|test-daemon}}:
+{{Cmd|for i in 7 8 9; do s6-svc -h fifo-writer; done|cat ../logdir/current {{!}} s6-tai64nlocal|
+output=<pre>2017-08-05 22:29:45.042414497 Message #1
+2017-08-05 22:29:45.043441185 Message #2
+2017-08-05 22:29:45.044699928 Message #3
+2017-08-05 22:33:07.907057008 Message #4
+2017-08-05 22:33:07.907113023 Message #5
+2017-08-05 22:33:07.907114734 Message #6
+2017-08-05 22:33:43.821315726 Message #7
+2017-08-05 22:33:43.822098686 Message #8
+2017-08-05 22:33:43.823644164 Message #9</pre>}}
+
+This shows that no messages are lost even if the FIFO reader momentarily stops.
+
+=== Pre-opening sockets before their servers are running ===
+
+[[systemd]] supports a mechanism it calls ''socket activation'', that makes a {{C|systemd}} process pre-open UNIX domain, TCP/IP or Netlink sockets, FIFOs and other special files, and pass them to a child process when a connection is made, a writer opens the FIFO, new data is available for reading, etc. Socket activation is performed when [https://www.freedesktop.org/software/systemd/man/systemd.socket.html a socket unit file] is provided with an accompanying service unit file. This mechanism combines superserver and fd-holder functionality implemented in process 1, file descriptor inheritance from parent process to child process, and programs written to communicate using pre-opened file descriptors. Similar behaviour can be achieved, for services that want it, by a combination of individual s6 programs like [[s6/UNIX domain super-server#ipcserverd|{{C|s6-ipcserverd}}]], {{C|s6-fdholderd}} and the fd-holder client programs, without involving process 1. The software package's author notes, however, that, since read operations, and write operations when buffers are full, on a file descriptor held by an fd-holder will block, speed gains might no be that significant, and that, dependending on the scenario (e.g. logging infrastructure), communicating with a service assuming it is ready when it actually isn't might hurt reliability<ref>[http://www.skarnet.org/software/s6/socket-activation.html How do I perform socket activation with s6?]. Retrieved on August 12th, 2017.</ref>.
+
+Example [[s6-rc]] service definitions in {{C|s6-rc-compile}} source format for pre-opening a UNIX domain socket and pass it to a program written to be executed by a IPC UCSPI server:
+{{Cmd|ls -l *|
+output=<pre>test-fdholder:
+total 16
+drwxr-xr-x 2 user user 4096 Aug  1 12:00 data
+-rw-r--r-- 1 user user    2 Aug  1 12:00 notification-fd
+-rwxr-xr-x 1 user user  101 Aug  1 12:00 run
+-rw-r--r-- 1 user user    8 Aug  1 12:00 type
+
+test-server-heldfd:
+total 12
+-rw-r--r-- 1 user user  18 Aug  1 12:00 dependencies
+-rwxr-xr-x 1 user user 140 Aug  1 12:00 run
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+
+test-server-setup:
+total 16
+-rw-r--r-- 1 user user  14 Aug  1 12:00 dependencies
+-rw-r--r-- 1 user user  92 Aug  1 12:00 down
+-rw-r--r-- 1 user user   8 Aug  1 12:00 type
+-rw-r--r-- 1 user user 158 Aug  1 12:00 up</pre>}}
+
+Service {{Path|test-fdholder}} is the same as in the previous FIFO example.
+{{FileBox|filename=test-server-setup/type|1=oneshot}}
+
+{{FileBox|filename=test-server-setup/dependencies|1=test-fdholder}}
+
+{{FileBox|lang=bash|filename=test-server-setup/up|
+1=s6-ipcserver-socketbinder /home/user/test-socket
+s6-fdholder-store /home/user/fdholder-socket unix:/home/user/test-socket}}
+
+{{FileBox|lang=bash|filename=test-server-setup/down|
+1=s6-fdholder-delete /home/user/fdholder-socket unix:/home/user/test-socket}}
+
+Service {{Path|test-server-setup}}, a oneshot, pre-opens a listening UNIX domain socket bound to {{Path|/home/user/test-socket}} using {{C|s6-ipcserver-socketbinder}}, and stores the corresponding file descriptor in the fd-holder using identifier ''unix:/home/user/test-socket''. The dependency on service {{Path|test-fdholder}} ensures that {{C|s6-rc -u change}} will start {{C|s6-fdholderd}} before trying to store to it. When {{Path|test-server-setup}} transitions to the down state, it will delete the held file descriptor.
+{{FileBox|filename=test-server-heldfd/type|1=longrun}}
+
+{{FileBox|filename=test-server-heldfd/dependencies|1=test-server-setup}}
+
+{{FileBox|lang=bash|filename=test-server-heldfd/run|
+1=#!/bin/execlineb -P
+s6-fdholder-retrieve /home/user/fdholder-socket unix:/home/user/test-socket
+s6-ipcserverd test-server}}
+
+Service {{Path|test-server-heldfd}}, a longrun, retrieves the listening socket's file descriptor from the fd-holder, and invokes super-server {{C|s6-ipcserverd}} to handle incoming connections, spawning a {{C|test-server}} process for each one. {{C|test-server}} is the same program used in the example contained [[s6/UNIX domain super-server#examples|here]]. The dependency on service {{Path|test-server-setup}} ensures that {{C|s6-rc -u change}} will have stored the listening socket's file descriptor first in the fd-holder with the appropriate identifier. Starting the {{Path|test-server-setup}} service:
+{{Cmd|s6-rc -l ../live -v 2 -u change test-server-setup|
+output=<pre>s6-rc: info: processing service test-fdholder: starting
+s6-rc: info: processing service s6rc-oneshot-runner: starting
+s6-rc: info: service s6rc-oneshot-runner started successfully
+s6-rc: info: service test-fdholder started successfully
+s6-rc: info: processing service test-server-setup: starting
+s6-rc: info: service test-server-setup started successfully</pre>}}
+
+{{C|s6-rc}}'s <code>-v 2</code> argument increments its verbosity level. Starting a UCSPI client in the background to connect to the server:
+{{Cmd|s6-ipcclient ../test-socket test-client &|
+output=<pre>Connecting to server...</pre>}}
+
+{{C|test-client}} is the same program used in the example contained [[s6/UNIX domain super-server#examples|here]]. This shows that {{C|test-client}} has been launched with a connection to the server's listening socket, but because its file descriptor is held by {{C|s6-fdholderd}} and no server program is currently running, it blocks on an I/O operation.
+{{Cmd|s6-fdholder-list ../fdholder-socket|output=<pre>unix:/home/user/test-socket</pre>}}
+
+This shows that {{C|s6-fdholderd}} is holding the listening socket's file descriptor.
+Starting the {{Path|test-server-heldfd}} service:
+{{Cmd|s6-rc -l ../live -v 2 -u change test-server-heldfd|
+output=<pre>s6-rc: info: processing service test-fdholder: already up
+s6-rc: info: processing service s6rc-oneshot-runner: already up
+s6-rc: info: processing service test-server-setup: already up
+s6-rc: info: processing service test-server-heldfd: starting
+s6-rc: info: service test-server-heldfd started successfully
+Server process created with PID 2377, client is "user"</pre>}}
+
+This shows that once {{C|s6-ipcserverd}} has started and retrieved the listening socket's file descriptor from {{C|s6-fdholderd}}, it accepts the connection and spawns {{C|test-server}} to handle it.
+
+== References ==
+
+{{reflist}}
+
+[[Category:s6]]
