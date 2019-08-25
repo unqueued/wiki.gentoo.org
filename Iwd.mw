@@ -6,10 +6,10 @@
 
 '''iwd''' ('''i'''Net '''W'''ireless '''D'''aemon) is [[Article description::an up-and-coming wireless daemon for Linux.]] It is written by [[:Category:Intel|Intel]] and aims to replace [[wpa_supplicant]].
 
-= Installation =
 
-== Kernel ==
+== Installation ==
 
+=== Kernel ===
 {{KernelBox|1=
 Security Options --->
 	[*] Enable access key retention support
@@ -21,42 +21,33 @@ Cryptographic API  --->
 	[*] User-space interface for symmetric key cipher algorithms
 }}
 
-== USE flags ==
-
+=== USE flags ===
 Some packages are aware of the [https://packages.gentoo.org/useflags/iwd <code>iwd</code>] USE flag.
-
 {{USEflag|package=net-wireless/iwd}}
 
-== Emerge ==
-
+=== Emerge ===
 Install the {{Package|net-wireless/iwd}} package:
 {{Emerge|net-wireless/iwd}}
 
-= Network management =
+== Network management ==
 Gentoo is all about choice, so there should be various methods available for [[Network_management#Available_software|network management]]. But iwd is new, and not methods support iwd fully. Be sure to heed the warning in the [[Network_management#Available_software|network management]] article about mixing and matching the different methods for network management.
 
-== Netifrc ==
+=== Netifrc ===
 [[Netifrc]] is Gentoo's default method of managing networks, but unfortunately it does not support iwd as backend yet, see {{Bug|690808}}. Make sure that any symbolic links to {{Path|/etc/init.d/net.lo}} for the wireless interfaces are removed:
 {{RootCmd
 |rm -i /etc/init.d/net.wl*}}
 
 Select another, working, method for network management.
 
-== Iwd native ==
-As of version 0.19 iwd contains a DHCP client and can manage routes and DNS resolving. 
-
-To activate it edit or create {{Path|/etc/iwd/main.conf}} as follows:
-{{FileBox|filename=/etc/iwd/main|lang=bash|1=
-[General]
-enable_network_config=true
-}}
+=== Iwd native ===
+As of version 0.19 iwd contains a DHCP client and can manage routes and DNS resolving. See [[#Iwd_native_network_management|here]] how to configure it.
 
 Start iwd and add it to the default run level:
 {{RootCmd
 |rc-update add iwd default
 |rc-service iwd start}}
 
-== Dhcpcd ==
+=== Dhcpcd ===
 Add both the [[Network management using DHCPCD|dhcpcd]] and then iwd service to the default runlevel and start them up:
 {{RootCmd
 |rc-update add dhcpcd default
@@ -66,22 +57,21 @@ Add both the [[Network management using DHCPCD|dhcpcd]] and then iwd service to 
 
 Use [[iwd#Connecting to an access point with iwctrl|iwctl]] to make connections.
 
-== NetworkManager ==
+=== NetworkManager ===
 [[NetworkManager]] supports iwd. Make sure to set the "iwd" USE flag:
 {{RootCmd|echo "net-misc/networkmanager iwd" >> /etc/portage/package.use/zz-autounmask}}
 {{Emerge|net-wireless/networkmanager -N}}
 
 {{Package|Gnome-extra/nm-applet}} or other [//en.wikipedia.org/wiki/NetworkManager#Graphical_front-ends_and_command_line_interfaces NetworkManager frontends] can be used as per normal to make connections.
 
-== Connman ==
+=== Connman ===
 Connman supports iwd somewhat. Make sure to set the "iwd" USE flag en (re-)emerge:
 {{RootCmd|echo "net-misc/connman iwd" >> /etc/portage/package.use/zz-autounmask}}
 {{Emerge|net-misc/connman -N}}
 
 Connman still relies on wpa_supplicant for scanning, but connecting via iwd is possible.
 
-= Connecting to an access point with iwctl =
-
+== Connecting to an access point with iwctl ==
 {{c|iwctl}} is iwd's tool to control iwd. It supports both a command line interface and an interactive mode. A complete command line would be {{c|iwctl station list}} to see what adapters you might be able to use:
 
 {{Cmd|iwctl station list|output=<pre>
@@ -117,16 +107,75 @@ Type the network passphrase for FRITZ!Box 7362 SL psk.
 Passphrase:
 </pre>}}
 
-= Interface management =
+
+== Configuration files ==
+
+=== Daemon configuration ===
+Iwd keeps its main configuration file in {{Path|/etc/iwd/main.conf}}.
+
+==== Iwd native network management ====
+Native network management can be activated as follows:
+{{FileBox|filename=/etc/iwd/main|lang=bash|1=
+[General]
+enable_network_config=true
+route_priority_offset=200
+dns_resolve_method=resolvconf
+}}
+
+Where:
+* enable_network_config is required to activate the native network management
+* route_priority_offset is optional and sets the route metric
+* dns_resolve_method is option and can be used to configure a DNS manager like 'resolvconf' from {{Package|
+net-dns/openresolv}} or 'systemd'.
+
+==== Disable periodic scan ====
+To prevent iwd from continuous scanning while not connected:
+{{FileBox|filename=/etc/iwd/main|lang=bash|1=
+[Scan]
+disable_periodic_scan=true
+}}
+
+=== Configuration per connection ===
+Iwd keeps its configuration file per connection in {{Path|/var/lib/iwd/}}. 
+
+This directory contains files with names like ''<station>.<networktype>'', where:
+* station is the name of the network
+* networkwork type can be 
+** psk for pre-shared key, like WPA-PSK or WPA2-PSK
+** 8021x for WPA-Enterprise, like EAP-PWD or EAP-PEAP.
+
+==== Security ====
+For WPA authentication the contents of the file looks like this:
+{{FileBox|filename=/var/lib/iwd/station.psk|lang=bash|1=
+[Security]
+PreSharedKey=924179acd138039828674bb2339a4a2c95cce4a41deb934d99c00380d0be8490
+Passphrase=<human readable password>
+}}
+
+The PreSharedKey is the same as one that could have been calculated with ''wpa_passphrase'', from package {{Package|net-wireless/wpa_supplicant}}. Iwd does not provide a passphrase calculator yet.
+
+==== Static network configuration ====
+Iwd defaults to DHCP, either [[#Iwd_native|natively]] or using an external DHCP-client. 
+For static IPV4 configuration add something like this to {{Path|/var/lib/iwd/station.pwk}}:
+{{FileBox|filename=/var/lib/iwd/station.psk|lang=bash|1=
+[IPv4]
+ip=192.168.1.100
+netmask=255.255.255.0
+gateway=192.168.1.1
+broadcast=192.168.1.255
+dns=192.168.1.1
+}}
+
+== Interface management ==
 Starting with version 0.18 iwd is actively managing network interfaces [//iwd.wiki.kernel.org/interface_lifecycle]. On startup it may destroy an existing network interface and create a new one. The newly created interface will be configured optimally for iwd's use. Note that currently interface renaming is not supported. This means that an interface that was detected by udev, and renamed to say 'wlp2s0' will be destroyed and a new one named for example 'wlan0' might be created. When iwd exists it destroys the wireless interface it created.
 
 It is possible to suppress this behaviour by passing commandline options ''-p'' (+the the name of the phy) and ''-i'' (+ the name of the interface) to the iwd daemon.
 
-= See also =
+== See also ==
 * {{See also|Wifi}}
 * {{See also|Wpa_supplicant}}
 
-= External resources =
+== External resources ==
 * [//lwn.net/Articles/770991 Iwd: simplifying WiFi management]
 * [//wiki.archlinux.org/index.php/Iwd Arch linux iwd wiki ]
 
