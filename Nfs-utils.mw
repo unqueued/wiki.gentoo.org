@@ -288,6 +288,65 @@ With NFSv4, the virtual root directory is rather 'invisible'; use relative path:
 |mount -t nfs4 192.168.0.1:data /data
 }}
 
+== Kerberos ==
+
+It is possible to identify NFS client using Kerberos GSS. This will require a few modifications. In the following instruction, it is supposed that Kerberos is already installed on the same server as NFS (which hostname is ''server.domain.tld'') and that the client (''client.domain.tld'') is able to {{c|kinit}} to it. The Kerberos realm it ''DOMAIN_REALM.TLD''.
+
+First of all, you will need to add the following kernel option (<code>RPCSEC_GSS_KRB5</code>) for both server and client. Note that this option may not appear if all cryptographic dependencies are not selected. See option dependencies for more information:
+
+{{KernelBox|title=Enabling Keberos for RPC|1=<nowiki />
+File systems --->
+  [*] Network File Systems --->
+        <*>   Secure RPC: Kerberos V mechanism
+}}
+
+Then, you will have to create principals for the NFS service for both the server and the client:
+
+{{RootCmd
+|kadmin.local add_principal -randkey nfs/server.domain.tld
+|kadmin.local add_principal -randkey nfs/client.domain.tld
+}}
+
+Each computer must have its password saved in a local keytab. The easiest way to do it is:
+
+{{RootCmd
+|kadmin.local ktadd nfs/server.domain.tld
+|kadmin.local ktadd -k /root/krb5.keytab nfs/client.domain.tld
+}}
+
+and then transfert the {{Path|/root/krb5.keytab}} to the client, with the name {{Path|/etc/krb5.keytab}}. Note that the file should be owned by root with 0600 mode.
+
+The services {{c|rpc.gssd}} must run at client side. The following line must appear in {{Path|/etc/conf.d/nfsclient}}:
+
+{{FileBox|filename=/etc/conf.d/nfsclient|1=
+rc_need="!rpc.statd rpc.gssd"
+}}
+
+The services {{c|rpc.idmapd}} and {{c|rpc.svcgssd}} must run at server side. The following line must appear in {{Path|/etc/conf.d/nfs}}:
+
+{{FileBox|filename=/etc/conf.d/nfs|1=
+NFS_NEEDED_SERVICES="rpc.idmapd rpc.svcgssd"
+}}
+
+The {{c|rpc.idmapd}} service must be correctly configured:
+
+{{FileBox|filename=/etc/idmapd.conf|1=
+[General]
+
+Domain = domain.tld
+Local-Realms = DOMAIN_REALM.TLD
+}}
+
+You are now ready for the export. Add the <code>sec=krb5</code> to the export options.
+
+{{FileBox|filename=/etc/exports|1=
+/home    192.168.0.0/24(insecure,rw,sync,no_subtree_check,sec=krb5)
+}}
+
+It is also possible to have more security with <code>sec=krb5i</code> or even <code>sec=krb5p</code>.
+
+The same option must be added to the mount command at client side.
+
 == Troubleshooting ==
 
 <!-- If you make any changes to this section, please consider changing the appropriate section in [[CIFS]] as well. -->
