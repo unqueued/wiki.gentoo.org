@@ -10,23 +10,32 @@ OpenRC-0.21 introduces its own daemon supervisor, '''supervise-daemon'''.
 {{Warning|In the source code of the current version of supervise-daemon it is still stated that it is '''experimental'''. Use supervise-daemon at own risk.}}
 
 == Introduction ==
+OpenRC traditionally uses {{c|start-stop-daemon}}, often called ''s-s-d'' for starting, and stopping programs. When s-s-d starts a process it saves the process' PID somewhere on permanent storage (typically under {{Path|/run/}}), and backgrounds (daemonizes) the process it started. When the time comes to stop, kill, or signal the daemon process s-s-d will use the saved PID file to find the right process.
 
-OpenRC traditionally uses {{c|start-stop-daemon}}, often called ''s-s-d'' for starting, and stopping programs. When s-s-d starts a process it saves the process' PID somewhere on permanent storage (typically under {{Path|/run/}}), and backgrounds (daemonizes) the process it started. When the time comes to stop, kill, or signal the daemon it uses the saved PID file to find the right process.
+Supervising on the other hand usually keeps the started daemon as a child process of the supervisor. Backgrounding the daemon is therefore not needed, and not desired. Pidfiles are not needed because the supervisor process remembers the pid.
 
-Supervising on the other hand usually keeps the started daemon as a child process of the supervisor. Backgrounding the daemon is therefore not needed, and not desired. An advantage of supervising a daemon is also that any terminal output sent to stdout and stderr can be caught by the supervisor, and sent to the system logger or to a file. Pidfiles are not needed because the supervisor process remembers the pid.
+Supervising daemon process has a few major advantages:
+# If and when a daemon process dies (crashes) then its supervisor will notice it and try to restart it. 
+# Any terminal output sent by the daemon process to stdout and stderr can be caught by the supervisor, and then sent to the system logger or to a file.
 
 This article aims to provide help how to bring services under its supervision.
 
-== Instructions per service ==
+== General recipe ==
+Currently, standard Gentoo init files do not use process supervision with supervise-daemon yet: it is left to users to make these modifications to the init files. 
+
 The general recipe to bring a service under the control of supervise-daemon is to adapt its init file in {{Path|/etc/init.d}} as follows:
 * always add <code>supervisor="supervise-daemon"</code>
-* remove any pidfile reference, e.g. <code>pidfile="/run/bluetoothd.pid"</code>, or change <code>command_args="-p ${pidfile} ${NTPD_OPTS}"</code> into <code>command_args="${NTPD_OPTS}"</code>
-* make sure the deamon will run in foreground: 
+* remove any pidfile reference, e.g. :
+** remove <code>pidfile="/run/bluetoothd.pid"</code>, and/or
+** change <code>command_args="-p ${pidfile} ${NTPD_OPTS}"</code> into <code>command_args="${NTPD_OPTS}"</code>
+* make sure the daemon will run in foreground by applying one of the following methods: 
 ** if the daemon forks itself to the background (daemonizes itself) then pass the appropriate daemon command line option, e.g. <code>command_args_foreground="--foreground"</code>. Note that the command line option to prevent daemonizing is different per service, and some services might not even provide this option.
+** if there is a command line parameter for the daemon process to make it daemonize itself, then remove it
 ** if there is a statement like <code>command_background="true"</code> then remove it
-* remove calls to <code>start-stop-daemon</code>and if needed replace them with calls to <code>${supervisor}</code> as appropriate.
+* replace calls to <code>start-stop-daemon</code>and if needed with calls to <code>${supervisor}</code> as appropriate.
 
-Currently, standard Gentoo init files do not use process supervision with supervise-daemon yet: it is left to users to make these modifications to the init files. What follows is a number of examples for different services / daemons. 
+== Instructions per service ==
+This chapter contains some examples on how to bring a service' daemon process under supervision.
 
 === acpid ===
 Reviewing the man page of {{c|acpid}} reveals:
